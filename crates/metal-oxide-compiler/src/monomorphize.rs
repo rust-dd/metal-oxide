@@ -7,21 +7,27 @@ use rustc_middle::{
 };
 use rustc_span::Span;
 
-pub(crate) fn reachable<'tcx>(tcx: TyCtxt<'tcx>, entries: &[Instance<'tcx>]) {
+pub(crate) fn reachable<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    entries: &[Instance<'tcx>],
+) -> Vec<Instance<'tcx>> {
     let mut collector = Collector {
         tcx,
         seen: HashSet::new(),
         active: HashSet::new(),
+        instances: Vec::new(),
     };
     for &entry in entries {
         collector.visit(entry, tcx.def_span(entry.def_id()));
     }
+    collector.instances
 }
 
 struct Collector<'tcx> {
     tcx: TyCtxt<'tcx>,
     seen: HashSet<Instance<'tcx>>,
     active: HashSet<Instance<'tcx>>,
+    instances: Vec<Instance<'tcx>>,
 }
 
 impl<'tcx> Collector<'tcx> {
@@ -72,6 +78,7 @@ impl<'tcx> Collector<'tcx> {
             return;
         }
         println!("instance: {instance}");
+        self.instances.push(instance);
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
             println!("builtin: {builtin} mir=available");
             return;

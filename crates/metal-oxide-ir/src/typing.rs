@@ -13,6 +13,7 @@ pub fn operand_type(
                 .get(*local)
                 .ok_or_else(|| Error::new(source, "invalid local reference"))?;
             match (ty, field) {
+                (Type::Never, _) => Err(Error::new(source, "never-typed values cannot be read")),
                 (_, None) => Ok(ty),
                 (Type::Dim3, Some(0..=2)) => Ok(Type::Scalar(Scalar::U32)),
                 (Type::Checked(scalar), Some(0)) => Ok(Type::Scalar(scalar)),

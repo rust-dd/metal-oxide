@@ -1,6 +1,7 @@
 /// Three-dimensional thread, block, or grid coordinates.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_dim3")]
 pub struct Dim3 {
     pub x: u32,
     pub y: u32,

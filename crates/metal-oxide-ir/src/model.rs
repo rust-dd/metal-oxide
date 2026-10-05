@@ -56,6 +56,7 @@ pub enum AddressSpace {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type {
     Unit,
+    Never,
     Scalar(Scalar),
     Dim3,
     Buffer {

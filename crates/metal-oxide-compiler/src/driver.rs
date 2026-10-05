@@ -2,7 +2,9 @@ use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::{Compiler, Config};
 use rustc_middle::ty::TyCtxt;
 
-pub(crate) struct Frontend;
+pub(crate) struct Frontend {
+    pub(crate) output: Option<std::path::PathBuf>,
+}
 
 impl Callbacks for Frontend {
     fn config(&mut self, config: &mut Config) {
@@ -19,8 +21,25 @@ impl Callbacks for Frontend {
 
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
         crate::target::validate(tcx);
-        crate::collect::kernels(tcx);
+        let (entries, instances) = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();
+        if let Some(directory) = &self.output {
+            match crate::import::module(tcx, &entries, &instances) {
+                Ok(module) => {
+                    if let Err(error) = metal_oxide_ir::validate(&module) {
+                        tcx.dcx().err(error.to_string());
+                    }
+                    tcx.dcx().abort_if_errors();
+                    if let Err(error) = crate::output::write_ir(directory, &module) {
+                        tcx.dcx().err(error.to_string());
+                    }
+                }
+                Err((span, error)) => {
+                    tcx.dcx().span_err(span, error);
+                }
+            }
+            tcx.dcx().abort_if_errors();
+        }
         Compilation::Continue
     }
 }

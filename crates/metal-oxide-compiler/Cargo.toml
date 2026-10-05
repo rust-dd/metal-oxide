@@ -10,6 +10,9 @@ version.workspace = true
 [features]
 rustc-private = []
 
+[dependencies]
+metal-oxide-ir.workspace = true
+
 [[bin]]
 name = "metal-oxide-compiler"
 path = "src/main.rs"
@@ -18,6 +21,11 @@ required-features = ["rustc-private"]
 [[test]]
 name = "frontend"
 path = "tests/frontend.rs"
+required-features = ["rustc-private"]
+
+[[test]]
+name = "ir"
+path = "tests/ir.rs"
 required-features = ["rustc-private"]
 
 [lints]

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -159,4 +161,18 @@ pub fn rejected(output: Output, expected: &str) {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains(expected), "expected {expected:?}:\n{error}");
     assert!(!error.contains("internal compiler error"), "{error}");
+}
+
+pub fn emit(source: &str, options: &[&str]) -> (Output, PathBuf) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    prepare_dependencies();
+    let path = root().join(source);
+    let output = directory().join(format!("output-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
+    let mut command = compiler(&path, "kernel", "metadata");
+    for name in ["core", "compiler_builtins", "metal_oxide_device"] {
+        dependency(&mut command, name);
+    }
+    command.arg("--metal-output").arg(&output).args(options);
+    (command.output().unwrap(), output)
 }

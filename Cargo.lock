@@ -27,6 +27,9 @@ dependencies = [
 [[package]]
 name = "metal-oxide-compiler"
 version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-ir",
+]
 
 [[package]]
 name = "metal-oxide-device"

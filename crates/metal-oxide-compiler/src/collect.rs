@@ -2,7 +2,7 @@ use rustc_hir::{Safety, def::DefKind, def_id::DefId};
 use rustc_middle::ty::{self, Instance, Ty, TyCtxt, TypingEnv};
 use rustc_span::Symbol;
 
-pub(crate) fn kernels(tcx: TyCtxt<'_>) {
+pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> (Vec<Instance<'tcx>>, Vec<Instance<'tcx>>) {
     let marker = [Symbol::intern("metal_oxide"), Symbol::intern("kernel")];
     let mut entries = Vec::new();
     for definition in tcx.hir_crate_items(()).definitions() {
@@ -13,7 +13,8 @@ pub(crate) fn kernels(tcx: TyCtxt<'_>) {
         }
     }
     tcx.dcx().abort_if_errors();
-    crate::monomorphize::reachable(tcx, &entries);
+    let instances = crate::monomorphize::reachable(tcx, &entries);
+    (entries, instances)
 }
 
 fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
