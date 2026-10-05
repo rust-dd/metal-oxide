@@ -17,6 +17,10 @@ create crates when their code is needed. The initial checkout implements M0 only
   accepting separate no_std device crates. Host layouts are not device layouts.
 - Collect concrete kernel entries and reachable concrete function instances.
   Generic buffer handles and helpers need monomorphization from the start.
+- Carry const block dimensions from typed launch configurations into
+  shape-dependent kernel variants. Record the shape in artifact metadata and
+  cache keys; generated bindings must enforce the matching configuration type
+  or validate a dynamic shape. Host const generics alone do not specialize MSL.
 - Keep IR/codegen/artifact contracts independent of rustc_private. Track types,
   source locations, address spaces, and resource access explicitly in IR.
 - Keep future device builtins consistent with CUDA thread/block/grid semantics.

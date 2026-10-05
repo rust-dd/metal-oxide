@@ -14,9 +14,15 @@ thread-confined, and based on `objc2-metal`; Rust kernel compilation is separate
   resource ownership.
 - Input arguments hold shared borrows; writes hold exclusive borrows until GPU
   completion. Keep the full-buffer mutable slice on the host side only.
-- Use `Device::launch` with `LaunchConfig { grid, block }` and `Dim3`. The grid
-  counts blocks, the block counts threads per block, and each block maps to a
-  Metal threadgroup via dispatchThreadgroups. Keep these CUDA-style semantics.
+- Use `Device::launch` with `LaunchConfig<X, Y, Z>`: const block dimensions and
+  a runtime `grid: Dim3`. Y and Z default to one; `for_elements` is a 1D helper.
+  Keep the block shape in the type, without a mutable runtime copy. Use
+  `DynamicLaunchConfig` for pipeline-derived or runtime-tuned block shapes.
+  Both paths share validation. The grid counts blocks and each block maps to a
+  Metal threadgroup via dispatchThreadgroups.
+- Const host configuration does not specialize handwritten MSL. Keep shader
+  shape assumptions in the unsafe caller contract until generated bindings and
+  artifact metadata can enforce them for specialized Rust kernels.
 - A launch checks device ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
@@ -28,8 +34,9 @@ thread-confined, and based on `objc2-metal`; Rust kernel compilation is separate
 Run the ordinary Rust checks in `AGENTS.md`. Run explicit hardware tests for
 runtime changes and report the actual device/toolchain. The vec_add comparison
 uses `0`, `1`, `255`, `256`, `257`, and `1_000_003` elements. Check complete-block
-rounding and untouched padding with execution-width and explicit block sizes.
-Test block/thread indices in 1D/2D/3D when changing launch geometry. Use
+rounding and untouched padding with const blocks of 32 and 256 and a dynamic
+execution-width block. Test block/thread indices in 1D/2D/3D for typed and dynamic
+configurations when changing launch geometry. Use
 compile-fail examples to verify public borrowing constraints when changing the
 argument API.
 
