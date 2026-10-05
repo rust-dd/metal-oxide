@@ -2,6 +2,7 @@
 members = [
     "crates/cargo-metal",
     "crates/metal-oxide",
+    "crates/metal-oxide-codegen",
     "crates/metal-oxide-compiler",
     "crates/metal-oxide-device",
     "crates/metal-oxide-ir",
@@ -20,6 +21,7 @@ version = "0.1.0-alpha.1"
 
 [workspace.dependencies]
 metal-oxide = { path = "crates/metal-oxide" }
+metal-oxide-codegen = { path = "crates/metal-oxide-codegen" }
 metal-oxide-device = { path = "crates/metal-oxide-device" }
 metal-oxide-ir = { path = "crates/metal-oxide-ir" }
 metal-oxide-macros = { path = "crates/metal-oxide-macros" }

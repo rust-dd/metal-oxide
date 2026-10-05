@@ -1,0 +1,14 @@
+[package]
+name = "metal-oxide-codegen"
+description = "Structured Metal Shading Language generation"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-ir.workspace = true
+
+[lints]
+workspace = true
