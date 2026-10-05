@@ -31,8 +31,9 @@ impl CodegenBackend for FrontendBackend {
     }
 
     fn codegen_crate<'tcx>(&self, tcx: TyCtxt<'tcx>) -> Box<dyn Any> {
-        tcx.dcx()
-            .fatal("native code generation is not supported; MSL emission is not implemented yet")
+        tcx.dcx().fatal(
+            "native code generation is not supported; use --emit=metadata with --metal-output",
+        )
     }
 
     fn join_codegen(

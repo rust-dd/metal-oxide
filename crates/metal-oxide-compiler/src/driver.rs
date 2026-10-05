@@ -20,6 +20,11 @@ impl Callbacks for Frontend {
     }
 
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
+        if let Some(directory) = &self.output
+            && let Err(error) = crate::output::prepare(directory)
+        {
+            tcx.dcx().fatal(error.to_string());
+        }
         crate::target::validate(tcx);
         let (entries, instances) = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();

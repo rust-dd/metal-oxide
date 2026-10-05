@@ -118,3 +118,32 @@ fn failed_rebuild_removes_previous_generated_source() {
     assert!(!directory.join("kernels.metal").exists());
     assert!(!directory.join("kernels.oxide-ir").exists());
 }
+
+#[test]
+fn informational_commands_preserve_generated_files() {
+    let (output, directory) =
+        support::emit("crates/metal-oxide-compiler/tests/fixtures/m2_unit.rs", &[]);
+    support::checked(output);
+    let msl = std::fs::read(directory.join("kernels.metal")).unwrap();
+    let ir = std::fs::read(directory.join("kernels.oxide-ir")).unwrap();
+    for arguments in [
+        vec!["--help"],
+        vec!["--version"],
+        vec!["--print=sysroot"],
+        vec!["--print", "sysroot"],
+        vec!["-W", "help"],
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_metal-oxide-compiler"))
+            .arg("--metal-output")
+            .arg(&directory)
+            .args(arguments)
+            .output()
+            .unwrap();
+        support::checked(output);
+        assert_eq!(std::fs::read(directory.join("kernels.metal")).unwrap(), msl);
+        assert_eq!(
+            std::fs::read(directory.join("kernels.oxide-ir")).unwrap(),
+            ir
+        );
+    }
+}

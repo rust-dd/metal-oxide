@@ -27,7 +27,7 @@ fn native_output_is_rejected() {
             "obj",
             false,
         ),
-        "native code generation is not supported",
+        "native code generation is not supported; use --emit=metadata with --metal-output",
     );
 }
 
