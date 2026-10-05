@@ -7,6 +7,29 @@ The project is at **M0: runtime foundation**. A Rust host runs a handwritten
 Metal `vec_add` and checks its output. Rust kernel compilation starts at M1;
 there is no Rust-to-MSL compiler in this checkout yet.
 
+## Compiler flow
+
+Kernels are ordinary Rust functions in a separate `no_std` crate, using explicit
+GPU threads and device buffer handles. `#[kernel]` marks an entrypoint; it does
+not translate the function body. Rust syntax, types, and borrowing are handled
+by `rustc`.
+
+```text
+Rust kernel crate + metal-oxide-device
+    -> rustc parsing, macro expansion, type checking, borrow checking
+    -> kernel entrypoints and reachable concrete function instances
+    -> typed MIR
+    -> metal-oxide IR and GPU validation
+    -> Metal Shading Language + kernel metadata
+    -> Apple Metal compiler
+    -> .metallib + manifest + generated Rust bindings
+    -> Rust host -> metal-oxide runtime -> Metal GPU
+```
+
+M0 provides the runtime and handwritten MSL execution. M1 adds the Rust frontend
+and device target; M2 adds IR and MSL generation. Versioned artifacts and generated
+host bindings follow in M3.
+
 ## Run the runtime example
 
 Requirements: macOS 15 or newer on Apple Silicon and Rust 1.99.0. Xcode and its
