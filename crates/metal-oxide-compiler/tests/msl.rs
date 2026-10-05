@@ -117,6 +117,8 @@ fn failed_rebuild_removes_previous_generated_source() {
     support::rejected(output, "unsupported device type: f64");
     assert!(!directory.join("kernels.metal").exists());
     assert!(!directory.join("kernels.oxide-ir").exists());
+    assert!(!directory.join("abi.json").exists());
+    assert!(!directory.join("bindings.rs").exists());
 }
 
 #[test]

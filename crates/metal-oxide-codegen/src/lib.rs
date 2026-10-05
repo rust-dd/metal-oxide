@@ -1,11 +1,16 @@
 //! Metal Shading Language generation from validated kernel IR.
 
+mod abi;
+mod bindings;
 mod control;
 mod emit;
 mod expressions;
 mod numeric;
 
 use metal_oxide_ir::{Error, Module};
+
+pub use abi::abi;
+pub use bindings::bindings;
 
 /// Emits MSL with floating-point contraction disabled.
 ///
