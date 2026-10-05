@@ -2,6 +2,9 @@
 
 use metal_oxide_device::{ReadBuffer, WriteBuffer, block_idx, kernel, thread_idx, threadgroup};
 
+/// # Safety
+/// Input covers n elements, output covers one element per block, and the block is 256x1x1.
+/// The buffers must not overlap.
 #[kernel(block = (256, 1, 1))]
 pub unsafe fn reduce(input: ReadBuffer<f32>, output: WriteBuffer<f32>, n: u32) {
     let shared = threadgroup::shared::<f32, 256>();
