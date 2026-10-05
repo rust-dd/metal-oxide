@@ -1,0 +1,16 @@
+[package]
+name = "vec-add"
+description = "Metal vec_add runtime smoke test"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true
+

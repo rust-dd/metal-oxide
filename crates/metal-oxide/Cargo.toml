@@ -1,0 +1,18 @@
+[package]
+name = "metal-oxide"
+description = "Synchronous Metal compute runtime for Rust"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-metal = { workspace = true }
+
+[lints]
+workspace = true
+
