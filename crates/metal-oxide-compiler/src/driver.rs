@@ -14,10 +14,12 @@ impl Callbacks for Frontend {
         ]);
         config.opts.unstable_opts.mir_opt_level = Some(0);
         config.opts.unstable_opts.always_encode_mir = true;
+        config.opts.unstable_opts.enforce_type_length_limit = true;
     }
 
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
         crate::target::validate(tcx);
+        crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();
         Compilation::Continue
     }

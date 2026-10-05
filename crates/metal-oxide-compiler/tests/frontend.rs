@@ -1,55 +1,165 @@
-use std::{path::PathBuf, process::Command};
-
-const COMPILER: &str = env!("CARGO_BIN_EXE_metal-oxide-compiler");
-
-fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-fn compile(source: &str, emit: &str) -> std::process::Output {
-    let directory = root().join("target/frontend-tests");
-    std::fs::create_dir_all(&directory).unwrap();
-    Command::new(COMPILER)
-        .arg(
-            root()
-                .join("crates/metal-oxide-compiler/tests/fixtures")
-                .join(source),
-        )
-        .args(["--crate-type", "rlib", "--edition", "2024", "--emit", emit])
-        .arg("--target")
-        .arg(root().join("targets/metal64-unknown-none.json"))
-        .args(["-Z", "unstable-options"])
-        .arg("-o")
-        .arg(directory.join(format!("{source}.{emit}")))
-        .output()
-        .unwrap()
-}
+mod support;
 
 #[test]
 fn device_target_has_explicit_scalar_and_pointer_layout() {
-    let output = compile("empty.rs", "metadata");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report = String::from_utf8(output.stdout).unwrap();
+    let report = support::checked(support::compile(
+        "crates/metal-oxide-compiler/tests/fixtures/empty.rs",
+        "metadata",
+        false,
+    ));
     assert!(
         report.contains("pointer=64 usize=64 endian=little"),
         "{report}"
     );
-    assert!(report.contains("f32: size=4 align=4"), "{report}");
-    assert!(report.contains("u32: size=4 align=4"), "{report}");
-    assert!(report.contains("i32: size=4 align=4"), "{report}");
+    for ty in ["f32", "u32", "i32"] {
+        assert!(
+            report.contains(&format!("{ty}: size=4 align=4")),
+            "{report}"
+        );
+    }
 }
 
 #[test]
 fn native_output_is_rejected() {
-    let output = compile("empty.rs", "obj");
-    assert!(!output.status.success());
-    let error = String::from_utf8(output.stderr).unwrap();
+    support::rejected(
+        support::compile(
+            "crates/metal-oxide-compiler/tests/fixtures/empty.rs",
+            "obj",
+            false,
+        ),
+        "native code generation is not supported",
+    );
+}
+
+#[test]
+fn separate_vec_add_crate_has_typed_mir_and_concrete_device_instances() {
+    let report = support::checked(support::compile(
+        "examples/vec-add/kernels/src/lib.rs",
+        "metadata",
+        true,
+    ));
+    assert!(report.contains("kernel: vec_add parameters=4"), "{report}");
+    assert!(report.contains("read_buffer<f32>"), "{report}");
+    assert!(report.contains("write_buffer<f32>"), "{report}");
     assert!(
-        error.contains("native code generation is not supported"),
-        "{error}"
+        report.contains("ReadBuffer::<f32>::load_unchecked"),
+        "{report}"
+    );
+    assert!(
+        report.contains("WriteBuffer::<f32>::store_unchecked"),
+        "{report}"
+    );
+    for builtin in ["thread_idx", "block_idx", "block_dim"] {
+        assert!(report.contains(&format!("builtin: {builtin}")), "{report}");
+    }
+    assert!(report.contains("asserts=2"), "{report}");
+}
+
+#[test]
+fn concrete_helpers_and_core_trait_implementations_are_resolved() {
+    let report = support::checked(support::fixture("generics"));
+    for instance in [
+        "sum::<f32>",
+        "sum::<u32>",
+        "bias::<3>",
+        "<f32 as core::ops::Add>::add",
+        "<u32 as core::ops::Add>::add",
+    ] {
+        assert!(report.contains(instance), "missing {instance}:\n{report}");
+    }
+    assert!(
+        report.contains("asserts=1"),
+        "overflow assertion was not retained:\n{report}"
+    );
+    assert!(report.contains("builtin: grid_dim"), "{report}");
+}
+
+#[test]
+fn rust_type_errors_are_reported() {
+    support::rejected(support::fixture("type_error"), "mismatched types");
+}
+
+#[test]
+fn rust_borrow_errors_are_reported() {
+    support::rejected(support::fixture("borrow_error"), "cannot borrow");
+}
+
+#[test]
+fn unsupported_kernel_signatures_are_reported() {
+    for (fixture, error) in [
+        ("safe_kernel", "kernel entrypoints must be unsafe"),
+        (
+            "generic_kernel",
+            "kernel entrypoints must not have generic parameters",
+        ),
+        ("invalid_entry", "#[kernel] requires a free function"),
+        ("bool_parameter", "unsupported kernel parameter type: bool"),
+        ("slice_parameter", "unsupported kernel parameter type"),
+    ] {
+        support::rejected(support::fixture(fixture), error);
+    }
+}
+
+#[test]
+fn unsupported_reachable_calls_are_reported() {
+    for (fixture, error) in [
+        (
+            "foreign_call",
+            "foreign ABI calls are not supported in Metal kernels",
+        ),
+        (
+            "indirect_call",
+            "indirect calls are not supported in Metal kernels",
+        ),
+        ("recursion", "recursion is not supported in Metal kernels"),
+        (
+            "closure",
+            "closures and callable shims are not supported in Metal kernels",
+        ),
+        (
+            "destructor",
+            "destructors are not supported in Metal kernels",
+        ),
+    ] {
+        support::rejected(support::fixture(fixture), error);
+    }
+}
+
+#[test]
+fn generic_drops_are_checked_after_monomorphization() {
+    let report = support::checked(support::fixture("generic_drop"));
+    assert!(report.contains("consume::<u32>"), "{report}");
+    support::rejected(
+        support::fixture("generic_destructor"),
+        "destructors are not supported in Metal kernels",
+    );
+}
+
+#[test]
+fn concrete_associated_types_have_the_same_parameter_layout() {
+    let report = support::checked(support::fixture("associated_types"));
+    assert!(report.contains("scalar<u32> size=4 align=4"), "{report}");
+    assert!(report.contains("read_buffer<f32>"), "{report}");
+}
+
+#[test]
+fn compile_time_closures_delegate_to_rustc_abi_queries() {
+    let report = support::checked(support::fixture("const_closure"));
+    assert!(report.contains("kernel: constant"), "{report}");
+}
+
+#[test]
+fn distinct_generic_instances_form_a_finite_call_graph() {
+    let report = support::checked(support::fixture("finite_generics"));
+    for instance in ["forward::<u32>", "forward::<f32>"] {
+        assert!(report.contains(instance), "{report}");
+    }
+}
+
+#[test]
+fn expanding_generic_instances_hit_a_bounded_diagnostic() {
+    support::rejected(
+        support::fixture("expanding_generics"),
+        "device instance depth exceeds the rustc recursion limit",
     );
 }

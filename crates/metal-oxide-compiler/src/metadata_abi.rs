@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+use rustc_hir::def::DefKind;
 use rustc_middle::{
     ty::{self, Ty, TyCtxt, layout::FnAbiError},
     util::Providers,
@@ -34,7 +35,9 @@ fn pointer_abi<'tcx>(tcx: TyCtxt<'tcx>, query: PointerQuery<'tcx>) -> AbiResult<
 
 fn instance_abi<'tcx>(tcx: TyCtxt<'tcx>, query: InstanceQuery<'tcx>) -> AbiResult<'tcx> {
     let instance = query.value.0;
-    if let ty::InstanceKind::Item(definition) = instance.def {
+    if let ty::InstanceKind::Item(definition) = instance.def
+        && matches!(tcx.def_kind(definition), DefKind::Fn | DefKind::AssocFn)
+    {
         let signature = tcx
             .fn_sig(definition)
             .instantiate(tcx, instance.args)
