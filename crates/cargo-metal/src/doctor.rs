@@ -1,5 +1,7 @@
 use std::process::{Command, ExitCode};
 
+use crate::{rust::NIGHTLY, toolchain::Metal};
+
 struct Check {
     name: &'static str,
     result: Result<String, String>,
@@ -43,17 +45,24 @@ fn gpu() -> Check {
 pub(super) fn run() -> ExitCode {
     let checks = [
         probe("Rust", "rustc", &["--version"]),
+        probe(
+            "Compiler Rust",
+            "rustup",
+            &["run", NIGHTLY, "rustc", "--version"],
+        ),
+        components(),
         probe("Xcode", "xcodebuild", &["-version"]),
         probe(
             "macOS SDK",
             "xcrun",
             &["--sdk", "macosx", "--show-sdk-version"],
         ),
-        probe(
-            "Metal compiler",
-            "xcrun",
-            &["--sdk", "macosx", "metal", "--version"],
-        ),
+        Check {
+            name: "Metal compiler",
+            result: Metal::find()
+                .map(|metal| metal.version)
+                .map_err(|e| e.to_string()),
+        },
         gpu(),
     ];
     let mut healthy = true;
@@ -65,8 +74,10 @@ pub(super) fn run() -> ExitCode {
                 println!("[missing] {}: {}", check.name, detail.replace('\n', "; "));
                 if check.name == "Metal compiler" {
                     println!("  Install with: xcodebuild -downloadComponent MetalToolchain");
+                }
+                if matches!(check.name, "Compiler Rust" | "Compiler components") {
                     println!(
-                        "  Runtime source compilation can still work; offline .metallib builds need this component."
+                        "  Install with: rustup toolchain install {NIGHTLY} --component rustc-dev --component rust-src --component llvm-tools"
                     );
                 }
             }
@@ -76,5 +87,31 @@ pub(super) fn run() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+fn components() -> Check {
+    let result = crate::process::capture(Command::new("rustup").args([
+        "component",
+        "list",
+        "--installed",
+        "--toolchain",
+        NIGHTLY,
+    ]))
+    .map_err(|e| e.to_string())
+    .and_then(|installed| {
+        for name in ["rustc-dev", "rust-src", "llvm-tools"] {
+            if !installed
+                .lines()
+                .any(|line| line == name || line.starts_with(&format!("{name}-")))
+            {
+                return Err(format!("{NIGHTLY} is missing {name}"));
+            }
+        }
+        Ok("rustc-dev, rust-src, llvm-tools".into())
+    });
+    Check {
+        name: "Compiler components",
+        result,
     }
 }
