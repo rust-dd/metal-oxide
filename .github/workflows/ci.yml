@@ -50,3 +50,5 @@ jobs:
         run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
       - name: Frontend, IR, and MSL tests
         run: cargo test --features rustc-private --locked --target-dir ../../target/compiler
+      - name: Inspect kernels through Cargo
+        run: cargo run --package cargo-metal --manifest-path ../../Cargo.toml --locked -- inspect -p vec-add --emit msl
