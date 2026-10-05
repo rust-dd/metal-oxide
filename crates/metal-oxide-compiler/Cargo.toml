@@ -1,0 +1,24 @@
+[package]
+name = "metal-oxide-compiler"
+description = "Rust frontend for Metal compute kernels"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+rustc-private = []
+
+[[bin]]
+name = "metal-oxide-compiler"
+path = "src/main.rs"
+required-features = ["rustc-private"]
+
+[[test]]
+name = "frontend"
+path = "tests/frontend.rs"
+required-features = ["rustc-private"]
+
+[lints]
+workspace = true

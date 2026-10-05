@@ -25,6 +25,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "metal-oxide-compiler"
+version = "0.1.0-alpha.1"
+
+[[package]]
 name = "objc2"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

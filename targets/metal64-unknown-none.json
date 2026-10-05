@@ -1,0 +1,12 @@
+{
+  "arch": "metal",
+  "data-layout": "e-p:64:64-i64:64-i128:128-n32:64-S128",
+  "disable-redzone": true,
+  "env": "metal",
+  "llvm-target": "spir64-unknown-unknown",
+  "max-atomic-width": 0,
+  "os": "none",
+  "panic-strategy": "abort",
+  "target-pointer-width": 64,
+  "vendor": "unknown"
+}

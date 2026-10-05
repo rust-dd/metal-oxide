@@ -2,6 +2,7 @@
 members = [
     "crates/cargo-metal",
     "crates/metal-oxide",
+    "crates/metal-oxide-compiler",
     "examples/vec-add/host",
 ]
 resolver = "3"
@@ -20,8 +21,8 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["N
 objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes", "std"] }
 
 [workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("metal"))'] }
 unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
-
