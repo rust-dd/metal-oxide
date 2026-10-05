@@ -166,13 +166,39 @@ pub fn rejected(output: Output, expected: &str) {
 pub fn emit(source: &str, options: &[&str]) -> (Output, PathBuf) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let output = directory().join(format!("output-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
+    (emit_into(source, options, &output), output)
+}
+
+pub fn emit_into(source: &str, options: &[&str], output: &Path) -> Output {
     prepare_dependencies();
     let path = root().join(source);
-    let output = directory().join(format!("output-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
     let mut command = compiler(&path, "kernel", "metadata");
     for name in ["core", "compiler_builtins", "metal_oxide_device"] {
         dependency(&mut command, name);
     }
-    command.arg("--metal-output").arg(&output).args(options);
-    (command.output().unwrap(), output)
+    command.arg("--metal-output").arg(output).args(options);
+    command.output().unwrap()
+}
+
+pub fn execute_msl(directory: &Path, main: &str) -> String {
+    let source = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    let program = format!("{source}\n#include <iostream>\nint main() {{ {main} }}\n");
+    std::fs::write(directory.join("main.cpp"), program).unwrap();
+    std::fs::write(
+        directory.join("metal_stdlib"),
+        include_str!("../../../metal-oxide-codegen/tests/support/metal_stdlib"),
+    )
+    .unwrap();
+    let output = Command::new("clang++")
+        .args(["-std=c++17", "-Wno-unknown-attributes"])
+        .arg("-I")
+        .arg(directory)
+        .arg(directory.join("main.cpp"))
+        .arg("-o")
+        .arg(directory.join("run"))
+        .output()
+        .unwrap();
+    checked(output);
+    checked(Command::new(directory.join("run")).output().unwrap())
 }

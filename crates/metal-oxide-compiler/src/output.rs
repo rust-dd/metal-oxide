@@ -21,7 +21,24 @@ pub(crate) fn take_directory(arguments: &mut Vec<String>) -> Result<Option<PathB
     Ok(directory)
 }
 
-pub(crate) fn write_ir(directory: &Path, module: &metal_oxide_ir::Module) -> std::io::Result<()> {
+pub(crate) fn prepare(directory: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(directory)?;
-    std::fs::write(directory.join("kernels.oxide-ir"), format!("{module:#?}\n"))
+    for name in ["kernels.oxide-ir", "kernels.metal"] {
+        match std::fs::remove_file(directory.join(name)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn write(
+    directory: &Path,
+    module: &metal_oxide_ir::Module,
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::write(directory.join("kernels.oxide-ir"), format!("{module:#?}\n"))?;
+    let msl = metal_oxide_codegen::emit(module)?;
+    std::fs::write(directory.join("kernels.metal"), msl)?;
+    Ok(())
 }

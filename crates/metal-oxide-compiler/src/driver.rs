@@ -30,7 +30,7 @@ impl Callbacks for Frontend {
                         tcx.dcx().err(error.to_string());
                     }
                     tcx.dcx().abort_if_errors();
-                    if let Err(error) = crate::output::write_ir(directory, &module) {
+                    if let Err(error) = crate::output::write(directory, &module) {
                         tcx.dcx().err(error.to_string());
                     }
                 }

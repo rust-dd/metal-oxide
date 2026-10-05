@@ -29,6 +29,12 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
+    if let Some(directory) = &output
+        && let Err(error) = output::prepare(directory)
+    {
+        eprintln!("error: {error}");
+        return std::process::ExitCode::FAILURE;
+    }
     rustc_driver::catch_with_exit_code(|| {
         rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output });
     })
