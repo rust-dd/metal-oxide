@@ -13,4 +13,3 @@ kernel void vec_add(
         out[i] = a[i] + b[i];
     }
 }
-
