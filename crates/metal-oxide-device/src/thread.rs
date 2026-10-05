@@ -1,4 +1,4 @@
-/// Coordinates of a thread in its dispatch grid.
+/// Three-dimensional thread, block, or grid coordinates.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dim3 {
@@ -7,11 +7,26 @@ pub struct Dim3 {
     pub z: u32,
 }
 
-/// Returns the global thread coordinates inside a Metal kernel.
-#[cfg_attr(
-    target_env = "metal",
-    rustc_diagnostic_item = "metal_oxide_position_in_grid"
-)]
-pub fn position_in_grid() -> Dim3 {
-    panic!("position_in_grid is only available in Metal kernels")
+/// Returns the thread's coordinates within its block.
+#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_thread_idx")]
+pub fn thread_idx() -> Dim3 {
+    panic!("thread_idx is only available in Metal kernels")
+}
+
+/// Returns the block's coordinates within the grid.
+#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_block_idx")]
+pub fn block_idx() -> Dim3 {
+    panic!("block_idx is only available in Metal kernels")
+}
+
+/// Returns the number of threads along each block axis.
+#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_block_dim")]
+pub fn block_dim() -> Dim3 {
+    panic!("block_dim is only available in Metal kernels")
+}
+
+/// Returns the number of blocks along each grid axis.
+#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_grid_dim")]
+pub fn grid_dim() -> Dim3 {
+    panic!("grid_dim is only available in Metal kernels")
 }
