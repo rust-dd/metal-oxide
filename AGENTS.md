@@ -15,6 +15,8 @@ working features. Add crates and modules when they have an implementation.
 - Comments explain safety contracts or non-obvious constraints. Do not add
   banners, separator lines, edit narration, commented-out code, or prose that
   repeats the next statement. Keep necessary `SAFETY` comments and rustdoc.
+- Use names and small functions to express intent. Rustdoc documents behavior
+  and caller obligations; skip trivial explanations and implementation narration.
 
 ## Rust
 
@@ -26,6 +28,10 @@ working features. Add crates and modules when they have an implementation.
 - Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
+- Keep the public API small and direct. Add types, helpers, options, and alternate
+  paths only for a concrete current use case. Keep implementation details private.
+- Prefer one clear way to perform an operation. Avoid wrapper layers and general
+  abstractions introduced for hypothetical future needs.
 - Use CUDA-style launch semantics: `LaunchConfig<X, Y, Z>` encodes threads per
   block as const generics; `grid: Dim3` counts runtime blocks. Each block maps
   to a Metal threadgroup. `DynamicLaunchConfig` supports runtime block shapes.

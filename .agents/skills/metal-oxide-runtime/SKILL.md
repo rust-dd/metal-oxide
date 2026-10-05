@@ -9,6 +9,9 @@ Read `AGENTS.md` and `docs/memory-model.md`. The current runtime is synchronous,
 thread-confined, and based on `objc2-metal`; Rust kernel compilation is separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
+- Keep the public surface small. Add launch helpers, configuration variants, or
+  wrapper layers only when a concrete current use case requires them. Prefer one
+  clear path for each operation and keep implementation helpers private.
 - Preserve initialized owned buffers and the sealed scalar boundary. Do not
   expose raw Metal handles or add Clone/Send/Sync without revisiting aliasing and
   resource ownership.

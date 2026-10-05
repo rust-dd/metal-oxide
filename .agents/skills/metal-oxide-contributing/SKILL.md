@@ -13,9 +13,14 @@ actually performed. Keep unrelated work out of a change.
 - Inherit package settings and lints. Keep handwritten Rust below 600 lines;
   split by responsibility instead of compressing formatting or removing docs.
 - Prefer turbofish at the expression when it carries the needed type.
+- Review each public type, helper, option, and alternative path against a concrete
+  current use case. Keep one clear path per operation; defer speculative wrappers
+  and general abstractions. Implementation helpers stay private.
 - Write English rustdoc for behavior and caller contracts. Plain comments carry
   non-obvious reasons and safety invariants. Exclude banners, separator lines,
   edit narration, commented-out code, and statement-by-statement prose.
+- Use names and small functions to express intent. Omit trivial explanations
+  and implementation narration from comments and rustdoc.
 - Put release history outside source doc comments.
 
 Run formatting, Clippy with warnings denied, and workspace tests. Execute GPU

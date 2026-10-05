@@ -20,6 +20,13 @@ checks, and hardware comparisons. Unsupported Rust operations must fail with
 diagnostics. Do not discard MIR assertions or change numerical semantics to
 make a kernel compile.
 
+## API design
+
+Keep the public API small and direct, with one clear path for each operation.
+Every new type, helper, option, or alternative path needs a concrete current use
+case. Keep implementation helpers private and defer abstractions for hypothetical
+future needs.
+
 ## Commits and prose
 
 Use concise Conventional Commit subjects, for example:
@@ -39,6 +46,9 @@ Code comments explain a safety invariant or a non-obvious reason. Retain useful
 rustdoc and `SAFETY` comments. Avoid decorative banners, separator lines,
 edit-history narration, commented-out code, and comments that repeat a statement.
 Release history belongs in commits and release notes, not Rust doc comments.
+Use clear names and small functions to express intent. Rustdoc covers observable
+behavior and caller obligations; omit trivial explanations and implementation
+narration.
 
 ## Hardware and CI
 
