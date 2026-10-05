@@ -2,10 +2,6 @@
 
 Rust compute kernels for Metal on Apple Silicon.
 
-M2 compiles ordinary Rust functions from a separate `no_std` kernel crate to MSL
-and runs the generated code through the Rust host runtime. `#[kernel]` marks an
-entrypoint; rustc handles types, borrowing, and MIR generation.
-
 ## Compiler flow
 
 ```text
@@ -34,16 +30,6 @@ cargo run --package vec-add --locked
 ```
 
 The host also accepts `--source PATH` for a generated `kernels.metal` file.
-
-## Current limits
-
-- Scalars and buffer elements: `f32`, `u32`, `i32`; internal `bool`.
-- Structured branches, single-exit loops, and concrete helper instances.
-- Active MIR assertions, integer division, and float-to-integer casts are rejected.
-  The GPU tests explicitly use `-C overflow-checks=off` for wrapping integers.
-- MSL and an IR dump are emitted; CLI builds, manifests, and generated bindings
-  are M3 work. `cargo metal` currently provides `doctor`.
-- The runtime uses classic `MTL*`; Metal 4 support is planned for M6.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 
