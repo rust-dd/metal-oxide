@@ -1,7 +1,6 @@
 # metal-oxide
 
-Build a Metal-first Rust compute compiler for macOS on Apple Silicon. Follow
-[docs/roadmap.md](docs/roadmap.md) and [docs/architecture.md](docs/architecture.md).
+Build a Metal-first Rust compute compiler for macOS on Apple Silicon.
 Implement one milestone at a time. Keep planned APIs clearly separate from
 working features. Add crates and modules when they have an implementation.
 
@@ -16,6 +15,8 @@ working features. Add crates and modules when they have an implementation.
   banners, separator lines, edit narration, commented-out code, or prose that
   repeats the next statement. Keep necessary `SAFETY` comments and rustdoc.
 - Keep editor settings and rust-analyzer-only manifest metadata local; do not
+  commit them.
+- Keep `docs/` local and ignored. Read its planning notes when present; do not
   commit them.
 - Use names and small functions to express intent. Rustdoc documents behavior
   and caller obligations; skip trivial explanations and implementation narration.

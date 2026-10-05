@@ -2,7 +2,7 @@
 
 Read [AGENTS.md](AGENTS.md) and the relevant skill under `.agents/skills` before
 changing code. M0 runtime, M1 frontend, and M2 IR/MSL lowering are implemented;
-M3 artifact integration is next in [the roadmap](docs/roadmap.md).
+M3 artifact integration is next.
 
 ## Workspace
 

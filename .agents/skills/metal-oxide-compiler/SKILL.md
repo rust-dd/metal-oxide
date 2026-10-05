@@ -5,9 +5,10 @@ description: Use when implementing metal-oxide rustc integration, device APIs, M
 
 # Compiler changes
 
-Read `AGENTS.md`, `docs/architecture.md`, `docs/roadmap.md`, and the relevant
-sections of `docs/supported-rust.md`. Implement the next acceptance criterion;
-create crates when their code is needed. M0 runtime, M1 frontend, and M2 IR/MSL
+Read `AGENTS.md`. When available locally, also read `docs/architecture.md`,
+`docs/roadmap.md`, and relevant sections of `docs/supported-rust.md`.
+Implement the next acceptance criterion; create crates when their code is needed.
+M0 runtime, M1 frontend, and M2 IR/MSL
 lowering are implemented. Artifact integration starts in M3.
 
 - Use typed rustc APIs through a pinned `rustc_driver` integration. A kernel
@@ -49,8 +50,8 @@ synthetic IR example, or MIR dump does not satisfy that criterion.
 Run generated-kernel hardware tests from the compiler directory with
 `cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler
 -- --ignored --test-threads=1`. Tests explicitly select wrapping integers;
-preserve enabled/always-on assertions as errors. Follow `docs/ir.md` for
-arithmetic and supported control-flow rules.
+preserve enabled/always-on assertions as errors. When available locally, use
+`docs/ir.md` for arithmetic and supported control-flow rules.
 
 At M3, include sources/dependencies, compiler/Rust/Metal/SDK versions, target
 settings, and numerical options in artifact cache identity. Report the milestone

@@ -5,8 +5,9 @@ description: Use when changing metal-oxide Metal device, buffer, library, pipeli
 
 # Runtime changes
 
-Read `AGENTS.md` and `docs/memory-model.md`. The current runtime is synchronous,
-thread-confined, and based on `objc2-metal`; Rust kernel compilation is separate.
+Read `AGENTS.md` and, when available locally, `docs/memory-model.md`.
+The current runtime is synchronous, thread-confined, and based on `objc2-metal`;
+Rust kernel compilation is separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
 - Keep classic `MTL*` and planned Metal 4 execution behind the same public API.

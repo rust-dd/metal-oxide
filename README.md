@@ -47,7 +47,6 @@ The host also accepts `--source PATH` for a generated `kernels.metal` file.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 
-[Architecture](docs/architecture.md) · [Supported Rust](docs/supported-rust.md) ·
-[IR](docs/ir.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+[Contributing](CONTRIBUTING.md)
 
 MIT licensed.
