@@ -5,7 +5,7 @@ mod launch;
 mod scalar;
 
 pub use error::{Error, Result};
-pub use launch::{Dim3, LaunchConfig};
+pub use launch::{Dim3, DynamicLaunchConfig, LaunchConfig};
 pub use scalar::GpuScalar;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

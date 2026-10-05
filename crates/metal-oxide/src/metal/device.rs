@@ -9,7 +9,7 @@ use objc2_metal::{
     MTLComputeCommandEncoder, MTLCreateSystemDefaultDevice, MTLDevice, MTLSize,
 };
 
-use crate::{Dim3, Error, GpuScalar, LaunchConfig, Result};
+use crate::{Dim3, DynamicLaunchConfig, Error, GpuScalar, Result};
 
 use super::{Argument, Buffer, Pipeline};
 
@@ -62,19 +62,22 @@ impl Device {
 
     /// Encodes the kernel, waits for completion, then checks command status.
     ///
+    /// Accepts const-generic or dynamically sized launch configurations.
+    ///
     /// # Safety
     ///
     /// Arguments must match the kernel's types, slots, lengths, and access modes.
     /// The kernel must stay in bounds, respect read-only resources, have no data
-    /// races, and leave valid values in every written element. Its grid must
-    /// satisfy all participation and synchronization requirements. The caller
+    /// races, and leave valid values in every written element. Its grid and block
+    /// must satisfy all participation and synchronization requirements. The caller
     /// must ensure no external GPU or CPU access conflicts with this submission.
     pub unsafe fn launch(
         &self,
         pipeline: &Pipeline,
-        config: LaunchConfig,
+        config: impl Into<DynamicLaunchConfig>,
         arguments: &[Argument<'_>],
     ) -> Result<()> {
+        let config = config.into();
         if pipeline.device_id != self.id()
             || arguments
                 .iter()

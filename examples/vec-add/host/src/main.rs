@@ -23,8 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let input_a = device.buffer_from_slice(&a)?;
         let input_b = device.buffer_from_slice(&b)?;
         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
-        let block_size = pipeline.thread_execution_width() as u32;
-        let config = LaunchConfig::for_elements(n, block_size)?;
+        let config = LaunchConfig::<256>::for_elements(n)?;
 
         // SAFETY: the reference vec_add ABI uses distinct n-element buffers and one writer per index.
         unsafe {
@@ -47,7 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!(
             "vec_add n={n}: verified ({} blocks x {} threads)",
-            config.grid.x, config.block.x
+            config.grid.x,
+            LaunchConfig::<256>::BLOCK.x
         );
     }
     Ok(())

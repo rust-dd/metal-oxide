@@ -33,26 +33,108 @@ impl Dim3 {
     }
 }
 
-/// A grid of blocks, with a fixed thread count per block on each axis.
+/// A runtime grid with block dimensions encoded in its type.
 ///
 /// Metal executes each block as a threadgroup. The grid counts blocks, not
-/// individual threads. An empty grid is a no-op; block dimensions must be positive.
+/// individual threads. Unspecified block axes default to one. An empty grid is
+/// a no-op; block dimensions must be positive and fit the device/pipeline limits.
+/// These limits are checked when the kernel is launched.
+///
+/// The block constants configure the launch. Loading handwritten MSL does not
+/// specialize the shader for those constants.
 ///
 /// ```
 /// use metal_oxide::{Dim3, LaunchConfig};
-/// let config = LaunchConfig {
-///     grid: Dim3::x(4),
-///     block: Dim3::x(256),
-/// };
+/// let config = LaunchConfig::<256>::new(Dim3::x(4));
 /// assert_eq!(config.total_threads().unwrap(), 1024);
+/// let tiled = LaunchConfig::<16, 16>::new(Dim3::xy(2, 3));
+/// assert_eq!(tiled.total_threads().unwrap(), 1536);
+/// ```
+///
+/// Different block shapes are distinct types:
+///
+/// ```compile_fail,E0308
+/// use metal_oxide::{Dim3, LaunchConfig};
+/// fn needs_256(config: LaunchConfig<256>) {}
+/// needs_256(LaunchConfig::<128>::new(Dim3::x(4)));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LaunchConfig {
+pub struct LaunchConfig<const BLOCK_X: u32, const BLOCK_Y: u32 = 1, const BLOCK_Z: u32 = 1> {
+    pub grid: Dim3,
+}
+
+impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
+    LaunchConfig<BLOCK_X, BLOCK_Y, BLOCK_Z>
+{
+    /// Threads per block on each axis, available to generic launch code.
+    pub const BLOCK: Dim3 = Dim3::new(BLOCK_X, BLOCK_Y, BLOCK_Z);
+
+    pub const fn new(grid: Dim3) -> Self {
+        Self { grid }
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.grid.is_empty()
+    }
+
+    /// Counts all launched threads, including padding in complete blocks.
+    pub fn total_threads(self) -> Result<u64> {
+        DynamicLaunchConfig::from(self).total_threads()
+    }
+
+    /// Checks the pipeline's total block limit and the device's per-axis limits.
+    pub fn validate(
+        self,
+        maximum_threads_per_block: usize,
+        maximum_block_dimensions: Dim3,
+    ) -> Result<()> {
+        DynamicLaunchConfig::from(self)
+            .validate(maximum_threads_per_block, maximum_block_dimensions)
+    }
+}
+
+impl<const BLOCK_X: u32> LaunchConfig<BLOCK_X> {
+    /// Covers a one-dimensional element range with complete blocks.
+    ///
+    /// Extra threads must be guarded by the kernel's bounds check. Zero block
+    /// sizes and overflowing global dimensions return an error. Device and
+    /// pipeline limits are checked separately when the kernel is launched.
+    ///
+    /// ```
+    /// use metal_oxide::LaunchConfig;
+    /// let config = LaunchConfig::<256>::for_elements(1000).unwrap();
+    /// assert_eq!(config.grid.x, 4);
+    /// assert_eq!(config.total_threads().unwrap(), 1024);
+    /// ```
+    pub fn for_elements(elements: u32) -> Result<Self> {
+        let config = DynamicLaunchConfig::for_elements(elements, BLOCK_X)?;
+        Ok(Self::new(config.grid))
+    }
+}
+
+impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
+    From<LaunchConfig<BLOCK_X, BLOCK_Y, BLOCK_Z>> for DynamicLaunchConfig
+{
+    fn from(config: LaunchConfig<BLOCK_X, BLOCK_Y, BLOCK_Z>) -> Self {
+        Self::new(
+            config.grid,
+            LaunchConfig::<BLOCK_X, BLOCK_Y, BLOCK_Z>::BLOCK,
+        )
+    }
+}
+
+/// Launch geometry with runtime-selected block dimensions.
+///
+/// Use this when block dimensions come from pipeline queries or runtime tuning.
+/// `Device::launch` accepts both this type and a const-generic `LaunchConfig`.
+/// Both paths validate the same device, pipeline, and dimension limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DynamicLaunchConfig {
     pub grid: Dim3,
     pub block: Dim3,
 }
 
-impl LaunchConfig {
+impl DynamicLaunchConfig {
     pub const fn new(grid: Dim3, block: Dim3) -> Self {
         Self { grid, block }
     }
