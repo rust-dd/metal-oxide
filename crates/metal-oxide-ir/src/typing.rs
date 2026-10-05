@@ -68,6 +68,19 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
+        Expression::ThreadgroupAlloc {
+            element, length, ..
+        } => {
+            if *length == 0 || *element == Scalar::Bool || length.checked_mul(4).is_none() {
+                return Err(Error::new(source, "invalid threadgroup allocation"));
+            }
+            Ok(Type::Buffer {
+                element: *element,
+                access: Access::ReadWrite,
+                address_space: AddressSpace::Threadgroup,
+            })
+        }
+        Expression::ThreadgroupBarrier => Ok(Type::Unit),
         Expression::Dim3(values) => {
             for v in values {
                 require(ty(v)?, Type::Scalar(Scalar::U32))?;
@@ -79,7 +92,7 @@ pub(crate) fn expression_type(
             match ty(buffer)? {
                 Type::Buffer {
                     element,
-                    access: Access::Read,
+                    access: Access::Read | Access::ReadWrite,
                     ..
                 } => Ok(Type::Scalar(element)),
                 _ => Err(Error::new(source, "buffer load requires a read buffer")),
@@ -94,7 +107,7 @@ pub(crate) fn expression_type(
             match ty(buffer)? {
                 Type::Buffer {
                     element,
-                    access: Access::Write,
+                    access: Access::Write | Access::ReadWrite,
                     ..
                 } => {
                     require(ty(value)?, Type::Scalar(element))?;
@@ -125,6 +138,27 @@ pub(crate) fn expression_type(
                 require(ty(argument)?, *expected)?;
             }
             Ok(callee.locals[0])
+        }
+        Expression::AtomicAdd {
+            buffer,
+            index,
+            value,
+        } => {
+            require(ty(index)?, Type::Scalar(Scalar::U32))?;
+            match ty(buffer)? {
+                Type::Buffer {
+                    element: element @ (Scalar::U32 | Scalar::I32),
+                    access: Access::Atomic,
+                    address_space: AddressSpace::Device,
+                } => {
+                    require(ty(value)?, Type::Scalar(element))?;
+                    Ok(Type::Scalar(element))
+                }
+                _ => Err(Error::new(
+                    source,
+                    "atomic addition requires an i32/u32 atomic buffer",
+                )),
+            }
         }
     }
 }

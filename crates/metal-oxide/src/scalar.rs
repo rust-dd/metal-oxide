@@ -1,4 +1,7 @@
 mod sealed {
+    pub trait Atomic {}
+    impl Atomic for u32 {}
+    impl Atomic for i32 {}
     pub trait Sealed {
         const TYPE: metal_oxide_artifact::Scalar;
     }
@@ -13,6 +16,11 @@ mod sealed {
         const TYPE: metal_oxide_artifact::Scalar = metal_oxide_artifact::Scalar::I32;
     }
 }
+
+/// Integer buffer elements supported by device atomic operations.
+pub trait GpuAtomic: GpuScalar + sealed::Atomic {}
+impl GpuAtomic for u32 {}
+impl GpuAtomic for i32 {}
 
 /// Buffer elements with a defined four-byte Metal representation.
 ///

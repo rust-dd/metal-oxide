@@ -14,6 +14,7 @@ fn module(parameters: Vec<Type>) -> Module {
         functions: vec![Function {
             name: "vec_add".into(),
             kernel: true,
+            required_block: None,
             parameters: count,
             locals,
             blocks: vec![Block {

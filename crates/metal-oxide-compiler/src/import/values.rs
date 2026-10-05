@@ -49,6 +49,8 @@ impl<'tcx> Context<'_, 'tcx> {
             for (name, access) in [
                 ("metal_oxide_read_buffer", ir::Access::Read),
                 ("metal_oxide_write_buffer", ir::Access::Write),
+                ("metal_oxide_atomic_buffer", ir::Access::Atomic),
+                ("metal_oxide_threadgroup_buffer", ir::Access::ReadWrite),
             ] {
                 if marker(name)
                     && let Some(element @ (ir::Scalar::F32 | ir::Scalar::U32 | ir::Scalar::I32)) =
@@ -57,7 +59,11 @@ impl<'tcx> Context<'_, 'tcx> {
                     return Ok(ir::Type::Buffer {
                         element,
                         access,
-                        address_space: ir::AddressSpace::Device,
+                        address_space: if access == ir::Access::ReadWrite {
+                            ir::AddressSpace::Threadgroup
+                        } else {
+                            ir::AddressSpace::Device
+                        },
                     });
                 }
             }

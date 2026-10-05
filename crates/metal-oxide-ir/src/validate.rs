@@ -5,6 +5,17 @@ use crate::{typing::expression_type, *};
 pub fn validate(module: &Module) -> Result<(), Error> {
     let mut names = HashSet::new();
     for function in &module.functions {
+        if let Some(shape) = function.required_block
+            && (!function.kernel
+                || shape
+                    .into_iter()
+                    .try_fold(1_u32, |n, axis| {
+                        (axis != 0).then(|| n.checked_mul(axis)).flatten()
+                    })
+                    .is_none())
+        {
+            return Err(Error::new(&function.source, "invalid kernel block shape"));
+        }
         if function.locals.len() <= function.parameters || function.blocks.is_empty() {
             return Err(Error::new(
                 &function.source,
@@ -24,7 +35,8 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     Type::Scalar(Scalar::F32 | Scalar::U32 | Scalar::I32)
                         | Type::Buffer {
                             element: Scalar::F32 | Scalar::U32 | Scalar::I32,
-                            ..
+                            access: Access::Read | Access::Write | Access::Atomic,
+                            address_space: AddressSpace::Device,
                         }
                 ) {
                     return Err(Error::new(
@@ -38,7 +50,28 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             if matches!(
                 ty,
                 Type::Buffer {
+                    access: Access::ReadWrite,
+                    address_space: AddressSpace::Device,
+                    ..
+                } | Type::Buffer {
+                    access: Access::Read | Access::Write | Access::Atomic,
+                    address_space: AddressSpace::Threadgroup,
+                    ..
+                }
+            ) {
+                return Err(Error::new(
+                    &function.source,
+                    "buffer access mode does not match its address space",
+                ));
+            }
+            if matches!(
+                ty,
+                Type::Buffer {
                     element: Scalar::Bool,
+                    ..
+                } | Type::Buffer {
+                    element: Scalar::F32,
+                    access: Access::Atomic,
                     ..
                 } | Type::Checked(Scalar::Bool | Scalar::F32)
             ) {
@@ -81,7 +114,8 @@ pub fn validate(module: &Module) -> Result<(), Error> {
         }
         crate::dataflow::initialized(function)?;
     }
-    acyclic_calls(module)
+    acyclic_calls(module)?;
+    crate::uniform::validate(module)
 }
 
 fn acyclic_calls(module: &Module) -> Result<(), Error> {

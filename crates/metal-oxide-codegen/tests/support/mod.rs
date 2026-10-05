@@ -18,6 +18,7 @@ pub fn module(parameters: usize, locals: Vec<Type>, blocks: Vec<Block>) -> Modul
         functions: vec![Function {
             name: "helper".into(),
             kernel: false,
+            required_block: None,
             parameters,
             locals,
             blocks,

@@ -2,6 +2,43 @@ use rustc_hir::{Safety, def::DefKind, def_id::DefId};
 use rustc_middle::ty::{self, Instance, Ty, TyCtxt, TypingEnv};
 use rustc_span::Symbol;
 
+pub(crate) fn block_shape(
+    tcx: TyCtxt<'_>,
+    definition: DefId,
+) -> Result<Option<[u32; 3]>, (rustc_span::Span, String)> {
+    let path = [Symbol::intern("metal_oxide"), Symbol::intern("block_shape")];
+    let Some(attribute) = tcx.get_attrs_by_path(definition, &path).next() else {
+        return Ok(None);
+    };
+    let shape = attribute
+        .value_str()
+        .and_then(|value| {
+            value
+                .as_str()
+                .split(',')
+                .map(str::parse::<u32>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()
+        })
+        .and_then(|values| <[u32; 3]>::try_from(values).ok());
+    match shape {
+        Some(shape)
+            if shape
+                .into_iter()
+                .try_fold(1_u32, |n, axis| {
+                    (axis != 0).then(|| n.checked_mul(axis)).flatten()
+                })
+                .is_some() =>
+        {
+            Ok(Some(shape))
+        }
+        _ => Err((
+            tcx.def_span(definition),
+            "invalid kernel block shape".into(),
+        )),
+    }
+}
+
 pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> (Vec<Instance<'tcx>>, Vec<Instance<'tcx>>) {
     let marker = [Symbol::intern("metal_oxide"), Symbol::intern("kernel")];
     let mut entries = Vec::new();
@@ -81,6 +118,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
     let access = [
         ("metal_oxide_read_buffer", "read_buffer"),
         ("metal_oxide_write_buffer", "write_buffer"),
+        ("metal_oxide_atomic_buffer", "atomic_buffer"),
     ]
     .into_iter()
     .find_map(|(item, access)| {
@@ -88,6 +126,9 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
     })?;
     let element = arguments.type_at(0);
     let scalar = scalar(element)?;
+    if access == "atomic_buffer" && scalar == "f32" {
+        return None;
+    }
     let layout = tcx
         .layout_of(TypingEnv::fully_monomorphized().as_query_input(element))
         .ok()?;

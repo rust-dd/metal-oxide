@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use crate::{ABI_VERSION, Abi, DEVICE_TARGET, Error, MSL_VERSION, Manifest};
+use crate::{
+    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, MSL_VERSION, Manifest, ParameterType, Scalar,
+};
 
 pub(crate) fn identifier(name: &str) -> bool {
     let mut bytes = name.bytes();
@@ -44,6 +46,18 @@ impl Abi {
             }
             let mut parameters = HashSet::new();
             for (index, parameter) in kernel.parameters.iter().enumerate() {
+                if matches!(
+                    parameter.ty,
+                    ParameterType::Buffer {
+                        element: Scalar::F32,
+                        access: Access::Atomic
+                    }
+                ) {
+                    return Err(Error(format!(
+                        "kernel {} requires integer atomic elements",
+                        kernel.name
+                    )));
+                }
                 if parameter.binding != index as u32 {
                     return Err(Error(format!(
                         "kernel {} has a nonsequential binding",

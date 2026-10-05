@@ -1,0 +1,121 @@
+use metal_oxide_ir::{Error, Function};
+
+pub(crate) fn validate_name(function: &Function) -> Result<(), Error> {
+    let name = &function.name;
+    let valid = !name.is_empty()
+        && name
+            .bytes()
+            .enumerate()
+            .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || (i > 0 && b.is_ascii_digit()));
+    let reserved = [
+        "alignas",
+        "alignof",
+        "and",
+        "and_eq",
+        "asm",
+        "auto",
+        "bitand",
+        "bitor",
+        "bool",
+        "break",
+        "case",
+        "catch",
+        "char",
+        "char16_t",
+        "char32_t",
+        "class",
+        "compl",
+        "const",
+        "const_cast",
+        "constant",
+        "constexpr",
+        "continue",
+        "decltype",
+        "default",
+        "delete",
+        "device",
+        "do",
+        "double",
+        "dynamic_cast",
+        "else",
+        "enum",
+        "explicit",
+        "export",
+        "extern",
+        "false",
+        "float",
+        "for",
+        "fragment",
+        "friend",
+        "goto",
+        "half",
+        "if",
+        "inline",
+        "int",
+        "kernel",
+        "long",
+        "metal",
+        "mutable",
+        "namespace",
+        "new",
+        "noexcept",
+        "not",
+        "not_eq",
+        "nullptr",
+        "operator",
+        "or",
+        "or_eq",
+        "private",
+        "public",
+        "register",
+        "reinterpret_cast",
+        "restrict",
+        "return",
+        "sampler",
+        "short",
+        "signed",
+        "sizeof",
+        "static",
+        "static_assert",
+        "static_cast",
+        "struct",
+        "switch",
+        "template",
+        "this",
+        "thread",
+        "thread_local",
+        "threadgroup",
+        "throw",
+        "true",
+        "try",
+        "typedef",
+        "typeid",
+        "typename",
+        "uint",
+        "uint3",
+        "union",
+        "unsigned",
+        "using",
+        "vertex",
+        "virtual",
+        "void",
+        "volatile",
+        "wchar_t",
+        "while",
+        "xor",
+        "xor_eq",
+    ];
+    if !valid
+        || name.starts_with("metal_oxide_")
+        || name.contains("__")
+        || (name.starts_with('_') && name.as_bytes().get(1).is_some_and(u8::is_ascii_uppercase))
+        || reserved.contains(&name.as_str())
+    {
+        Err(Error::new(
+            &function.source,
+            "kernel name is not a supported MSL identifier",
+        ))
+    } else {
+        Ok(())
+    }
+}

@@ -5,6 +5,7 @@ mod bindings;
 mod control;
 mod emit;
 mod expressions;
+mod names;
 mod numeric;
 
 use metal_oxide_ir::{Error, Module};

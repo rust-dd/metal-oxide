@@ -39,6 +39,11 @@ impl Pipeline {
             .raw
             .newComputePipelineStateWithFunction_error(&function)
             .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))?;
+        if raw.staticThreadgroupMemoryLength() > device.raw.maxThreadgroupMemoryLength() {
+            return Err(Error::InvalidLaunch(
+                "kernel exceeds threadgroup memory capacity",
+            ));
+        }
         Ok(Self {
             raw,
             device_id: device.id(),

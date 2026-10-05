@@ -1,5 +1,7 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+#[path = "gpu/cooperative.rs"]
+mod cooperative;
 mod support;
 
 use metal_oxide::{Argument, Device, Dim3, DynamicLaunchConfig, LaunchConfig, Module, Pipeline};

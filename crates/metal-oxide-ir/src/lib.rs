@@ -3,6 +3,7 @@
 mod dataflow;
 mod model;
 mod typing;
+mod uniform;
 mod validate;
 
 pub use model::*;

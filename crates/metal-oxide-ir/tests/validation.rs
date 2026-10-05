@@ -13,6 +13,7 @@ fn module() -> Module {
         functions: vec![Function {
             name: "sum".into(),
             kernel: false,
+            required_block: None,
             parameters: 2,
             source: source(),
             locals: vec![Type::Scalar(Scalar::F32); 3],

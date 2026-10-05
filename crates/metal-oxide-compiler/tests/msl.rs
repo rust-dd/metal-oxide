@@ -1,6 +1,42 @@
 mod support;
 
 #[test]
+fn threadgroup_kernels_emit_shape_and_typed_bindings() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/cooperative.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        abi.kernels
+            .iter()
+            .find(|k| k.name == "reduce")
+            .unwrap()
+            .required_block,
+        Some([256, 1, 1])
+    );
+    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
+    assert!(bindings.contains("LaunchConfig<256, 1, 1>"));
+    assert!(bindings.contains("Argument::atomic"));
+}
+
+#[test]
+fn divergent_threadgroup_participation_is_rejected() {
+    for fixture in ["divergent_barrier", "early_barrier", "loop_barrier"] {
+        let (output, directory) = support::emit(
+            &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
+            &["-C", "overflow-checks=off"],
+        );
+        support::rejected(output, "uniform participation");
+        assert!(!directory.join("kernels.metal").exists());
+    }
+}
+
+#[test]
 fn parameter_names_produce_valid_metadata_and_rust_bindings() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/m3_names.rs",

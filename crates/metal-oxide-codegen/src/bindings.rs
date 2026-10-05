@@ -25,9 +25,13 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
             ));
         }
         output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n");
+        let config = match kernel.required_block {
+            Some([x, y, z]) => format!("metal_oxide::LaunchConfig<{x}, {y}, {z}>"),
+            None => "impl Into<metal_oxide::DynamicLaunchConfig>".into(),
+        };
         write!(
             output,
-            "    pub unsafe fn r#{}(&self, config: impl Into<metal_oxide::DynamicLaunchConfig>",
+            "    pub unsafe fn r#{}(&self, config: {config}",
             kernel.name
         )
         .unwrap();
@@ -54,6 +58,7 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
                     let (borrow, method) = match access {
                         Access::Read => ("&", "read"),
                         Access::Write => ("&mut ", "write"),
+                        Access::Atomic => ("&mut ", "atomic"),
                     };
                     (
                         format!("{borrow}metal_oxide::Buffer<{}>", element.rust_name()),

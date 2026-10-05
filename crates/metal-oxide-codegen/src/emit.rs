@@ -3,7 +3,7 @@ use crate::{
     expressions::{expression, operand, type_name},
 };
 use metal_oxide_ir::*;
-use std::{collections::HashSet, fmt::Write};
+use std::{collections::HashMap, fmt::Write};
 
 pub(crate) fn module(module: &Module) -> Result<String, Error> {
     let mut output = String::from(
@@ -46,6 +46,27 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
         if function.kernel {
             output.push_str("    metal_oxide_context metal_oxide_ctx = {metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim};\n");
         }
+        for statement in function
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(id, _)| graph.reachable[*id])
+            .flat_map(|(_, b)| &b.statements)
+        {
+            if let Expression::ThreadgroupAlloc {
+                id,
+                element,
+                length,
+            } = statement.value
+            {
+                writeln!(
+                    output,
+                    "    threadgroup {} metal_oxide_shared_{id}[{length}];",
+                    type_name(Type::Scalar(element))
+                )
+                .unwrap();
+            }
+        }
         for (local, &ty) in function.locals.iter().enumerate() {
             if matches!(ty, Type::Unit | Type::Never)
                 || (!function.kernel && (1..=function.parameters).contains(&local))
@@ -68,7 +89,7 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
             function,
             graph,
             output: &mut output,
-            visited: HashSet::new(),
+            visits: HashMap::new(),
             indent: 1,
         };
         emitter.path(0, function.blocks.len(), &[], None)?;
@@ -109,7 +130,7 @@ fn signature(function: &Function, id: usize) -> Result<String, Error> {
         });
     }
     if function.kernel {
-        validate_name(function)?;
+        crate::names::validate_name(function)?;
         for (name, builtin) in [
             ("thread_idx", "thread_position_in_threadgroup"),
             ("block_idx", "threadgroup_position_in_grid"),
@@ -133,132 +154,12 @@ fn signature(function: &Function, id: usize) -> Result<String, Error> {
     }
 }
 
-fn validate_name(function: &Function) -> Result<(), Error> {
-    let name = &function.name;
-    let valid = !name.is_empty()
-        && name
-            .bytes()
-            .enumerate()
-            .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || (i > 0 && b.is_ascii_digit()));
-    let reserved = [
-        "alignas",
-        "alignof",
-        "and",
-        "and_eq",
-        "asm",
-        "auto",
-        "bitand",
-        "bitor",
-        "bool",
-        "break",
-        "case",
-        "catch",
-        "char",
-        "char16_t",
-        "char32_t",
-        "class",
-        "compl",
-        "const",
-        "const_cast",
-        "constant",
-        "constexpr",
-        "continue",
-        "decltype",
-        "default",
-        "delete",
-        "device",
-        "do",
-        "double",
-        "dynamic_cast",
-        "else",
-        "enum",
-        "explicit",
-        "export",
-        "extern",
-        "false",
-        "float",
-        "for",
-        "fragment",
-        "friend",
-        "goto",
-        "half",
-        "if",
-        "inline",
-        "int",
-        "kernel",
-        "long",
-        "metal",
-        "mutable",
-        "namespace",
-        "new",
-        "noexcept",
-        "not",
-        "not_eq",
-        "nullptr",
-        "operator",
-        "or",
-        "or_eq",
-        "private",
-        "public",
-        "register",
-        "reinterpret_cast",
-        "restrict",
-        "return",
-        "sampler",
-        "short",
-        "signed",
-        "sizeof",
-        "static",
-        "static_assert",
-        "static_cast",
-        "struct",
-        "switch",
-        "template",
-        "this",
-        "thread",
-        "thread_local",
-        "threadgroup",
-        "throw",
-        "true",
-        "try",
-        "typedef",
-        "typeid",
-        "typename",
-        "uint",
-        "uint3",
-        "union",
-        "unsigned",
-        "using",
-        "vertex",
-        "virtual",
-        "void",
-        "volatile",
-        "wchar_t",
-        "while",
-        "xor",
-        "xor_eq",
-    ];
-    if !valid
-        || name.starts_with("metal_oxide_")
-        || name.contains("__")
-        || (name.starts_with('_') && name.as_bytes().get(1).is_some_and(u8::is_ascii_uppercase))
-        || reserved.contains(&name.as_str())
-    {
-        Err(Error::new(
-            &function.source,
-            "kernel name is not a supported MSL identifier",
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 struct Emitter<'a> {
     module: &'a Module,
     function: &'a Function,
     graph: Graph,
     output: &'a mut String,
-    visited: HashSet<usize>,
+    visits: HashMap<usize, usize>,
     indent: usize,
 }
 
@@ -306,10 +207,22 @@ impl Emitter<'_> {
                 continue;
             }
             let block = &self.function.blocks[current];
-            if !self.visited.insert(current) {
+            let visits = self.visits.entry(current).or_default();
+            *visits += 1;
+            if *visits > 8
+                || (*visits > 1
+                    && block.statements.iter().any(|s| {
+                        matches!(
+                            s.value,
+                            Expression::ThreadgroupAlloc { .. }
+                                | Expression::ThreadgroupBarrier
+                                | Expression::Call { .. }
+                        )
+                    }))
+            {
                 return Err(Error::new(
                     &block.source,
-                    "control flow cannot be structured without duplicating a block",
+                    "control flow requires excessive or cooperative block duplication",
                 ));
             }
             for statement in &block.statements {

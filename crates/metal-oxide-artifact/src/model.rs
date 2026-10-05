@@ -31,6 +31,7 @@ impl Scalar {
 pub enum Access {
     Read,
     Write,
+    Atomic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

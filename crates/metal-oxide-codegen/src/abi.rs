@@ -23,6 +23,12 @@ pub fn abi(module: &Module) -> Result<artifact::Abi, artifact::Error> {
                             access: match access {
                                 Access::Read => artifact::Access::Read,
                                 Access::Write => artifact::Access::Write,
+                                Access::Atomic => artifact::Access::Atomic,
+                                Access::ReadWrite => {
+                                    return Err(artifact::Error(
+                                        "threadgroup buffers cannot be kernel arguments".into(),
+                                    ));
+                                }
                             },
                         },
                         _ => {
@@ -41,7 +47,7 @@ pub fn abi(module: &Module) -> Result<artifact::Abi, artifact::Error> {
             Ok(artifact::Kernel {
                 name: f.name.clone(),
                 parameters,
-                required_block: None,
+                required_block: f.required_block,
             })
         })
         .collect::<Result<Vec<_>, artifact::Error>>()?;

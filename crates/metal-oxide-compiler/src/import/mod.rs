@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use metal_oxide_ir as ir;
 use rustc_middle::{
     mir,
-    ty::{Instance, TyCtxt},
+    ty::{Instance, TyCtxt, consts::ConstExt},
 };
 use rustc_span::Span;
 
@@ -42,6 +42,7 @@ pub(crate) fn module<'tcx>(
                 instance,
                 ids: &ids,
                 locals: Vec::new(),
+                allocations: 0,
             };
             for local in body.local_decls.iter() {
                 let ty = context.normalize_type(local.ty);
@@ -59,6 +60,11 @@ pub(crate) fn module<'tcx>(
                     instance.to_string()
                 },
                 kernel,
+                required_block: if kernel {
+                    crate::collect::block_shape(tcx, instance.def_id())?
+                } else {
+                    None
+                },
                 parameters: body.arg_count,
                 locals: context.locals,
                 blocks,
@@ -74,6 +80,7 @@ struct Context<'a, 'tcx> {
     instance: Instance<'tcx>,
     ids: &'a HashMap<Instance<'tcx>, usize>,
     locals: Vec<ir::Type>,
+    allocations: u32,
 }
 
 impl<'tcx> Context<'_, 'tcx> {
@@ -200,7 +207,7 @@ impl<'tcx> Context<'_, 'tcx> {
     }
 
     fn call(
-        &self,
+        &mut self,
         func: &mir::Operand<'tcx>,
         args: &[rustc_span::Spanned<mir::Operand<'tcx>>],
         body: &mir::Body<'tcx>,
@@ -222,6 +229,32 @@ impl<'tcx> Context<'_, 'tcx> {
             .collect::<Result<Vec<_>>>()?;
         if let Some(builtin) = crate::intrinsics::builtin(self.tcx, def) {
             return match (builtin, arguments.as_slice()) {
+                ("threadgroup_alloc", []) => {
+                    let ir::Type::Scalar(element) = self.ty(args_types.type_at(0), span)? else {
+                        return Err((span, "threadgroup elements must be scalars".into()));
+                    };
+                    let length = args_types
+                        .const_at(1)
+                        .try_to_target_usize(self.tcx)
+                        .and_then(|n| u32::try_from(n).ok())
+                        .ok_or((
+                            span,
+                            "threadgroup length must be a concrete u32-sized constant".into(),
+                        ))?;
+                    let id = self.allocations;
+                    self.allocations += 1;
+                    Ok(ir::Expression::ThreadgroupAlloc {
+                        id,
+                        element,
+                        length,
+                    })
+                }
+                ("threadgroup_barrier", []) => Ok(ir::Expression::ThreadgroupBarrier),
+                ("atomic_add", [buffer, index, value]) => Ok(ir::Expression::AtomicAdd {
+                    buffer: buffer.clone(),
+                    index: index.clone(),
+                    value: value.clone(),
+                }),
                 ("buffer_load", [buffer, index]) => Ok(ir::Expression::BufferLoad {
                     buffer: buffer.clone(),
                     index: index.clone(),

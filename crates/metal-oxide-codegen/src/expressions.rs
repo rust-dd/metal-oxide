@@ -12,6 +12,31 @@ pub(crate) fn type_name(ty: Type) -> &'static str {
         Type::Checked(Scalar::I32) => "metal_oxide_checked_i32",
         Type::Buffer {
             element: Scalar::F32,
+            address_space: AddressSpace::Threadgroup,
+            ..
+        } => "threadgroup float *",
+        Type::Buffer {
+            element: Scalar::U32,
+            address_space: AddressSpace::Threadgroup,
+            ..
+        } => "threadgroup uint *",
+        Type::Buffer {
+            element: Scalar::I32,
+            address_space: AddressSpace::Threadgroup,
+            ..
+        } => "threadgroup int *",
+        Type::Buffer {
+            element: Scalar::U32,
+            access: Access::Atomic,
+            ..
+        } => "device atomic_uint *",
+        Type::Buffer {
+            element: Scalar::I32,
+            access: Access::Atomic,
+            ..
+        } => "device atomic_int *",
+        Type::Buffer {
+            element: Scalar::F32,
             access: Access::Read,
             ..
         } => "device const float *",
@@ -81,6 +106,18 @@ pub(crate) fn expression(
     let ty = |v| operand_type(function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
+        Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
+        Expression::AtomicAdd {
+            buffer,
+            index,
+            value,
+        } => format!(
+            "atomic_fetch_add_explicit(&{}[{}], {}, memory_order_relaxed)",
+            op(buffer),
+            op(index),
+            op(value)
+        ),
         Expression::Coordinates(builtin) => format!(
             "metal_oxide_ctx.{}",
             match builtin {

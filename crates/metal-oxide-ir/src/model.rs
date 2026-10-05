@@ -46,11 +46,14 @@ pub enum Scalar {
 pub enum Access {
     Read,
     Write,
+    ReadWrite,
+    Atomic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AddressSpace {
     Device,
+    Threadgroup,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,6 +80,7 @@ pub struct Module {
 pub struct Function {
     pub name: String,
     pub kernel: bool,
+    pub required_block: Option<[u32; 3]>,
     pub parameters: usize,
     /// Local zero is the return place; parameters start at local one.
     pub locals: Vec<Type>,
@@ -177,11 +181,22 @@ pub enum Expression {
     Cast(Operand, Scalar),
     Coordinates(Builtin),
     Dim3([Operand; 3]),
+    ThreadgroupAlloc {
+        id: u32,
+        element: Scalar,
+        length: u32,
+    },
+    ThreadgroupBarrier,
     BufferLoad {
         buffer: Operand,
         index: Operand,
     },
     BufferStore {
+        buffer: Operand,
+        index: Operand,
+        value: Operand,
+    },
+    AtomicAdd {
         buffer: Operand,
         index: Operand,
         value: Operand,
@@ -197,10 +212,17 @@ impl Expression {
         match self {
             Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
-            Self::Coordinates(_) => vec![],
+            Self::Coordinates(_) | Self::ThreadgroupAlloc { .. } | Self::ThreadgroupBarrier => {
+                vec![]
+            }
             Self::Dim3(values) => values.iter().collect(),
             Self::BufferLoad { buffer, index } => vec![buffer, index],
             Self::BufferStore {
+                buffer,
+                index,
+                value,
+            }
+            | Self::AtomicAdd {
                 buffer,
                 index,
                 value,

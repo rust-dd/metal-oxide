@@ -3,7 +3,7 @@ use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder};
 
-use crate::GpuScalar;
+use crate::{GpuAtomic, GpuScalar};
 use metal_oxide_artifact::{Access, ParameterType, Scalar};
 
 use super::Buffer;
@@ -26,6 +26,20 @@ pub struct Argument<'a> {
 }
 
 impl<'a> Argument<'a> {
+    /// Borrows an integer buffer exclusively for atomic shader accesses.
+    pub fn atomic<T: GpuAtomic>(buffer: &'a mut Buffer<T>) -> Self {
+        Self {
+            value: Value::Buffer {
+                raw: &buffer.raw,
+                device_id: buffer.device_id,
+                ty: ParameterType::Buffer {
+                    element: T::TYPE,
+                    access: Access::Atomic,
+                },
+            },
+            marker: PhantomData,
+        }
+    }
     /// The kernel must treat this buffer as read-only.
     pub fn read<T: GpuScalar>(buffer: &'a Buffer<T>) -> Self {
         Self {
