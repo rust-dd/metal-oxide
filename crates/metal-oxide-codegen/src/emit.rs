@@ -78,6 +78,12 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
 }
 
 fn signature(function: &Function, id: usize) -> Result<String, Error> {
+    if function.kernel && function.parameters > 31 {
+        return Err(Error::new(
+            &function.source,
+            "Metal supports at most 31 kernel parameters",
+        ));
+    }
     if function.locals[0] == Type::Never
         || function.locals[1..=function.parameters]
             .iter()
@@ -181,6 +187,7 @@ fn validate_name(function: &Function) -> Result<(), Error> {
         "int",
         "kernel",
         "long",
+        "metal",
         "mutable",
         "namespace",
         "new",
@@ -218,6 +225,7 @@ fn validate_name(function: &Function) -> Result<(), Error> {
         "typeid",
         "typename",
         "uint",
+        "uint3",
         "union",
         "unsigned",
         "using",

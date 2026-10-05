@@ -271,6 +271,8 @@ fn reserved_msl_kernel_names_have_source_diagnostics() {
         "and",
         "_Reserved",
         "has__reserved",
+        "uint3",
+        "metal",
     ] {
         let mut module = module(0, vec![Type::Unit], vec![block(vec![], Terminator::Return)]);
         module.functions[0].kernel = true;
@@ -278,5 +280,27 @@ fn reserved_msl_kernel_names_have_source_diagnostics() {
         let error = metal_oxide_codegen::emit(&module).unwrap_err();
         assert_eq!(error.source, support::source());
         assert!(error.message.contains("identifier"));
+    }
+}
+
+#[test]
+fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
+    for (parameters, kernel, valid) in [(31, true, true), (32, true, false), (32, false, true)] {
+        let mut module = module(
+            parameters,
+            std::iter::once(Type::Unit)
+                .chain(std::iter::repeat_n(Type::Scalar(Scalar::U32), parameters))
+                .collect(),
+            vec![block(vec![], Terminator::Return)],
+        );
+        module.functions[0].kernel = kernel;
+        match metal_oxide_codegen::emit(&module) {
+            Ok(_) => assert!(valid),
+            Err(error) => {
+                assert!(!valid);
+                assert_eq!(error.source, support::source());
+                assert!(error.message.contains("31 kernel parameters"));
+            }
+        }
     }
 }
