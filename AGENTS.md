@@ -26,6 +26,9 @@ working features. Add crates and modules when they have an implementation.
 - Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
+- Use CUDA-style launch semantics: `LaunchConfig.grid` counts blocks and
+  `LaunchConfig.block` counts threads per block. Both use `Dim3`; each block maps
+  to a Metal threadgroup. Public kernel invocation is `Device::launch`.
 - Preserve checks, assertions, address spaces, and numerical semantics. Reject
   unsupported operations explicitly; do not silently lower them differently.
 

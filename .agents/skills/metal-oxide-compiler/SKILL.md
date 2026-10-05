@@ -19,6 +19,9 @@ create crates when their code is needed. The initial checkout implements M0 only
   Generic buffer handles and helpers need monomorphization from the start.
 - Keep IR/codegen/artifact contracts independent of rustc_private. Track types,
   source locations, address spaces, and resource access explicitly in IR.
+- Keep future device builtins consistent with CUDA thread/block/grid semantics.
+  Metal threadgroups implement blocks. Scalar kernel parameters do not define
+  launch dimensions automatically.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   assertions, recursion, layouts, and conversions must produce diagnostics.
   Never discard bounds/overflow assertions or silently change semantics.
