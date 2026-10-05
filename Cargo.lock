@@ -225,6 +225,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "reduction"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide",
+]
+
+[[package]]
+name = "reduction-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-device",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
