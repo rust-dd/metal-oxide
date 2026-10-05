@@ -8,9 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[package.metadata.metal]
+kernels = "../kernels/Cargo.toml"
+
 [dependencies]
 metal-oxide = { workspace = true }
 
 [lints]
 workspace = true
-
