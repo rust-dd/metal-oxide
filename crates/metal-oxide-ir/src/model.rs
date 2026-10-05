@@ -1,0 +1,243 @@
+use std::fmt;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SourceLocation {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Error {
+    pub source: SourceLocation,
+    pub message: String,
+}
+
+impl Error {
+    pub fn new(source: &SourceLocation, message: impl Into<String>) -> Self {
+        Self {
+            source: source.clone(),
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}: {}",
+            self.source.file, self.source.line, self.source.column, self.message
+        )
+    }
+}
+
+impl std::error::Error for Error {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scalar {
+    Bool,
+    F32,
+    U32,
+    I32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    Write,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddressSpace {
+    Device,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Type {
+    Unit,
+    Scalar(Scalar),
+    Dim3,
+    Buffer {
+        element: Scalar,
+        access: Access,
+        address_space: AddressSpace,
+    },
+    /// Integer value and its overflow flag, in that order.
+    Checked(Scalar),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Module {
+    pub functions: Vec<Function>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Function {
+    pub name: String,
+    pub kernel: bool,
+    pub parameters: usize,
+    /// Local zero is the return place; parameters start at local one.
+    pub locals: Vec<Type>,
+    pub blocks: Vec<Block>,
+    pub source: SourceLocation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Block {
+    pub statements: Vec<Statement>,
+    pub terminator: Terminator,
+    pub source: SourceLocation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Statement {
+    pub destination: usize,
+    pub value: Expression,
+    pub source: SourceLocation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Constant {
+    Unit,
+    Bool(bool),
+    /// IEEE 754 bits, preserving NaNs and signed zero.
+    F32(u32),
+    U32(u32),
+    I32(i32),
+}
+
+impl Constant {
+    pub fn ty(self) -> Type {
+        match self {
+            Self::Unit => Type::Unit,
+            Self::Bool(_) => Type::Scalar(Scalar::Bool),
+            Self::F32(_) => Type::Scalar(Scalar::F32),
+            Self::U32(_) => Type::Scalar(Scalar::U32),
+            Self::I32(_) => Type::Scalar(Scalar::I32),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Operand {
+    Place { local: usize, field: Option<u32> },
+    Constant(Constant),
+}
+
+impl Operand {
+    pub fn local(local: usize) -> Self {
+        Self::Place { local, field: None }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    AddWithOverflow,
+    SubWithOverflow,
+    MulWithOverflow,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Builtin {
+    ThreadIdx,
+    BlockIdx,
+    BlockDim,
+    GridDim,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Expression {
+    Use(Operand),
+    Binary(BinaryOp, Operand, Operand),
+    Unary(UnaryOp, Operand),
+    Cast(Operand, Scalar),
+    Coordinates(Builtin),
+    Dim3([Operand; 3]),
+    BufferLoad {
+        buffer: Operand,
+        index: Operand,
+    },
+    BufferStore {
+        buffer: Operand,
+        index: Operand,
+        value: Operand,
+    },
+    Call {
+        function: usize,
+        arguments: Vec<Operand>,
+    },
+}
+
+impl Expression {
+    pub fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) => vec![v],
+            Self::Binary(_, a, b) => vec![a, b],
+            Self::Coordinates(_) => vec![],
+            Self::Dim3(values) => values.iter().collect(),
+            Self::BufferLoad { buffer, index } => vec![buffer, index],
+            Self::BufferStore {
+                buffer,
+                index,
+                value,
+            } => vec![buffer, index, value],
+            Self::Call { arguments, .. } => arguments.iter().collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Terminator {
+    Goto(usize),
+    Branch {
+        condition: Operand,
+        then_block: usize,
+        else_block: usize,
+    },
+    Assert {
+        condition: Operand,
+        expected: bool,
+        enabled: bool,
+        target: usize,
+        message: String,
+    },
+    Return,
+    Unreachable,
+}
+
+impl Terminator {
+    pub fn successors(&self) -> Vec<usize> {
+        match self {
+            Self::Goto(target) | Self::Assert { target, .. } => vec![*target],
+            Self::Branch {
+                then_block,
+                else_block,
+                ..
+            } => vec![*then_block, *else_block],
+            Self::Return | Self::Unreachable => vec![],
+        }
+    }
+}

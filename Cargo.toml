@@ -4,6 +4,7 @@ members = [
     "crates/metal-oxide",
     "crates/metal-oxide-compiler",
     "crates/metal-oxide-device",
+    "crates/metal-oxide-ir",
     "crates/metal-oxide-macros",
     "examples/vec-add/host",
     "examples/vec-add/kernels",
@@ -20,6 +21,7 @@ version = "0.1.0-alpha.1"
 [workspace.dependencies]
 metal-oxide = { path = "crates/metal-oxide" }
 metal-oxide-device = { path = "crates/metal-oxide-device" }
+metal-oxide-ir = { path = "crates/metal-oxide-ir" }
 metal-oxide-macros = { path = "crates/metal-oxide-macros" }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }

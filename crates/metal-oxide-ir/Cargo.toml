@@ -1,0 +1,11 @@
+[package]
+name = "metal-oxide-ir"
+description = "Typed kernel IR independent of rustc"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
