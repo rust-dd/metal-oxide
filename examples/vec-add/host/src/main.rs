@@ -6,8 +6,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = Device::system_default()?;
     let module = match arguments.as_slice() {
         [] => Module::from_source(&device, include_str!("../../kernels/vec_add.metal"))?,
+        [flag, path] if flag == "--source" => {
+            Module::from_source(&device, &std::fs::read_to_string(path)?)?
+        }
         [flag, path] if flag == "--metallib" => Module::from_metallib(&device, path)?,
-        _ => return Err("usage: vec-add [--metallib PATH]".into()),
+        _ => return Err("usage: vec-add [--source PATH | --metallib PATH]".into()),
     };
     let pipeline = Pipeline::new(&device, &module, "vec_add")?;
     println!("Device: {}", device.name());
@@ -25,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
         let config = LaunchConfig::<256>::for_elements(n)?;
 
-        // SAFETY: the reference vec_add ABI uses distinct n-element buffers and one writer per index.
+        // SAFETY: the vec_add ABI uses distinct n-element buffers and one writer per index.
         unsafe {
             device.launch(
                 &pipeline,
