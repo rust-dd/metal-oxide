@@ -19,9 +19,13 @@ mod metadata_abi;
 mod monomorphize;
 mod output;
 mod target;
+mod wrapper;
 
 fn main() -> std::process::ExitCode {
     let mut arguments = std::env::args().collect::<Vec<_>>();
+    if let Some(status) = wrapper::forward(&mut arguments) {
+        return status;
+    }
     let output = match output::take_directory(&mut arguments) {
         Ok(output) => output,
         Err(error) => {
@@ -32,4 +36,10 @@ fn main() -> std::process::ExitCode {
     rustc_driver::catch_with_exit_code(|| {
         rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output });
     })
+}
+
+fn trace(arguments: std::fmt::Arguments<'_>) {
+    if std::env::var_os("METAL_OXIDE_CARGO_TARGET").is_none() {
+        println!("{arguments}");
+    }
 }

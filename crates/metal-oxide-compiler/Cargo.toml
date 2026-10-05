@@ -43,5 +43,10 @@ name = "msl"
 path = "tests/msl.rs"
 required-features = ["rustc-private"]
 
+[[test]]
+name = "cargo"
+path = "tests/cargo.rs"
+required-features = ["rustc-private"]
+
 [lints]
 workspace = true

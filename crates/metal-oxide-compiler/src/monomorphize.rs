@@ -77,10 +77,10 @@ impl<'tcx> Collector<'tcx> {
                 .span_err(span, format!("device MIR is unavailable for {instance}"));
             return;
         }
-        println!("instance: {instance}");
+        crate::trace(format_args!("instance: {instance}"));
         self.instances.push(instance);
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
-            println!("builtin: {builtin} mir=available");
+            crate::trace(format_args!("builtin: {builtin} mir=available"));
             return;
         }
         let body = tcx.instance_mir(instance.def);
@@ -89,18 +89,18 @@ impl<'tcx> Collector<'tcx> {
             .iter()
             .filter(|block| matches!(block.terminator().kind, TerminatorKind::Assert { .. }))
             .count();
-        println!(
+        crate::trace(format_args!(
             "mir: blocks={} locals={} asserts={assertions}",
             body.basic_blocks.len(),
             body.local_decls.len()
-        );
+        ));
         for (local, declaration) in body.local_decls.iter_enumerated() {
             let ty = instance.instantiate_mir_and_normalize_erasing_regions(
                 tcx,
                 TypingEnv::fully_monomorphized(),
                 EarlyBinder::bind(tcx, declaration.ty),
             );
-            println!("local {local:?}: {ty}");
+            crate::trace(format_args!("local {local:?}: {ty}"));
         }
         self.active.insert(instance);
         for block in body.basic_blocks.iter() {
