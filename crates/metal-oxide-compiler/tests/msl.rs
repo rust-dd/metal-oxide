@@ -1,6 +1,29 @@
 mod support;
 
 #[test]
+fn parameter_names_produce_valid_metadata_and_rust_bindings() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/m3_names.rs",
+        &[],
+    );
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        abi.kernels[0]
+            .parameters
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["arg_0", "type", "arg_2"]
+    );
+    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
+    assert!(bindings.contains("r#type: f32"));
+}
+
+#[test]
 fn rust_vec_add_generated_source_executes_and_guards_padding() {
     let (output, directory) = support::emit(
         "examples/vec-add/kernels/src/lib.rs",

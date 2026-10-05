@@ -46,7 +46,6 @@ pub(crate) fn write<'tcx>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(directory.join("kernels.oxide-ir"), format!("{module:#?}\n"))?;
     let msl = metal_oxide_codegen::emit(module)?;
-    std::fs::write(directory.join("kernels.metal"), msl)?;
     let mut abi = metal_oxide_codegen::abi(module)?;
     for kernel in &mut abi.kernels {
         let entry = entries
@@ -70,7 +69,7 @@ pub(crate) fn write<'tcx>(
                 })
                 .unwrap_or_default();
             let name = name.strip_prefix("r#").unwrap_or(&name);
-            if name != "_" && !name.is_empty() && used.insert(name.to_owned()) {
+            if name != "_" && !name.is_empty() && name.is_ascii() && used.insert(name.to_owned()) {
                 parameter.name = name.to_owned();
             } else {
                 while !used.insert(parameter.name.clone()) {
@@ -79,10 +78,10 @@ pub(crate) fn write<'tcx>(
             }
         }
     }
-    std::fs::write(directory.join("abi.json"), abi.to_json()?)?;
-    std::fs::write(
-        directory.join("bindings.rs"),
-        metal_oxide_codegen::bindings(&abi)?,
-    )?;
+    let bindings = metal_oxide_codegen::bindings(&abi)?;
+    let abi = abi.to_json()?;
+    std::fs::write(directory.join("kernels.metal"), msl)?;
+    std::fs::write(directory.join("abi.json"), abi)?;
+    std::fs::write(directory.join("bindings.rs"), bindings)?;
     Ok(())
 }
