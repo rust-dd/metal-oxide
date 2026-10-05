@@ -33,7 +33,7 @@ jobs:
         run: cargo test --workspace --locked
 
   compiler:
-    name: Rust frontend (${{ matrix.os }})
+    name: Rust compiler (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -48,5 +48,5 @@ jobs:
         run: rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools --component clippy --component rustfmt
       - name: Compiler Clippy
         run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
-      - name: Device frontend and diagnostics
+      - name: Frontend, IR, and MSL tests
         run: cargo test --features rustc-private --locked --target-dir ../../target/compiler
