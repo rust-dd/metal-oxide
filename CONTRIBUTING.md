@@ -1,15 +1,24 @@
 # Contributing
 
 Read [AGENTS.md](AGENTS.md) and the relevant skill under `.agents/skills` before
-changing code. M0 runtime and M1 frontend are implemented; M2 compiler lowering
-is next in [the roadmap](docs/roadmap.md).
+changing code. M0 runtime, M1 frontend, and M2 IR/MSL lowering are implemented;
+M3 artifact integration is next in [the roadmap](docs/roadmap.md).
 
 ## Workspace
 
-Run the formatting, Clippy, and ordinary test commands in the README. Keep
-dependencies centralized and sorted in root `Cargo.toml`; every consumer uses
-`workspace = true`. Commit `Cargo.lock`. The runtime must remain buildable with
-stable Rust even after a nightly compiler crate is introduced.
+From the repository root, run:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo test --package metal-oxide --test gpu --locked -- --ignored --test-threads=1
+```
+
+Ordinary tests leave hardware checks ignored. Keep dependencies centralized and
+sorted in root `Cargo.toml`; every consumer uses `workspace = true`. Commit
+`Cargo.lock`. Keep the runtime buildable with stable Rust and independent of the
+nightly compiler.
 
 Add tests for observable behavior and safety boundaries. For runtime changes,
 also execute the ignored hardware tests on an Apple Silicon machine. Record
@@ -24,12 +33,17 @@ cargo test --features rustc-private --locked --target-dir ../../target/compiler
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
 ```
 
-The frontend tests build matching device `core`/`compiler_builtins` metadata,
-the host marker macro, the device crate, and separate kernels. They inspect
-typed MIR instances and diagnostics; they do not run the Rust kernels on a GPU.
+The compiler tests build matching device `core`/`compiler_builtins` metadata,
+the host marker macro, the device crate, and separate kernels. Portable tests
+check MIR/IR diagnostics and execute the emitted MSL subset with `clang++` and
+a test-only Metal header shim. GPU execution requires the explicit command:
 
-IR/MSL codegen checks, ABI checks, and hardware comparisons follow as lowering
-is implemented. Unsupported Rust operations must fail with
+```sh
+cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler -- --ignored --test-threads=1
+```
+
+These hardware tests load the exact compiler output through the runtime and
+compare results with CPU references. Unsupported Rust operations must fail with
 diagnostics. Do not discard MIR assertions or change numerical semantics to
 make a kernel compile.
 
