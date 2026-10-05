@@ -3,7 +3,10 @@ members = [
     "crates/cargo-metal",
     "crates/metal-oxide",
     "crates/metal-oxide-compiler",
+    "crates/metal-oxide-device",
+    "crates/metal-oxide-macros",
     "examples/vec-add/host",
+    "examples/vec-add/kernels",
 ]
 resolver = "3"
 
@@ -16,6 +19,8 @@ version = "0.1.0-alpha.1"
 
 [workspace.dependencies]
 metal-oxide = { path = "crates/metal-oxide" }
+metal-oxide-device = { path = "crates/metal-oxide-device" }
+metal-oxide-macros = { path = "crates/metal-oxide-macros" }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }
 objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes", "std"] }

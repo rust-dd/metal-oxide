@@ -1,0 +1,14 @@
+[package]
+name = "metal-oxide-device"
+description = "Device buffers and thread builtins for Metal kernels"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-macros = { workspace = true }
+
+[lints]
+workspace = true

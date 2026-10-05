@@ -1,0 +1,14 @@
+[package]
+name = "vec-add-kernels"
+description = "Rust device kernel for vector addition"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device = { workspace = true }
+
+[lints]
+workspace = true

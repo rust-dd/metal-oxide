@@ -29,6 +29,17 @@ name = "metal-oxide-compiler"
 version = "0.1.0-alpha.1"
 
 [[package]]
+name = "metal-oxide-device"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-macros",
+]
+
+[[package]]
+name = "metal-oxide-macros"
+version = "0.1.0-alpha.1"
+
+[[package]]
 name = "objc2"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -69,4 +80,11 @@ name = "vec-add"
 version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
+]
+
+[[package]]
+name = "vec-add-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-device",
 ]

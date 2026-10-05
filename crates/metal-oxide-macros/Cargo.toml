@@ -1,0 +1,14 @@
+[package]
+name = "metal-oxide-macros"
+description = "Kernel entrypoint marker for metal-oxide"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true
