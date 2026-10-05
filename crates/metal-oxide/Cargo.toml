@@ -9,10 +9,13 @@ rust-version.workspace = true
 version.workspace = true
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+dispatch2 = { workspace = true }
 objc2 = { workspace = true }
 objc2-foundation = { workspace = true }
 objc2-metal = { workspace = true }
 
+[dependencies]
+metal-oxide-artifact = { workspace = true }
+
 [lints]
 workspace = true
-

@@ -11,6 +11,7 @@ version.workspace = true
 rustc-private = []
 
 [dependencies]
+metal-oxide-artifact = { workspace = true }
 metal-oxide-codegen.workspace = true
 metal-oxide-ir.workspace = true
 

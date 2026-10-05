@@ -1,18 +1,16 @@
 [package]
-name = "cargo-metal"
-description = "Development tooling for metal-oxide"
+name = "metal-oxide-artifact"
+description = "Versioned kernel ABI and Metal artifact validation"
 edition.workspace = true
 license.workspace = true
-publish = false
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-metal-oxide = { workspace = true }
-metal-oxide-artifact = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [lints]
 workspace = true
