@@ -4,6 +4,7 @@ use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder};
 
 use crate::GpuScalar;
+use metal_oxide_artifact::{Access, ParameterType, Scalar};
 
 use super::Buffer;
 
@@ -11,6 +12,7 @@ enum Value<'a> {
     Buffer {
         raw: &'a ProtocolObject<dyn MTLBuffer>,
         device_id: u64,
+        ty: ParameterType,
     },
     F32(f32),
     I32(i32),
@@ -30,6 +32,10 @@ impl<'a> Argument<'a> {
             value: Value::Buffer {
                 raw: &buffer.raw,
                 device_id: buffer.device_id,
+                ty: ParameterType::Buffer {
+                    element: T::TYPE,
+                    access: Access::Read,
+                },
             },
             marker: PhantomData,
         }
@@ -50,6 +56,10 @@ impl<'a> Argument<'a> {
             value: Value::Buffer {
                 raw: &buffer.raw,
                 device_id: buffer.device_id,
+                ty: ParameterType::Buffer {
+                    element: T::TYPE,
+                    access: Access::Write,
+                },
             },
             marker: PhantomData,
         }
@@ -80,6 +90,21 @@ impl<'a> Argument<'a> {
         match self.value {
             Value::Buffer { device_id, .. } => Some(device_id),
             _ => None,
+        }
+    }
+
+    pub(super) fn ty(&self) -> ParameterType {
+        match self.value {
+            Value::Buffer { ty, .. } => ty,
+            Value::F32(_) => ParameterType::Scalar {
+                scalar: Scalar::F32,
+            },
+            Value::I32(_) => ParameterType::Scalar {
+                scalar: Scalar::I32,
+            },
+            Value::U32(_) => ParameterType::Scalar {
+                scalar: Scalar::U32,
+            },
         }
     }
 

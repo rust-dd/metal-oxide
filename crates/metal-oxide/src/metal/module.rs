@@ -9,11 +9,13 @@ use objc2_metal::{
 use crate::{Error, Result};
 
 use super::Device;
+use metal_oxide_artifact::{Abi, Manifest};
 
 /// A Metal library loaded independently of Rust compiler internals.
 pub struct Module {
     pub(super) raw: Retained<ProtocolObject<dyn MTLLibrary>>,
     pub(super) device_id: u64,
+    pub(super) abi: Option<Abi>,
     marker: PhantomData<Rc<()>>,
 }
 
@@ -30,6 +32,7 @@ impl Module {
         Ok(Self {
             raw,
             device_id: device.id(),
+            abi: None,
             marker: PhantomData,
         })
     }
@@ -45,6 +48,27 @@ impl Module {
         Ok(Self {
             raw,
             device_id: device.id(),
+            abi: None,
+            marker: PhantomData,
+        })
+    }
+
+    /// Loads a precompiled library after checking its manifest and content hash.
+    pub fn from_artifact(device: &Device, directory: impl AsRef<Path>) -> Result<Self> {
+        let directory = directory.as_ref();
+        let manifest =
+            Manifest::from_json(&std::fs::read_to_string(directory.join("manifest.json"))?)?;
+        let bytes = std::fs::read(directory.join("kernels.metallib"))?;
+        manifest.verify_library(&bytes)?;
+        let data = dispatch2::DispatchData::from_bytes(&bytes);
+        let raw = device
+            .raw
+            .newLibraryWithData_error(&data)
+            .map_err(|error| Error::Library(error.localizedDescription().to_string()))?;
+        Ok(Self {
+            raw,
+            device_id: device.id(),
+            abi: Some(manifest.abi),
             marker: PhantomData,
         })
     }

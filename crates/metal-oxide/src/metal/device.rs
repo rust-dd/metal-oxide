@@ -88,6 +88,7 @@ impl Device {
         if arguments.len() > 31 {
             return Err(Error::TooManyArguments(arguments.len()));
         }
+        pipeline.validate_arguments(config.block, arguments)?;
         config.validate(
             pipeline.max_threads_per_block(),
             self.max_block_dimensions(),

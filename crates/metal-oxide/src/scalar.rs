@@ -1,9 +1,17 @@
 mod sealed {
-    pub trait Sealed {}
+    pub trait Sealed {
+        const TYPE: metal_oxide_artifact::Scalar;
+    }
 
-    impl Sealed for f32 {}
-    impl Sealed for u32 {}
-    impl Sealed for i32 {}
+    impl Sealed for f32 {
+        const TYPE: metal_oxide_artifact::Scalar = metal_oxide_artifact::Scalar::F32;
+    }
+    impl Sealed for u32 {
+        const TYPE: metal_oxide_artifact::Scalar = metal_oxide_artifact::Scalar::U32;
+    }
+    impl Sealed for i32 {
+        const TYPE: metal_oxide_artifact::Scalar = metal_oxide_artifact::Scalar::I32;
+    }
 }
 
 /// Buffer elements with a defined four-byte Metal representation.

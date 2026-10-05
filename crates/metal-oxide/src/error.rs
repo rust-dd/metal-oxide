@@ -17,6 +17,7 @@ pub enum Error {
     Pipeline(String),
     Command(String),
     InvalidPath,
+    Artifact(metal_oxide_artifact::Error),
     Io(std::io::Error),
 }
 
@@ -45,6 +46,7 @@ impl fmt::Display for Error {
             Self::Pipeline(reason) => write!(f, "Metal pipeline error: {reason}"),
             Self::Command(reason) => write!(f, "Metal command failed: {reason}"),
             Self::InvalidPath => write!(f, "Metal library path is not valid UTF-8"),
+            Self::Artifact(error) => write!(f, "kernel artifact error: {error}"),
             Self::Io(error) => error.fmt(f),
         }
     }
@@ -54,8 +56,15 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
+            Self::Artifact(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<metal_oxide_artifact::Error> for Error {
+    fn from(error: metal_oxide_artifact::Error) -> Self {
+        Self::Artifact(error)
     }
 }
 
