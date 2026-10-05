@@ -9,6 +9,11 @@ Read `AGENTS.md` and `docs/memory-model.md`. The current runtime is synchronous,
 thread-confined, and based on `objc2-metal`; Rust kernel compilation is separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
+- Keep classic `MTL*` and planned Metal 4 execution behind the same public API.
+  Select the native path internally from OS/device capabilities; validate artifact
+  requirements separately. Do not retry submitted work through another path.
+  Metal 4 needs explicit residency and synchronization; classic hazard tracking
+  does not apply. Verify each path independently on hardware before enabling it.
 - Keep the public surface small. Add launch helpers, configuration variants, or
   wrapper layers only when a concrete current use case requires them. Prefer one
   clear path for each operation and keep implementation helpers private.

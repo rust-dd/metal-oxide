@@ -43,6 +43,7 @@ The host also accepts `--source PATH` for a generated `kernels.metal` file.
   The GPU tests explicitly use `-C overflow-checks=off` for wrapping integers.
 - MSL and an IR dump are emitted; CLI builds, manifests, and generated bindings
   are M3 work. `cargo metal` currently provides `doctor`.
+- The runtime uses classic `MTL*`; Metal 4 support is planned for M6.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 
