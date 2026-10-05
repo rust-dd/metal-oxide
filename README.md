@@ -3,9 +3,10 @@
 A Metal-first Rust compute compiler for macOS on Apple Silicon, with explicit
 GPU threads, a rustc frontend, an MSL backend, and a separate Rust runtime.
 
-The project is at **M0: runtime foundation**. A Rust host runs a handwritten
-Metal `vec_add` and checks its output. Rust kernel compilation starts at M1;
-there is no Rust-to-MSL compiler in this checkout yet.
+The project is at **M1: Rust frontend**. A separate `no_std` Rust kernel crate
+passes rustc type and borrow checking on a Metal device target. The compiler
+collects typed MIR and concrete device/helper instances. The host runtime runs
+the handwritten Metal `vec_add`; Rust-to-MSL generation is the next milestone.
 
 ## Compiler flow
 
@@ -29,6 +30,49 @@ Rust kernel crate + metal-oxide-device
 M0 provides the runtime and handwritten MSL execution. M1 adds the Rust frontend
 and device target; M2 adds IR and MSL generation. Versioned artifacts and generated
 host bindings follow in M3.
+
+## Rust kernel frontend
+
+The [Rust vec_add](examples/vec-add/kernels/src/lib.rs) uses the device API:
+
+```rust
+use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+
+#[kernel]
+pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32) {
+    let i = block_idx().x * block_dim().x + thread_idx().x;
+    if i < n {
+        unsafe { out.store_unchecked(i, a.load_unchecked(i) + b.load_unchecked(i)) };
+    }
+}
+```
+
+The caller guarantees buffer bounds, non-overlapping output, and one writer per
+index in a one-dimensional launch. Device functions `thread_idx()`, `block_idx()`,
+`block_dim()`, and `grid_dim()` return x/y/z coordinates with CUDA semantics.
+They are compiler builtins and panic if called on the CPU.
+
+The compiler toolchain is pinned separately in
+[rust-toolchain.toml](crates/metal-oxide-compiler/rust-toolchain.toml), after checking
+the actual device and kernel crates with `nightly-2026-10-04`. To run that check:
+
+```sh
+cd crates/metal-oxide-compiler
+cargo test --features rustc-private --locked --target-dir ../../target/compiler
+cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
+```
+
+These tests build matching `core` and `compiler_builtins` metadata with device
+MIR, compile the marker macro for the host, and analyze the separate device and
+kernel crates. They check concrete type/const generic helpers, Rust diagnostics,
+kernel signatures, unsupported calls, and retained overflow assertions. The
+compiler reports entries, parameter types/access, function instances, and typed
+MIR locals; it does not emit MSL or execute Rust kernels yet.
+
+The device target uses 64-bit pointers and `usize`, little-endian layout, and
+`target_env = "metal"`. Its pointer-handle layout is internal compiler metadata;
+host launch bindings will use the explicit artifact ABI. The runtime stays on
+stable Rust and does not link the compiler.
 
 ## Run the runtime example
 
@@ -68,6 +112,8 @@ metadata validation and generated bindings belong to M3.
   checked device/pipeline limits, and synchronous completion/error handling.
   Runtime-selected blocks are also supported. Empty grids are no-ops.
 - `cargo metal doctor`; explicit hardware tests and portable launch checks.
+- A pinned rustc frontend, separate device/kernel crates, typed MIR collection,
+  concrete helper/device instances, and frontend diagnostics.
 
 Kernel launch is `unsafe`: the caller supplies the kernel ABI, memory bounds,
 access modes, and race-freedom contract. See [the memory model](docs/memory-model.md).

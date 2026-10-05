@@ -7,7 +7,8 @@ description: Use when implementing metal-oxide rustc integration, device APIs, M
 
 Read `AGENTS.md`, `docs/architecture.md`, `docs/roadmap.md`, and the relevant
 sections of `docs/supported-rust.md`. Implement the next acceptance criterion;
-create crates when their code is needed. The initial checkout implements M0 only.
+create crates when their code is needed. M0 runtime and M1 frontend are implemented;
+IR/MSL lowering starts in M2.
 
 - Use typed rustc APIs through a pinned `rustc_driver` integration. A kernel
   proc macro marks entries; it does not translate Rust bodies. Do not parse
@@ -24,14 +25,21 @@ create crates when their code is needed. The initial checkout implements M0 only
 - Keep IR/codegen/artifact contracts independent of rustc_private. Track types,
   source locations, address spaces, and resource access explicitly in IR.
 - Keep future device builtins consistent with CUDA thread/block/grid semantics.
-  Metal threadgroups implement blocks. Scalar kernel parameters do not define
-  launch dimensions automatically.
+  Use `thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` with x/y/z
+  fields; Metal threadgroups implement blocks. Scalar kernel parameters do not
+  define launch dimensions automatically.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   assertions, recursion, layouts, and conversions must produce diagnostics.
   Never discard bounds/overflow assertions or silently change semantics.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
 - Keep MSL supported; direct AIR is deferred until measurements justify it.
+
+Run compiler tests and Clippy from `crates/metal-oxide-compiler` with
+`--features rustc-private --locked --target-dir ../../target/compiler`. Its
+dated toolchain is separate from the stable workspace toolchain. The frontend
+tests build matching device `core`/`compiler_builtins` metadata and compile the
+marker macro natively; preserve that target separation.
 
 Use UI diagnostics, IR/MSL checks, ABI validation, and GPU comparisons as the
 implementation reaches those boundaries. The M2 acceptance test must execute

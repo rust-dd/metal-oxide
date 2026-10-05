@@ -1,7 +1,8 @@
 # Contributing
 
 Read [AGENTS.md](AGENTS.md) and the relevant skill under `.agents/skills` before
-changing code. The current implementation scope is M0 in [the roadmap](docs/roadmap.md).
+changing code. M0 runtime and M1 frontend are implemented; M2 compiler lowering
+is next in [the roadmap](docs/roadmap.md).
 
 ## Workspace
 
@@ -15,8 +16,20 @@ also execute the ignored hardware tests on an Apple Silicon machine. Record
 which checks actually ran and their environment. CI compilation is not evidence
 that a GPU kernel executed correctly.
 
-The future compiler needs separate UI diagnostics, IR/MSL codegen checks, ABI
-checks, and hardware comparisons. Unsupported Rust operations must fail with
+Run the compiler checks from `crates/metal-oxide-compiler`, where the dated nightly
+is pinned:
+
+```sh
+cargo test --features rustc-private --locked --target-dir ../../target/compiler
+cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
+```
+
+The frontend tests build matching device `core`/`compiler_builtins` metadata,
+the host marker macro, the device crate, and separate kernels. They inspect
+typed MIR instances and diagnostics; they do not run the Rust kernels on a GPU.
+
+IR/MSL codegen checks, ABI checks, and hardware comparisons follow as lowering
+is implemented. Unsupported Rust operations must fail with
 diagnostics. Do not discard MIR assertions or change numerical semantics to
 make a kernel compile.
 

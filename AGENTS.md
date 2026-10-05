@@ -28,6 +28,8 @@ working features. Add crates and modules when they have an implementation.
 - Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
+- Device builtins use CUDA names: `thread_idx()`, `block_idx()`, `block_dim()`,
+  and `grid_dim()`, returning x/y/z coordinates. Keep them ordinary Rust functions.
 - Keep the public API small and direct. Add types, helpers, options, and alternate
   paths only for a concrete current use case. Keep implementation details private.
 - Prefer one clear way to perform an operation. Avoid wrapper layers and general
@@ -58,3 +60,7 @@ GPU tests are explicit: `cargo test -p metal-oxide --test gpu --locked --
 --ignored --test-threads=1`. State when hardware checks were not run. A skipped
 GPU test is not evidence of correctness. Do not automatically run untrusted PR
 code on a personal or self-hosted runner.
+
+For compiler changes, also run tests and Clippy from `crates/metal-oxide-compiler`
+with `--features rustc-private --locked --target-dir ../../target/compiler`.
+That directory pins the dated nightly; the workspace root stays on stable Rust.
