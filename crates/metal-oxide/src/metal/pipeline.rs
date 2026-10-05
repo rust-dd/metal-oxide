@@ -38,7 +38,7 @@ impl Pipeline {
         self.raw.threadExecutionWidth()
     }
 
-    pub fn max_threads_per_threadgroup(&self) -> usize {
+    pub fn max_threads_per_block(&self) -> usize {
         self.raw.maxTotalThreadsPerThreadgroup()
     }
 }

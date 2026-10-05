@@ -1,6 +1,6 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use metal_oxide::{Argument, Device, Dispatch1d, Module, Pipeline};
+    use metal_oxide::{Argument, Device, LaunchConfig, Module, Pipeline};
 
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let device = Device::system_default()?;
@@ -12,9 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pipeline = Pipeline::new(&device, &module, "vec_add")?;
     println!("Device: {}", device.name());
     println!(
-        "Pipeline: execution width {}, max group size {}",
+        "Pipeline: execution width {}, max threads per block {}",
         pipeline.thread_execution_width(),
-        pipeline.max_threads_per_threadgroup()
+        pipeline.max_threads_per_block()
     );
 
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
@@ -23,12 +23,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let input_a = device.buffer_from_slice(&a)?;
         let input_b = device.buffer_from_slice(&b)?;
         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
+        let block_size = pipeline.thread_execution_width() as u32;
+        let config = LaunchConfig::for_elements(n, block_size)?;
 
         // SAFETY: the reference vec_add ABI uses distinct n-element buffers and one writer per index.
         unsafe {
-            device.dispatch(
+            device.launch(
                 &pipeline,
-                Dispatch1d::new(n),
+                config,
                 &[
                     Argument::read(&input_a),
                     Argument::read(&input_b),
@@ -43,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(format!("vec_add mismatch at n={n}, index={i}").into());
             }
         }
-        println!("vec_add n={n}: verified");
+        println!(
+            "vec_add n={n}: verified ({} blocks x {} threads)",
+            config.grid.x, config.block.x
+        );
     }
     Ok(())
 }

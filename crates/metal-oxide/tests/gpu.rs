@@ -1,42 +1,121 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Device, Dispatch1d, Module, Pipeline};
+use metal_oxide::{Argument, Device, Dim3, LaunchConfig, Module, Pipeline};
 
 const SOURCE: &str = include_str!("../../../examples/vec-add/kernels/vec_add.metal");
+const GEOMETRY_SOURCE: &str = include_str!("kernels/launch_geometry.metal");
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn vec_add_matches_cpu_at_dispatch_boundaries() -> metal_oxide::Result<()> {
+fn vec_add_matches_cpu_and_preserves_padding() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = Module::from_source(&device, SOURCE)?;
     let pipeline = Pipeline::new(&device, &module, "vec_add")?;
 
-    for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
-        let a = (0..n).map(|i| (i % 1024) as f32 * 0.25).collect::<Vec<_>>();
-        let b = (0..n).map(|i| (i % 511) as f32 * -0.5).collect::<Vec<_>>();
-        let input_a = device.buffer_from_slice(&a)?;
-        let input_b = device.buffer_from_slice(&b)?;
-        let mut output = device.buffer_zeroed::<f32>(n as usize)?;
+    for block_size in [pipeline.thread_execution_width() as u32, 256] {
+        for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
+            let storage_len = n as usize + block_size as usize;
+            let a = (0..storage_len)
+                .map(|i| (i % 1024) as f32 * 0.25)
+                .collect::<Vec<_>>();
+            let b = (0..storage_len)
+                .map(|i| (i % 511) as f32 * -0.5)
+                .collect::<Vec<_>>();
+            let input_a = device.buffer_from_slice(&a)?;
+            let input_b = device.buffer_from_slice(&b)?;
+            let sentinel = -8192.0_f32;
+            let mut output = device.buffer_from_slice(&vec![sentinel; storage_len])?;
 
-        // SAFETY: buffers have n elements, distinct allocations, and one writer per index.
-        unsafe {
-            device.dispatch(
-                &pipeline,
-                Dispatch1d::new(n).with_group_width(256),
-                &[
-                    Argument::read(&input_a),
-                    Argument::read(&input_b),
-                    Argument::write(&mut output),
-                    Argument::u32(n),
-                ],
-            )?;
-        }
+            // SAFETY: distinct allocations cover all launched threads; vec_add guards writes at n.
+            unsafe {
+                device.launch(
+                    &pipeline,
+                    LaunchConfig::for_elements(n, block_size)?,
+                    &[
+                        Argument::read(&input_a),
+                        Argument::read(&input_b),
+                        Argument::write(&mut output),
+                        Argument::u32(n),
+                    ],
+                )?;
+            }
 
-        for (i, actual) in output.as_slice().iter().enumerate() {
-            assert_eq!(*actual, a[i] + b[i], "n={n}, index={i}");
+            for (i, actual) in output.as_slice()[..n as usize].iter().enumerate() {
+                assert_eq!(*actual, a[i] + b[i], "n={n}, block={block_size}, index={i}");
+            }
+            assert!(
+                output.as_slice()[n as usize..]
+                    .iter()
+                    .all(|value| *value == sentinel),
+                "padding was written at n={n}, block={block_size}"
+            );
         }
     }
 
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn launch_geometry_matches_cuda_indexing_in_all_dimensions() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let module = Module::from_source(&device, GEOMETRY_SOURCE)?;
+    let pipeline = Pipeline::new(&device, &module, "launch_geometry")?;
+
+    for config in [
+        LaunchConfig::new(Dim3::x(3), Dim3::x(5)),
+        LaunchConfig::new(Dim3::xy(2, 3), Dim3::xy(3, 2)),
+        LaunchConfig::new(Dim3::new(2, 2, 3), Dim3::new(2, 3, 2)),
+    ] {
+        let mut output = device.buffer_zeroed::<u32>(config.total_threads()? as usize * 15)?;
+
+        // SAFETY: each global index owns one 15-word record in the fully sized output allocation.
+        unsafe { device.launch(&pipeline, config, &[Argument::write(&mut output)])? };
+
+        let width = config.grid.x * config.block.x;
+        let height = config.grid.y * config.block.y;
+        for (index, record) in output.as_slice().as_chunks::<15>().0.iter().enumerate() {
+            let x = index as u32 % width;
+            let y = index as u32 / width % height;
+            let z = index as u32 / (width * height);
+            let expected = [
+                x,
+                y,
+                z,
+                x % config.block.x,
+                y % config.block.y,
+                z % config.block.z,
+                x / config.block.x,
+                y / config.block.y,
+                z / config.block.z,
+                config.block.x,
+                config.block.y,
+                config.block.z,
+                config.grid.x,
+                config.grid.y,
+                config.grid.z,
+            ];
+            assert_eq!(*record, expected, "config={config:?}, index={index}");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn empty_grid_leaves_output_untouched_on_every_axis() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let module = Module::from_source(&device, GEOMETRY_SOURCE)?;
+    let pipeline = Pipeline::new(&device, &module, "launch_geometry")?;
+    let sentinel = [0xdead_beef_u32; 15];
+
+    for grid in [Dim3::new(0, 2, 2), Dim3::new(2, 0, 2), Dim3::new(2, 2, 0)] {
+        let mut output = device.buffer_from_slice(&sentinel)?;
+        let config = LaunchConfig::new(grid, Dim3::new(2, 2, 2));
+        // SAFETY: an empty grid executes no shader invocation.
+        unsafe { device.launch(&pipeline, config, &[Argument::write(&mut output)])? };
+        assert_eq!(output.as_slice(), sentinel);
+    }
     Ok(())
 }
 

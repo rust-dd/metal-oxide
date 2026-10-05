@@ -9,7 +9,7 @@ pub enum Error {
     AllocationFailed { bytes: usize },
     BufferTooLarge { bytes: usize, maximum: usize },
     LengthOverflow,
-    InvalidDispatch(&'static str),
+    InvalidLaunch(&'static str),
     TooManyArguments(usize),
     DeviceMismatch,
     Library(String),
@@ -32,7 +32,7 @@ impl fmt::Display for Error {
                 write!(f, "buffer size {bytes} exceeds limit {maximum}")
             }
             Self::LengthOverflow => write!(f, "buffer length overflows the host address range"),
-            Self::InvalidDispatch(reason) => write!(f, "invalid dispatch: {reason}"),
+            Self::InvalidLaunch(reason) => write!(f, "invalid launch: {reason}"),
             Self::TooManyArguments(count) => {
                 write!(f, "{count} arguments exceed the 31 Metal buffer slots")
             }

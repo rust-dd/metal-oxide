@@ -9,7 +9,7 @@ use objc2_metal::{
     MTLComputeCommandEncoder, MTLCreateSystemDefaultDevice, MTLDevice, MTLSize,
 };
 
-use crate::{Dispatch1d, Error, GpuScalar, Result};
+use crate::{Dim3, Error, GpuScalar, LaunchConfig, Result};
 
 use super::{Argument, Buffer, Pipeline};
 
@@ -50,6 +50,12 @@ impl Device {
         Buffer::zeroed(self, len)
     }
 
+    pub fn max_block_dimensions(&self) -> Dim3 {
+        let limits = self.raw.maxThreadsPerThreadgroup();
+        let axis = |value: usize| value.min(u32::MAX as usize) as u32;
+        Dim3::new(axis(limits.width), axis(limits.height), axis(limits.depth))
+    }
+
     pub(super) fn id(&self) -> u64 {
         self.raw.registryID()
     }
@@ -63,10 +69,10 @@ impl Device {
     /// races, and leave valid values in every written element. Its grid must
     /// satisfy all participation and synchronization requirements. The caller
     /// must ensure no external GPU or CPU access conflicts with this submission.
-    pub unsafe fn dispatch(
+    pub unsafe fn launch(
         &self,
         pipeline: &Pipeline,
-        grid: Dispatch1d,
+        config: LaunchConfig,
         arguments: &[Argument<'_>],
     ) -> Result<()> {
         if pipeline.device_id != self.id()
@@ -79,11 +85,11 @@ impl Device {
         if arguments.len() > 31 {
             return Err(Error::TooManyArguments(arguments.len()));
         }
-        let group_width = grid.group_width(
-            pipeline.thread_execution_width(),
-            pipeline.max_threads_per_threadgroup(),
+        config.validate(
+            pipeline.max_threads_per_block(),
+            self.max_block_dimensions(),
         )?;
-        if grid.threads() == 0 {
+        if config.is_empty() {
             return Ok(());
         }
         autoreleasepool(|_| {
@@ -99,17 +105,9 @@ impl Device {
                 // SAFETY: slots and device ownership were checked; the caller supplies the shader contract.
                 unsafe { argument.encode(&encoder, index) };
             }
-            encoder.dispatchThreads_threadsPerThreadgroup(
-                MTLSize {
-                    width: grid.threads() as usize,
-                    height: 1,
-                    depth: 1,
-                },
-                MTLSize {
-                    width: group_width,
-                    height: 1,
-                    depth: 1,
-                },
+            encoder.dispatchThreadgroups_threadsPerThreadgroup(
+                metal_size(config.grid),
+                metal_size(config.block),
             );
             encoder.endEncoding();
             command.commit();
@@ -125,5 +123,13 @@ impl Device {
             }
             Ok(())
         })
+    }
+}
+
+fn metal_size(dimensions: Dim3) -> MTLSize {
+    MTLSize {
+        width: dimensions.x as usize,
+        height: dimensions.y as usize,
+        depth: dimensions.z as usize,
     }
 }

@@ -90,19 +90,19 @@ impl<'a> Argument<'a> {
     ) {
         match &self.value {
             Value::Buffer { raw, .. } => {
-                // SAFETY: dispatch checks the slot and device; its caller guarantees shader access and bounds.
+                // SAFETY: launch checks the slot and device; its caller guarantees shader access and bounds.
                 unsafe { encoder.setBuffer_offset_atIndex(Some(raw), 0, index) };
             }
             Value::F32(value) => {
-                // SAFETY: Metal copies the live scalar immediately; dispatch validates the binding index.
+                // SAFETY: Metal copies the live scalar immediately; launch validates the binding index.
                 unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 4, index) };
             }
             Value::I32(value) => {
-                // SAFETY: Metal copies the live scalar immediately; dispatch validates the binding index.
+                // SAFETY: Metal copies the live scalar immediately; launch validates the binding index.
                 unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 4, index) };
             }
             Value::U32(value) => {
-                // SAFETY: Metal copies the live scalar immediately; dispatch validates the binding index.
+                // SAFETY: Metal copies the live scalar immediately; launch validates the binding index.
                 unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 4, index) };
             }
         }
