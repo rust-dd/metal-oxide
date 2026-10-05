@@ -13,7 +13,7 @@ fn bias<const N: u32>(value: u32) -> u32 {
 
 #[kernel]
 pub unsafe fn helpers(float: WriteBuffer<f32>, integer: WriteBuffer<u32>) {
-    // SAFETY: this fixture is analyzed and never launched.
+    // SAFETY: one thread writes float[grid_dim.x] and integer[0] within caller-provided buffers.
     unsafe {
         float.store_unchecked(grid_dim().x, sum(1.0, 2.0));
         integer.store_unchecked(0, bias::<3>(sum(1, 2)));

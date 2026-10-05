@@ -6,6 +6,7 @@ pub unsafe fn control_flow(out: WriteBuffer<u32>, n: u32) {
     let i = block_idx().x * block_dim().x + thread_idx().x;
     if i >= n { return; }
     let value = compute(i);
+    // SAFETY: the caller supplies n writable elements and a one-dimensional launch.
     unsafe { out.store_unchecked(i, value); }
 }
 

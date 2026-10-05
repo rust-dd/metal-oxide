@@ -14,6 +14,9 @@ rustc-private = []
 metal-oxide-codegen.workspace = true
 metal-oxide-ir.workspace = true
 
+[dev-dependencies]
+metal-oxide.workspace = true
+
 [[bin]]
 name = "metal-oxide-compiler"
 path = "src/main.rs"
@@ -27,6 +30,11 @@ required-features = ["rustc-private"]
 [[test]]
 name = "ir"
 path = "tests/ir.rs"
+required-features = ["rustc-private"]
+
+[[test]]
+name = "gpu"
+path = "tests/gpu.rs"
 required-features = ["rustc-private"]
 
 [[test]]

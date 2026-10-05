@@ -35,6 +35,7 @@ dependencies = [
 name = "metal-oxide-compiler"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "metal-oxide",
  "metal-oxide-codegen",
  "metal-oxide-ir",
 ]
