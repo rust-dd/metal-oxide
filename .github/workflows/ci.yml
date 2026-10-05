@@ -31,3 +31,22 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Portable tests and compile-fail examples
         run: cargo test --workspace --locked
+
+  compiler:
+    name: Rust frontend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: crates/metal-oxide-compiler
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install compiler toolchain
+        run: rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools --component clippy --component rustfmt
+      - name: Compiler Clippy
+        run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
+      - name: Device frontend and diagnostics
+        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler
