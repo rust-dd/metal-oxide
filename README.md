@@ -41,8 +41,9 @@ metadata validation and generated bindings belong to M3.
 - Owned, initialized shared buffers of `f32`, `u32`, and `i32`.
 - Read and exclusive write argument borrows, plus explicit four-byte scalars.
 - Source and `.metallib` library loading; compute pipeline creation.
-- CUDA-style grid/block launches in 1D/2D/3D, checked device/pipeline limits,
-  and synchronous completion/error handling. Empty grids are no-ops.
+- CUDA-style 1D/2D/3D launches with const-generic block shapes, runtime grids,
+  checked device/pipeline limits, and synchronous completion/error handling.
+  Runtime-selected blocks are also supported. Empty grids are no-ops.
 - `cargo metal doctor`; explicit hardware tests and portable launch checks.
 
 Kernel launch is `unsafe`: the caller supplies the kernel ABI, memory bounds,
@@ -51,26 +52,36 @@ The runtime has no dependency on rustc internals.
 
 ## Launch geometry
 
-`grid` counts blocks and `block` counts threads per block, as in CUDA. Each
-Metal threadgroup implements one block. The runtime uses `dispatchThreadgroups`.
+`grid` counts blocks, as in CUDA. Block dimensions are const generics on
+`LaunchConfig<X, Y, Z>`; Y and Z default to one. Each Metal threadgroup implements
+one block. The runtime uses `dispatchThreadgroups`.
 
 ```rust
 use metal_oxide::{Dim3, LaunchConfig};
 
-let config = LaunchConfig {
-    grid: Dim3::new(4, 1, 1),
-    block: Dim3::new(256, 1, 1),
-};
+let config = LaunchConfig::<256>::new(Dim3::x(4));
+let tiled = LaunchConfig::<16, 16>::new(Dim3::xy(2, 3));
 ```
 
-This launches 4 blocks of 256 threads, or 1024 threads total. `Device::launch`
+`config` launches 4 blocks of 256 threads, or 1024 threads total. `tiled` launches
+a 2-by-3 grid of 16-by-16 blocks. `Device::launch`
 takes the pipeline, this configuration, and the `Argument` list. Block dimensions
 are checked against device axis limits and the pipeline's total block limit.
+The compile-time shape is available as `LaunchConfig::<256>::BLOCK`.
 
-For a one-dimensional element range, `LaunchConfig::for_elements(n, block_size)?`
+For a one-dimensional element range, `LaunchConfig::<256>::for_elements(n)?`
 rounds up to complete blocks. For example, 1000 elements with a block size of 256
 launch 1024 threads; the kernel's `i < n` condition guards the extra 24 threads.
-The example chooses its block size from the pipeline's execution width.
+The example uses a const block size of 256 and checks it against pipeline limits.
+
+Use `DynamicLaunchConfig::new(grid, block)` or
+`DynamicLaunchConfig::for_elements(n, block_size)?` for runtime-selected block
+sizes, such as values from `Pipeline::thread_execution_width()`. `Device::launch`
+accepts both configuration types and applies the same validation.
+
+Const block dimensions specialize the Rust configuration type. They do not
+specialize handwritten MSL. The planned Rust compiler will carry block constants
+into kernel variants and generate bindings that enforce the matching shape.
 
 `Dim3::x(count)` and `Dim3::xy(width, height)` are shortcuts for one- and
 two-dimensional shapes. General 2D/3D launches need kernels that use matching
@@ -101,5 +112,6 @@ Project development skills live in [.agents/skills](.agents/skills).
 - [Apple: precompiling shader libraries](https://developer.apple.com/documentation/metal/building-a-shader-library-by-precompiling-source-files).
 - [objc2-metal: binding safety requirements](https://docs.rs/objc2-metal/0.3.2/objc2_metal/).
 - [cuda-oxide](https://github.com/NVIDIA/cuda-rust), a reference for Rust GPU compilation.
+- [NVIDIA CCCL: compile-time launch configuration](https://developer.nvidia.com/blog/cccl-runtime-a-modern-c-runtime-for-cuda/).
 
 MIT licensed.
