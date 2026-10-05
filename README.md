@@ -41,13 +41,40 @@ metadata validation and generated bindings belong to M3.
 - Owned, initialized shared buffers of `f32`, `u32`, and `i32`.
 - Read and exclusive write argument borrows, plus explicit four-byte scalars.
 - Source and `.metallib` library loading; compute pipeline creation.
-- One-dimensional synchronous dispatch, pipeline-derived limits, and command
-  completion/error checks. Empty grids are no-ops.
-- `cargo metal doctor`; explicit hardware tests and portable dispatch checks.
+- CUDA-style grid/block launches in 1D/2D/3D, checked device/pipeline limits,
+  and synchronous completion/error handling. Empty grids are no-ops.
+- `cargo metal doctor`; explicit hardware tests and portable launch checks.
 
 Kernel launch is `unsafe`: the caller supplies the kernel ABI, memory bounds,
 access modes, and race-freedom contract. See [the memory model](docs/memory-model.md).
 The runtime has no dependency on rustc internals.
+
+## Launch geometry
+
+`grid` counts blocks and `block` counts threads per block, as in CUDA. Each
+Metal threadgroup implements one block. The runtime uses `dispatchThreadgroups`.
+
+```rust
+use metal_oxide::{Dim3, LaunchConfig};
+
+let config = LaunchConfig {
+    grid: Dim3::new(4, 1, 1),
+    block: Dim3::new(256, 1, 1),
+};
+```
+
+This launches 4 blocks of 256 threads, or 1024 threads total. `Device::launch`
+takes the pipeline, this configuration, and the `Argument` list. Block dimensions
+are checked against device axis limits and the pipeline's total block limit.
+
+For a one-dimensional element range, `LaunchConfig::for_elements(n, block_size)?`
+rounds up to complete blocks. For example, 1000 elements with a block size of 256
+launch 1024 threads; the kernel's `i < n` condition guards the extra 24 threads.
+The example chooses its block size from the pipeline's execution width.
+
+`Dim3::x(count)` and `Dim3::xy(width, height)` are shortcuts for one- and
+two-dimensional shapes. General 2D/3D launches need kernels that use matching
+coordinates; the reference `vec_add` uses a one-dimensional grid and block.
 
 ## Checks
 
@@ -61,8 +88,9 @@ cargo test --package metal-oxide --test gpu --locked -- --ignored --test-threads
 The ordinary test command does not execute hardware tests. The last command
 requires a real Apple Silicon Metal device.
 
-M0 source execution was verified on Apple M4 Max, macOS 26.2, Xcode 26.6, and
-Rust 1.99.0. Broader device and toolchain compatibility is not yet established.
+M0 source execution and 1D/2D/3D block/thread indexing were verified on Apple
+M4 Max, macOS 26.2, Xcode 26.6, and Rust 1.99.0. Broader device and toolchain
+compatibility is not yet established.
 
 See [the roadmap](docs/roadmap.md), [architecture](docs/architecture.md),
 [supported Rust](docs/supported-rust.md), and [contributing guide](CONTRIBUTING.md).
