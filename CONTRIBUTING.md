@@ -1,8 +1,7 @@
 # Contributing
 
 Read [AGENTS.md](AGENTS.md) and the relevant skill under `.agents/skills` before
-changing code. M0 runtime, M1 frontend, and M2 IR/MSL lowering are implemented;
-M3 artifact integration is next.
+changing code.
 
 ## Workspace
 
@@ -13,6 +12,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo test --package metal-oxide --test gpu --locked -- --ignored --test-threads=1
+cargo metal test -p vec-add
 ```
 
 Ordinary tests leave hardware checks ignored. Keep dependencies centralized and
@@ -33,7 +33,7 @@ cargo test --features rustc-private --locked --target-dir ../../target/compiler
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
 ```
 
-The compiler tests build matching device `core`/`compiler_builtins` metadata,
+Compiler tests require `clang++`. They build matching device `core`/`compiler_builtins` metadata,
 the host marker macro, the device crate, and separate kernels. Portable tests
 check MIR/IR diagnostics and execute the emitted MSL subset with `clang++` and
 a test-only Metal header shim. GPU execution requires the explicit command:

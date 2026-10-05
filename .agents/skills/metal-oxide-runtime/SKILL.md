@@ -35,6 +35,9 @@ Rust kernel compilation is separate.
 - A launch checks device ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
+- Artifact loading validates the ABI version, requirements, and library digest.
+  Load the verified bytes rather than reopening their path. Check argument types,
+  access modes, and any required block shape before encoding a launch.
 - Keep launches unsafe until all kernel-specific ABI, bounds, access, and race
   preconditions are proved by the API. Document the actual caller obligations.
 - Keep fast math explicit. Source compilation uses safe math and precise

@@ -8,8 +8,6 @@ description: Use when implementing metal-oxide rustc integration, device APIs, M
 Read `AGENTS.md`. When available locally, also read `docs/architecture.md`,
 `docs/roadmap.md`, and relevant sections of `docs/supported-rust.md`.
 Implement the next acceptance criterion; create crates when their code is needed.
-M0 runtime, M1 frontend, and M2 IR/MSL
-lowering are implemented. Artifact integration starts in M3.
 
 - Use typed rustc APIs through a pinned `rustc_driver` integration. A kernel
   proc macro marks entries; it does not translate Rust bodies. Do not parse
@@ -43,7 +41,7 @@ tests build matching device `core`/`compiler_builtins` metadata and compile the
 marker macro natively; preserve that target separation.
 
 Use UI diagnostics, IR/MSL checks, ABI validation, and GPU comparisons as the
-implementation reaches those boundaries. The M2 acceptance test must execute
+implementation reaches those boundaries. Generated-kernel acceptance tests must execute
 MSL generated from the separate Rust kernel crate. A handwritten replacement,
 synthetic IR example, or MIR dump does not satisfy that criterion.
 
@@ -53,6 +51,6 @@ Run generated-kernel hardware tests from the compiler directory with
 preserve enabled/always-on assertions as errors. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
 
-At M3, include sources/dependencies, compiler/Rust/Metal/SDK versions, target
+Include sources/dependencies, compiler/Rust/Metal/SDK versions, target
 settings, and numerical options in artifact cache identity. Report the milestone
 actually completed and keep planned APIs clearly marked.

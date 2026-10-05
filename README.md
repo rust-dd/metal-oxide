@@ -5,31 +5,38 @@ Rust compute kernels for Metal on Apple Silicon.
 ## Compiler flow
 
 ```text
-Rust kernel → rustc → MIR → metal-oxide IR → MSL → Metal compiler → GPU
-Rust host   → metal-oxide runtime → buffers, pipeline, launch
+Rust kernel → rustc → MIR → metal-oxide IR → MSL → Metal compiler → .metallib
+                                   └──────→ ABI + host bindings + manifest
+Rust host → generated bindings → metal-oxide runtime → GPU
 ```
 
 The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
 Launches follow CUDA's thread/block/grid model. Kernel launch is currently unsafe.
 
-## Run
+## Build and run
 
-Requires macOS 15+ on Apple Silicon. Compiler tests also require `clang++`.
+Requires macOS 15+ on Apple Silicon and Xcode with the Metal Toolchain.
 
-Compile the Rust kernels and check their results on the GPU:
-
-```sh
-cd crates/metal-oxide-compiler
-cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler -- --ignored --test-threads=1
-```
-
-From the repository root, run the handwritten MSL reference:
+From the repository root:
 
 ```sh
-cargo run --package vec-add --locked
+rustup toolchain install nightly-2026-10-04 --component rustc-dev --component rust-src --component llvm-tools
+xcodebuild -downloadComponent MetalToolchain
+cargo install --path crates/cargo-metal --locked
+cargo metal doctor
+cargo metal run -p vec-add
 ```
 
-The host also accepts `--source PATH` for a generated `kernels.metal` file.
+Inspect the generated MSL or run the GPU tests:
+
+```sh
+cargo metal inspect -p vec-add --emit msl
+cargo metal test -p vec-add
+```
+
+The host selects its kernel crate with `[package.metadata.metal]` and
+`kernels = "../kernels/Cargo.toml"`. Builds write the library, manifest, and
+bindings under `target/metal/<build-hash>/`.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 
