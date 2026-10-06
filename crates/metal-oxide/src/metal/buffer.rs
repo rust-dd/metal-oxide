@@ -5,7 +5,12 @@ use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 
 use crate::{Error, GpuScalar, Result};
 
-use super::Device;
+use super::{Device, completion::AccessState};
+
+pub(super) struct Resource {
+    pub(super) raw: Retained<ProtocolObject<dyn MTLBuffer>>,
+    pub(super) access: Rc<AccessState>,
+}
 
 /// Owned, initialized shared storage. CPU slices cannot outlive the buffer.
 ///
@@ -20,6 +25,7 @@ use super::Device;
 pub struct Buffer<T: GpuScalar> {
     pub(super) raw: Retained<ProtocolObject<dyn MTLBuffer>>,
     pub(super) device_id: u64,
+    pub(super) access: Rc<AccessState>,
     len: usize,
     marker: PhantomData<(T, Rc<()>)>,
 }
@@ -57,6 +63,7 @@ impl<T: GpuScalar> Buffer<T> {
         Ok(Self {
             raw,
             device_id: device.id(),
+            access: Rc::new(AccessState::default()),
             len,
             marker: PhantomData,
         })
@@ -71,11 +78,13 @@ impl<T: GpuScalar> Buffer<T> {
     }
 
     pub fn as_slice(&self) -> &[T] {
-        // SAFETY: storage is initialized and aligned for T; every GPU submission completes before returning.
+        self.access.synchronize();
+        // SAFETY: storage is initialized and aligned for T; all pending GPU accesses completed.
         unsafe { std::slice::from_raw_parts(self.raw.contents().cast::<T>().as_ptr(), self.len) }
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.access.synchronize();
         // SAFETY: the exclusive borrow prevents other CPU access and overlapping GPU argument borrows.
         unsafe {
             std::slice::from_raw_parts_mut(self.raw.contents().cast::<T>().as_ptr(), self.len)

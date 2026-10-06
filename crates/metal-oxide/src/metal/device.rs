@@ -1,22 +1,26 @@
-use std::{marker::PhantomData, rc::Rc};
+use std::{
+    marker::PhantomData,
+    rc::Rc,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_metal::{
-    MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue,
-    MTLComputeCommandEncoder, MTLCreateSystemDefaultDevice, MTLDevice, MTLSize,
-};
+use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice};
 
 use crate::{Dim3, DynamicLaunchConfig, Error, GpuScalar, Result};
 
-use super::{Argument, Buffer, Pipeline};
+use super::{Argument, Batch, Buffer, Pipeline, Submission};
 
-/// A Metal device and a synchronous command queue confined to one host thread.
+static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A Metal device and an ordered command queue confined to one host thread.
 pub struct Device {
     pub(super) raw: Retained<ProtocolObject<dyn MTLDevice>>,
-    queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    pub(super) queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    id: u64,
     marker: PhantomData<Rc<()>>,
 }
 
@@ -29,9 +33,13 @@ impl Device {
         let queue = raw
             .newCommandQueue()
             .ok_or_else(|| Error::Command("could not create queue".into()))?;
+        let id = NEXT_DEVICE_ID
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| Error::Command("device identity space exhausted".into()))?;
         Ok(Self {
             raw,
             queue,
+            id,
             marker: PhantomData,
         })
     }
@@ -57,7 +65,41 @@ impl Device {
     }
 
     pub(super) fn id(&self) -> u64 {
-        self.raw.registryID()
+        self.id
+    }
+
+    /// Encodes and commits an ordered batch without waiting for the GPU.
+    ///
+    /// Returning an encoding error discards the entire batch. Captured borrows
+    /// remain attached to the submission; dropping it does not cancel GPU work.
+    ///
+    /// ```compile_fail
+    /// use metal_oxide::{Argument, Device, Dim3, LaunchConfig, Pipeline};
+    /// fn check(device: &Device, pipeline: &Pipeline) {
+    ///     let mut output = device.buffer_zeroed::<u32>(32).unwrap();
+    ///     let submission = unsafe { device.submit(|batch| {
+    ///         batch.launch(pipeline, LaunchConfig::<32>::new(Dim3::x(1)),
+    ///             &[Argument::write(&mut output)])
+    ///     }) }.unwrap();
+    ///     let values = output.as_slice();
+    ///     submission.wait().unwrap();
+    ///     println!("{}", values.len());
+    /// }
+    /// ```
+    ///
+    /// # Safety
+    ///
+    /// Every encoded kernel must satisfy `Device::launch`'s safety contract.
+    /// Accesses to resources across kernels must respect the encoded order.
+    pub unsafe fn submit<'a>(
+        &'a self,
+        encode: impl FnOnce(&mut Batch<'_>) -> Result<()> + 'a,
+    ) -> Result<Submission<'a>> {
+        autoreleasepool(|_| {
+            let mut batch = Batch::new(self)?;
+            encode(&mut batch)?;
+            Ok(batch.commit())
+        })
     }
 
     /// Encodes the kernel, waits for completion, then checks command status.
@@ -77,63 +119,7 @@ impl Device {
         config: impl Into<DynamicLaunchConfig>,
         arguments: &[Argument<'_>],
     ) -> Result<()> {
-        let config = config.into();
-        if pipeline.device_id != self.id()
-            || arguments
-                .iter()
-                .any(|a| a.device_id().is_some_and(|id| id != self.id()))
-        {
-            return Err(Error::DeviceMismatch);
-        }
-        if arguments.len() > 31 {
-            return Err(Error::TooManyArguments(arguments.len()));
-        }
-        pipeline.validate_arguments(config.block, arguments)?;
-        config.validate(
-            pipeline.max_threads_per_block(),
-            self.max_block_dimensions(),
-        )?;
-        if config.is_empty() {
-            return Ok(());
-        }
-        autoreleasepool(|_| {
-            let command = self
-                .queue
-                .commandBuffer()
-                .ok_or_else(|| Error::Command("could not create command buffer".into()))?;
-            let encoder = command
-                .computeCommandEncoder()
-                .ok_or_else(|| Error::Command("could not create compute encoder".into()))?;
-            encoder.setComputePipelineState(&pipeline.raw);
-            for (index, argument) in arguments.iter().enumerate() {
-                // SAFETY: slots and device ownership were checked; the caller supplies the shader contract.
-                unsafe { argument.encode(&encoder, index) };
-            }
-            encoder.dispatchThreadgroups_threadsPerThreadgroup(
-                metal_size(config.grid),
-                metal_size(config.block),
-            );
-            encoder.endEncoding();
-            command.commit();
-            command.waitUntilCompleted();
-            if command.status() != MTLCommandBufferStatus::Completed {
-                let reason = command
-                    .error()
-                    .map(|e| e.localizedDescription().to_string())
-                    .unwrap_or_else(|| {
-                        format!("unexpected command status: {:?}", command.status())
-                    });
-                return Err(Error::Command(reason));
-            }
-            Ok(())
-        })
-    }
-}
-
-fn metal_size(dimensions: Dim3) -> MTLSize {
-    MTLSize {
-        width: dimensions.x as usize,
-        height: dimensions.y as usize,
-        depth: dimensions.z as usize,
+        // SAFETY: this method forwards the caller's kernel contract to the batch.
+        unsafe { self.submit(|batch| batch.launch(pipeline, config, arguments))? }.wait()
     }
 }

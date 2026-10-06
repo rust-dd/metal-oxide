@@ -1,16 +1,17 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
-use objc2::runtime::ProtocolObject;
+use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder};
 
 use crate::{GpuAtomic, GpuScalar};
 use metal_oxide_artifact::{Access, ParameterType, Scalar};
 
-use super::Buffer;
+use super::{Buffer, buffer::Resource, completion::AccessState};
 
 enum Value<'a> {
     Buffer {
-        raw: &'a ProtocolObject<dyn MTLBuffer>,
+        raw: &'a Retained<ProtocolObject<dyn MTLBuffer>>,
+        state: &'a Rc<AccessState>,
         device_id: u64,
         ty: ParameterType,
     },
@@ -33,6 +34,7 @@ impl<'a> Argument<'a> {
         Self {
             value: Value::Buffer {
                 raw: &buffer.raw,
+                state: &buffer.access,
                 device_id: buffer.device_id,
                 ty: ParameterType::Buffer {
                     element: T::TYPE,
@@ -47,6 +49,7 @@ impl<'a> Argument<'a> {
         Self {
             value: Value::Buffer {
                 raw: &buffer.raw,
+                state: &buffer.access,
                 device_id: buffer.device_id,
                 ty: ParameterType::Buffer {
                     element: T::TYPE,
@@ -71,6 +74,7 @@ impl<'a> Argument<'a> {
         Self {
             value: Value::Buffer {
                 raw: &buffer.raw,
+                state: &buffer.access,
                 device_id: buffer.device_id,
                 ty: ParameterType::Buffer {
                     element: T::TYPE,
@@ -118,6 +122,16 @@ impl<'a> Argument<'a> {
     pub(super) fn device_id(&self) -> Option<u64> {
         match self.value {
             Value::Buffer { device_id, .. } => Some(device_id),
+            _ => None,
+        }
+    }
+
+    pub(super) fn resource(&self) -> Option<Resource> {
+        match &self.value {
+            Value::Buffer { raw, state, .. } => Some(Resource {
+                raw: (*raw).clone(),
+                access: Rc::clone(state),
+            }),
             _ => None,
         }
     }

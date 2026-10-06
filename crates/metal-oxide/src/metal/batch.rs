@@ -1,0 +1,112 @@
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
+
+use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2_metal::{MTLComputePipelineState, MTLSize};
+
+use super::{
+    Argument, Device, Pipeline, Submission, buffer::Resource, classic::ClassicBatch,
+    completion::Completion,
+};
+use crate::{Dim3, DynamicLaunchConfig, Error, Result};
+
+/// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
+pub struct Batch<'d> {
+    device: &'d Device,
+    native: ClassicBatch,
+    resources: Vec<Resource>,
+    pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+    dispatches: usize,
+}
+
+impl<'d> Batch<'d> {
+    pub(super) fn new(device: &'d Device) -> Result<Self> {
+        Ok(Self {
+            device,
+            native: ClassicBatch::new(&device.queue)?,
+            resources: Vec::new(),
+            pipelines: Vec::new(),
+            dispatches: 0,
+        })
+    }
+
+    /// Encodes a kernel after preceding kernels in this batch.
+    ///
+    /// # Safety
+    ///
+    /// The arguments, bounds, access modes, and participation rules must satisfy
+    /// `Device::launch`'s contract. No external accesses may conflict with this batch.
+    pub unsafe fn launch(
+        &mut self,
+        pipeline: &Pipeline,
+        config: impl Into<DynamicLaunchConfig>,
+        arguments: &[Argument<'_>],
+    ) -> Result<()> {
+        let config = config.into();
+        if pipeline.device_id != self.device.id()
+            || arguments
+                .iter()
+                .any(|a| a.device_id().is_some_and(|id| id != self.device.id()))
+        {
+            return Err(Error::DeviceMismatch);
+        }
+        if arguments.len() > 31 {
+            return Err(Error::TooManyArguments(arguments.len()));
+        }
+        pipeline.validate_arguments(config.block, arguments)?;
+        config.validate(
+            pipeline.max_threads_per_block(),
+            self.device.max_block_dimensions(),
+        )?;
+        if config.is_empty() {
+            return Ok(());
+        }
+        for argument in arguments {
+            if let Some(resource) = argument.resource()
+                && !self
+                    .resources
+                    .iter()
+                    .any(|existing| Rc::ptr_eq(&existing.access, &resource.access))
+            {
+                self.resources.push(resource);
+            }
+        }
+        self.pipelines.push(pipeline.raw.clone());
+        // SAFETY: validation passed; the submit caller provides the shader safety contract.
+        unsafe {
+            self.native
+                .launch(pipeline, config, arguments, self.dispatches != 0)
+        };
+        self.dispatches += 1;
+        Ok(())
+    }
+
+    pub(super) fn commit<'a>(self) -> Submission<'a> {
+        let completion = Arc::new(Completion::default());
+        if self.dispatches == 0 {
+            completion.finish(Ok(()));
+        } else {
+            for resource in &self.resources {
+                resource.access.register(&completion);
+            }
+            let buffers = self
+                .resources
+                .into_iter()
+                .map(|resource| resource.raw)
+                .collect();
+            self.native
+                .commit(Arc::clone(&completion), buffers, self.pipelines);
+        }
+        Submission {
+            completion,
+            marker: PhantomData,
+        }
+    }
+}
+
+pub(super) fn metal_size(dimensions: Dim3) -> MTLSize {
+    MTLSize {
+        width: dimensions.x as usize,
+        height: dimensions.y as usize,
+        depth: dimensions.z as usize,
+    }
+}

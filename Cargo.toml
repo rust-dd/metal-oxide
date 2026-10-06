@@ -25,6 +25,7 @@ rust-version = "1.99"
 version = "0.1.0-alpha.1"
 
 [workspace.dependencies]
+block2 = "0.6.2"
 dispatch2 = "0.3.1"
 metal-oxide = { path = "crates/metal-oxide" }
 metal-oxide-artifact = { path = "crates/metal-oxide-artifact" }
@@ -34,7 +35,7 @@ metal-oxide-ir = { path = "crates/metal-oxide-ir" }
 metal-oxide-macros = { path = "crates/metal-oxide-macros" }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }
-objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes", "dispatch2", "std"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["MTLAllocation", "MTLBuffer", "MTLCommandBuffer", "MTLCommandEncoder", "MTLCommandQueue", "MTLComputeCommandEncoder", "MTLComputePipeline", "MTLDevice", "MTLLibrary", "MTLResource", "MTLTypes", "block2", "dispatch2", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"

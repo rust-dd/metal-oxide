@@ -1,4 +1,4 @@
-//! Typed buffers and synchronous Metal compute on Apple Silicon.
+//! Typed buffers and Metal compute on Apple Silicon.
 
 mod error;
 mod launch;
@@ -12,4 +12,4 @@ pub use scalar::{GpuAtomic, GpuScalar};
 mod metal;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use metal::{Argument, Buffer, Device, Module, Pipeline};
+pub use metal::{Argument, Batch, Buffer, Device, Module, Pipeline, Submission};

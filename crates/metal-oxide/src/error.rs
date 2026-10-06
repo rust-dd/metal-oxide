@@ -39,7 +39,7 @@ impl fmt::Display for Error {
             }
             Self::DeviceMismatch => write!(
                 f,
-                "pipeline, module, and buffers must belong to the same Metal device"
+                "pipeline, module, and buffers must belong to the same Metal device context"
             ),
             Self::Library(reason) => write!(f, "Metal library error: {reason}"),
             Self::KernelNotFound(name) => write!(f, "Metal kernel {name:?} was not found"),
