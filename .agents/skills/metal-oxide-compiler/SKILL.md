@@ -23,7 +23,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   or validate a dynamic shape. Host const generics alone do not specialize MSL.
 - Keep IR/codegen/artifact contracts independent of rustc_private. Track types,
   source locations, address spaces, and resource access explicitly in IR.
-- Keep future device builtins consistent with CUDA thread/block/grid semantics.
+- Keep device builtins consistent with CUDA thread/block/grid semantics.
   Use `thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` with x/y/z
   fields; Metal threadgroups implement blocks. Scalar kernel parameters do not
   define launch dimensions automatically.
@@ -32,6 +32,14 @@ Implement the next acceptance criterion; create crates when their code is needed
   Never discard bounds/overflow assertions or silently change semantics.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
+- Device records contain owned scalar fields; keep their internal shape separate
+  from the host ABI. Cross-crate helpers require matching encoded MIR. Preserve
+  concrete type/const instances instead of emitting their generic definitions.
+- Validate cooperative participation transitively through helpers. Varying
+  branches, early returns, and loops must not bypass required barriers or SIMD
+  collectives. Threadgroup allocations have distinct storage per callsite.
+- Emit synchronous and `enqueue_` bindings from the same ABI. Enqueue methods
+  target `Batch`, and enforce the same const block shape and parameter types.
 - Keep MSL supported; direct AIR is deferred until measurements justify it.
 
 Run compiler tests and Clippy from `crates/metal-oxide-compiler` with
@@ -50,6 +58,10 @@ Run generated-kernel hardware tests from the compiler directory with
 -- --ignored --test-threads=1`. Tests explicitly select wrapping integers;
 preserve enabled/always-on assertions as errors. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
+
+`bash scripts/test-gpu.sh` from the root verifies both native runtime APIs and
+offline artifacts. The `pipeline` example covers external struct helpers,
+const specializations, async binding calls, and ordered kernel chains.
 
 Include sources/dependencies, compiler/Rust/Metal/SDK versions, target
 settings, and numerical options in artifact cache identity. Report the milestone

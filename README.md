@@ -11,7 +11,9 @@ Rust host → generated bindings → metal-oxide runtime → GPU
 ```
 
 The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
-Launches follow CUDA's thread/block/grid model. Kernel launch is currently unsafe.
+Launches follow CUDA's thread/block/grid model. Kernel launches are unsafe.
+The runtime selects Metal 4 on macOS 26 with a compatible GPU and classic Metal
+otherwise. `Device::submit` encodes ordered kernel batches that can be awaited.
 
 ## Build and run
 
@@ -25,6 +27,9 @@ xcodebuild -downloadComponent MetalToolchain
 cargo install --path crates/cargo-metal --locked
 cargo metal doctor
 cargo metal run -p vec-add
+cargo metal run -p reduction
+cargo metal run -p matmul
+cargo metal run -p pipeline
 ```
 
 Inspect the generated MSL or run the GPU tests:
@@ -32,6 +37,7 @@ Inspect the generated MSL or run the GPU tests:
 ```sh
 cargo metal inspect -p vec-add --emit msl
 cargo metal test -p vec-add
+bash scripts/test-gpu.sh
 ```
 
 The host selects its kernel crate with `[package.metadata.metal]` and

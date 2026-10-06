@@ -11,8 +11,7 @@ From the repository root, run:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo test --package metal-oxide --test gpu --locked -- --ignored --test-threads=1
-cargo metal test -p vec-add
+bash scripts/test-gpu.sh
 ```
 
 Ordinary tests leave hardware checks ignored. Keep dependencies centralized and
@@ -33,18 +32,17 @@ cargo test --features rustc-private --locked --target-dir ../../target/compiler
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
 ```
 
-Compiler tests require `clang++`. They build matching device `core`/`compiler_builtins` metadata,
-the host marker macro, the device crate, and separate kernels. Portable tests
+Compiler tests require `clang++`. They build matching device
+`core`/`compiler_builtins` metadata, the host marker macro, the device crate,
+and separate kernels. Portable tests
 check MIR/IR diagnostics and execute the emitted MSL subset with `clang++` and
-a test-only Metal header shim. GPU execution requires the explicit command:
+a test-only Metal header shim.
 
-```sh
-cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler -- --ignored --test-threads=1
-```
-
-These hardware tests load the exact compiler output through the runtime and
-compare results with CPU references. Unsupported Rust operations must fail with
-diagnostics. Do not discard MIR assertions or change numerical semantics to
+These hardware tests select classic Metal and Metal 4 independently, load the
+exact compiler output, and compare results with CPU and MSL references. They also
+test async kernel chains, cancelled submissions, and generated bindings.
+Unsupported Rust operations must fail with diagnostics. Do not discard MIR
+assertions or change numerical semantics to
 make a kernel compile.
 
 ## API design
@@ -82,4 +80,5 @@ narration.
 Keep portable checks separate from explicit GPU checks. Use a hardware runner
 only after verifying its actual Metal device. Do not automatically execute
 untrusted PR code on a personal or self-hosted runner. No hardware runner is
-configured in this repository yet.
+registered yet. The manual GPU workflow runs only `main` on a verified runner
+labelled `metal-oxide-gpu`; it has no pull-request trigger.

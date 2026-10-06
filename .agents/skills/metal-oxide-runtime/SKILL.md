@@ -6,11 +6,11 @@ description: Use when changing metal-oxide Metal device, buffer, library, pipeli
 # Runtime changes
 
 Read `AGENTS.md` and, when available locally, `docs/memory-model.md`.
-The current runtime is synchronous, thread-confined, and based on `objc2-metal`;
-Rust kernel compilation is separate.
+The runtime is thread-confined and based on `objc2-metal`. It supports synchronous
+launches and async ordered batches; Rust kernel compilation is separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
-- Keep classic `MTL*` and planned Metal 4 execution behind the same public API.
+- Keep classic `MTL*` and Metal 4 execution behind the same public API.
   Select the native path internally from OS/device capabilities; validate artifact
   requirements separately. Do not retry submitted work through another path.
   Metal 4 needs explicit residency and synchronization; classic hazard tracking
@@ -21,8 +21,10 @@ Rust kernel compilation is separate.
 - Preserve initialized owned buffers and the sealed scalar boundary. Do not
   expose raw Metal handles or add Clone/Send/Sync without revisiting aliasing and
   resource ownership.
-- Input arguments hold shared borrows; writes hold exclusive borrows until GPU
-  completion. Keep the full-buffer mutable slice on the host side only.
+- Input arguments hold shared borrows; writes hold exclusive borrows. Submission
+  lifetimes retain captured borrows until wait/await completes or the future is
+  dropped. Pending buffer access state still synchronizes CPU slices after
+  cancellation or `mem::forget`. Keep mutable slices on the host side only.
 - Use `Device::launch` with `LaunchConfig<X, Y, Z>`: const block dimensions and
   a runtime `grid: Dim3`. Y and Z default to one; `for_elements` is a 1D helper.
   Keep the block shape in the type, without a mutable runtime copy. Use
@@ -32,7 +34,7 @@ Rust kernel compilation is separate.
 - Const host configuration does not specialize handwritten MSL. Keep shader
   shape assumptions in the unsafe caller contract until generated bindings and
   artifact metadata can enforce them for specialized Rust kernels.
-- A launch checks device ownership, binding slots, device axis limits, pipeline
+- A launch checks queue-context ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
 - Artifact loading validates the ABI version, requirements, and library digest.
@@ -52,6 +54,14 @@ configurations when changing launch geometry. Use
 compile-fail examples to verify public borrowing constraints when changing the
 argument API.
 
-An async API needs a submission that retains resources/access state through GPU
-completion even after future cancellation. Treat it as the M6 design task;
-`Drop` waiting by itself does not establish the needed ownership.
+`Device::submit` creates an ordered `Batch`; its closure encodes unsafe launches.
+`Submission` implements `Future` and blocking `wait`. Native completion callbacks
+retain buffers, pipelines, queues, and Metal 4 allocation/binding/residency state
+independently of the future. Do not replace this with waiting in `Drop`.
+
+Keep argument tables and constant buffers immutable after encoding. Metal 4
+requires dispatch barriers within a batch and queue barriers between batches.
+Do not reset or release a command allocator before GPU completion.
+
+Run `bash scripts/test-gpu.sh` from the repository root to test both paths,
+generated artifacts, kernel chains, and cancellation on a Metal 4 capable Mac.
