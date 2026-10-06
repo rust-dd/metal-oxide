@@ -1,0 +1,25 @@
+name: GPU
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metal-oxide-gpu
+  cancel-in-progress: false
+
+jobs:
+  gpu:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, macOS, ARM64, metal-oxide-gpu]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install runtime toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install compiler toolchain
+        run: rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
+      - name: Verify both native APIs and generated artifacts
+        run: bash scripts/test-gpu.sh
