@@ -2,18 +2,68 @@
 
 Rust compute kernels for Metal on Apple Silicon.
 
-## Compiler flow
+Kernels are ordinary Rust functions in a separate `no_std` crate. A Rust host
+application loads the compiled kernels and launches them through `metal-oxide`.
+
+## Architecture
 
 ```text
-Rust kernel → rustc → MIR → metal-oxide IR → MSL → Metal compiler → .metallib
-                                   └──────→ ABI + host bindings + manifest
-Rust host → generated bindings → metal-oxide runtime → GPU
+Kernel crate (no_std)
+    │
+    ▼
+rustc → MIR → metal-oxide IR → MSL → Apple Metal compiler → .metallib
+                    │
+                    └──────→ ABI → manifest.json + bindings.rs
+
+Host crate → generated bindings → metal-oxide runtime → Metal / Metal 4 → GPU
 ```
 
+`rustc` handles parsing, macros, type checking, borrow checking, and MIR generation.
+The MIR importer resolves concrete function instances and converts them to our
+typed IR. The IR records control flow, address spaces, and buffer access. Codegen
+emits Metal Shading Language (MSL), which Apple's compiler turns into a shader
+library. `#[kernel]` marks entrypoints; it does not translate function bodies.
+
+| Crate | Role |
+| --- | --- |
+| `metal-oxide-device` | `no_std` buffer handles, thread indices, shared memory, atomics, and SIMD-group operations |
+| `metal-oxide-macros` | `#[kernel]` entrypoint and block-shape markers |
+| `metal-oxide-compiler` | `rustc_driver` integration, function collection, and MIR import |
+| `metal-oxide-ir` | Typed intermediate representation and validation |
+| `metal-oxide-codegen` | MSL, kernel ABI, and Rust host binding generation |
+| `metal-oxide-artifact` | Versioned ABI, manifest format, and artifact verification |
+| `metal-oxide` | Typed buffers, library loading, compute pipelines, and execution |
+| `cargo-metal` | Kernel build, Apple compiler invocation, artifact cache, and host build |
+
+The ABI defines each kernel's parameter types, buffer slots, access modes, and
+required block shape. The MSL signature and generated Rust bindings use the same
+ABI. The runtime checks this metadata and the library hash when loading an
+artifact, then validates arguments before encoding a launch.
+
 The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
-Launches follow CUDA's thread/block/grid model. Kernel launches are unsafe.
+The runtime has no dependency on the compiler or `rustc_private`. `cargo metal`
+runs the compiler separately and builds the host with the generated bindings.
+
+## Runtime
+
+A `Device` owns a GPU and command queue. A `Module` loads a shader library;
+a `Pipeline` selects one kernel entrypoint. `Buffer<T>` owns GPU memory, and
+`Argument` binds a buffer or scalar to a parameter slot. Generated bindings
+construct these arguments from typed Rust parameters.
+
+`LaunchConfig<X, Y, Z>` sets threads per block through const generics. Its `grid`
+counts blocks at runtime. Each block maps to a Metal threadgroup;
+`thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` follow CUDA's model.
+
+`Device::launch` runs a kernel and waits for completion. `Device::submit` encodes
+ordered kernels in a `Batch` and returns a `Submission` that supports `.await`
+and `.wait()`. Completion callbacks retain GPU resources until execution ends.
+CPU buffer access waits for pending GPU work even if the submission is dropped.
+Kernel launches are unsafe: callers must satisfy the kernel's bounds and race
+requirements.
+
 The runtime selects Metal 4 on macOS 26 with a compatible GPU and classic Metal
-otherwise. `Device::submit` encodes ordered kernel batches that can be awaited.
+otherwise. Both backends use the same public API.
 
 ## Build and run
 
