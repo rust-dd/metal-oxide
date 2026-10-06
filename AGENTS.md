@@ -14,8 +14,8 @@ working features. Add crates and modules when they have an implementation.
 - Comments explain safety contracts or non-obvious constraints. Do not add
   banners, separator lines, edit narration, commented-out code, or prose that
   repeats the next statement. Keep necessary `SAFETY` comments and rustdoc.
-- Keep editor settings and rust-analyzer-only manifest metadata local; do not
-  commit them.
+- Keep editor settings local. Commit the compiler's `rustc_private`
+  rust-analyzer metadata in its `Cargo.toml`.
 - Keep `docs/` local and ignored. Read its planning notes when present; do not
   commit them.
 - Use names and small functions to express intent. Rustdoc documents behavior

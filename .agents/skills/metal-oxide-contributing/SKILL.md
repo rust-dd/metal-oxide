@@ -39,6 +39,6 @@ AI attribution, session IDs, tool transcripts, or generated-by footers. A commit
 body is optional and explains only the change, rationale, or material validation.
 Keep the repository private until the user authorizes changing its visibility.
 
-Keep editor settings and rust-analyzer-only manifest metadata local. Exclude
-editor configuration through `.git/info/exclude` and leave local manifest
-metadata out of staged changes.
+Keep editor settings local and exclude editor configuration through
+`.git/info/exclude`. Commit the compiler's `rustc_private` rust-analyzer metadata
+in its `Cargo.toml`.
