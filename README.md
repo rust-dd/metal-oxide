@@ -7,47 +7,7 @@ application loads the compiled kernels and launches them through `metal-oxide`.
 
 ## Architecture
 
-```text
-┌──────────────────────────────────────┐
-│ Kernel crate (no_std)                │
-│ metal-oxide-device + #[kernel]       │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ rustc                                │
-│ Types + borrowing → MIR              │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ metal-oxide-compiler                 │
-│ MIR importer → metal-oxide IR        │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ metal-oxide-codegen                  │
-│ MSL + ABI + bindings.rs              │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ Apple Metal compiler                 │
-│ MSL → kernels.metallib               │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ Kernel artifact                      │
-│ .metallib, manifest.json, bindings.rs │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ Rust host + generated bindings       │
-│ metal-oxide runtime                  │
-└───────────────────┬──────────────────┘
-                    ▼
-┌──────────────────────────────────────┐
-│ Metal / Metal 4                      │
-│ GPU                                  │
-└──────────────────────────────────────┘
-```
+![metal-oxide compiler and runtime architecture](assets/architecture.svg)
 
 `rustc` handles parsing, macros, type checking, borrow checking, and MIR generation.
 The MIR importer resolves concrete function instances and converts them to our
