@@ -8,14 +8,45 @@ application loads the compiled kernels and launches them through `metal-oxide`.
 ## Architecture
 
 ```text
-Kernel crate (no_std)
-    │
-    ▼
-rustc → MIR → metal-oxide IR → MSL → Apple Metal compiler → .metallib
-                    │
-                    └──────→ ABI → manifest.json + bindings.rs
-
-Host crate → generated bindings → metal-oxide runtime → Metal / Metal 4 → GPU
+┌──────────────────────────────────────┐
+│ Kernel crate (no_std)                │
+│ metal-oxide-device + #[kernel]       │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ rustc                                │
+│ Types + borrowing → MIR              │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ metal-oxide-compiler                 │
+│ MIR importer → metal-oxide IR        │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ metal-oxide-codegen                  │
+│ MSL + ABI + bindings.rs              │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ Apple Metal compiler                 │
+│ MSL → kernels.metallib               │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ Kernel artifact                      │
+│ .metallib, manifest.json, bindings.rs │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ Rust host + generated bindings       │
+│ metal-oxide runtime                  │
+└───────────────────┬──────────────────┘
+                    ▼
+┌──────────────────────────────────────┐
+│ Metal / Metal 4                      │
+│ GPU                                  │
+└──────────────────────────────────────┘
 ```
 
 `rustc` handles parsing, macros, type checking, borrow checking, and MIR generation.
