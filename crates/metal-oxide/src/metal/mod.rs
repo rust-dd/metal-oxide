@@ -1,9 +1,11 @@
 mod argument;
+mod backend;
 mod batch;
 mod buffer;
 mod classic;
 mod completion;
 mod device;
+mod metal4;
 mod module;
 mod pipeline;
 

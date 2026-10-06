@@ -32,8 +32,8 @@ working features. Add crates and modules when they have an implementation.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
 - Support classic `MTL*` and Metal 4 behind the same public runtime API. Keep
-  native API selection internal and check OS/device capabilities. Metal 4 is
-  planned; both paths need independent hardware verification before support claims.
+  native API selection internal and check OS/device capabilities. Verify both
+  paths independently on hardware before changing their execution behavior.
 - Device builtins use CUDA names: `thread_idx()`, `block_idx()`, `block_dim()`,
   and `grid_dim()`, returning x/y/z coordinates. Keep them ordinary Rust functions.
 - Keep the public API small and direct. Add types, helpers, options, and alternate

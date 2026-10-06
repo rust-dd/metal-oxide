@@ -8,18 +8,18 @@ use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice};
+use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
 
 use crate::{Dim3, DynamicLaunchConfig, Error, GpuScalar, Result};
 
-use super::{Argument, Batch, Buffer, Pipeline, Submission};
+use super::{Argument, Batch, Buffer, Pipeline, Submission, backend::Backend};
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A Metal device and an ordered command queue confined to one host thread.
 pub struct Device {
     pub(super) raw: Retained<ProtocolObject<dyn MTLDevice>>,
-    pub(super) queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    pub(super) backend: Backend,
     id: u64,
     marker: PhantomData<Rc<()>>,
 }
@@ -30,15 +30,13 @@ impl Device {
         if !raw.hasUnifiedMemory() {
             return Err(Error::UnsupportedDevice(raw.name().to_string()));
         }
-        let queue = raw
-            .newCommandQueue()
-            .ok_or_else(|| Error::Command("could not create queue".into()))?;
+        let backend = Backend::new(&raw)?;
         let id = NEXT_DEVICE_ID
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| Error::Command("device identity space exhausted".into()))?;
         Ok(Self {
             raw,
-            queue,
+            backend,
             id,
             marker: PhantomData,
         })

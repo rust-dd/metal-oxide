@@ -1,9 +1,9 @@
 use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder};
+use objc2_metal::{MTLBuffer, MTLComputeCommandEncoder, MTLDevice, MTLResourceOptions};
 
-use crate::{GpuAtomic, GpuScalar};
+use crate::{Error, GpuAtomic, GpuScalar, Result};
 use metal_oxide_artifact::{Access, ParameterType, Scalar};
 
 use super::{Buffer, buffer::Resource, completion::AccessState};
@@ -134,6 +134,30 @@ impl<'a> Argument<'a> {
             }),
             _ => None,
         }
+    }
+
+    pub(super) fn metal4_buffer(
+        &self,
+        device: &ProtocolObject<dyn MTLDevice>,
+    ) -> Result<Retained<ProtocolObject<dyn MTLBuffer>>> {
+        let (source, len) = match &self.value {
+            Value::Buffer { raw, .. } => return Ok((*raw).clone()),
+            Value::F32(value) => (NonNull::from(value).cast::<u8>(), 4),
+            Value::I32(value) => (NonNull::from(value).cast::<u8>(), 4),
+            Value::U32(value) => (NonNull::from(value).cast::<u8>(), 4),
+            Value::U8(value) => (NonNull::from(value), 1),
+            Value::U16(value) => (NonNull::from(value).cast::<u8>(), 2),
+        };
+        let buffer = device
+            .newBufferWithLength_options(16, MTLResourceOptions::StorageModeShared)
+            .ok_or(Error::AllocationFailed { bytes: 16 })?;
+        // SAFETY: the scalar source is live and has len bytes; fresh shared storage owns 16 writable bytes.
+        unsafe {
+            let destination = buffer.contents().cast::<u8>().as_ptr();
+            destination.write_bytes(0, 16);
+            std::ptr::copy_nonoverlapping(source.as_ptr(), destination, len);
+        }
+        Ok(buffer)
     }
 
     pub(super) fn ty(&self) -> ParameterType {

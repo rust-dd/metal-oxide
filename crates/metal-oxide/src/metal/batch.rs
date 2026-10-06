@@ -4,15 +4,20 @@ use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLComputePipelineState, MTLSize};
 
 use super::{
-    Argument, Device, Pipeline, Submission, buffer::Resource, classic::ClassicBatch,
-    completion::Completion,
+    Argument, Device, Pipeline, Submission, backend::Backend, buffer::Resource,
+    classic::ClassicBatch, completion::Completion, metal4::Metal4Batch,
 };
+
+enum NativeBatch {
+    Classic(ClassicBatch),
+    Metal4(Metal4Batch),
+}
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
 
 /// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
 pub struct Batch<'d> {
     device: &'d Device,
-    native: ClassicBatch,
+    native: NativeBatch,
     resources: Vec<Resource>,
     pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     dispatches: usize,
@@ -22,7 +27,12 @@ impl<'d> Batch<'d> {
     pub(super) fn new(device: &'d Device) -> Result<Self> {
         Ok(Self {
             device,
-            native: ClassicBatch::new(&device.queue)?,
+            native: match &device.backend {
+                Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(queue)?),
+                Backend::Metal4 { queue, .. } => {
+                    NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue)?)
+                }
+            },
             resources: Vec::new(),
             pipelines: Vec::new(),
             dispatches: 0,
@@ -73,8 +83,18 @@ impl<'d> Batch<'d> {
         self.pipelines.push(pipeline.raw.clone());
         // SAFETY: validation passed; the submit caller provides the shader safety contract.
         unsafe {
-            self.native
-                .launch(pipeline, config, arguments, self.dispatches != 0)
+            match &mut self.native {
+                NativeBatch::Classic(batch) => {
+                    batch.launch(pipeline, config, arguments, self.dispatches != 0)
+                }
+                NativeBatch::Metal4(batch) => batch.launch(
+                    &self.device.raw,
+                    pipeline,
+                    config,
+                    arguments,
+                    self.dispatches != 0,
+                )?,
+            }
         };
         self.dispatches += 1;
         Ok(())
@@ -93,8 +113,14 @@ impl<'d> Batch<'d> {
                 .into_iter()
                 .map(|resource| resource.raw)
                 .collect();
-            self.native
-                .commit(Arc::clone(&completion), buffers, self.pipelines);
+            match self.native {
+                NativeBatch::Classic(batch) => {
+                    batch.commit(Arc::clone(&completion), buffers, self.pipelines)
+                }
+                NativeBatch::Metal4(batch) => {
+                    batch.commit(Arc::clone(&completion), buffers, self.pipelines)
+                }
+            }
         }
         Submission {
             completion,

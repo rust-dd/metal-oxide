@@ -2,11 +2,14 @@ use std::{marker::PhantomData, rc::Rc};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_foundation::NSString;
-use objc2_metal::{MTLComputePipelineState, MTLDevice, MTLLibrary};
+use objc2_metal::{
+    MTL4Compiler, MTL4ComputePipelineDescriptor, MTL4LibraryFunctionDescriptor,
+    MTLComputePipelineState, MTLDevice, MTLLibrary,
+};
 
 use crate::{Error, Result};
 
-use super::{Device, Module};
+use super::{Device, Module, backend::Backend};
 
 pub struct Pipeline {
     pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
@@ -35,10 +38,23 @@ impl Pipeline {
             .raw
             .newFunctionWithName(&NSString::from_str(entrypoint))
             .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))?;
-        let raw = device
-            .raw
-            .newComputePipelineStateWithFunction_error(&function)
-            .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))?;
+        let raw = match &device.backend {
+            Backend::Classic(_) => device
+                .raw
+                .newComputePipelineStateWithFunction_error(&function),
+            Backend::Metal4 { compiler, .. } => {
+                let descriptor = MTL4ComputePipelineDescriptor::new();
+                let function = MTL4LibraryFunctionDescriptor::new();
+                function.setName(Some(&NSString::from_str(entrypoint)));
+                function.setLibrary(Some(&module.raw));
+                descriptor.setComputeFunctionDescriptor(Some(&function));
+                compiler.newComputePipelineStateWithDescriptor_compilerTaskOptions_error(
+                    &descriptor,
+                    None,
+                )
+            }
+        }
+        .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))?;
         if raw.staticThreadgroupMemoryLength() > device.raw.maxThreadgroupMemoryLength() {
             return Err(Error::InvalidLaunch(
                 "kernel exceeds threadgroup memory capacity",
