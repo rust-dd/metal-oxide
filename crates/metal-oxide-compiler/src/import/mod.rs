@@ -229,6 +229,15 @@ impl<'tcx> Context<'_, 'tcx> {
             .collect::<Result<Vec<_>>>()?;
         if let Some(builtin) = crate::intrinsics::builtin(self.tcx, def) {
             return match (builtin, arguments.as_slice()) {
+                ("simd_lane", []) => Ok(ir::Expression::SimdCoordinate(ir::SimdBuiltin::Lane)),
+                ("simd_size", []) => Ok(ir::Expression::SimdCoordinate(ir::SimdBuiltin::Size)),
+                ("simd_group", []) => Ok(ir::Expression::SimdCoordinate(ir::SimdBuiltin::Group)),
+                ("simd_count", []) => Ok(ir::Expression::SimdCoordinate(ir::SimdBuiltin::Count)),
+                ("simd_sum", [value]) => Ok(ir::Expression::SimdSum(value.clone())),
+                ("simd_shuffle", [value, lane]) => Ok(ir::Expression::SimdShuffle {
+                    value: value.clone(),
+                    lane: lane.clone(),
+                }),
                 ("threadgroup_alloc", []) => {
                     let ir::Type::Scalar(element) = self.ty(args_types.type_at(0), span)? else {
                         return Err((span, "threadgroup elements must be scalars".into()));

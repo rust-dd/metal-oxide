@@ -61,6 +61,7 @@ pub struct Kernel {
 #[serde(deny_unknown_fields)]
 pub struct Abi {
     pub version: u32,
+    pub required_features: Vec<String>,
     pub kernels: Vec<Kernel>,
 }
 

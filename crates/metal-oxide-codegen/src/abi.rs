@@ -53,10 +53,31 @@ pub fn abi(module: &Module) -> Result<artifact::Abi, artifact::Error> {
         .collect::<Result<Vec<_>, artifact::Error>>()?;
     let abi = artifact::Abi {
         version: artifact::ABI_VERSION,
+        required_features: if uses_simd(module) {
+            vec!["simd_groups".into()]
+        } else {
+            vec![]
+        },
         kernels,
     };
     abi.validate()?;
     Ok(abi)
+}
+
+pub(crate) fn uses_simd(module: &Module) -> bool {
+    module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.statements)
+        .any(|s| {
+            matches!(
+                s.value,
+                metal_oxide_ir::Expression::SimdCoordinate(_)
+                    | metal_oxide_ir::Expression::SimdSum(_)
+                    | metal_oxide_ir::Expression::SimdShuffle { .. }
+            )
+        })
 }
 
 fn scalar(value: Scalar) -> Result<artifact::Scalar, artifact::Error> {

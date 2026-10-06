@@ -113,6 +113,7 @@ mod tests {
         let hash = sha256(b"file");
         let abi = Abi {
             version: ABI_VERSION,
+            required_features: vec![],
             kernels: vec![Kernel {
                 name: "empty".into(),
                 parameters: vec![],

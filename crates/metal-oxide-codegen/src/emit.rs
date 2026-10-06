@@ -6,13 +6,14 @@ use metal_oxide_ir::*;
 use std::{collections::HashMap, fmt::Write};
 
 pub(crate) fn module(module: &Module) -> Result<String, Error> {
+    let simd = crate::abi::uses_simd(module);
     let mut output = String::from(
-        "#include <metal_stdlib>\nusing namespace metal;\n#pragma STDC FP_CONTRACT OFF\n\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n};\n\n",
+        "#include <metal_stdlib>\nusing namespace metal;\n#pragma STDC FP_CONTRACT OFF\n\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n",
     );
     output.push_str(&crate::numeric::helpers(module)?);
     for (id, f) in module.functions.iter().enumerate() {
         if !f.kernel {
-            writeln!(output, "{};", signature(f, id)?).unwrap();
+            writeln!(output, "{};", signature(f, id, simd)?).unwrap();
         }
     }
     output.push('\n');
@@ -42,9 +43,14 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
                 _ => {}
             }
         }
-        writeln!(output, "{} {{", signature(function, id)?).unwrap();
+        writeln!(output, "{} {{", signature(function, id, simd)?).unwrap();
         if function.kernel {
-            output.push_str("    metal_oxide_context metal_oxide_ctx = {metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim};\n");
+            let simd_values = if simd {
+                ", metal_oxide_simd_lane, metal_oxide_simd_size, metal_oxide_simd_group, metal_oxide_simd_count"
+            } else {
+                ", 0, 0, 0, 0"
+            };
+            output.push_str(&format!("    metal_oxide_context metal_oxide_ctx = {{metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim{simd_values}}};\n"));
         }
         for statement in function
             .blocks
@@ -98,7 +104,7 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
     Ok(output)
 }
 
-fn signature(function: &Function, id: usize) -> Result<String, Error> {
+fn signature(function: &Function, id: usize, simd: bool) -> Result<String, Error> {
     if function.kernel && function.parameters > 31 {
         return Err(Error::new(
             &function.source,
@@ -138,6 +144,16 @@ fn signature(function: &Function, id: usize) -> Result<String, Error> {
             ("grid_dim", "threadgroups_per_grid"),
         ] {
             parameters.push(format!("uint3 metal_oxide_{name} [[{builtin}]]"));
+        }
+        if simd {
+            for (name, builtin) in [
+                ("lane", "thread_index_in_simdgroup"),
+                ("size", "threads_per_simdgroup"),
+                ("group", "simdgroup_index_in_threadgroup"),
+                ("count", "simdgroups_per_threadgroup"),
+            ] {
+                parameters.push(format!("uint metal_oxide_simd_{name} [[{builtin}]]"));
+            }
         }
         Ok(format!(
             "kernel void {}({})",
@@ -216,6 +232,8 @@ impl Emitter<'_> {
                             s.value,
                             Expression::ThreadgroupAlloc { .. }
                                 | Expression::ThreadgroupBarrier
+                                | Expression::SimdSum(_)
+                                | Expression::SimdShuffle { .. }
                                 | Expression::Call { .. }
                         )
                     }))

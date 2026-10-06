@@ -2,6 +2,7 @@
 
 mod atomic;
 mod buffer;
+pub mod simdgroup;
 mod thread;
 pub mod threadgroup;
 

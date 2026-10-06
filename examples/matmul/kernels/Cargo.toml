@@ -1,0 +1,14 @@
+[package]
+name = "matmul-kernels"
+description = "Rust matrix and SIMD-group compute kernels"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device.workspace = true
+
+[lints]
+workspace = true

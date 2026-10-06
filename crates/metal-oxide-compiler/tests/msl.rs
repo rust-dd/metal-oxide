@@ -26,7 +26,12 @@ fn threadgroup_kernels_emit_shape_and_typed_bindings() {
 
 #[test]
 fn divergent_threadgroup_participation_is_rejected() {
-    for fixture in ["divergent_barrier", "early_barrier", "loop_barrier"] {
+    for fixture in [
+        "divergent_barrier",
+        "early_barrier",
+        "loop_barrier",
+        "divergent_simd",
+    ] {
         let (output, directory) = support::emit(
             &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
             &["-C", "overflow-checks=off"],
@@ -34,6 +39,20 @@ fn divergent_threadgroup_participation_is_rejected() {
         support::rejected(output, "uniform participation");
         assert!(!directory.join("kernels.metal").exists());
     }
+}
+
+#[test]
+fn simd_requirements_are_recorded_in_the_abi() {
+    let (output, directory) = support::emit(
+        "examples/matmul/kernels/src/lib.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(abi.required_features, ["simd_groups"]);
 }
 
 #[test]

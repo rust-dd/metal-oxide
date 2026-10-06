@@ -10,7 +10,10 @@ pub(crate) fn validate(module: &Module) -> Result<(), Error> {
             let effect = function.blocks.iter().flat_map(|b| &b.statements).any(|s| {
                 matches!(
                     s.value,
-                    Expression::ThreadgroupBarrier | Expression::ThreadgroupAlloc { .. }
+                    Expression::ThreadgroupBarrier
+                        | Expression::ThreadgroupAlloc { .. }
+                        | Expression::SimdSum(_)
+                        | Expression::SimdShuffle { .. }
                 ) || matches!(s.value, Expression::Call { function, .. } if cooperative[function])
             });
             changed |= effect && !cooperative[id];
@@ -89,6 +92,7 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
                     || matches!(
                         statement.value,
                         Expression::Coordinates(Builtin::ThreadIdx)
+                            | Expression::SimdCoordinate(SimdBuiltin::Lane | SimdBuiltin::Group)
                             | Expression::BufferLoad { .. }
                             | Expression::AtomicAdd { .. }
                             | Expression::Call { .. }
@@ -133,12 +137,15 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
         for statement in &block.statements {
             let synchronized = matches!(
                 statement.value,
-                Expression::ThreadgroupBarrier | Expression::ThreadgroupAlloc { .. }
+                Expression::ThreadgroupBarrier
+                    | Expression::ThreadgroupAlloc { .. }
+                    | Expression::SimdSum(_)
+                    | Expression::SimdShuffle { .. }
             ) || matches!(statement.value, Expression::Call { function, .. } if cooperative[function]);
             if synchronized && divergent[id] {
                 return Err(Error::new(
                     &statement.source,
-                    "threadgroup operation requires uniform participation; divergent control flow is unsupported",
+                    "cooperative operation requires uniform participation; divergent control flow is unsupported",
                 ));
             }
         }

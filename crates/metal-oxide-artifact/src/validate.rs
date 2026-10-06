@@ -30,6 +30,14 @@ impl Abi {
         if self.kernels.is_empty() {
             return Err(Error("artifact contains no kernels".into()));
         }
+        let mut features = HashSet::new();
+        if self
+            .required_features
+            .iter()
+            .any(|feature| feature != "simd_groups" || !features.insert(feature))
+        {
+            return Err(Error("unsupported or duplicate artifact feature".into()));
+        }
         let mut names = HashSet::new();
         for kernel in &self.kernels {
             if !identifier(&kernel.name) || !names.insert(&kernel.name) {
@@ -94,9 +102,9 @@ impl Manifest {
         if self.target != DEVICE_TARGET || self.msl_version != MSL_VERSION {
             return Err(Error("unsupported artifact target or MSL version".into()));
         }
-        if !self.required_features.is_empty() {
+        if self.required_features != self.abi.required_features {
             return Err(Error(format!(
-                "unsupported artifact features: {:?}",
+                "artifact features do not match the ABI: {:?}",
                 self.required_features
             )));
         }

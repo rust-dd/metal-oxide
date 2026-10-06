@@ -129,10 +129,10 @@ fn create(
     metal.compile(stage)?;
     let hash = |name: &str| -> Result<String> { Ok(sha256(&std::fs::read(stage.join(name))?)) };
     let manifest = Manifest {
+        required_features: abi.required_features.clone(),
         abi,
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
-        required_features: vec![],
         files: Files {
             msl: hash("kernels.metal")?,
             oxide_ir: hash("kernels.oxide-ir")?,

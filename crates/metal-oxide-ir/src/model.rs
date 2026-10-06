@@ -173,6 +173,14 @@ pub enum Builtin {
     GridDim,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SimdBuiltin {
+    Lane,
+    Size,
+    Group,
+    Count,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expression {
     Use(Operand),
@@ -180,6 +188,12 @@ pub enum Expression {
     Unary(UnaryOp, Operand),
     Cast(Operand, Scalar),
     Coordinates(Builtin),
+    SimdCoordinate(SimdBuiltin),
+    SimdSum(Operand),
+    SimdShuffle {
+        value: Operand,
+        lane: Operand,
+    },
     Dim3([Operand; 3]),
     ThreadgroupAlloc {
         id: u32,
@@ -210,9 +224,13 @@ pub enum Expression {
 impl Expression {
     pub fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) => vec![v],
+            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) | Self::SimdSum(v) => vec![v],
+            Self::SimdShuffle { value, lane } => vec![value, lane],
             Self::Binary(_, a, b) => vec![a, b],
-            Self::Coordinates(_) | Self::ThreadgroupAlloc { .. } | Self::ThreadgroupBarrier => {
+            Self::Coordinates(_)
+            | Self::SimdCoordinate(_)
+            | Self::ThreadgroupAlloc { .. }
+            | Self::ThreadgroupBarrier => {
                 vec![]
             }
             Self::Dim3(values) => values.iter().collect(),

@@ -4,6 +4,7 @@ fn manifest() -> Manifest {
     Manifest {
         abi: Abi {
             version: ABI_VERSION,
+            required_features: vec![],
             kernels: vec![Kernel {
                 name: "vec_add".into(),
                 parameters: vec![Parameter {
@@ -95,7 +96,7 @@ fn rejects_conflicting_names_slots_and_unknown_layouts() {
             .is_err()
     );
     assert!(
-        Manifest::from_json(&value.replace("\"version\": 1", "\"version\": 1, \"ignored\": true"))
+        Manifest::from_json(&value.replace("\"version\": 2", "\"version\": 2, \"ignored\": true"))
             .is_err()
     );
 }

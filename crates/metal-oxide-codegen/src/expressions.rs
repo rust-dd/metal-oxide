@@ -106,6 +106,19 @@ pub(crate) fn expression(
     let ty = |v| operand_type(function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::SimdCoordinate(builtin) => format!(
+            "metal_oxide_ctx.simd_{}",
+            match builtin {
+                SimdBuiltin::Lane => "lane",
+                SimdBuiltin::Size => "size",
+                SimdBuiltin::Group => "group",
+                SimdBuiltin::Count => "count",
+            }
+        ),
+        Expression::SimdSum(value) => format!("simd_sum({})", op(value)),
+        Expression::SimdShuffle { value, lane } => {
+            format!("simd_shuffle({}, {})", op(value), op(lane))
+        }
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
         Expression::AtomicAdd {

@@ -2,6 +2,8 @@
 
 #[path = "gpu/cooperative.rs"]
 mod cooperative;
+#[path = "gpu/numerics.rs"]
+mod numerics;
 mod support;
 
 use metal_oxide::{Argument, Device, Dim3, DynamicLaunchConfig, LaunchConfig, Module, Pipeline};

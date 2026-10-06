@@ -3,7 +3,8 @@ use std::{marker::PhantomData, path::Path, rc::Rc};
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_foundation::{NSString, NSURL};
 use objc2_metal::{
-    MTLCompileOptions, MTLDevice, MTLLibrary, MTLMathFloatingPointFunctions, MTLMathMode,
+    MTLCompileOptions, MTLDevice, MTLGPUFamily, MTLLibrary, MTLMathFloatingPointFunctions,
+    MTLMathMode,
 };
 
 use crate::{Error, Result};
@@ -58,6 +59,16 @@ impl Module {
         let directory = directory.as_ref();
         let manifest =
             Manifest::from_json(&std::fs::read_to_string(directory.join("manifest.json"))?)?;
+        if manifest
+            .required_features
+            .iter()
+            .any(|f| f == "simd_groups")
+            && !device.raw.supportsFamily(MTLGPUFamily::Apple7)
+        {
+            return Err(Error::UnsupportedDevice(
+                "artifact requires SIMD-group support".into(),
+            ));
+        }
         let bytes = std::fs::read(directory.join("kernels.metallib"))?;
         manifest.verify_library(&bytes)?;
         let data = dispatch2::DispatchData::from_bytes(&bytes);
