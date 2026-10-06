@@ -35,6 +35,8 @@ The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
 The runtime has no dependency on the compiler or `rustc_private`. `cargo metal`
 runs the compiler separately and builds the host with the generated bindings.
 
+See [CONCEPT.md](CONCEPT.md) for the `vec_add` compiler, ABI, and runtime walkthrough.
+
 ## Runtime
 
 A `Device` owns a GPU and command queue. A `Module` loads a shader library;
