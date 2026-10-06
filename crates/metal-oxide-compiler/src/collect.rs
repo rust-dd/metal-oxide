@@ -104,13 +104,22 @@ fn scalar(ty: Ty<'_>) -> Option<&'static str> {
         ty::Float(ty::FloatTy::F32) => Some("f32"),
         ty::Uint(ty::UintTy::U32) => Some("u32"),
         ty::Int(ty::IntTy::I32) => Some("i32"),
+        ty::Uint(ty::UintTy::U8) => Some("u8"),
+        ty::Uint(ty::UintTy::U16) => Some("u16"),
         _ => None,
     }
 }
 
 fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
     if let Some(scalar) = scalar(ty) {
-        return Some(format!("scalar<{scalar}> size=4 align=4"));
+        let layout = tcx
+            .layout_of(TypingEnv::fully_monomorphized().as_query_input(ty))
+            .ok()?;
+        return Some(format!(
+            "scalar<{scalar}> size={} align={}",
+            layout.size.bytes(),
+            layout.align.abi.bytes()
+        ));
     }
     let ty::Adt(definition, arguments) = ty.kind() else {
         return None;
@@ -126,7 +135,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
     })?;
     let element = arguments.type_at(0);
     let scalar = scalar(element)?;
-    if access == "atomic_buffer" && scalar == "f32" {
+    if access == "atomic_buffer" && !["u32", "i32"].contains(&scalar) {
         return None;
     }
     let layout = tcx

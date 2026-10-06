@@ -32,12 +32,13 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             for ty in &function.locals[1..=function.parameters] {
                 if !matches!(
                     ty,
-                    Type::Scalar(Scalar::F32 | Scalar::U32 | Scalar::I32)
-                        | Type::Buffer {
-                            element: Scalar::F32 | Scalar::U32 | Scalar::I32,
-                            access: Access::Read | Access::Write | Access::Atomic,
-                            address_space: AddressSpace::Device,
-                        }
+                    Type::Scalar(
+                        Scalar::F32 | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16
+                    ) | Type::Buffer {
+                        element: Scalar::F32 | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16,
+                        access: Access::Read | Access::Write | Access::Atomic,
+                        address_space: AddressSpace::Device,
+                    }
                 ) {
                     return Err(Error::new(
                         &function.source,
@@ -70,7 +71,7 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     element: Scalar::Bool,
                     ..
                 } | Type::Buffer {
-                    element: Scalar::F32,
+                    element: Scalar::F32 | Scalar::U8 | Scalar::U16,
                     access: Access::Atomic,
                     ..
                 } | Type::Checked(Scalar::Bool | Scalar::F32)

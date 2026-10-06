@@ -2,6 +2,8 @@
 
 #[path = "gpu/cooperative.rs"]
 mod cooperative;
+#[path = "gpu/narrow.rs"]
+mod narrow;
 #[path = "gpu/numerics.rs"]
 mod numerics;
 mod support;

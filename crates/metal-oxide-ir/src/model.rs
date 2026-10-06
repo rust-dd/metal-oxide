@@ -40,6 +40,22 @@ pub enum Scalar {
     F32,
     U32,
     I32,
+    U8,
+    U16,
+}
+
+impl Scalar {
+    pub const fn bits(self) -> u32 {
+        match self {
+            Self::U8 => 8,
+            Self::U16 => 16,
+            Self::Bool => 1,
+            _ => 32,
+        }
+    }
+    pub const fn is_integer(self) -> bool {
+        matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::I32)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +126,8 @@ pub enum Constant {
     F32(u32),
     U32(u32),
     I32(i32),
+    U8(u8),
+    U16(u16),
 }
 
 impl Constant {
@@ -120,6 +138,8 @@ impl Constant {
             Self::F32(_) => Type::Scalar(Scalar::F32),
             Self::U32(_) => Type::Scalar(Scalar::U32),
             Self::I32(_) => Type::Scalar(Scalar::I32),
+            Self::U8(_) => Type::Scalar(Scalar::U8),
+            Self::U16(_) => Type::Scalar(Scalar::U16),
         }
     }
 }

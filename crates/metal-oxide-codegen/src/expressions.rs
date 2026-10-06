@@ -1,71 +1,48 @@
 use metal_oxide_ir::*;
 
-pub(crate) fn type_name(ty: Type) -> &'static str {
+pub(crate) fn type_name(ty: Type) -> String {
     match ty {
-        Type::Unit | Type::Never => "void",
-        Type::Scalar(Scalar::Bool) => "bool",
-        Type::Scalar(Scalar::F32) => "float",
-        Type::Scalar(Scalar::U32) => "uint",
-        Type::Scalar(Scalar::I32) => "int",
-        Type::Dim3 => "uint3",
-        Type::Checked(Scalar::U32) => "metal_oxide_checked_u32",
-        Type::Checked(Scalar::I32) => "metal_oxide_checked_i32",
+        Type::Unit | Type::Never => "void".into(),
+        Type::Scalar(s) => scalar_name(s).into(),
+        Type::Dim3 => "uint3".into(),
+        Type::Checked(s) => format!(
+            "metal_oxide_checked_{}",
+            match s {
+                Scalar::U8 => "u8",
+                Scalar::U16 => "u16",
+                Scalar::U32 => "u32",
+                Scalar::I32 => "i32",
+                _ => unreachable!("validated checked type"),
+            }
+        ),
         Type::Buffer {
-            element: Scalar::F32,
-            address_space: AddressSpace::Threadgroup,
-            ..
-        } => "threadgroup float *",
-        Type::Buffer {
-            element: Scalar::U32,
-            address_space: AddressSpace::Threadgroup,
-            ..
-        } => "threadgroup uint *",
-        Type::Buffer {
-            element: Scalar::I32,
-            address_space: AddressSpace::Threadgroup,
-            ..
-        } => "threadgroup int *",
-        Type::Buffer {
-            element: Scalar::U32,
-            access: Access::Atomic,
-            ..
-        } => "device atomic_uint *",
-        Type::Buffer {
-            element: Scalar::I32,
-            access: Access::Atomic,
-            ..
-        } => "device atomic_int *",
-        Type::Buffer {
-            element: Scalar::F32,
-            access: Access::Read,
-            ..
-        } => "device const float *",
-        Type::Buffer {
-            element: Scalar::F32,
-            access: Access::Write,
-            ..
-        } => "device float *",
-        Type::Buffer {
-            element: Scalar::U32,
-            access: Access::Read,
-            ..
-        } => "device const uint *",
-        Type::Buffer {
-            element: Scalar::U32,
-            access: Access::Write,
-            ..
-        } => "device uint *",
-        Type::Buffer {
-            element: Scalar::I32,
-            access: Access::Read,
-            ..
-        } => "device const int *",
-        Type::Buffer {
-            element: Scalar::I32,
-            access: Access::Write,
-            ..
-        } => "device int *",
-        _ => unreachable!("IR validation rejects this type"),
+            element,
+            access,
+            address_space,
+        } => {
+            let space = match address_space {
+                AddressSpace::Device => "device",
+                AddressSpace::Threadgroup => "threadgroup",
+            };
+            let qualifier = if access == Access::Read { "const " } else { "" };
+            let atomic = if access == Access::Atomic {
+                "atomic_"
+            } else {
+                ""
+            };
+            format!("{space} {qualifier}{atomic}{} *", scalar_name(element))
+        }
+    }
+}
+
+pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
+    match scalar {
+        Scalar::Bool => "bool",
+        Scalar::F32 => "float",
+        Scalar::U32 => "uint",
+        Scalar::I32 => "int",
+        Scalar::U8 => "uchar",
+        Scalar::U16 => "ushort",
     }
 }
 
@@ -92,6 +69,8 @@ pub(crate) fn operand(function: &Function, value: &Operand) -> String {
             Constant::F32(bits) => format!("as_type<float>(0x{bits:08x}u)"),
             Constant::U32(v) => format!("{v}u"),
             Constant::I32(v) => format!("as_type<int>(0x{:08x}u)", *v as u32),
+            Constant::U8(v) => format!("uchar({v}u)"),
+            Constant::U16(v) => format!("ushort({v}u)"),
         },
     }
 }
@@ -163,7 +142,7 @@ pub(crate) fn expression(
         }
         Expression::Cast(v, to) => {
             let from = ty(v)?;
-            if from == Type::Scalar(Scalar::F32) && matches!(to, Scalar::U32 | Scalar::I32) {
+            if from == Type::Scalar(Scalar::F32) && to.is_integer() {
                 return Err(Error::new(
                     source,
                     "float-to-integer casts require saturation support",
@@ -231,10 +210,12 @@ fn binary(
             SubWithOverflow => "sub",
             _ => "mul",
         };
-        let scalar = if ty == Type::Scalar(Scalar::I32) {
-            "i32"
-        } else {
-            "u32"
+        let scalar = match ty {
+            Type::Scalar(Scalar::I32) => "i32",
+            Type::Scalar(Scalar::U32) => "u32",
+            Type::Scalar(Scalar::U8) => "u8",
+            Type::Scalar(Scalar::U16) => "u16",
+            _ => unreachable!("validated checked integer operation"),
         };
         return Ok(format!(
             "metal_oxide_{operation}_checked_{scalar}({a}, {b})"
@@ -257,7 +238,13 @@ fn binary(
         ));
     }
     if matches!(operation, Shl | Shr) {
-        let count = format!("(uint({b}) & 31u)");
+        let Type::Scalar(scalar) = ty else {
+            unreachable!()
+        };
+        let count = format!("(uint({b}) & {}u)", scalar.bits() - 1);
+        if matches!(scalar, Scalar::U8 | Scalar::U16) {
+            return Ok(format!("{}(uint({a}) {symbol} {count})", type_name(ty)));
+        }
         if ty == Type::Scalar(Scalar::I32) {
             return Ok(if operation == Shl {
                 format!("as_type<int>(as_type<uint>({a}) << {count})")
@@ -268,6 +255,11 @@ fn binary(
             });
         }
         return Ok(format!("({a} {symbol} {count})"));
+    }
+    if matches!(ty, Type::Scalar(Scalar::U8 | Scalar::U16))
+        && matches!(operation, Add | Sub | Mul | BitAnd | BitOr | BitXor)
+    {
+        return Ok(format!("{}(uint({a}) {symbol} uint({b}))", type_name(ty)));
     }
     Ok(format!("({a} {symbol} {b})"))
 }

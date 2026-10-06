@@ -143,6 +143,8 @@ impl<'tcx> Context<'_, 'tcx> {
                     let constant = match ty {
                         ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(value as u32),
                         ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(value as i32),
+                        ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(value as u8),
+                        ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(value as u16),
                         _ => return Err((span, "unsupported switch discriminant type".into())),
                     };
                     let local = self.locals.len();

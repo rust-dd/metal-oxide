@@ -85,6 +85,8 @@ fn scalar(value: Scalar) -> Result<artifact::Scalar, artifact::Error> {
         Scalar::F32 => Ok(artifact::Scalar::F32),
         Scalar::U32 => Ok(artifact::Scalar::U32),
         Scalar::I32 => Ok(artifact::Scalar::I32),
+        Scalar::U8 => Ok(artifact::Scalar::U8),
+        Scalar::U16 => Ok(artifact::Scalar::U16),
         Scalar::Bool => Err(artifact::Error("bool cannot cross the kernel ABI".into())),
     }
 }

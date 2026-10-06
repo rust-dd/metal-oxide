@@ -51,7 +51,9 @@ pub(crate) fn expression_type(
                 (UnaryOp::Neg, Type::Scalar(Scalar::F32 | Scalar::I32))
                     | (
                         UnaryOp::Not,
-                        Type::Scalar(Scalar::Bool | Scalar::U32 | Scalar::I32)
+                        Type::Scalar(
+                            Scalar::Bool | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16
+                        )
                     )
             );
             if valid {
@@ -81,7 +83,10 @@ pub(crate) fn expression_type(
         Expression::ThreadgroupAlloc {
             element, length, ..
         } => {
-            if *length == 0 || *element == Scalar::Bool || length.checked_mul(4).is_none() {
+            if *length == 0
+                || *element == Scalar::Bool
+                || length.checked_mul(element.bits() / 8).is_none()
+            {
                 return Err(Error::new(source, "invalid threadgroup allocation"));
             }
             Ok(Type::Buffer {
@@ -176,11 +181,11 @@ pub(crate) fn expression_type(
 fn binary_type(op: BinaryOp, a: Type, b: Type, source: &SourceLocation) -> Result<Type, Error> {
     use BinaryOp::*;
     use Scalar::*;
-    let integer = matches!(a, Type::Scalar(U32 | I32));
+    let integer = matches!(a, Type::Scalar(s) if s.is_integer());
     let number = integer || a == Type::Scalar(F32);
     let boolean = a == Type::Scalar(Bool);
     let valid = match op {
-        Shl | Shr => integer && matches!(b, Type::Scalar(U32 | I32)),
+        Shl | Shr => integer && matches!(b, Type::Scalar(s) if s.is_integer()),
         BitAnd | BitOr | BitXor => (integer || boolean) && a == b,
         Eq | Ne | Lt | Le | Gt | Ge => (number || boolean) && a == b,
         AddWithOverflow | SubWithOverflow | MulWithOverflow => integer && a == b,

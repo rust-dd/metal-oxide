@@ -128,7 +128,7 @@ fn signature(function: &Function, id: usize, simd: bool) -> Result<String, Error
             let name = format!("metal_oxide_arg_{local}");
             let ty = match ty {
                 Type::Scalar(s) => format!("constant {} &", type_name(Type::Scalar(s))),
-                _ => type_name(ty).into(),
+                _ => type_name(ty),
             };
             format!("{ty} {name} [[buffer({})]]", local - 1)
         } else {

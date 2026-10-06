@@ -6,15 +6,21 @@ pub enum Scalar {
     F32,
     U32,
     I32,
+    U8,
+    U16,
 }
 
 impl Scalar {
     pub const fn size(self) -> usize {
-        4
+        match self {
+            Self::U8 => 1,
+            Self::U16 => 2,
+            _ => 4,
+        }
     }
 
     pub const fn alignment(self) -> usize {
-        4
+        self.size()
     }
 
     pub const fn rust_name(self) -> &'static str {
@@ -22,6 +28,8 @@ impl Scalar {
             Self::F32 => "f32",
             Self::U32 => "u32",
             Self::I32 => "i32",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
         }
     }
 }

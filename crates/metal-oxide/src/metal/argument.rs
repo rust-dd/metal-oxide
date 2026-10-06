@@ -17,6 +17,8 @@ enum Value<'a> {
     F32(f32),
     I32(i32),
     U32(u32),
+    U8(u8),
+    U16(u16),
 }
 
 /// A borrowed resource or copied scalar, bound in slice order to Metal buffer slots.
@@ -100,6 +102,19 @@ impl<'a> Argument<'a> {
         }
     }
 
+    pub fn u8(value: u8) -> Self {
+        Self {
+            value: Value::U8(value),
+            marker: PhantomData,
+        }
+    }
+    pub fn u16(value: u16) -> Self {
+        Self {
+            value: Value::U16(value),
+            marker: PhantomData,
+        }
+    }
+
     pub(super) fn device_id(&self) -> Option<u64> {
         match self.value {
             Value::Buffer { device_id, .. } => Some(device_id),
@@ -118,6 +133,10 @@ impl<'a> Argument<'a> {
             },
             Value::U32(_) => ParameterType::Scalar {
                 scalar: Scalar::U32,
+            },
+            Value::U8(_) => ParameterType::Scalar { scalar: Scalar::U8 },
+            Value::U16(_) => ParameterType::Scalar {
+                scalar: Scalar::U16,
             },
         }
     }
@@ -143,6 +162,14 @@ impl<'a> Argument<'a> {
             Value::U32(value) => {
                 // SAFETY: Metal copies the live scalar immediately; launch validates the binding index.
                 unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 4, index) };
+            }
+            Value::U8(value) => {
+                // SAFETY: Metal copies the live scalar; launch validates its type and slot.
+                unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 1, index) };
+            }
+            Value::U16(value) => {
+                // SAFETY: Metal copies the live scalar; launch validates its type and slot.
+                unsafe { encoder.setBytes_length_atIndex(NonNull::from(value).cast(), 2, index) };
             }
         }
     }

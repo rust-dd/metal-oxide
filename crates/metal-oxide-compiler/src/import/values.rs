@@ -22,6 +22,8 @@ impl<'tcx> Context<'_, 'tcx> {
             ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
             ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
             ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
+            ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
+            ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),
             _ => None,
         };
         if let Some(s) = scalar(ty) {
@@ -36,7 +38,8 @@ impl<'tcx> Context<'_, 'tcx> {
         if let ty::Tuple(types) = ty.kind()
             && types.len() == 2
             && types[1].is_bool()
-            && let Some(s @ (ir::Scalar::U32 | ir::Scalar::I32)) = scalar(types[0])
+            && let Some(s) = scalar(types[0])
+            && s.is_integer()
         {
             return Ok(ir::Type::Checked(s));
         }
@@ -53,8 +56,13 @@ impl<'tcx> Context<'_, 'tcx> {
                 ("metal_oxide_threadgroup_buffer", ir::Access::ReadWrite),
             ] {
                 if marker(name)
-                    && let Some(element @ (ir::Scalar::F32 | ir::Scalar::U32 | ir::Scalar::I32)) =
-                        scalar(args.type_at(0))
+                    && let Some(
+                        element @ (ir::Scalar::F32
+                        | ir::Scalar::U32
+                        | ir::Scalar::I32
+                        | ir::Scalar::U8
+                        | ir::Scalar::U16),
+                    ) = scalar(args.type_at(0))
                 {
                     return Ok(ir::Type::Buffer {
                         element,
@@ -112,6 +120,8 @@ impl<'tcx> Context<'_, 'tcx> {
                     ir::Type::Scalar(ir::Scalar::F32) => ir::Constant::F32(bits as u32),
                     ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(bits as u32),
                     ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(bits as i32),
+                    ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(bits as u8),
+                    ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(bits as u16),
                     _ => return Err((span, "unsupported device constant type".into())),
                 };
                 Ok(ir::Operand::Constant(constant))

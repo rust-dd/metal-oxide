@@ -1,6 +1,14 @@
 mod support;
 
 #[test]
+fn narrow_overflow_checks_are_preserved() {
+    let (output, directory) =
+        support::emit("crates/metal-oxide-compiler/tests/fixtures/narrow.rs", &[]);
+    support::rejected(output, "MIR assertion");
+    assert!(!directory.join("kernels.metal").exists());
+}
+
+#[test]
 fn threadgroup_kernels_emit_shape_and_typed_bindings() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/cooperative.rs",

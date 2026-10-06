@@ -57,7 +57,7 @@ impl Abi {
                 if matches!(
                     parameter.ty,
                     ParameterType::Buffer {
-                        element: Scalar::F32,
+                        element: Scalar::F32 | Scalar::U8 | Scalar::U16,
                         access: Access::Atomic
                     }
                 ) {
