@@ -223,6 +223,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pipeline"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide",
+]
+
+[[package]]
+name = "pipeline-device-math"
+version = "0.1.0-alpha.1"
+
+[[package]]
+name = "pipeline-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-device",
+ "pipeline-device-math",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"

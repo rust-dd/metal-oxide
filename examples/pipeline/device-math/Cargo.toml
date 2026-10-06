@@ -1,0 +1,12 @@
+[package]
+name = "pipeline-device-math"
+description = "Device helper library for the kernel pipeline example"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true

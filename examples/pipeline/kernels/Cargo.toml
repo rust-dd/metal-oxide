@@ -1,0 +1,16 @@
+[package]
+name = "pipeline-kernels"
+description = "Const-specialized kernels using an external device library"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device = { workspace = true }
+pipeline-device-math = { workspace = true }
+
+[lints]
+workspace = true

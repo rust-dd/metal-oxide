@@ -63,6 +63,25 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
     assert!(bindings.contains("&mut metal_oxide::Buffer<f32>"));
     assert!(bindings.contains("r#arg_2: u32"));
     assert!(bindings.contains("pub unsafe fn r#vec_add"));
+    assert!(
+        bindings
+            .contains("pub unsafe fn r#enqueue_vec_add(&self, batch: &mut metal_oxide::Batch<'_>")
+    );
+    assert!(bindings.contains("batch.launch(&self.pipeline_0"));
+}
+
+#[test]
+fn generated_enqueue_names_cannot_shadow_another_entrypoint() {
+    let mut abi = metal_oxide_codegen::abi(&module(vec![])).unwrap();
+    let mut other = abi.kernels[0].clone();
+    other.name = "enqueue_vec_add".into();
+    abi.kernels.push(other);
+    assert!(
+        metal_oxide_codegen::bindings(&abi)
+            .unwrap_err()
+            .to_string()
+            .contains("collide")
+    );
 }
 
 #[test]
