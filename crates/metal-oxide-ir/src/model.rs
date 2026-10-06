@@ -78,6 +78,7 @@ pub enum Type {
     Never,
     Scalar(Scalar),
     Dim3,
+    Record(usize),
     Buffer {
         element: Scalar,
         access: Access,
@@ -90,6 +91,7 @@ pub enum Type {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub functions: Vec<Function>,
+    pub records: Vec<Vec<Scalar>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,6 +217,15 @@ pub enum Expression {
         lane: Operand,
     },
     Dim3([Operand; 3]),
+    Record {
+        ty: usize,
+        fields: Vec<Operand>,
+    },
+    RecordUpdate {
+        record: Operand,
+        field: u32,
+        value: Operand,
+    },
     ThreadgroupAlloc {
         id: u32,
         element: Scalar,
@@ -254,6 +265,8 @@ impl Expression {
                 vec![]
             }
             Self::Dim3(values) => values.iter().collect(),
+            Self::Record { fields, .. } => fields.iter().collect(),
+            Self::RecordUpdate { record, value, .. } => vec![record, value],
             Self::BufferLoad { buffer, index } => vec![buffer, index],
             Self::BufferStore {
                 buffer,

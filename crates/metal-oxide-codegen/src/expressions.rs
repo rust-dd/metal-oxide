@@ -5,6 +5,7 @@ pub(crate) fn type_name(ty: Type) -> String {
         Type::Unit | Type::Never => "void".into(),
         Type::Scalar(s) => scalar_name(s).into(),
         Type::Dim3 => "uint3".into(),
+        Type::Record(id) => format!("metal_oxide_record_{id}"),
         Type::Checked(s) => format!(
             "metal_oxide_checked_{}",
             match s {
@@ -56,6 +57,9 @@ pub(crate) fn operand(function: &Function, value: &Operand) -> String {
             local,
             field: Some(field),
         } => {
+            if matches!(function.locals[*local], Type::Record(_)) {
+                return format!("v{local}.f{field}");
+            }
             let field = match function.locals[*local] {
                 Type::Dim3 => ["x", "y", "z"][*field as usize],
                 Type::Checked(_) => ["value", "overflow"][*field as usize],
@@ -82,9 +86,32 @@ pub(crate) fn expression(
     source: &SourceLocation,
 ) -> Result<String, Error> {
     let op = |v| operand(function, v);
-    let ty = |v| operand_type(function, v, source);
+    let ty = |v| operand_type(module, function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::Record { ty, fields } => format!(
+            "metal_oxide_record_{ty}{{{}}}",
+            fields.iter().map(op).collect::<Vec<_>>().join(", ")
+        ),
+        Expression::RecordUpdate {
+            record,
+            field,
+            value,
+        } => {
+            let Type::Record(id) = ty(record)? else {
+                unreachable!("validated record update")
+            };
+            let fields = (0..module.records[id].len())
+                .map(|i| {
+                    if i == *field as usize {
+                        op(value)
+                    } else {
+                        format!("{}.f{i}", op(record))
+                    }
+                })
+                .collect::<Vec<_>>();
+            format!("metal_oxide_record_{id}{{{}}}", fields.join(", "))
+        }
         Expression::SimdCoordinate(builtin) => format!(
             "metal_oxide_ctx.simd_{}",
             match builtin {

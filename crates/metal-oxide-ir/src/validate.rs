@@ -48,6 +48,11 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
         }
         for ty in &function.locals {
+            if let Type::Record(id) = ty
+                && module.records.get(*id).is_none_or(Vec::is_empty)
+            {
+                return Err(Error::new(&function.source, "invalid record type"));
+            }
             if matches!(
                 ty,
                 Type::Buffer {
@@ -105,7 +110,8 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
             if let Terminator::Branch { condition, .. } | Terminator::Assert { condition, .. } =
                 &block.terminator
-                && operand_type(function, condition, &block.source)? != Type::Scalar(Scalar::Bool)
+                && operand_type(module, function, condition, &block.source)?
+                    != Type::Scalar(Scalar::Bool)
             {
                 return Err(Error::new(
                     &block.source,

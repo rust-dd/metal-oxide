@@ -10,6 +10,7 @@ fn source() -> SourceLocation {
 
 fn module() -> Module {
     Module {
+        records: vec![],
         functions: vec![Function {
             name: "sum".into(),
             kernel: false,

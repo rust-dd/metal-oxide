@@ -75,6 +75,30 @@ impl<'tcx> Context<'_, 'tcx> {
                     });
                 }
             }
+            if definition.is_struct() {
+                let fields = definition
+                    .non_enum_variant()
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        scalar(self.normalize_type(field.ty(self.tcx, args).skip_norm_wip()))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or((span, "device records require scalar fields".into()))?;
+                if fields.is_empty() {
+                    return Err((span, "empty device records are unsupported".into()));
+                }
+                let mut records = self.records.borrow_mut();
+                let id = match records.iter().position(|record| *record == fields) {
+                    Some(id) => id,
+                    None => {
+                        let id = records.len();
+                        records.push(fields);
+                        id
+                    }
+                };
+                return Ok(ir::Type::Record(id));
+            }
         }
         Err((span, format!("unsupported device type: {ty}")))
     }
@@ -137,6 +161,28 @@ impl<'tcx> Context<'_, 'tcx> {
     ) -> Result<ir::Expression> {
         let operand = |v| self.operand(v, span);
         match value {
+            mir::Rvalue::Aggregate(kind, fields) => {
+                let mir::AggregateKind::Adt(def, _, args, _, _) = kind.as_ref() else {
+                    return Err((span, "unsupported MIR aggregate".into()));
+                };
+                let ty = self.normalize_type(
+                    self.tcx
+                        .type_of(*def)
+                        .instantiate(self.tcx, args)
+                        .skip_norm_wip(),
+                );
+                let ty = self.ty(ty, span)?;
+                let fields = fields.iter().map(operand).collect::<Result<Vec<_>>>()?;
+                match ty {
+                    ir::Type::Record(ty) => Ok(ir::Expression::Record { ty, fields }),
+                    ir::Type::Dim3 => Ok(ir::Expression::Dim3(
+                        fields
+                            .try_into()
+                            .map_err(|_| (span, "invalid Dim3 aggregate".into()))?,
+                    )),
+                    _ => Err((span, "unsupported MIR aggregate type".into())),
+                }
+            }
             mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(operand(v)?)),
             mir::Rvalue::BinaryOp(op, values) => Ok(ir::Expression::Binary(
                 binary(*op, span)?,

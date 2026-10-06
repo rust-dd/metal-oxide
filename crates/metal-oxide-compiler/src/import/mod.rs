@@ -1,6 +1,6 @@
 mod values;
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use metal_oxide_ir as ir;
 use rustc_middle::{
@@ -32,6 +32,7 @@ pub(crate) fn module<'tcx>(
         .enumerate()
         .map(|(id, &i)| (i, id))
         .collect::<HashMap<_, _>>();
+    let records = RefCell::new(Vec::new());
     let functions = instances
         .iter()
         .map(|&instance| {
@@ -43,6 +44,7 @@ pub(crate) fn module<'tcx>(
                 ids: &ids,
                 locals: Vec::new(),
                 allocations: 0,
+                records: &records,
             };
             for local in body.local_decls.iter() {
                 let ty = context.normalize_type(local.ty);
@@ -72,7 +74,10 @@ pub(crate) fn module<'tcx>(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(ir::Module { functions })
+    Ok(ir::Module {
+        functions,
+        records: records.into_inner(),
+    })
 }
 
 struct Context<'a, 'tcx> {
@@ -81,6 +86,7 @@ struct Context<'a, 'tcx> {
     ids: &'a HashMap<Instance<'tcx>, usize>,
     locals: Vec<ir::Type>,
     allocations: u32,
+    records: &'a RefCell<Vec<Vec<ir::Scalar>>>,
 }
 
 impl<'tcx> Context<'_, 'tcx> {
@@ -95,11 +101,45 @@ impl<'tcx> Context<'_, 'tcx> {
             match &statement.kind {
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
-                    statements.push(ir::Statement {
-                        destination: self.destination(destination, span)?,
-                        value: self.expression(value, span)?,
-                        source: location(self.tcx, span),
-                    });
+                    let expression = self.expression(value, span)?;
+                    let source = location(self.tcx, span);
+                    if let [mir::ProjectionElem::Field(field, _)] =
+                        destination.projection.as_slice()
+                    {
+                        let local = destination.local.as_usize();
+                        if !matches!(self.locals[local], ir::Type::Record(_)) {
+                            return Err((
+                                span,
+                                "field writes require an owned scalar record".into(),
+                            ));
+                        }
+                        let ty = self.ty(
+                            self.normalize_type(destination.ty(&body.local_decls, self.tcx).ty),
+                            span,
+                        )?;
+                        let temporary = self.locals.len();
+                        self.locals.push(ty);
+                        statements.push(ir::Statement {
+                            destination: temporary,
+                            value: expression,
+                            source: source.clone(),
+                        });
+                        statements.push(ir::Statement {
+                            destination: local,
+                            value: ir::Expression::RecordUpdate {
+                                record: ir::Operand::local(local),
+                                field: field.as_u32(),
+                                value: ir::Operand::local(temporary),
+                            },
+                            source,
+                        });
+                    } else {
+                        statements.push(ir::Statement {
+                            destination: self.destination(destination, span)?,
+                            value: expression,
+                            source,
+                        });
+                    }
                 }
                 mir::StatementKind::StorageLive(_)
                 | mir::StatementKind::StorageDead(_)

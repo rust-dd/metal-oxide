@@ -1,6 +1,30 @@
 mod support;
 
 #[test]
+fn records_with_references_are_rejected() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
+        &[],
+    );
+    support::rejected(output, "device records require scalar fields");
+    assert!(!directory.join("kernels.metal").exists());
+}
+
+#[test]
+fn scalar_record_helpers_execute_from_generated_msl() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/records.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let result = support::execute_msl(
+        &directory,
+        "float a[1] = {2}; float b[1] = {5}; float sum[1] = {}; float product[1] = {}; uint n=1; record_math(a,b,sum,product,n,{0,0,0},{0,0,0},{1,1,1},{1,1,1}); std::cout << sum[0] << ',' << product[0];",
+    );
+    assert_eq!(result, "21,31");
+}
+
+#[test]
 fn narrow_overflow_checks_are_preserved() {
     let (output, directory) =
         support::emit("crates/metal-oxide-compiler/tests/fixtures/narrow.rs", &[]);

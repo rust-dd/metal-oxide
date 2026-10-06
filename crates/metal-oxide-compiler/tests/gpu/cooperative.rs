@@ -9,6 +9,11 @@ fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
         "crates/metal-oxide-compiler/tests/fixtures/cooperative.rs",
         "reduce",
     )?;
+    let reference_module = Module::from_source(
+        &device,
+        include_str!("../../../../benchmarks/reference-msl/reduction.metal"),
+    )?;
+    let reference = Pipeline::new(&device, &reference_module, "reduce")?;
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
         let values = (0..n).map(|i| (i % 17) as f32 - 8.0).collect::<Vec<_>>();
         let input = device.buffer_from_slice(&values)?;
@@ -31,6 +36,20 @@ fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
             .map(|v| v.iter().sum::<f32>())
             .collect::<Vec<_>>();
         assert_eq!(output.as_slice(), expected, "n={n}");
+        let mut reference_output = device.buffer_zeroed::<f32>(n.div_ceil(256) as usize)?;
+        // SAFETY: the handwritten reference has the same bounds and block contract as the Rust kernel.
+        unsafe {
+            device.launch(
+                &reference,
+                config,
+                &[
+                    Argument::read(&input),
+                    Argument::write(&mut reference_output),
+                    Argument::u32(n),
+                ],
+            )?;
+        }
+        assert_eq!(output.as_slice(), reference_output.as_slice(), "n={n}");
     }
     Ok(())
 }

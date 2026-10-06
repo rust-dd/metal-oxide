@@ -32,7 +32,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 for s in f.blocks.iter().flat_map(|b| &b.statements) {
                     if let Expression::Binary(op, a, _) = &s.value
                         && *op == operation
-                        && operand_type(f, a, &s.source)? == Type::Scalar(scalar)
+                        && operand_type(module, f, a, &s.source)? == Type::Scalar(scalar)
                     {
                         used = true;
                     }

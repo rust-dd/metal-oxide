@@ -1,6 +1,7 @@
 use crate::*;
 
 pub fn operand_type(
+    module: &Module,
     function: &Function,
     operand: &Operand,
     source: &SourceLocation,
@@ -18,6 +19,13 @@ pub fn operand_type(
                 (Type::Dim3, Some(0..=2)) => Ok(Type::Scalar(Scalar::U32)),
                 (Type::Checked(scalar), Some(0)) => Ok(Type::Scalar(scalar)),
                 (Type::Checked(_), Some(1)) => Ok(Type::Scalar(Scalar::Bool)),
+                (Type::Record(id), Some(field)) => module
+                    .records
+                    .get(id)
+                    .and_then(|fields| fields.get(*field as usize))
+                    .copied()
+                    .map(Type::Scalar)
+                    .ok_or_else(|| Error::new(source, "invalid record field")),
                 _ => Err(Error::new(source, "unsupported field projection")),
             }
         }
@@ -30,7 +38,7 @@ pub(crate) fn expression_type(
     expression: &Expression,
     source: &SourceLocation,
 ) -> Result<Type, Error> {
-    let ty = |v| operand_type(function, v, source);
+    let ty = |v| operand_type(module, function, v, source);
     let require = |actual, expected| {
         if actual == expected {
             Ok(())
@@ -70,6 +78,36 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
+        Expression::Record { ty: id, fields } => {
+            let types = module
+                .records
+                .get(*id)
+                .ok_or_else(|| Error::new(source, "invalid record type"))?;
+            if fields.len() != types.len() {
+                return Err(Error::new(source, "record field count mismatch"));
+            }
+            for (value, expected) in fields.iter().zip(types) {
+                require(ty(value)?, Type::Scalar(*expected))?;
+            }
+            Ok(Type::Record(*id))
+        }
+        Expression::RecordUpdate {
+            record,
+            field,
+            value,
+        } => {
+            let Type::Record(id) = ty(record)? else {
+                return Err(Error::new(source, "field update requires a record"));
+            };
+            let expected = module
+                .records
+                .get(id)
+                .and_then(|fields| fields.get(*field as usize))
+                .copied()
+                .ok_or_else(|| Error::new(source, "invalid record field"))?;
+            require(ty(value)?, Type::Scalar(expected))?;
+            Ok(Type::Record(id))
+        }
         Expression::SimdCoordinate(_) => Ok(Type::Scalar(Scalar::U32)),
         Expression::SimdSum(value) => {
             require(ty(value)?, Type::Scalar(Scalar::F32))?;

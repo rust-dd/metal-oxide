@@ -11,6 +11,13 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
         "#include <metal_stdlib>\nusing namespace metal;\n#pragma STDC FP_CONTRACT OFF\n\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n",
     );
     output.push_str(&crate::numeric::helpers(module)?);
+    for (id, fields) in module.records.iter().enumerate() {
+        writeln!(output, "struct metal_oxide_record_{id} {{").unwrap();
+        for (field, scalar) in fields.iter().enumerate() {
+            writeln!(output, "    {} f{field};", type_name(Type::Scalar(*scalar))).unwrap();
+        }
+        output.push_str("};\n\n");
+    }
     for (id, f) in module.functions.iter().enumerate() {
         if !f.kernel {
             writeln!(output, "{};", signature(f, id, simd)?).unwrap();
