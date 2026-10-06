@@ -9,7 +9,26 @@ and execution. The example source is in [`examples/vec-add`](examples/vec-add).
 
 ## Build and runtime boundaries
 
-![Compiler and runtime architecture](assets/architecture.svg)
+```text
+       [Rust kernel]
+             |
+        [rustc: MIR]
+             |
+       [importer: IR]
+             |
+         [codegen] ----> ABI + bindings
+             |                 |
+            MSL                |
+             |                 |
+      [Apple compiler]         |
+             |                 |
+         .metallib             |
+             +-----------------+
+             |
+   [Rust host + runtime]
+             |
+ [Classic Metal / Metal 4]
+```
 
 There are three stages:
 

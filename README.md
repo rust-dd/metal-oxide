@@ -7,7 +7,26 @@ application loads the compiled kernels and launches them through `metal-oxide`.
 
 ## Architecture
 
-![metal-oxide compiler and runtime architecture](assets/architecture.svg)
+```text
+       [Rust kernel]
+             |
+        [rustc: MIR]
+             |
+       [importer: IR]
+             |
+         [codegen] ----> ABI + bindings
+             |                 |
+            MSL                |
+             |                 |
+      [Apple compiler]         |
+             |                 |
+         .metallib             |
+             +-----------------+
+             |
+   [Rust host + runtime]
+             |
+ [Classic Metal / Metal 4]
+```
 
 `rustc` handles parsing, macros, type checking, borrow checking, and MIR generation.
 The MIR importer resolves concrete function instances and converts them to our
