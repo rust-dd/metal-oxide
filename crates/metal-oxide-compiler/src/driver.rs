@@ -1,13 +1,31 @@
 use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::{Compiler, Config};
 use rustc_middle::ty::TyCtxt;
+use rustc_session::config::PrintKind;
 
 pub(crate) struct Frontend {
     pub(crate) output: Option<std::path::PathBuf>,
+    pub(crate) help: bool,
 }
 
 impl Callbacks for Frontend {
     fn config(&mut self, config: &mut Config) {
+        if !self.help
+            && !config.opts.describe_lints
+            && config.opts.prints.iter().all(|request| {
+                matches!(
+                    request.kind,
+                    PrintKind::NativeStaticLibs | PrintKind::LinkArgs
+                )
+            })
+            && let Some(directory) = self.output.clone()
+        {
+            config.psess_created = Some(Box::new(move |session| {
+                if let Err(error) = crate::output::prepare(&directory) {
+                    session.dcx().fatal(error.to_string());
+                }
+            }));
+        }
         config.make_codegen_backend = Some(Box::new(|_| Box::new(crate::backend::FrontendBackend)));
         config.opts.unstable_opts.crate_attr.extend([
             "feature(register_tool)".into(),
@@ -20,11 +38,6 @@ impl Callbacks for Frontend {
     }
 
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
-        if let Some(directory) = &self.output
-            && let Err(error) = crate::output::prepare(directory)
-        {
-            tcx.dcx().fatal(error.to_string());
-        }
         crate::target::validate(tcx);
         let (entries, instances) = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();

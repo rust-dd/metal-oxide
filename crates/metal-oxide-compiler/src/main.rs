@@ -35,7 +35,10 @@ fn main() -> std::process::ExitCode {
         }
     };
     rustc_driver::catch_with_exit_code(|| {
-        rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output });
+        let help = arguments
+            .iter()
+            .any(|argument| matches!(argument.as_str(), "--help" | "-h"));
+        rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output, help });
     })
 }
 

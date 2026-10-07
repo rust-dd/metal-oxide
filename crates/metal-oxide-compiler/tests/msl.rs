@@ -243,6 +243,7 @@ fn informational_commands_preserve_generated_files() {
     let ir = std::fs::read(directory.join("kernels.oxide-ir")).unwrap();
     for arguments in [
         vec!["--help"],
+        vec!["--help", "tests/fixtures/m2_unit.rs"],
         vec!["--version"],
         vec!["--print=sysroot"],
         vec!["--print", "sysroot"],
