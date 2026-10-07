@@ -6,7 +6,7 @@ use super::{
 };
 use crate::*;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Value(pub BTreeMap<Vec<u32>, Range>);
 
 impl Value {

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::{BinaryOp, Constant, Scalar};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Range {
     pub lo: i128,
     pub hi: i128,

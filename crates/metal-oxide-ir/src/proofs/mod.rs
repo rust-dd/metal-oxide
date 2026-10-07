@@ -29,6 +29,7 @@ pub fn prove_numerics(module: &Module) -> Result<(), Error> {
     let mut analysis = analysis::Analysis {
         module,
         remaining: 100_000,
+        results: Default::default(),
     };
     for (index, function) in module.functions.iter().enumerate() {
         if function.kernel || !kernels {

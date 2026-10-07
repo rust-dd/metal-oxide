@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use super::{
     domain::integer,
@@ -9,10 +9,15 @@ use crate::*;
 pub(super) struct Analysis<'a> {
     pub module: &'a Module,
     pub remaining: usize,
+    pub results: BTreeMap<(usize, Vec<Value>), Value>,
 }
 
 impl<'a> Analysis<'a> {
     pub fn function(&mut self, index: usize, arguments: &[Value]) -> Result<Value, Error> {
+        let key = (index, arguments.to_vec());
+        if let Some(result) = self.results.get(&key) {
+            return Ok(result.clone());
+        }
         let function = &self.module.functions[index];
         let mut entry = State::new(self.module, function);
         for (index, argument) in arguments.iter().enumerate() {
@@ -111,7 +116,9 @@ impl<'a> Analysis<'a> {
                 Terminator::Unreachable => {}
             }
         }
-        Ok(result.unwrap_or_default())
+        let result = result.unwrap_or_default();
+        self.results.insert(key, result.clone());
+        Ok(result)
     }
 }
 

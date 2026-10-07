@@ -3,6 +3,31 @@
 mod support;
 
 #[test]
+fn repeated_helper_dag_preserves_checked_results() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/proofs_dag.rs",
+        &["-C", "overflow-checks=on"],
+    );
+    support::checked(output);
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "for (uint input : {0u,1u,2u}) { uint value = 99; proof_dag(&value,input,{},{},{},{}); std::cout << value << ','; }"
+        ),
+        "0,65536,99,"
+    );
+}
+
+#[test]
+fn helper_proofs_keep_different_argument_ranges_separate() {
+    let (output, _) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/proofs_dag.rs",
+        &["--cfg", "different_inputs", "-C", "overflow-checks=on"],
+    );
+    support::rejected(output, "MIR assertion");
+}
+
+#[test]
 fn guarded_arithmetic_and_array_loops_preserve_checked_rust() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/proofs_good.rs",
