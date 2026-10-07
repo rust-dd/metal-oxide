@@ -1,11 +1,12 @@
 use crate::{
+    inputs::Inputs,
     metadata::Project,
     process::{self, Result},
 };
 use metal_oxide_artifact::{COMPILER_OUTPUTS, sha256};
 use std::{
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 pub(crate) const NIGHTLY: &str = "nightly-2026-10-04";
@@ -18,6 +19,11 @@ pub(crate) struct Rust {
     pub(crate) target: PathBuf,
     pub(crate) flags: Vec<String>,
     pub(crate) directory: PathBuf,
+}
+
+pub(crate) struct KernelBuild {
+    pub(crate) output: PathBuf,
+    pub(crate) inputs: Inputs,
 }
 
 fn cargo() -> Command {
@@ -107,12 +113,12 @@ impl Rust {
         command
     }
 
-    pub(crate) fn kernels(&self, project: &Project) -> Result<PathBuf> {
+    pub(crate) fn kernels(&self, project: &Project) -> Result<KernelBuild> {
         let output = self
             .directory
             .join(format!("output-{}", sha256(project.kernel().id.as_bytes())));
         std::fs::create_dir_all(&output)?;
-        self.check(project, &output)?;
+        let mut inputs = self.check(project, &output)?;
         if COMPILER_OUTPUTS
             .iter()
             .any(|file| !output.join(file.name()).is_file())
@@ -134,19 +140,20 @@ impl Rust {
                     .arg("--target-dir")
                     .arg(&self.directory),
             )?;
-            self.check(project, &output)?;
+            inputs = self.check(project, &output)?;
         }
-        Ok(output)
+        Ok(KernelBuild { output, inputs })
     }
 
-    fn check(&self, project: &Project, output: &Path) -> Result<()> {
-        process::run(
+    fn check(&self, project: &Project, output: &Path) -> Result<Inputs> {
+        let messages = process::capture(
             self.command(project, output)
                 .args([
                     "check",
                     "-Zbuild-std=core",
                     "-Zjson-target-spec",
                     "--lib",
+                    "--message-format=json-render-diagnostics",
                     "--release",
                     "--locked",
                     "--package",
@@ -157,7 +164,9 @@ impl Rust {
                 .arg("--target")
                 .arg(&self.target)
                 .arg("--target-dir")
-                .arg(&self.directory),
-        )
+                .arg(&self.directory)
+                .stderr(Stdio::inherit()),
+        )?;
+        Inputs::from_cargo(&messages, project)
     }
 }

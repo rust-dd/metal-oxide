@@ -40,7 +40,6 @@ pub(crate) struct Resolve {
 pub(crate) struct Node {
     pub(crate) id: String,
     pub(crate) deps: Vec<Dependency>,
-    pub(crate) features: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -58,7 +57,6 @@ pub(crate) struct Project {
     pub(crate) metadata: Metadata,
     pub(crate) host: usize,
     pub(crate) kernel: usize,
-    pub(crate) dependencies: HashSet<String>,
 }
 
 pub(crate) fn load(options: &Options) -> Result<Project> {
@@ -157,7 +155,6 @@ pub(crate) fn load(options: &Options) -> Result<Project> {
         metadata,
         host,
         kernel,
-        dependencies,
     })
 }
 

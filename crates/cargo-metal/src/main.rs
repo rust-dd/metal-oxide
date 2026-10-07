@@ -2,6 +2,7 @@ mod build;
 mod cache;
 mod cli;
 mod doctor;
+mod inputs;
 mod metadata;
 mod process;
 mod rust;

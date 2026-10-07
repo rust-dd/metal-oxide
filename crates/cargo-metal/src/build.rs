@@ -19,7 +19,8 @@ use std::{
 pub(crate) fn execute(options: &Options) -> Result<()> {
     let project = metadata::load(options)?;
     let rust = Rust::prepare(&project)?;
-    let output = rust.kernels(&project)?;
+    let kernels = rust.kernels(&project)?;
+    let output = &kernels.output;
     if options.action == Action::Inspect {
         print!(
             "{}",
@@ -28,27 +29,17 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         return Ok(());
     }
     let metal = Metal::find()?;
-    let source = cache::sources(&project)?;
     let generated = COMPILER_OUTPUTS
         .map(|file| std::fs::read(output.join(file.name())))
         .into_iter()
         .collect::<std::io::Result<Vec<_>>>()?;
-    let features = project
-        .metadata
-        .resolve
-        .nodes
-        .iter()
-        .filter(|n| project.dependencies.contains(&n.id))
-        .map(|n| (&n.id, &n.features))
-        .collect::<Vec<_>>();
     let profile = std::env::vars()
         .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
         .collect::<std::collections::BTreeMap<_, _>>();
     let identity = serde_json::to_vec(&(
         env!("CARGO_PKG_VERSION"),
-        &source,
+        &kernels.inputs,
         &generated,
-        &features,
         &rust.identity,
         &rust.version,
         &rust.flags,
@@ -69,7 +60,7 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&stage)?;
-        let result = create(&stage, &output, &rust, &metal, &fingerprint);
+        let result = create(&stage, output, &rust, &metal, &fingerprint);
         if let Err(error) = result {
             std::fs::remove_dir_all(&stage)?;
             return Err(error);

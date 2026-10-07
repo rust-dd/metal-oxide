@@ -1,56 +1,6 @@
-use crate::{metadata::Project, process::Result};
+use crate::process::Result;
 use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, sha256};
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
-
-fn files(directory: &Path, output: &mut BTreeMap<PathBuf, String>) -> Result<()> {
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        if ["target", ".git", ".zed", "docs"]
-            .iter()
-            .any(|name| entry.file_name() == *name)
-        {
-            continue;
-        }
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            files(&entry.path(), output)?;
-        } else if kind.is_file() {
-            output.insert(entry.path(), sha256(&std::fs::read(entry.path())?));
-        } else if kind.is_symlink() {
-            return Err(format!(
-                "symlinked kernel source is unsupported: {}",
-                entry.path().display()
-            )
-            .into());
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn sources(project: &Project) -> Result<BTreeMap<PathBuf, String>> {
-    let mut result = BTreeMap::new();
-    for package in &project.metadata.packages {
-        if project.dependencies.contains(&package.id) {
-            files(package.manifest_path.parent().unwrap(), &mut result)?;
-        }
-    }
-    for name in ["Cargo.toml", "Cargo.lock"] {
-        let path = project.metadata.workspace_root.join(name);
-        result.insert(path.clone(), sha256(&std::fs::read(path)?));
-    }
-    for ancestor in project.metadata.workspace_root.ancestors() {
-        for name in [".cargo/config", ".cargo/config.toml"] {
-            let path = ancestor.join(name);
-            if path.is_file() {
-                result.insert(path.clone(), sha256(&std::fs::read(path)?));
-            }
-        }
-    }
-    Ok(result)
-}
+use std::path::Path;
 
 pub(crate) fn valid(directory: &Path, fingerprint: &str) -> bool {
     let validate = || -> Result<()> {
@@ -80,6 +30,7 @@ pub(crate) fn valid(directory: &Path, fingerprint: &str) -> bool {
 mod tests {
     use super::*;
     use metal_oxide_artifact::{ABI_VERSION, BuildInfo, DEVICE_TARGET, Files, Kernel, MSL_VERSION};
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Directory(PathBuf);
@@ -175,19 +126,5 @@ mod tests {
         abi.kernels[0].name = "different".into();
         std::fs::write(directory.0.join("abi.json"), abi.to_json().unwrap()).unwrap();
         assert!(!valid(&directory.0, &fingerprint));
-    }
-
-    #[test]
-    fn source_hashes_track_nested_changes() {
-        let directory = Directory::new();
-        std::fs::create_dir(directory.0.join("src")).unwrap();
-        let source = directory.0.join("src/lib.rs");
-        std::fs::write(&source, "pub fn kernel() {}").unwrap();
-        let mut before = BTreeMap::new();
-        files(&directory.0, &mut before).unwrap();
-        std::fs::write(&source, "pub fn kernel() { let x = 1; }").unwrap();
-        let mut after = BTreeMap::new();
-        files(&directory.0, &mut after).unwrap();
-        assert_ne!(before[&source], after[&source]);
     }
 }
