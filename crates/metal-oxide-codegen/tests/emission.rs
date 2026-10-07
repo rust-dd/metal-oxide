@@ -251,7 +251,7 @@ fn uniform_switch_can_share_cooperative_cases_with_its_default() {
 }
 
 #[test]
-fn float_to_integer_cast_requires_supported_saturation_semantics() {
+fn float_to_integer_cast_saturates_before_conversion() {
     let module = module(
         1,
         vec![Type::Scalar(Scalar::I32), Type::Scalar(Scalar::F32)],
@@ -260,12 +260,12 @@ fn float_to_integer_cast_requires_supported_saturation_semantics() {
             Terminator::Return,
         )],
     );
-    assert!(
-        metal_oxide_codegen::Codegen::new(&module)
-            .and_then(|codegen| codegen.emit())
-            .unwrap_err()
-            .message
-            .contains("float-to-integer")
+    assert_eq!(
+        support::execute(
+            &module,
+            "for (float value : {as_type<float>(0x7f800000u), as_type<float>(0xff800000u), as_type<float>(0x7fc00000u), 123.75f, -123.75f}) std::cout << metal_oxide_fn_0(value, ctx) << ',';"
+        ),
+        "2147483647,-2147483648,0,123,-123,"
     );
 }
 

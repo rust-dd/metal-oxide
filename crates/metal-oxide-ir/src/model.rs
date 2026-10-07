@@ -169,6 +169,25 @@ pub enum UnaryOp {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MathOp {
+    Abs,
+    Min,
+    Max,
+    Sqrt,
+    Fma,
+}
+
+impl MathOp {
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::Abs | Self::Sqrt => 1,
+            Self::Min | Self::Max => 2,
+            Self::Fma => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Builtin {
     ThreadIdx,
     BlockIdx,
@@ -190,6 +209,11 @@ pub enum Expression {
     Binary(BinaryOp, Operand, Operand),
     Unary(UnaryOp, Operand),
     Cast(Operand, Scalar),
+    Bitcast(Operand, Scalar),
+    Math {
+        op: MathOp,
+        arguments: Vec<Operand>,
+    },
     Coordinates(Builtin),
     SimdCoordinate(SimdBuiltin),
     SimdSum(Operand),
@@ -241,7 +265,11 @@ pub enum Expression {
 impl Expression {
     pub fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) | Self::SimdSum(v) => vec![v],
+            Self::Use(v)
+            | Self::Unary(_, v)
+            | Self::Cast(v, _)
+            | Self::Bitcast(v, _)
+            | Self::SimdSum(v) => vec![v],
             Self::SimdShuffle { value, lane } => vec![value, lane],
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
@@ -269,7 +297,9 @@ impl Expression {
                 index,
                 value,
             } => vec![buffer, index, value],
-            Self::Call { arguments, .. } => arguments.iter().collect(),
+            Self::Call { arguments, .. } | Self::Math { arguments, .. } => {
+                arguments.iter().collect()
+            }
         }
     }
 }

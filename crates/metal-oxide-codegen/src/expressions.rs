@@ -125,6 +125,11 @@ pub(crate) fn expression(
     let ty = |v| operand_type(module, function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::Bitcast(v, to) => format!("as_type<{}>({})", scalar_name(*to), op(v)),
+        Expression::Math {
+            op: operation,
+            arguments,
+        } => crate::floating::math(*operation, arguments.iter().map(op).collect()),
         Expression::Checked {
             scalar,
             value,

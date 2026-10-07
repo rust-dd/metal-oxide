@@ -58,6 +58,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<ir::Expression> {
         Ok(match intrinsic {
+            Intrinsic::Math(op) => {
+                if values.len() != op.arity() {
+                    return Err((span, "invalid math intrinsic arity".into()));
+                }
+                ir::Expression::Math {
+                    op,
+                    arguments: values,
+                }
+            }
+            Intrinsic::Bitcast(to) => {
+                let [value] = arguments(values, span)?;
+                ir::Expression::Bitcast(value, to)
+            }
             Intrinsic::WrappingShift(op) => {
                 let [value, count] = arguments(values, span)?;
                 ir::Expression::Binary(op, value, count)

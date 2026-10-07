@@ -1,4 +1,4 @@
-use metal_oxide_ir::{BinaryOp, Builtin, SimdBuiltin};
+use metal_oxide_ir::{BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin};
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::TyCtxt;
 use rustc_span::Symbol;
@@ -15,6 +15,8 @@ pub(crate) enum Intrinsic {
     SimdShuffle,
     AtomicAdd,
     WrappingShift(BinaryOp),
+    Math(MathOp),
+    Bitcast(Scalar),
 }
 
 impl Intrinsic {
@@ -36,11 +38,27 @@ impl Intrinsic {
             Self::SimdShuffle => "simd_shuffle",
             Self::AtomicAdd => "atomic_add",
             Self::WrappingShift(_) => "wrapping_shift",
+            Self::Math(_) => "float_math",
+            Self::Bitcast(_) => "scalar_bitcast",
         }
     }
 }
 
 pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
+    if tcx.crate_name(definition.krate).as_str() == "core"
+        && tcx
+            .def_path_str(definition)
+            .starts_with("core::f32::<impl f32>::")
+    {
+        match tcx.item_name(definition).as_str() {
+            "abs" => return Some(Intrinsic::Math(MathOp::Abs)),
+            "min" => return Some(Intrinsic::Math(MathOp::Min)),
+            "max" => return Some(Intrinsic::Math(MathOp::Max)),
+            "to_bits" => return Some(Intrinsic::Bitcast(Scalar::U32)),
+            "from_bits" => return Some(Intrinsic::Bitcast(Scalar::F32)),
+            _ => {}
+        }
+    }
     if tcx.crate_name(definition.krate).as_str() == "core"
         && tcx.def_path_str(definition).starts_with("core::num::")
     {
@@ -51,6 +69,8 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
         }
     }
     [
+        ("metal_oxide_sqrt", Intrinsic::Math(MathOp::Sqrt)),
+        ("metal_oxide_fma", Intrinsic::Math(MathOp::Fma)),
         ("metal_oxide_buffer_load", Intrinsic::BufferLoad),
         ("metal_oxide_buffer_store", Intrinsic::BufferStore),
         ("metal_oxide_threadgroup_alloc", Intrinsic::ThreadgroupAlloc),

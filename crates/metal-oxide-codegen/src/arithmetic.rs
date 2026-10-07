@@ -24,10 +24,7 @@ pub(crate) fn cast(
     source: &SourceLocation,
 ) -> Result<String, Error> {
     if from == Type::Scalar(Scalar::F32) && to.is_integer() {
-        return Err(Error::new(
-            source,
-            "float-to-integer casts require saturation support",
-        ));
+        return Ok(crate::floating::saturating_cast(value, to));
     }
     if (to == Scalar::Bool && from != Type::Scalar(Scalar::Bool))
         || (from == Type::Scalar(Scalar::Bool) && to == Scalar::F32)

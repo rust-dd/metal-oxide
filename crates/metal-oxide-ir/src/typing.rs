@@ -118,6 +118,25 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
+        Expression::Bitcast(value, to) => {
+            if matches!(
+                (ty(value)?, to),
+                (Type::Scalar(Scalar::F32), Scalar::U32) | (Type::Scalar(Scalar::U32), Scalar::F32)
+            ) {
+                Ok(Type::Scalar(*to))
+            } else {
+                Err(Error::new(source, "unsupported scalar bitcast"))
+            }
+        }
+        Expression::Math { op, arguments } => {
+            if arguments.len() != op.arity() {
+                return Err(Error::new(source, "invalid math argument count"));
+            }
+            for argument in arguments {
+                require(ty(argument)?, Type::Scalar(Scalar::F32))?;
+            }
+            Ok(Type::Scalar(Scalar::F32))
+        }
         Expression::Checked {
             scalar,
             value,

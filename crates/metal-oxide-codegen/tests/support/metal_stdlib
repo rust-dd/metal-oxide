@@ -21,4 +21,9 @@ template<class To, class From> To as_type(From value) {
     return result;
 }
 using std::fmod;
+using std::isnan;
+using std::fmin;
+using std::fmax;
+using std::fma;
+namespace precise { using std::sqrt; }
 }
