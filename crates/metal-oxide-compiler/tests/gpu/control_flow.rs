@@ -191,3 +191,35 @@ fn cooperative_delta(mode: u32) -> u32 {
     }
     delta
 }
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn uniform_intrinsic_wrappers_preserve_barrier_participation() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let generated = pipeline(
+        &device,
+        "crates/metal-oxide-compiler/tests/fixtures/uniform_intrinsics.rs",
+        "uniform_intrinsics",
+    )?;
+    for blocks in [1, 3] {
+        for value in [4.0_f32, 9.0, 0.1] {
+            let mut output = device.buffer_from_slice(&vec![u32::MAX; blocks as usize * 32])?;
+            // SAFETY: each block initializes 32 shared cells and owns 32 distinct output elements.
+            unsafe {
+                device.launch(
+                    &generated,
+                    LaunchConfig::<32>::new(Dim3::x(blocks)),
+                    &[Argument::write(&mut output), Argument::value::<f32>(value)?],
+                )?;
+            }
+            for (i, &actual) in output.as_slice().iter().enumerate() {
+                assert_eq!(
+                    actual,
+                    (i as u32 + 1) & 31,
+                    "blocks={blocks}, value={value}"
+                );
+            }
+        }
+    }
+    Ok(())
+}

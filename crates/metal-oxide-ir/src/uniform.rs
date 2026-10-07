@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::*;
 
 pub(crate) fn validate(module: &Module, graphs: &[ControlFlowGraph]) -> Result<(), Error> {
+    let uniform_returns = uniform_returns(module, graphs);
     let mut cooperative = vec![false; module.functions.len()];
     loop {
         let mut changed = false;
@@ -24,17 +25,36 @@ pub(crate) fn validate(module: &Module, graphs: &[ControlFlowGraph]) -> Result<(
         }
     }
     for (function, graph) in module.functions.iter().zip(graphs) {
-        check_function(function, graph, &cooperative)?;
+        check_function(function, graph, &cooperative, &uniform_returns)?;
     }
     Ok(())
+}
+
+fn uniform_returns(module: &Module, graphs: &[ControlFlowGraph]) -> Vec<bool> {
+    let mut uniform = vec![false; module.functions.len()];
+    loop {
+        let mut changed = false;
+        for (id, (function, graph)) in module.functions.iter().zip(graphs).enumerate() {
+            if !uniform[id] {
+                let (varying, _) = flow(function, graph, &uniform, false);
+                if !varying[0] {
+                    uniform[id] = true;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return uniform;
+        }
+    }
 }
 
 fn check_function(
     function: &Function,
     graph: &ControlFlowGraph,
     cooperative: &[bool],
+    uniform_returns: &[bool],
 ) -> Result<(), Error> {
-    let n = function.blocks.len();
     let mut ids = BTreeSet::new();
     for (block_id, block) in function
         .blocks
@@ -65,12 +85,44 @@ fn check_function(
             }
         }
     }
+    let (_, divergent) = flow(function, graph, uniform_returns, !function.kernel);
+    for (id, block) in function
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(id, _)| graph.is_reachable(*id))
+    {
+        for statement in &block.statements {
+            let synchronized = matches!(
+                statement.value,
+                Expression::ThreadgroupBarrier
+                    | Expression::ThreadgroupAlloc { .. }
+                    | Expression::SimdSum(_)
+                    | Expression::SimdShuffle { .. }
+            ) || matches!(statement.value, Expression::Call { function, .. } if cooperative[function]);
+            if synchronized && divergent[id] {
+                return Err(Error::new(
+                    &statement.source,
+                    "cooperative operation requires uniform participation; divergent control flow is unsupported",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn flow(
+    function: &Function,
+    graph: &ControlFlowGraph,
+    uniform_returns: &[bool],
+    parameters_varying: bool,
+) -> (Vec<bool>, Vec<bool>) {
     let postdominators = graph.postdominators();
     let mut varying = vec![false; function.locals.len()];
-    if !function.kernel {
+    if parameters_varying {
         varying[1..=function.parameters].fill(true);
     }
-    let mut divergent = vec![false; n];
+    let mut divergent = vec![false; function.blocks.len()];
     loop {
         let mut changed = false;
         for (id, block) in function
@@ -92,8 +144,8 @@ fn check_function(
                             | Expression::SimdCoordinate(SimdBuiltin::Lane | SimdBuiltin::Group)
                             | Expression::BufferLoad { .. }
                             | Expression::AtomicAdd { .. }
-                            | Expression::Call { .. }
                     )
+                    || matches!(statement.value, Expression::Call { function, .. } if !uniform_returns[function])
                     || statement
                         .value
                         .operands()
@@ -130,29 +182,7 @@ fn check_function(
             break;
         }
     }
-    for (id, block) in function
-        .blocks
-        .iter()
-        .enumerate()
-        .filter(|(id, _)| graph.is_reachable(*id))
-    {
-        for statement in &block.statements {
-            let synchronized = matches!(
-                statement.value,
-                Expression::ThreadgroupBarrier
-                    | Expression::ThreadgroupAlloc { .. }
-                    | Expression::SimdSum(_)
-                    | Expression::SimdShuffle { .. }
-            ) || matches!(statement.value, Expression::Call { function, .. } if cooperative[function]);
-            if synchronized && divergent[id] {
-                return Err(Error::new(
-                    &statement.source,
-                    "cooperative operation requires uniform participation; divergent control flow is unsupported",
-                ));
-            }
-        }
-    }
-    Ok(())
+    (varying, divergent)
 }
 
 fn operand_varying(value: &Operand, varying: &[bool]) -> bool {

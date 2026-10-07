@@ -5,7 +5,12 @@ mod reference;
 
 #[test]
 fn varying_match_and_loop_exits_cannot_bypass_cooperative_helpers() {
-    for fixture in ["match_barrier", "match_loop_barrier", "match_early_simd"] {
+    for fixture in [
+        "match_barrier",
+        "match_loop_barrier",
+        "match_early_simd",
+        "varying_intrinsic_helper",
+    ] {
         let (output, directory) = support::emit(
             &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
             &["-C", "overflow-checks=off"],
@@ -13,6 +18,16 @@ fn varying_match_and_loop_exits_cannot_bypass_cooperative_helpers() {
         support::rejected(output, "uniform participation");
         assert!(!directory.join("kernels.metal").exists());
     }
+}
+
+#[test]
+fn uniform_device_results_preserve_cooperative_branches() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/uniform_intrinsics.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    assert!(directory.join("kernels.metal").exists());
 }
 
 #[test]
