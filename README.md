@@ -47,9 +47,10 @@ library. `#[kernel]` marks entrypoints; it does not translate function bodies.
 
 The ABI defines value layouts, buffer strides and slots, access modes, and
 required block shapes. Generated record types encode fields and padding explicitly;
-their Rust memory layout is independent of the GPU layout. The MSL signature and generated Rust bindings use the same
-ABI. The runtime checks this metadata and the library hash when loading an
-artifact, then validates arguments before encoding a launch.
+their Rust memory layout is independent of the GPU layout. The MSL signature
+and generated Rust bindings use the same ABI. The runtime checks this metadata
+and the library hash when loading an artifact, then validates arguments before
+encoding a launch.
 
 The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
 The runtime has no dependency on the compiler or `rustc_private`. `cargo metal`
@@ -61,8 +62,8 @@ See [CONCEPT.md](CONCEPT.md) for the `vec_add` compiler, ABI, and runtime walkth
 
 A `Device` owns a GPU and command queue. A `Module` loads a shader library;
 a `Pipeline` selects one kernel entrypoint. `Buffer<T>` owns GPU memory, and
-`Argument` binds a buffer or an encoded value to a parameter slot. Generated bindings
-construct these arguments from typed Rust parameters.
+`Argument` binds a buffer or an encoded value to a parameter slot. Generated
+bindings construct these arguments from typed Rust parameters.
 
 `LaunchConfig<X, Y, Z>` sets threads per block through const generics. Its `grid`
 counts blocks at runtime. Each block maps to a Metal threadgroup;
@@ -93,6 +94,7 @@ cargo metal run -p vec-add
 cargo metal run -p reduction
 cargo metal run -p matmul
 cargo metal run -p pipeline
+cargo metal run -p particle-update
 ```
 
 Inspect the generated MSL or run the GPU tests:

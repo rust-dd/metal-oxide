@@ -11,7 +11,7 @@ for backend in classic metal4; do
         cd crates/metal-oxide-compiler
         cargo test --features rustc-private --locked --target-dir ../../target/compiler --test gpu -- --ignored --test-threads=1
     )
-    for package in vec-add reduction matmul pipeline; do
+    for package in vec-add reduction matmul pipeline particle-update; do
         cargo run -p cargo-metal --locked -- test -p "$package"
     done
 done

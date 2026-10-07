@@ -289,3 +289,41 @@ impl GpuValue for Huge {
         unreachable!()
     }
 }
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn large_owned_constants_are_immutable_for_each_dispatch() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let module = Module::from_source(
+        &device,
+        "#include <metal_stdlib>\nusing namespace metal;\nkernel void constants(device uint* out [[buffer(0)]], constant uint* values [[buffer(1)]]) { out[0] = values[0] + values[2047]; }",
+    )?;
+    let pipeline = Pipeline::new(&device, &module, "constants")?;
+    let mut first = device.buffer_zeroed::<u32>(1)?;
+    let mut second = device.buffer_zeroed::<u32>(1)?;
+    let mut a = [0_u32; 2048];
+    a[0] = 7;
+    a[2047] = 11;
+    let mut b = [0_u32; 2048];
+    b[0] = 12;
+    b[2047] = 3;
+    // SAFETY: a single thread writes each initialized output; constants are immutable per dispatch.
+    let submission = unsafe {
+        device.submit(|batch| {
+            batch.launch(
+                &pipeline,
+                LaunchConfig::<1>::for_elements(1)?,
+                &[Argument::write(&mut first), Argument::value(a)?],
+            )?;
+            batch.launch(
+                &pipeline,
+                LaunchConfig::<1>::for_elements(1)?,
+                &[Argument::write(&mut second), Argument::value(b)?],
+            )
+        })?
+    };
+    drop(submission);
+    assert_eq!(first.as_slice(), [18]);
+    assert_eq!(second.as_slice(), [15]);
+    Ok(())
+}

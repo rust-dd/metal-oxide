@@ -80,6 +80,56 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
 }
 
 #[test]
+fn cross_crate_nested_records_and_const_helpers_lower_through_cargo() {
+    let (directory, mut cargo) = cargo_kernel("particle-update-kernels", "particle_update_kernels");
+    support::checked(cargo.output().unwrap());
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(abi.kernels.len(), 2);
+    assert!(
+        abi.kernels
+            .iter()
+            .all(|kernel| kernel.required_block == Some([64, 1, 1]))
+    );
+    let parameter = &abi.kernels[0].parameters[0].ty;
+    let metal_oxide_artifact::ParameterType::Buffer {
+        element, stride, ..
+    } = parameter
+    else {
+        panic!()
+    };
+    assert_eq!((*stride, element.size, element.alignment), (28, 28, 4));
+    let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    let signature = msl
+        .lines()
+        .find(|line| line.starts_with("kernel void particle_update("))
+        .unwrap();
+    let particle = signature
+        .split("device const ")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    let config = signature
+        .split("constant ")
+        .nth(1)
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap();
+    let program = format!(
+        "{particle} input = {{uchar(1),ushort(3),9u,{{{{1.0f,2.0f}},{{{{3.0f,4.0f}}}}}},{{{{uchar(5),uchar(6),uchar(7)}}}}}}; {particle} output = {{}}; {config} config = {{0.5f,{{1.0f,2.0f}}}}; uint n = 1; particle_update(&input, &output, config, n, {{}}, {{}}, {{64,1,1}}, {{1,1,1}}); std::cout << output.f0 + 0 << ',' << output.f1 << ',' << output.f2 << ',' << output.f3.f0.f0 << ',' << output.f3.f0.f1 << ',' << output.f3.f1.elements[0] << ',' << output.f3.f1.elements[1] << ',' << output.f4.elements[1] + 0;"
+    );
+    assert_eq!(
+        support::execute_msl(&directory, &program),
+        "1,5,9,4.75,7.5,4,6,5"
+    );
+}
+
+#[test]
 fn cargo_imports_external_struct_helpers_and_const_specializations() {
     let (output, mut cargo) = cargo_kernel("pipeline-kernels", "pipeline_kernels");
     support::checked(cargo.output().unwrap());

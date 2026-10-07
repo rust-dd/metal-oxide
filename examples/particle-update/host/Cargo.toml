@@ -1,0 +1,18 @@
+[package]
+name = "particle-update"
+description = "Structured buffers and generated particle update bindings"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[package.metadata.metal]
+kernels = "../kernels/Cargo.toml"
+
+[dependencies]
+metal-oxide.workspace = true
+
+[lints]
+workspace = true

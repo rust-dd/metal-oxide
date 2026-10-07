@@ -1,0 +1,16 @@
+[package]
+name = "particle-update-kernels"
+description = "Particle update kernels with structured parameters"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device.workspace = true
+particle-device-math.workspace = true
+
+[lints]
+workspace = true
