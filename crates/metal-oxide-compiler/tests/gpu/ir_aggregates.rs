@@ -1,7 +1,7 @@
 use super::{Argument, Device, Dim3, LaunchConfig, Module, Pipeline};
 use metal_oxide_ir::{
     self as ir, Access, AddressSpace, Aggregate, Block, Constant, Expression, Function, Operand,
-    Scalar, SourceLocation, Statement, Terminator, Type, TypeTable,
+    Place, Scalar, SourceLocation, Statement, Terminator, Type, TypeTable,
 };
 
 #[test]
@@ -49,7 +49,7 @@ fn block(statements: Vec<(usize, Expression)>) -> Block {
         statements: statements
             .into_iter()
             .map(|(destination, value)| Statement {
-                destination,
+                destination: Place::local(destination),
                 value,
                 source: source(),
             })
@@ -60,10 +60,10 @@ fn block(statements: Vec<(usize, Expression)>) -> Block {
 }
 
 fn field(local: usize, field: u32) -> Operand {
-    Operand::Place {
+    Operand::Place(Place {
         local,
-        field: Some(field),
-    }
+        projection: vec![field],
+    })
 }
 
 fn uint(value: u32) -> Operand {

@@ -94,8 +94,8 @@ fn check_function(
                         .operands()
                         .into_iter()
                         .any(|v| operand_varying(v, &varying));
-                if variable && !varying[statement.destination] {
-                    varying[statement.destination] = true;
+                if variable && !varying[statement.destination.local] {
+                    varying[statement.destination.local] = true;
                     changed = true;
                 }
             }
@@ -152,7 +152,7 @@ fn check_function(
 
 fn operand_varying(value: &Operand, varying: &[bool]) -> bool {
     match value {
-        Operand::Constant(_) => false,
-        Operand::Place { local, .. } => varying[*local],
+        Operand::Constant(_) | Operand::AggregateConstant { .. } => false,
+        Operand::Place(place) => varying[place.local],
     }
 }

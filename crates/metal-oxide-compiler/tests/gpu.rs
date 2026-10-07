@@ -1,5 +1,7 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+#[path = "gpu/aggregates.rs"]
+mod aggregates;
 #[path = "gpu/control_flow.rs"]
 mod control_flow;
 #[path = "gpu/cooperative.rs"]

@@ -11,10 +11,10 @@ fn id(ty: Type) -> usize {
 }
 
 fn field(local: usize, field: u32) -> Operand {
-    Operand::Place {
+    Operand::Place(Place {
         local,
-        field: Some(field),
-    }
+        projection: vec![field],
+    })
 }
 
 fn construct(ty: Type, fields: Vec<Operand>) -> Expression {

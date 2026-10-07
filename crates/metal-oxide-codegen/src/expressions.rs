@@ -63,25 +63,34 @@ pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u3
     }
 }
 
+pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> String {
+    let mut ty = function.locals[value.local];
+    let mut result = format!("v{}", value.local);
+    for &field in &value.projection {
+        result = match ty {
+            Type::Aggregate(id) => aggregate_field(module, id, &result, field),
+            Type::Dim3 => format!("{result}.{}", ["x", "y", "z"][field as usize]),
+            Type::Checked(_) => format!("{result}.{}", ["value", "overflow"][field as usize]),
+            _ => unreachable!("validated projection"),
+        };
+        ty = module.types.field(ty, field).unwrap();
+    }
+    result
+}
+
 pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> String {
     match value {
-        Operand::Place { local, field: None } if function.locals[*local] == Type::Unit => {
-            String::new()
-        }
-        Operand::Place { local, field: None } => format!("v{local}"),
-        Operand::Place {
-            local,
-            field: Some(field),
-        } => {
-            if let Type::Aggregate(id) = function.locals[*local] {
-                return aggregate_field(module, id, &format!("v{local}"), *field);
+        Operand::Place(value) if function.locals[value.local] == Type::Unit => String::new(),
+        Operand::Place(value) => place(module, function, value),
+        Operand::AggregateConstant { ty, fields } => {
+            let fields = fields
+                .iter()
+                .map(|value| operand(module, function, value))
+                .collect::<Vec<_>>();
+            match ty {
+                Type::Aggregate(id) => aggregate_value(module, *id, fields),
+                _ => format!("{}{{{}}}", type_name(*ty), fields.join(", ")),
             }
-            let field = match function.locals[*local] {
-                Type::Dim3 => ["x", "y", "z"][*field as usize],
-                Type::Checked(_) => ["value", "overflow"][*field as usize],
-                _ => unreachable!("validated field projection"),
-            };
-            format!("v{local}.{field}")
         }
         Operand::Constant(value) => match value {
             Constant::Unit => String::new(),
@@ -105,6 +114,16 @@ pub(crate) fn expression(
     let ty = |v| operand_type(module, function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::Checked {
+            scalar,
+            value,
+            overflow,
+        } => format!(
+            "{}{{{}, {}}}",
+            type_name(Type::Checked(*scalar)),
+            op(value),
+            op(overflow)
+        ),
         Expression::Aggregate { ty, fields } => {
             aggregate_value(module, *ty, fields.iter().map(op).collect())
         }

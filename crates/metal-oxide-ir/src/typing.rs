@@ -1,5 +1,27 @@
 use crate::*;
 
+pub fn place_type(
+    module: &Module,
+    function: &Function,
+    place: &Place,
+    source: &SourceLocation,
+) -> Result<Type, Error> {
+    let mut ty = *function
+        .locals
+        .get(place.local)
+        .ok_or_else(|| Error::new(source, "invalid local reference"))?;
+    if ty == Type::Never {
+        return Err(Error::new(source, "never-typed values cannot be read"));
+    }
+    for &field in &place.projection {
+        ty = module
+            .types
+            .field(ty, field)
+            .ok_or_else(|| Error::new(source, "invalid aggregate field projection"))?;
+    }
+    Ok(ty)
+}
+
 pub fn operand_type(
     module: &Module,
     function: &Function,
@@ -8,25 +30,24 @@ pub fn operand_type(
 ) -> Result<Type, Error> {
     match operand {
         Operand::Constant(value) => Ok(value.ty()),
-        Operand::Place { local, field } => {
-            let ty = *function
-                .locals
-                .get(*local)
-                .ok_or_else(|| Error::new(source, "invalid local reference"))?;
-            match (ty, field) {
-                (Type::Never, _) => Err(Error::new(source, "never-typed values cannot be read")),
-                (_, None) => Ok(ty),
-                (Type::Dim3, Some(0..=2)) => Ok(Type::Scalar(Scalar::U32)),
-                (Type::Checked(scalar), Some(0)) => Ok(Type::Scalar(scalar)),
-                (Type::Checked(_), Some(1)) => Ok(Type::Scalar(Scalar::Bool)),
-                (Type::Aggregate(id), Some(field)) => module
-                    .types
-                    .get(id)
-                    .and_then(|aggregate| aggregate.field(*field))
-                    .ok_or_else(|| Error::new(source, "invalid aggregate field")),
-                _ => Err(Error::new(source, "unsupported field projection")),
+        Operand::AggregateConstant { ty, fields } => {
+            if fields.len() != module.types.field_count(*ty) || fields.is_empty() {
+                return Err(Error::new(source, "invalid aggregate constant shape"));
             }
+            for (index, value) in fields.iter().enumerate() {
+                if matches!(value, Operand::Place(_))
+                    || operand_type(module, function, value, source)?
+                        != module.types.field(*ty, index as u32).unwrap()
+                {
+                    return Err(Error::new(
+                        source,
+                        "aggregate constants require matching constant components",
+                    ));
+                }
+            }
+            Ok(*ty)
         }
+        Operand::Place(place) => place_type(module, function, place, source),
     }
 }
 
@@ -76,6 +97,18 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
+        Expression::Checked {
+            scalar,
+            value,
+            overflow,
+        } => {
+            if !scalar.is_integer() {
+                return Err(Error::new(source, "checked tuple requires integer value"));
+            }
+            require(ty(value)?, Type::Scalar(*scalar))?;
+            require(ty(overflow)?, Type::Scalar(Scalar::Bool))?;
+            Ok(Type::Checked(*scalar))
+        }
         Expression::Aggregate { ty: id, fields } => {
             let types = module
                 .types

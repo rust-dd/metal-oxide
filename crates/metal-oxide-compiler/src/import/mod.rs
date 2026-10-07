@@ -1,6 +1,9 @@
 mod calls;
+mod constants;
 mod control;
 mod function;
+mod literals;
+mod places;
 mod values;
 
 use std::collections::HashMap;

@@ -9,7 +9,7 @@ fn records_with_references_are_rejected() {
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
         &[],
     );
-    support::rejected(output, "device records require scalar fields");
+    support::rejected(output, "unsupported device type");
     assert!(!directory.join("kernels.metal").exists());
 }
 

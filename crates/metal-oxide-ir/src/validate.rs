@@ -101,13 +101,11 @@ pub fn validate(module: &Module) -> Result<(), Error> {
         let graph = ControlFlowGraph::new(function)?;
         for block in &function.blocks {
             for statement in &block.statements {
-                let expected = function
-                    .locals
-                    .get(statement.destination)
-                    .ok_or_else(|| Error::new(&statement.source, "invalid destination local"))?;
+                let expected =
+                    place_type(module, function, &statement.destination, &statement.source)?;
                 let actual =
                     expression_type(module, function, &statement.value, &statement.source)?;
-                if *expected != actual {
+                if expected != actual {
                     return Err(Error::new(
                         &statement.source,
                         format!(
@@ -153,7 +151,7 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                 }
             }
         }
-        crate::dataflow::initialized(function, &graph)?;
+        crate::dataflow::initialized(module, function, &graph)?;
         graphs.push(graph);
     }
     acyclic_calls(module)?;

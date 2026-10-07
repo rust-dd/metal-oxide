@@ -33,7 +33,7 @@ pub fn block(statements: Vec<(usize, Expression)>, terminator: Terminator) -> Bl
         statements: statements
             .into_iter()
             .map(|(destination, value)| Statement {
-                destination,
+                destination: Place::local(destination),
                 value,
                 source: source(),
             })

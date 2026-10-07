@@ -19,7 +19,7 @@ fn identity(types: TypeTable, ty: Type) -> Module {
             locals: vec![ty, ty],
             blocks: vec![Block {
                 statements: vec![Statement {
-                    destination: 0,
+                    destination: Place::local(0),
                     value: Expression::Use(Operand::local(1)),
                     source: source(),
                 }],
@@ -53,10 +53,10 @@ fn nested_owned_shapes_can_be_passed_and_returned() {
         operand_type(
             &module,
             &module.functions[0],
-            &Operand::Place {
+            &Operand::Place(Place {
                 local: 1,
-                field: Some(0),
-            },
+                projection: vec![0]
+            }),
             &source(),
         )
         .unwrap(),

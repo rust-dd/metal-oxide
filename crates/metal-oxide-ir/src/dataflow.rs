@@ -2,10 +2,60 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Result<(), Error> {
+type State = BTreeSet<Place>;
+
+fn intersect(a: &State, b: &State) -> State {
+    let mut result = State::new();
+    for left in a {
+        for right in b {
+            if left.contains(right) {
+                result.insert(right.clone());
+            } else if right.contains(left) {
+                result.insert(left.clone());
+            }
+        }
+    }
+    result
+}
+
+fn covered(state: &State, place: &Place) -> bool {
+    state.iter().any(|value| value.contains(place))
+}
+
+fn mark(module: &Module, function: &Function, state: &mut State, place: &Place) {
+    if covered(state, place) {
+        return;
+    }
+    state.retain(|value| !place.contains(value));
+    state.insert(place.clone());
+    let mut parent = place.clone();
+    while parent.projection.pop().is_some() {
+        let ty = place_type(module, function, &parent, &function.source).unwrap();
+        let count = module.types.field_count(ty);
+        let initialized = state
+            .iter()
+            .filter(|p| parent.contains(p) && p.projection.len() == parent.projection.len() + 1)
+            .count();
+        if initialized != count {
+            break;
+        }
+        state.retain(|value| !parent.contains(value));
+        state.insert(parent.clone());
+    }
+}
+
+pub(crate) fn initialized(
+    module: &Module,
+    function: &Function,
+    graph: &ControlFlowGraph,
+) -> Result<(), Error> {
     let n = function.blocks.len();
-    let all = (0..function.locals.len()).collect::<BTreeSet<_>>();
-    let entry = (1..=function.parameters).collect::<BTreeSet<_>>();
+    let all = (0..function.locals.len())
+        .map(Place::local)
+        .collect::<State>();
+    let entry = (1..=function.parameters)
+        .map(Place::local)
+        .collect::<State>();
     let mut inputs = vec![all.clone(); n];
     let mut outputs = vec![all; n];
     loop {
@@ -17,14 +67,16 @@ pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Resu
             let input = if id == 0 {
                 entry.clone()
             } else {
-                let mut intersection = outputs[graph.predecessors(id)[0]].clone();
+                let mut value = outputs[graph.predecessors(id)[0]].clone();
                 for &pred in &graph.predecessors(id)[1..] {
-                    intersection.retain(|v| outputs[pred].contains(v));
+                    value = intersect(&value, &outputs[pred]);
                 }
-                intersection
+                value
             };
             let mut output = input.clone();
-            output.extend(block.statements.iter().map(|s| s.destination));
+            for statement in &block.statements {
+                mark(module, function, &mut output, &statement.destination);
+            }
             changed |= inputs[id] != input || outputs[id] != output;
             inputs[id] = input;
             outputs[id] = output;
@@ -42,7 +94,7 @@ pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Resu
             for operand in statement.value.operands() {
                 check(function, &initialized, operand, &statement.source)?;
             }
-            initialized.insert(statement.destination);
+            mark(module, function, &mut initialized, &statement.destination);
         }
         match &block.terminator {
             Terminator::Branch { condition, .. }
@@ -51,7 +103,9 @@ pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Resu
                 discriminant: condition,
                 ..
             } => check(function, &initialized, condition, &block.source)?,
-            Terminator::Return if function.locals[0] != Type::Unit && !initialized.contains(&0) => {
+            Terminator::Return
+                if function.locals[0] != Type::Unit && !covered(&initialized, &Place::local(0)) =>
+            {
                 return Err(Error::new(&block.source, "uninitialized return value"));
             }
             _ => {}
@@ -62,17 +116,20 @@ pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Resu
 
 fn check(
     function: &Function,
-    initialized: &BTreeSet<usize>,
+    initialized: &State,
     operand: &Operand,
     source: &SourceLocation,
 ) -> Result<(), Error> {
-    if let Operand::Place { local, .. } = operand
-        && function.locals[*local] != Type::Unit
-        && !initialized.contains(local)
+    if let Operand::Place(place) = operand
+        && function.locals[place.local] != Type::Unit
+        && !covered(initialized, place)
     {
         return Err(Error::new(
             source,
-            format!("read of uninitialized local {local}"),
+            format!(
+                "read of uninitialized local {} projection {:?}",
+                place.local, place.projection
+            ),
         ));
     }
     Ok(())

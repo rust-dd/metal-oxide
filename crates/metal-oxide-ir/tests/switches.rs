@@ -12,7 +12,7 @@ fn module() -> Module {
     let block = |terminator, value: Option<u32>| Block {
         statements: value
             .map(|value| Statement {
-                destination: 0,
+                destination: Place::local(0),
                 value: Expression::Use(Operand::Constant(Constant::U32(value))),
                 source: source(),
             })

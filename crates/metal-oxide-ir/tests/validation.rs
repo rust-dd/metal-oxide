@@ -20,7 +20,7 @@ fn module() -> Module {
             locals: vec![Type::Scalar(Scalar::F32); 3],
             blocks: vec![Block {
                 statements: vec![Statement {
-                    destination: 0,
+                    destination: Place::local(0),
                     value: Expression::Binary(BinaryOp::Add, Operand::local(1), Operand::local(2)),
                     source: source(),
                 }],
@@ -105,7 +105,7 @@ fn write_requires_a_write_buffer() {
         address_space: AddressSpace::Device,
     };
     f.blocks[0].statements = vec![Statement {
-        destination: 0,
+        destination: Place::local(0),
         value: Expression::BufferStore {
             buffer: Operand::local(1),
             index: Operand::Constant(Constant::U32(0)),

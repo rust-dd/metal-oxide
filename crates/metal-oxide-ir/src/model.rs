@@ -63,7 +63,7 @@ pub struct Block {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Statement {
-    pub destination: usize,
+    pub destination: Place,
     pub value: Expression,
     pub source: SourceLocation,
 }
@@ -94,15 +94,35 @@ impl Constant {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Place {
+    pub local: usize,
+    pub projection: Vec<u32>,
+}
+
+impl Place {
+    pub fn local(local: usize) -> Self {
+        Self {
+            local,
+            projection: Vec::new(),
+        }
+    }
+
+    pub fn contains(&self, other: &Self) -> bool {
+        self.local == other.local && other.projection.starts_with(&self.projection)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Operand {
-    Place { local: usize, field: Option<u32> },
+    Place(Place),
     Constant(Constant),
+    AggregateConstant { ty: Type, fields: Vec<Operand> },
 }
 
 impl Operand {
     pub fn local(local: usize) -> Self {
-        Self::Place { local, field: None }
+        Self::Place(Place::local(local))
     }
 }
 
@@ -165,6 +185,11 @@ pub enum Expression {
         lane: Operand,
     },
     Dim3([Operand; 3]),
+    Checked {
+        scalar: Scalar,
+        value: Operand,
+        overflow: Operand,
+    },
     Aggregate {
         ty: usize,
         fields: Vec<Operand>,
@@ -213,6 +238,9 @@ impl Expression {
                 vec![]
             }
             Self::Dim3(values) => values.iter().collect(),
+            Self::Checked {
+                value, overflow, ..
+            } => vec![value, overflow],
             Self::Aggregate { fields, .. } => fields.iter().collect(),
             Self::AggregateUpdate {
                 aggregate, value, ..

@@ -109,6 +109,25 @@ impl TypeTable {
         Type::Aggregate(id)
     }
 
+    pub fn field(&self, ty: Type, index: u32) -> Option<Type> {
+        match ty {
+            Type::Aggregate(id) => self.get(id)?.field(index),
+            Type::Dim3 if index < 3 => Some(Type::Scalar(Scalar::U32)),
+            Type::Checked(s) if index == 0 => Some(Type::Scalar(s)),
+            Type::Checked(_) if index == 1 => Some(Type::Scalar(Scalar::Bool)),
+            _ => None,
+        }
+    }
+
+    pub fn field_count(&self, ty: Type) -> usize {
+        match ty {
+            Type::Aggregate(id) => self.get(id).map_or(0, Aggregate::len),
+            Type::Dim3 => 3,
+            Type::Checked(_) => 2,
+            _ => 0,
+        }
+    }
+
     pub fn get(&self, id: usize) -> Option<&Aggregate> {
         self.aggregates.get(id)
     }

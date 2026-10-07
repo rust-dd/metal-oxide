@@ -21,16 +21,6 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         self.module.types.lower(ty, span)
     }
 
-    pub(super) fn destination(&self, place: &mir::Place<'tcx>, span: Span) -> Result<usize> {
-        if !place.projection.is_empty() {
-            return Err((
-                span,
-                "writes to projected places are not supported yet".into(),
-            ));
-        }
-        Ok(place.local.as_usize())
-    }
-
     pub(super) fn operand(
         &mut self,
         operand: &mir::Operand<'tcx>,
@@ -38,15 +28,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     ) -> Result<ir::Operand> {
         match operand {
             mir::Operand::Copy(place) | mir::Operand::Move(place) => {
-                let field = match place.projection.as_slice() {
-                    [] => None,
-                    [mir::ProjectionElem::Field(field, _)] => Some(field.as_u32()),
-                    _ => return Err((span, "unsupported MIR place projection".into())),
-                };
-                Ok(ir::Operand::Place {
-                    local: place.local.as_usize(),
-                    field,
-                })
+                if place.projection.is_empty()
+                    && let Some(value) = self.constants[place.local.as_usize()]
+                {
+                    return Ok(ir::Operand::Constant(value));
+                }
+                Ok(ir::Operand::Place(self.place(place, span)?))
             }
             mir::Operand::Constant(value) => {
                 let constant = self.instance.instantiate_mir_and_normalize_erasing_regions(
@@ -54,23 +41,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     TypingEnv::fully_monomorphized(),
                     EarlyBinder::bind(self.module.tcx, value.const_),
                 );
-                let ty = self.lower_type(constant.ty(), span)?;
-                if ty == ir::Type::Unit {
-                    return Ok(ir::Operand::Constant(ir::Constant::Unit));
+                if let Some(value) = super::constants::literal(self.module.tcx, constant) {
+                    return Ok(ir::Operand::Constant(value));
                 }
-                let bits = constant
-                    .try_eval_bits(self.module.tcx, TypingEnv::fully_monomorphized())
-                    .ok_or((span, "unsupported device constant".into()))?;
-                let constant = match ty {
-                    ir::Type::Scalar(ir::Scalar::Bool) => ir::Constant::Bool(bits != 0),
-                    ir::Type::Scalar(ir::Scalar::F32) => ir::Constant::F32(bits as u32),
-                    ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(bits as u32),
-                    ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(bits as i32),
-                    ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(bits as u8),
-                    ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(bits as u16),
-                    _ => return Err((span, "unsupported device constant type".into())),
-                };
-                Ok(ir::Operand::Constant(constant))
+                self.owned_literal(constant, span)
             }
             _ => Err((span, "unsupported MIR operand".into())),
         }
@@ -79,25 +53,27 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     pub(super) fn expression(
         &mut self,
         value: &mir::Rvalue<'tcx>,
+        destination: Ty<'tcx>,
         span: Span,
     ) -> Result<ir::Expression> {
         match value {
-            mir::Rvalue::Aggregate(kind, fields) => {
-                let mir::AggregateKind::Adt(def, _, args, _, _) = kind.as_ref() else {
-                    return Err((span, "unsupported MIR aggregate".into()));
-                };
-                let ty = self
-                    .module
-                    .tcx
-                    .type_of(*def)
-                    .instantiate(self.module.tcx, args)
-                    .skip_norm_wip();
-                let ty = self.lower_type(ty, span)?;
+            mir::Rvalue::Aggregate(_, fields) => {
+                let ty = self.lower_type(destination, span)?;
                 let fields = fields
                     .iter()
                     .map(|value| self.operand(value, span))
                     .collect::<Result<Vec<_>>>()?;
                 match ty {
+                    ir::Type::Checked(scalar) => {
+                        let [value, overflow] = fields
+                            .try_into()
+                            .map_err(|_| (span, "invalid checked tuple".into()))?;
+                        Ok(ir::Expression::Checked {
+                            scalar,
+                            value,
+                            overflow,
+                        })
+                    }
                     ir::Type::Aggregate(ty) => Ok(ir::Expression::Aggregate { ty, fields }),
                     ir::Type::Dim3 => Ok(ir::Expression::Dim3(
                         fields
@@ -106,6 +82,16 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     )),
                     _ => Err((span, "unsupported MIR aggregate type".into())),
                 }
+            }
+            mir::Rvalue::Repeat(value, _) => {
+                let ir::Type::Aggregate(ty) = self.lower_type(destination, span)? else {
+                    unreachable!()
+                };
+                let count = self.module.types.table().get(ty).unwrap().len();
+                Ok(ir::Expression::Aggregate {
+                    ty,
+                    fields: vec![self.operand(value, span)?; count],
+                })
             }
             mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(self.operand(v, span)?)),
             mir::Rvalue::BinaryOp(op, values) => Ok(ir::Expression::Binary(

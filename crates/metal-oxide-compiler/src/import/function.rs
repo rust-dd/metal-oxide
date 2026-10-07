@@ -8,6 +8,7 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) instance: Instance<'tcx>,
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
+    pub(super) constants: Vec<Option<ir::Constant>>,
 }
 
 impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
@@ -17,6 +18,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             instance,
             locals: Vec::new(),
             allocations: 0,
+            constants: Vec::new(),
         }
     }
 
@@ -25,8 +27,12 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let body = tcx.instance_mir(self.instance.def);
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
         let used = control::used_locals(body);
+        self.constants = super::constants::locals(tcx, self.instance, body);
         for (index, local) in body.local_decls.iter().enumerate() {
-            let ty = if used[index] {
+            let normalized = self.normalize_type(local.ty);
+            let ty = if normalized.is_usize() && self.constants[index].is_some() {
+                ir::Type::Scalar(ir::Scalar::U32)
+            } else if used[index] {
                 self.lower_type(local.ty, local.source_info.span)?
             } else {
                 ir::Type::Unit
@@ -67,45 +73,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             match &statement.kind {
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
-                    let expression = self.expression(value, span)?;
-                    let source = location(self.module.tcx, span);
-                    if let [mir::ProjectionElem::Field(field, _)] =
-                        destination.projection.as_slice()
-                    {
-                        let local = destination.local.as_usize();
-                        if !matches!(self.locals[local], ir::Type::Aggregate(_)) {
-                            return Err((
-                                span,
-                                "field writes require an owned scalar record".into(),
-                            ));
-                        }
-                        let ty = self.lower_type(
+                    statements.push(ir::Statement {
+                        destination: self.place(destination, span)?,
+                        value: self.expression(
+                            value,
                             destination.ty(&body.local_decls, self.module.tcx).ty,
                             span,
-                        )?;
-                        let temporary = self.locals.len();
-                        self.locals.push(ty);
-                        statements.push(ir::Statement {
-                            destination: temporary,
-                            value: expression,
-                            source: source.clone(),
-                        });
-                        statements.push(ir::Statement {
-                            destination: local,
-                            value: ir::Expression::AggregateUpdate {
-                                aggregate: ir::Operand::local(local),
-                                field: field.as_u32(),
-                                value: ir::Operand::local(temporary),
-                            },
-                            source,
-                        });
-                    } else {
-                        statements.push(ir::Statement {
-                            destination: self.destination(destination, span)?,
-                            value: expression,
-                            source,
-                        });
-                    }
+                        )?,
+                        source: location(self.module.tcx, span),
+                    });
                 }
                 mir::StatementKind::StorageLive(_)
                 | mir::StatementKind::StorageDead(_)
@@ -132,8 +108,10 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             } => ir::Terminator::Assert {
                 condition: self.operand(cond, span)?,
                 expected: *expected,
-                enabled: self.module.tcx.sess.overflow_checks()
-                    || !msg.is_optional_overflow_check(),
+                enabled: (self.module.tcx.sess.overflow_checks()
+                    || !msg.is_optional_overflow_check())
+                    && self.operand(cond, span)?
+                        != ir::Operand::Constant(ir::Constant::Bool(*expected)),
                 target: target.as_usize(),
                 message: format!("{msg:?}"),
             },
@@ -145,7 +123,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 ..
             } => {
                 statements.push(ir::Statement {
-                    destination: self.destination(destination, span)?,
+                    destination: self.place(destination, span)?,
                     value: self.call(func, args, body, span)?,
                     source: source.clone(),
                 });

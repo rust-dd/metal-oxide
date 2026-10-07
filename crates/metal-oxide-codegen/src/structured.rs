@@ -98,12 +98,19 @@ impl Emitter<'_> {
                     &statement.value,
                     &statement.source,
                 )?;
-                if self.function.locals[statement.destination] == Type::Unit {
+                if self.function.locals[statement.destination.local] == Type::Unit {
                     if !value.is_empty() {
                         self.line(&format!("{value};"));
                     }
                 } else {
-                    self.line(&format!("v{} = {value};", statement.destination));
+                    self.line(&format!(
+                        "{} = {value};",
+                        crate::expressions::place(
+                            self.module,
+                            self.function,
+                            &statement.destination
+                        )
+                    ));
                 }
             }
             match &block.terminator {

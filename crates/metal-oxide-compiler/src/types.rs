@@ -1,5 +1,5 @@
 use metal_oxide_ir as ir;
-use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv};
+use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::{Span, Symbol};
 
 pub(crate) struct TypeLowering<'tcx> {
@@ -13,6 +13,10 @@ impl<'tcx> TypeLowering<'tcx> {
             tcx,
             types: ir::TypeTable::default(),
         }
+    }
+
+    pub(crate) fn table(&self) -> &ir::TypeTable {
+        &self.types
     }
 
     pub(crate) fn into_types(self) -> ir::TypeTable {
@@ -40,6 +44,25 @@ impl<'tcx> TypeLowering<'tcx> {
         if let Some(buffer) = buffer(self.tcx, ty) {
             return Ok(buffer);
         }
+        if let ty::Array(element, length) = ty.kind() {
+            let length = length
+                .try_to_target_usize(self.tcx)
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|&n| n != 0)
+                .ok_or((
+                    span,
+                    "array length must be a nonzero concrete u32-sized constant".into(),
+                ))?;
+            let element = self.owned(*element, span)?;
+            return Ok(self.types.intern(ir::Aggregate::Array { element, length }));
+        }
+        if let ty::Tuple(fields) = ty.kind() {
+            let fields = fields
+                .iter()
+                .map(|ty| self.owned(ty, span))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(self.types.intern(ir::Aggregate::Tuple(fields)));
+        }
         if let ty::Adt(definition, args) = ty.kind() {
             if self
                 .tcx
@@ -49,28 +72,38 @@ impl<'tcx> TypeLowering<'tcx> {
                 return Ok(ir::Type::Dim3);
             }
             if definition.is_struct() {
+                if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
+                    return Err((span, "destructors cannot be imported".into()));
+                }
                 let fields = definition
                     .non_enum_variant()
                     .fields
                     .iter()
                     .map(|field| {
-                        let ty = field.ty(self.tcx, args);
-                        scalar(
-                            self.tcx
-                                .normalize_erasing_regions(TypingEnv::fully_monomorphized(), ty),
-                        )
+                        let ty = self.tcx.normalize_erasing_regions(
+                            TypingEnv::fully_monomorphized(),
+                            field.ty(self.tcx, args),
+                        );
+                        self.owned(ty, span)
                     })
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or((span, "device records require scalar fields".into()))?;
+                    .collect::<Result<Vec<_>, _>>()?;
                 if fields.is_empty() {
                     return Err((span, "empty device records are unsupported".into()));
                 }
-                return Ok(self.types.intern(ir::Aggregate::Record(
-                    fields.into_iter().map(ir::Type::Scalar).collect(),
-                )));
+                return Ok(self.types.intern(ir::Aggregate::Record(fields)));
             }
         }
         Err((span, format!("unsupported device type: {ty}")))
+    }
+    fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
+        let ty = self.lower(ty, span)?;
+        if matches!(
+            ty,
+            ir::Type::Unit | ir::Type::Never | ir::Type::Buffer { .. }
+        ) {
+            return Err((span, "aggregate components must be owned values".into()));
+        }
+        Ok(ty)
     }
 }
 
