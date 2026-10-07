@@ -118,6 +118,32 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     "branch/assert condition must have bool type",
                 ));
             }
+            if let Terminator::Switch {
+                discriminant,
+                cases,
+                ..
+            } = &block.terminator
+            {
+                let ty = operand_type(module, function, discriminant, &block.source)?;
+                if !matches!(ty, Type::Scalar(scalar) if scalar.is_integer()) {
+                    return Err(Error::new(
+                        &block.source,
+                        "switch discriminant must be an integer",
+                    ));
+                }
+                let mut values = HashSet::new();
+                for &(value, _) in cases {
+                    if value.ty() != ty {
+                        return Err(Error::new(
+                            &block.source,
+                            "switch case type must match discriminant",
+                        ));
+                    }
+                    if !values.insert(value) {
+                        return Err(Error::new(&block.source, "duplicate switch case value"));
+                    }
+                }
+            }
         }
         crate::dataflow::initialized(function)?;
     }

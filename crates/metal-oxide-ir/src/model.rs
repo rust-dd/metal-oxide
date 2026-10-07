@@ -120,7 +120,7 @@ pub struct Statement {
     pub source: SourceLocation,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Constant {
     Unit,
     Bool(bool),
@@ -291,6 +291,11 @@ pub enum Terminator {
         then_block: usize,
         else_block: usize,
     },
+    Switch {
+        discriminant: Operand,
+        cases: Vec<(Constant, usize)>,
+        otherwise: usize,
+    },
     Assert {
         condition: Operand,
         expected: bool,
@@ -311,6 +316,17 @@ impl Terminator {
                 else_block,
                 ..
             } => vec![*then_block, *else_block],
+            Self::Switch {
+                cases, otherwise, ..
+            } => {
+                let mut targets = Vec::new();
+                for target in cases.iter().map(|(_, target)| target).chain([otherwise]) {
+                    if !targets.contains(target) {
+                        targets.push(*target);
+                    }
+                }
+                targets
+            }
             Self::Return | Self::Unreachable => vec![],
         }
     }

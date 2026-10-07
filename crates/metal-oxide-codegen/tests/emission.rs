@@ -180,10 +180,10 @@ fn irreducible_control_flow_is_rejected() {
 }
 
 #[test]
-fn loop_with_multiple_exits_is_rejected() {
+fn loop_with_multiple_exits_preserves_each_result() {
     let module = module(
         1,
-        vec![Type::Unit, Type::Scalar(Scalar::Bool)],
+        vec![Type::Scalar(Scalar::U32), Type::Scalar(Scalar::Bool)],
         vec![
             block(vec![], Terminator::Goto(1)),
             block(
@@ -198,20 +198,51 @@ fn loop_with_multiple_exits_is_rejected() {
                 vec![],
                 Terminator::Branch {
                     condition: local(1),
-                    then_block: 1,
-                    else_block: 3,
+                    then_block: 3,
+                    else_block: 1,
                 },
             ),
-            block(vec![], Terminator::Return),
+            block(vec![(0, Expression::Use(uint(11)))], Terminator::Return),
+            block(vec![(0, Expression::Use(uint(22)))], Terminator::Return),
+        ],
+    );
+    assert_eq!(
+        support::execute(
+            &module,
+            "std::cout << metal_oxide_fn_0(true, ctx) << ',' << metal_oxide_fn_0(false, ctx);"
+        ),
+        "11,22",
+    );
+}
+
+#[test]
+fn uniform_switch_can_share_cooperative_cases_with_its_default() {
+    let mut module = module(
+        1,
+        vec![Type::Unit, Type::Scalar(Scalar::U32), Type::Unit],
+        vec![
+            block(
+                vec![],
+                Terminator::Switch {
+                    discriminant: local(1),
+                    cases: vec![
+                        (Constant::U32(0), 1),
+                        (Constant::U32(1), 2),
+                        (Constant::U32(2), 1),
+                    ],
+                    otherwise: 1,
+                },
+            ),
+            block(
+                vec![(2, Expression::ThreadgroupBarrier)],
+                Terminator::Return,
+            ),
             block(vec![], Terminator::Return),
         ],
     );
-    assert!(
-        metal_oxide_codegen::emit(&module)
-            .unwrap_err()
-            .message
-            .contains("exit")
-    );
+    module.functions[0].kernel = true;
+    let output = metal_oxide_codegen::emit(&module).unwrap();
+    assert_eq!(output.matches("threadgroup_barrier(").count(), 1);
 }
 
 #[test]

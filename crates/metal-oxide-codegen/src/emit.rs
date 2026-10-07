@@ -1,9 +1,6 @@
-use crate::{
-    control::Graph,
-    expressions::{expression, operand, type_name},
-};
+use crate::{control::Graph, expressions::type_name};
 use metal_oxide_ir::*;
-use std::{collections::HashMap, fmt::Write};
+use std::fmt::Write;
 
 pub(crate) fn module(module: &Module) -> Result<String, Error> {
     let simd = crate::abi::uses_simd(module);
@@ -97,15 +94,7 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
                 writeln!(output, "    {} v{local};", type_name(ty)).unwrap();
             }
         }
-        let mut emitter = Emitter {
-            module,
-            function,
-            graph,
-            output: &mut output,
-            visits: HashMap::new(),
-            indent: 1,
-        };
-        emitter.path(0, function.blocks.len(), &[], None)?;
+        crate::structured::body(module, function, graph, &mut output)?;
         output.push_str("}\n\n");
     }
     Ok(output)
@@ -174,137 +163,5 @@ fn signature(function: &Function, id: usize, simd: bool) -> Result<String, Error
             type_name(function.locals[0]),
             parameters.join(", ")
         ))
-    }
-}
-
-struct Emitter<'a> {
-    module: &'a Module,
-    function: &'a Function,
-    graph: Graph,
-    output: &'a mut String,
-    visits: HashMap<usize, usize>,
-    indent: usize,
-}
-
-impl Emitter<'_> {
-    fn line(&mut self, value: &str) {
-        writeln!(self.output, "{}{value}", "    ".repeat(self.indent)).unwrap();
-    }
-
-    fn path(
-        &mut self,
-        mut current: usize,
-        stop: usize,
-        contexts: &[usize],
-        enter_loop: Option<usize>,
-    ) -> Result<(), Error> {
-        let exit = self.function.blocks.len();
-        while current != stop && current != exit {
-            if let Some(&header) = contexts.last() {
-                let loop_ = &self.graph.loops[&header];
-                if current == header && enter_loop != Some(header) {
-                    self.line("continue;");
-                    return Ok(());
-                }
-                if !loop_.members.contains(&current) {
-                    if current == loop_.exit {
-                        self.line("break;");
-                        return Ok(());
-                    }
-                    return Err(Error::new(
-                        &self.function.blocks[current].source,
-                        "unsupported control flow leaving a loop",
-                    ));
-                }
-            }
-            if self.graph.loops.contains_key(&current) && enter_loop != Some(current) {
-                let loop_exit = self.graph.loops[&current].exit;
-                self.line("while (true) {");
-                self.indent += 1;
-                let mut inner = contexts.to_vec();
-                inner.push(current);
-                self.path(current, exit, &inner, Some(current))?;
-                self.indent -= 1;
-                self.line("}");
-                current = loop_exit;
-                continue;
-            }
-            let block = &self.function.blocks[current];
-            let visits = self.visits.entry(current).or_default();
-            *visits += 1;
-            if *visits > 8
-                || (*visits > 1
-                    && block.statements.iter().any(|s| {
-                        matches!(
-                            s.value,
-                            Expression::ThreadgroupAlloc { .. }
-                                | Expression::ThreadgroupBarrier
-                                | Expression::SimdSum(_)
-                                | Expression::SimdShuffle { .. }
-                                | Expression::Call { .. }
-                        )
-                    }))
-            {
-                return Err(Error::new(
-                    &block.source,
-                    "control flow requires excessive or cooperative block duplication",
-                ));
-            }
-            for statement in &block.statements {
-                let value = expression(
-                    self.module,
-                    self.function,
-                    &statement.value,
-                    &statement.source,
-                )?;
-                if self.function.locals[statement.destination] == Type::Unit {
-                    if !value.is_empty() {
-                        self.line(&format!("{value};"));
-                    }
-                } else {
-                    self.line(&format!("v{} = {value};", statement.destination));
-                }
-            }
-            match &block.terminator {
-                Terminator::Goto(target)
-                | Terminator::Assert {
-                    enabled: false,
-                    target,
-                    ..
-                } => current = *target,
-                Terminator::Return => {
-                    if self.function.locals[0] == Type::Unit {
-                        self.line("return;");
-                    } else {
-                        self.line("return v0;");
-                    }
-                    return Ok(());
-                }
-                Terminator::Branch {
-                    condition,
-                    then_block,
-                    else_block,
-                } => {
-                    let mut join = self.graph.join(current);
-                    if let Some(header) = contexts.last()
-                        && !self.graph.loops[header].members.contains(&join)
-                    {
-                        join = exit;
-                    }
-                    self.line(&format!("if ({}) {{", operand(self.function, condition)));
-                    self.indent += 1;
-                    self.path(*then_block, join, contexts, None)?;
-                    self.indent -= 1;
-                    self.line("} else {");
-                    self.indent += 1;
-                    self.path(*else_block, join, contexts, None)?;
-                    self.indent -= 1;
-                    self.line("}");
-                    current = join;
-                }
-                _ => return Err(Error::new(&block.source, "unsupported terminator")),
-            }
-        }
-        Ok(())
     }
 }

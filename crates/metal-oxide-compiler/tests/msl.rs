@@ -1,5 +1,8 @@
 mod support;
 
+#[path = "msl/control_flow.rs"]
+mod control_flow;
+
 #[test]
 fn records_with_references_are_rejected() {
     let (output, directory) = support::emit(

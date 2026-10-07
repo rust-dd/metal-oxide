@@ -1,14 +1,15 @@
 use metal_oxide_ir::{Error, Function};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub(crate) struct Loop {
     pub(crate) members: BTreeSet<usize>,
-    pub(crate) exit: usize,
+    pub(crate) exits: Vec<usize>,
 }
 
 pub(crate) struct Graph {
     pub(crate) reachable: Vec<bool>,
     pub(crate) loops: HashMap<usize, Loop>,
+    forward: Vec<Vec<usize>>,
     postdominators: Vec<BTreeSet<usize>>,
 }
 
@@ -105,17 +106,17 @@ impl Graph {
                 .copied()
                 .filter(|id| !members.contains(id))
                 .collect::<BTreeSet<_>>();
-            if exits.len() != 1 {
+            if exits.is_empty() {
                 return Err(Error::new(
                     &function.blocks[header].source,
-                    "loops require a single exit",
+                    "loops require an exit",
                 ));
             }
             loops.insert(
                 header,
                 Loop {
                     members,
-                    exit: *exits.first().unwrap(),
+                    exits: exits.into_iter().collect(),
                 },
             );
         }
@@ -146,6 +147,7 @@ impl Graph {
         Ok(Self {
             reachable,
             loops,
+            forward,
             postdominators,
         })
     }
@@ -157,5 +159,63 @@ impl Graph {
             .filter(|&id| id != block)
             .max_by_key(|&id| self.postdominators[id].len())
             .unwrap_or(self.reachable.len())
+    }
+
+    pub(crate) fn common_join(&self, blocks: &[usize]) -> usize {
+        let mut common = self.postdominators[blocks[0]].clone();
+        for &block in &blocks[1..] {
+            common.retain(|id| self.postdominators[block].contains(id));
+        }
+        common
+            .into_iter()
+            .max_by_key(|&id| self.postdominators[id].len())
+            .unwrap_or(self.reachable.len())
+    }
+
+    pub(crate) fn loop_join(&self, targets: &[usize], header: usize, stop: usize) -> usize {
+        let members = &self.loops[&header].members;
+        let mut paths = Vec::new();
+        for &target in targets {
+            let mut distances = HashMap::new();
+            let mut pending = VecDeque::from([(target, 0)]);
+            while let Some((block, distance)) = pending.pop_front() {
+                if block == header || !members.contains(&block) || distances.contains_key(&block) {
+                    continue;
+                }
+                distances.insert(block, distance);
+                // Crossing the caller's join would duplicate its continuation in a nested branch.
+                if block != stop {
+                    pending.extend(self.forward[block].iter().map(|&next| (next, distance + 1)));
+                }
+            }
+            if !distances.is_empty() {
+                paths.push(distances);
+            }
+        }
+        let Some(first) = paths.first() else {
+            return self.reachable.len();
+        };
+        let join = self.common_join(targets);
+        if paths.iter().all(|path| path.contains_key(&join)) {
+            return join;
+        }
+        let mut common = first.keys().copied().collect::<BTreeSet<_>>();
+        for path in &paths[1..] {
+            common.retain(|id| path.contains_key(id));
+        }
+        if common.is_empty() {
+            if paths.iter().any(|path| path.contains_key(&stop)) {
+                return stop;
+            }
+            return *first
+                .iter()
+                .min_by_key(|&(id, distance)| (*distance, *id))
+                .unwrap()
+                .0;
+        }
+        common
+            .into_iter()
+            .min_by_key(|id| (paths.iter().map(|path| path[id]).max().unwrap(), *id))
+            .unwrap()
     }
 }

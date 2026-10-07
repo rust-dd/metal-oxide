@@ -1,3 +1,4 @@
+mod control;
 mod values;
 
 use std::{cell::RefCell, collections::HashMap};
@@ -46,9 +47,14 @@ pub(crate) fn module<'tcx>(
                 allocations: 0,
                 records: &records,
             };
-            for local in body.local_decls.iter() {
-                let ty = context.normalize_type(local.ty);
-                context.locals.push(context.ty(ty, local.source_info.span)?);
+            let used = control::used_locals(body);
+            for (index, local) in body.local_decls.iter().enumerate() {
+                let ty = if used[index] {
+                    context.ty(context.normalize_type(local.ty), local.source_info.span)?
+                } else {
+                    ir::Type::Unit
+                };
+                context.locals.push(ty);
             }
             let mut blocks = Vec::new();
             for block in body.basic_blocks.iter() {
@@ -155,55 +161,7 @@ impl<'tcx> Context<'_, 'tcx> {
             mir::TerminatorKind::Return => ir::Terminator::Return,
             mir::TerminatorKind::Unreachable => ir::Terminator::Unreachable,
             mir::TerminatorKind::SwitchInt { discr, targets } => {
-                let cases = targets.iter().collect::<Vec<_>>();
-                if cases.len() != 1 {
-                    return Err((span, "multi-way MIR switches are not supported yet".into()));
-                }
-                let (value, target) = cases[0];
-                let operand = self.operand(discr, span)?;
-                let ty = self.ty(
-                    self.normalize_type(discr.ty(&body.local_decls, self.tcx)),
-                    span,
-                )?;
-                if ty == ir::Type::Scalar(ir::Scalar::Bool) {
-                    match value {
-                        0 => ir::Terminator::Branch {
-                            condition: operand,
-                            then_block: targets.otherwise().as_usize(),
-                            else_block: target.as_usize(),
-                        },
-                        1 => ir::Terminator::Branch {
-                            condition: operand,
-                            then_block: target.as_usize(),
-                            else_block: targets.otherwise().as_usize(),
-                        },
-                        _ => return Err((span, "invalid bool switch value".into())),
-                    }
-                } else {
-                    let constant = match ty {
-                        ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(value as u32),
-                        ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(value as i32),
-                        ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(value as u8),
-                        ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(value as u16),
-                        _ => return Err((span, "unsupported switch discriminant type".into())),
-                    };
-                    let local = self.locals.len();
-                    self.locals.push(ir::Type::Scalar(ir::Scalar::Bool));
-                    statements.push(ir::Statement {
-                        destination: local,
-                        value: ir::Expression::Binary(
-                            ir::BinaryOp::Eq,
-                            operand,
-                            ir::Operand::Constant(constant),
-                        ),
-                        source: source.clone(),
-                    });
-                    ir::Terminator::Branch {
-                        condition: ir::Operand::local(local),
-                        then_block: target.as_usize(),
-                        else_block: targets.otherwise().as_usize(),
-                    }
-                }
+                self.switch(discr, targets, body, span)?
             }
             mir::TerminatorKind::Assert {
                 cond,

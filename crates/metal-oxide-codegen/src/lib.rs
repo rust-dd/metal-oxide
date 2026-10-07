@@ -7,6 +7,7 @@ mod emit;
 mod expressions;
 mod names;
 mod numeric;
+mod structured;
 
 use metal_oxide_ir::{Error, Module};
 

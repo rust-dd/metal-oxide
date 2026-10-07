@@ -107,7 +107,11 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
                     changed = true;
                 }
             }
-            if let Terminator::Branch { condition, .. } = &block.terminator
+            if let Terminator::Branch { condition, .. }
+            | Terminator::Switch {
+                discriminant: condition,
+                ..
+            } = &block.terminator
                 && operand_varying(condition, &varying)
             {
                 let mut pending = successors[id].clone();

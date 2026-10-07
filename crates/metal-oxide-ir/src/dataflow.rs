@@ -61,9 +61,12 @@ pub(crate) fn initialized(function: &Function) -> Result<(), Error> {
             initialized.insert(statement.destination);
         }
         match &block.terminator {
-            Terminator::Branch { condition, .. } | Terminator::Assert { condition, .. } => {
-                check(function, &initialized, condition, &block.source)?
-            }
+            Terminator::Branch { condition, .. }
+            | Terminator::Assert { condition, .. }
+            | Terminator::Switch {
+                discriminant: condition,
+                ..
+            } => check(function, &initialized, condition, &block.source)?,
             Terminator::Return if function.locals[0] != Type::Unit && !initialized.contains(&0) => {
                 return Err(Error::new(&block.source, "uninitialized return value"));
             }
