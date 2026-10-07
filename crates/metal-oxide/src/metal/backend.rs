@@ -26,7 +26,7 @@ impl Backend {
             "classic" => false,
             "metal4" => {
                 if !Self::supports_metal4(device) {
-                    return Err(Error::Command(
+                    return Err(Error::UnsupportedDevice(
                         "Metal 4 requires macOS 26 and a Metal 4 GPU".into(),
                     ));
                 }

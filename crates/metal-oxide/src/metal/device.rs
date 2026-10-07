@@ -28,7 +28,10 @@ impl Device {
     pub fn system_default() -> Result<Self> {
         let raw = MTLCreateSystemDefaultDevice().ok_or(Error::DeviceUnavailable)?;
         if !raw.hasUnifiedMemory() {
-            return Err(Error::UnsupportedDevice(raw.name().to_string()));
+            return Err(Error::UnsupportedDevice(format!(
+                "{} does not have unified memory",
+                raw.name()
+            )));
         }
         let backend = Backend::new(&raw)?;
         let id = NEXT_DEVICE_ID

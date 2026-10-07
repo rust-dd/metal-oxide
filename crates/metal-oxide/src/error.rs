@@ -25,7 +25,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DeviceUnavailable => write!(f, "no Metal device is available"),
-            Self::UnsupportedDevice(name) => write!(f, "device {name} requires unified memory"),
+            Self::UnsupportedDevice(reason) => write!(f, "unsupported Metal device: {reason}"),
             Self::AllocationFailed { bytes } => {
                 write!(f, "failed to allocate {bytes} Metal buffer bytes")
             }
