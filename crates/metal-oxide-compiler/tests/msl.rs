@@ -241,9 +241,18 @@ fn informational_commands_preserve_generated_files() {
     support::checked(output);
     let msl = std::fs::read(directory.join("kernels.metal")).unwrap();
     let ir = std::fs::read(directory.join("kernels.oxide-ir")).unwrap();
+    let response = directory.join("help.args");
+    std::fs::write(&response, "--help\ntests/fixtures/m2_unit.rs\n").unwrap();
+    let response_argument = format!("@{}", response.display());
     for arguments in [
+        vec![],
         vec!["--help"],
         vec!["--help", "tests/fixtures/m2_unit.rs"],
+        vec![response_argument.as_str()],
+        vec!["-C", "help", "tests/fixtures/m2_unit.rs"],
+        vec!["-Chelp", "tests/fixtures/m2_unit.rs"],
+        vec!["-Z", "help", "tests/fixtures/m2_unit.rs"],
+        vec!["-Zhelp", "tests/fixtures/m2_unit.rs"],
         vec!["--version"],
         vec!["--print=sysroot"],
         vec!["--print", "sysroot"],
