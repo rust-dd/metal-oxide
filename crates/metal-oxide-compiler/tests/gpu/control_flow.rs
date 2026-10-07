@@ -1,5 +1,5 @@
 use super::*;
-use metal_oxide::GpuScalar;
+use metal_oxide::GpuValue;
 
 #[path = "../fixtures/control_helpers.rs"]
 mod cpu;
@@ -79,7 +79,7 @@ fn loop_exits_agree_with_cpu_and_handwritten_msl() -> metal_oxide::Result<()> {
     Ok(())
 }
 
-fn compare<T: GpuScalar>(
+fn compare<T: GpuValue>(
     device: &Device,
     generated: &Pipeline,
     reference: &Pipeline,
@@ -108,7 +108,7 @@ fn compare<T: GpuScalar>(
                     &[
                         Argument::read(&input),
                         Argument::write(&mut output),
-                        Argument::u32(n),
+                        Argument::value::<u32>(n)?,
                     ],
                 )?;
             }
@@ -160,7 +160,7 @@ fn uniform_exits_preserve_barriers_and_simd_helper_calls() -> metal_oxide::Resul
                     &[
                         Argument::write(&mut output),
                         Argument::write(&mut sums),
-                        Argument::u32(mode),
+                        Argument::value::<u32>(mode)?,
                     ],
                 )?;
             }

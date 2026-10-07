@@ -21,9 +21,9 @@ fn narrow_integer_math_preserves_rust_wrapping_and_shifts() -> metal_oxide::Resu
                     &[
                         Argument::write(&mut out8),
                         Argument::write(&mut out16),
-                        Argument::u8(a),
-                        Argument::u16(b),
-                        Argument::u32(shift),
+                        Argument::value::<u8>(a)?,
+                        Argument::value::<u16>(b)?,
+                        Argument::value::<u32>(shift)?,
                     ],
                 )?;
             }
@@ -74,8 +74,8 @@ fn byte_buffers_widen_and_scale_without_changing_stride() -> metal_oxide::Result
             &[
                 Argument::read(&input),
                 Argument::write(&mut output),
-                Argument::u16(300),
-                Argument::u32(256),
+                Argument::value::<u16>(300)?,
+                Argument::value::<u32>(256)?,
             ],
         )?;
     }

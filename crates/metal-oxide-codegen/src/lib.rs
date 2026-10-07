@@ -4,6 +4,7 @@ mod bindings;
 mod control;
 mod emit;
 mod expressions;
+mod host_types;
 mod interface;
 mod names;
 mod numeric;

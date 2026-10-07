@@ -47,7 +47,7 @@ fn raw_launch_rejects_the_wrong_const_specialization() -> metal_oxide::Result<()
             &[
                 Argument::read(&input),
                 Argument::write(&mut output),
-                Argument::u32(0),
+                Argument::value::<u32>(0)?,
             ],
         )
     };

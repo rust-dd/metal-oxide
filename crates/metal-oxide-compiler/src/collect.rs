@@ -100,13 +100,11 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
 }
 
 fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
-    use metal_oxide_ir::{Access, Scalar, Type};
+    use metal_oxide_ir::{Access, Element, Scalar, Type};
     let (scalar, element, prefix) = match crate::types::parameter(tcx, ty)? {
         Type::Scalar(scalar) => (scalar, ty, "scalar"),
         Type::Buffer {
-            element: scalar,
-            access,
-            ..
+            element, access, ..
         } => {
             let rustc_middle::ty::Adt(_, arguments) = ty.kind() else {
                 return None;
@@ -117,8 +115,18 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
                 Access::Atomic => "atomic_buffer",
                 Access::ReadWrite => return None,
             };
+            let scalar = match element {
+                Element::Scalar(scalar) => scalar,
+                Element::Aggregate(_) => {
+                    return Some(format!(
+                        "{prefix}<{}> address_space=device",
+                        arguments.type_at(0)
+                    ));
+                }
+            };
             (scalar, arguments.type_at(0), prefix)
         }
+        Type::Aggregate(_) => return Some(format!("value<{ty}>")),
         _ => return None,
     };
     let name = match scalar {

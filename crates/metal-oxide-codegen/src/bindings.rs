@@ -1,3 +1,4 @@
+use crate::host_types::HostTypes;
 use metal_oxide_artifact::{Abi, Access, Error, Kernel, ParameterType};
 use std::{collections::HashSet, fmt::Write};
 
@@ -13,12 +14,21 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
             }
         }
     }
-    let mut output =
-        String::from("pub struct Kernels<'a> {\n    device: &'a metal_oxide::Device,\n");
+    let types = HostTypes::new(abi)?;
+    let mut output = String::new();
+    types.emit(&mut output);
+    output.push_str("pub struct Kernels<'a> {\n    device: &'a metal_oxide::Device,\n");
     for index in 0..abi.kernels.len() {
         writeln!(output, "    pipeline_{index}: metal_oxide::Pipeline,").unwrap();
     }
-    output.push_str("}\n\npub fn load(device: &metal_oxide::Device, directory: impl AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    let module = metal_oxide::Module::from_artifact(device, directory)?;\n    Ok(Kernels {\n        device,\n");
+    output.push_str("}\n\npub fn load(device: &metal_oxide::Device, directory: impl AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    let module = metal_oxide::Module::from_artifact(device, directory)?;\n");
+    writeln!(
+        output,
+        "    module.verify_abi({:?})?;",
+        metal_oxide_artifact::sha256(abi.to_json()?.as_bytes())
+    )
+    .unwrap();
+    output.push_str("    Ok(Kernels {\n        device,\n");
     for (index, kernel) in abi.kernels.iter().enumerate() {
         writeln!(
             output,
@@ -30,7 +40,7 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
     output.push_str("    })\n}\n\n#[allow(dead_code)]\nimpl Kernels<'_> {\n");
     for (index, kernel) in abi.kernels.iter().enumerate() {
         for enqueue in [false, true] {
-            emit_method(&mut output, index, kernel, enqueue)?;
+            emit_method(&mut output, &types, index, kernel, enqueue)?;
         }
     }
     output.push_str("}\n");
@@ -39,6 +49,7 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
 
 fn emit_method(
     output: &mut String,
+    types: &HostTypes,
     index: usize,
     kernel: &Kernel,
     enqueue: bool,
@@ -78,19 +89,21 @@ fn emit_method(
         while !names.insert(name.clone()) {
             name = format!("arg_{}_{name}", parameter.binding);
         }
-        let (ty, argument) = match parameter.ty {
-            ParameterType::Scalar { scalar } => (
-                scalar.rust_name().to_owned(),
-                format!("metal_oxide::Argument::{}(r#{name})", scalar.rust_name()),
+        let (ty, argument) = match &parameter.ty {
+            ParameterType::Value { layout } => (
+                types.name(layout),
+                format!("metal_oxide::Argument::value(r#{name})?"),
             ),
-            ParameterType::Buffer { element, access } => {
+            ParameterType::Buffer {
+                element, access, ..
+            } => {
                 let (borrow, method) = match access {
                     Access::Read => ("&", "read"),
                     Access::Write => ("&mut ", "write"),
                     Access::Atomic => ("&mut ", "atomic"),
                 };
                 (
-                    format!("{borrow}metal_oxide::Buffer<{}>", element.rust_name()),
+                    format!("{borrow}metal_oxide::Buffer<{}>", types.name(element)),
                     format!("metal_oxide::Argument::{method}(r#{name})"),
                 )
             }

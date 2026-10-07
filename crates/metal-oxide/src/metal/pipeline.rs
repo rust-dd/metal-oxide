@@ -92,7 +92,7 @@ impl Pipeline {
                 .into());
             }
             for (argument, parameter) in arguments.iter().zip(&kernel.parameters) {
-                if argument.ty() != parameter.ty {
+                if argument.ty() != &parameter.ty {
                     return Err(metal_oxide_artifact::Error(format!(
                         "kernel {} argument {} must be {:?}, got {:?}",
                         kernel.name,

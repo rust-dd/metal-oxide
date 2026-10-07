@@ -31,7 +31,7 @@ pub(crate) fn type_name(ty: Type) -> String {
             } else {
                 ""
             };
-            format!("{space} {qualifier}{atomic}{} *", scalar_name(element))
+            format!("{space} {qualifier}{atomic}{} *", type_name(element.ty()))
         }
     }
 }
@@ -51,7 +51,7 @@ fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
     let fields = fields.join(", ");
     let fields = match module.types.get(id).unwrap() {
         Aggregate::Array { .. } => format!("{{{fields}}}"),
-        Aggregate::Record(_) | Aggregate::Tuple(_) => fields,
+        Aggregate::Record { .. } | Aggregate::Tuple(_) => fields,
     };
     format!("metal_oxide_aggregate_{id}{{{fields}}}")
 }
@@ -59,7 +59,7 @@ fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
 pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u32) -> String {
     match module.types.get(id).unwrap() {
         Aggregate::Array { .. } => format!("{value}.elements[{field}]"),
-        Aggregate::Record(_) | Aggregate::Tuple(_) => format!("{value}.f{field}"),
+        Aggregate::Record { .. } | Aggregate::Tuple(_) => format!("{value}.f{field}"),
     }
 }
 

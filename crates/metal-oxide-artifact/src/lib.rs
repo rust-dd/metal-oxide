@@ -10,7 +10,7 @@ pub use model::*;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 pub const DEVICE_TARGET: &str = "metal64-unknown-none";
 pub const MSL_VERSION: &str = "3.1";
 
@@ -40,6 +40,7 @@ pub fn sha256(bytes: &[u8]) -> String {
 
 impl Abi {
     pub fn from_json(json: &str) -> Result<Self, Error> {
+        check_version(json, false)?;
         let abi: Self = serde_json::from_str(json)?;
         abi.validate()?;
         Ok(abi)
@@ -53,6 +54,7 @@ impl Abi {
 
 impl Manifest {
     pub fn from_json(json: &str) -> Result<Self, Error> {
+        check_version(json, true)?;
         let manifest: Self = serde_json::from_str(json)?;
         manifest.validate()?;
         Ok(manifest)
@@ -70,4 +72,15 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+fn check_version(json: &str, manifest: bool) -> Result<(), Error> {
+    let value: serde_json::Value = serde_json::from_str(json)?;
+    let value = if manifest { &value["abi"] } else { &value };
+    if let Some(version) = value["version"].as_u64()
+        && version != u64::from(ABI_VERSION)
+    {
+        return Err(Error(format!("unsupported kernel ABI version {version}")));
+    }
+    Ok(())
 }

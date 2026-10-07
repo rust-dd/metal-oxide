@@ -26,7 +26,7 @@ fn ir_owned_aggregate_values_and_copies_execute_on_metal() -> metal_oxide::Resul
                 &[
                     Argument::write(&mut integers),
                     Argument::write(&mut floats),
-                    Argument::u32(seed),
+                    Argument::value::<u32>(seed)?,
                 ],
             )?;
         }
@@ -100,9 +100,12 @@ fn aggregate_module() -> ir::Module {
         length: 3,
     });
     let tuple = types.intern(Aggregate::Tuple(vec![Type::Scalar(Scalar::U32), array]));
-    let record = types.intern(Aggregate::Record(vec![tuple, Type::Scalar(Scalar::F32)]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![tuple, Type::Scalar(Scalar::F32)],
+    ));
     let buffer = |element| Type::Buffer {
-        element,
+        element: ir::Element::Scalar(element),
         access: Access::Write,
         address_space: AddressSpace::Device,
     };

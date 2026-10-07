@@ -41,8 +41,21 @@ impl<'tcx> TypeLowering<'tcx> {
         {
             return Ok(ir::Type::Checked(scalar));
         }
-        if let Some(buffer) = buffer(self.tcx, ty) {
-            return Ok(buffer);
+        if let Some((access, element)) = buffer(self.tcx, ty) {
+            let element = match self.owned(element, span)? {
+                ir::Type::Scalar(s) if s != ir::Scalar::Bool => ir::Element::Scalar(s),
+                ir::Type::Aggregate(id) => ir::Element::Aggregate(id),
+                _ => return Err((span, "unsupported buffer element type".into())),
+            };
+            return Ok(ir::Type::Buffer {
+                element,
+                access,
+                address_space: if access == ir::Access::ReadWrite {
+                    ir::AddressSpace::Threadgroup
+                } else {
+                    ir::AddressSpace::Device
+                },
+            });
         }
         if let ty::Array(element, length) = ty.kind() {
             let length = length
@@ -84,13 +97,19 @@ impl<'tcx> TypeLowering<'tcx> {
                             TypingEnv::fully_monomorphized(),
                             field.ty(self.tcx, args),
                         );
-                        self.owned(ty, span)
+                        Ok(ir::RecordField {
+                            name: field.name.to_string(),
+                            ty: self.owned(ty, span)?,
+                        })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if fields.is_empty() {
                     return Err((span, "empty device records are unsupported".into()));
                 }
-                return Ok(self.types.intern(ir::Aggregate::Record(fields)));
+                return Ok(self.types.intern(ir::Aggregate::Record {
+                    name: self.tcx.item_name(definition.did()).to_string(),
+                    fields,
+                }));
             }
         }
         Err((span, format!("unsupported device type: {ty}")))
@@ -119,7 +138,7 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
     }
 }
 
-fn buffer<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {
+fn buffer<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(ir::Access, Ty<'tcx>)> {
     let ty::Adt(definition, args) = ty.kind() else {
         return None;
     };
@@ -133,36 +152,27 @@ fn buffer<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {
     .find_map(|(name, access)| {
         (tcx.get_diagnostic_item(Symbol::intern(name)) == Some(definition.did())).then_some(access)
     })?;
-    let element = scalar(args.type_at(0))?;
-    if element == ir::Scalar::Bool {
-        return None;
-    }
-    Some(ir::Type::Buffer {
-        element,
-        access,
-        address_space: if access == ir::Access::ReadWrite {
-            ir::AddressSpace::Threadgroup
-        } else {
-            ir::AddressSpace::Device
-        },
-    })
+    Some((access, args.type_at(0)))
 }
 
 pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {
-    let ty = scalar(ty)
-        .map(ir::Type::Scalar)
-        .or_else(|| buffer(tcx, ty))?;
+    let mut lowering = TypeLowering::new(tcx);
+    let ty = lowering.lower(ty, rustc_span::DUMMY_SP).ok()?;
     match ty {
-        ir::Type::Scalar(ir::Scalar::Bool)
-        | ir::Type::Buffer {
-            address_space: ir::AddressSpace::Threadgroup,
-            ..
+        ir::Type::Buffer {
+            element,
+            access,
+            address_space: ir::AddressSpace::Device,
+        } if lowering.types.is_abi_value(element.ty())
+            && (access != ir::Access::Atomic
+                || matches!(
+                    element,
+                    ir::Element::Scalar(ir::Scalar::U32 | ir::Scalar::I32)
+                )) =>
+        {
+            Some(ty)
         }
-        | ir::Type::Buffer {
-            element: ir::Scalar::F32 | ir::Scalar::U8 | ir::Scalar::U16,
-            access: ir::Access::Atomic,
-            ..
-        } => None,
-        _ => Some(ty),
+        _ if lowering.types.is_abi_value(ty) => Some(ty),
+        _ => None,
     }
 }

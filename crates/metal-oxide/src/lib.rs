@@ -3,10 +3,13 @@
 mod error;
 mod launch;
 mod scalar;
+mod value;
 
 pub use error::{Error, Result};
 pub use launch::{Dim3, DynamicLaunchConfig, LaunchConfig};
-pub use scalar::{GpuAtomic, GpuScalar};
+pub use metal_oxide_artifact::{Layout, LayoutKind};
+pub use scalar::GpuAtomic;
+pub use value::GpuValue;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod metal;

@@ -31,8 +31,8 @@ impl<'a> ModuleEmitter<'a> {
         for (id, aggregate) in module.types.iter() {
             writeln!(self.output, "struct metal_oxide_aggregate_{id} {{").unwrap();
             match aggregate {
-                Aggregate::Record(fields) | Aggregate::Tuple(fields) => {
-                    for (field, &ty) in fields.iter().enumerate() {
+                Aggregate::Record { .. } | Aggregate::Tuple(_) => {
+                    for (field, ty) in aggregate.component_types().enumerate() {
                         writeln!(self.output, "    {} f{field};", type_name(ty)).unwrap();
                     }
                 }
@@ -185,7 +185,7 @@ impl<'a> ModuleEmitter<'a> {
             parameters.push(if let Some(kernel) = kernel {
                 let name = format!("metal_oxide_arg_{local}");
                 let ty = match ty {
-                    Type::Scalar(s) => format!("constant {} &", type_name(Type::Scalar(s))),
+                    Type::Scalar(_) | Type::Aggregate(_) => format!("constant {} &", type_name(ty)),
                     _ => type_name(ty),
                 };
                 format!(

@@ -1,4 +1,7 @@
-use metal_oxide_artifact::{Access, ParameterType, Scalar};
+#[allow(dead_code)]
+mod support;
+
+use metal_oxide_artifact::{Access, Layout, ParameterType, Scalar};
 use metal_oxide_ir::{self as ir, Block, Function, Module, SourceLocation, Terminator, Type};
 
 fn module(parameters: Vec<Type>) -> Module {
@@ -31,7 +34,7 @@ fn module(parameters: Vec<Type>) -> Module {
 #[test]
 fn abi_slots_match_msl_and_typed_host_arguments() {
     let buffer = |access| Type::Buffer {
-        element: ir::Scalar::F32,
+        element: ir::Element::Scalar(ir::Scalar::F32),
         access,
         address_space: ir::AddressSpace::Device,
     };
@@ -49,14 +52,15 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
     assert_eq!(
         abi.kernels[0].parameters[0].ty,
         ParameterType::Buffer {
-            element: Scalar::F32,
+            element: Layout::scalar(Scalar::F32),
+            stride: 4,
             access: Access::Read
         }
     );
     assert_eq!(
         abi.kernels[0].parameters[2].ty,
-        ParameterType::Scalar {
-            scalar: Scalar::U32
+        ParameterType::Value {
+            layout: Layout::scalar(Scalar::U32)
         }
     );
     let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
@@ -113,7 +117,7 @@ fn handles_no_parameters_and_rust_name_collisions() {
 #[test]
 fn kernel_interfaces_keep_mixed_bindings_independent_from_helpers() {
     let buffer = |element, access| Type::Buffer {
-        element,
+        element: ir::Element::Scalar(element),
         access,
         address_space: ir::AddressSpace::Device,
     };
@@ -181,4 +185,55 @@ fn kernel_binding_limit_is_checked_before_emission() {
     let invalid = module(vec![Type::Scalar(ir::Scalar::U32); 32]);
     let error = metal_oxide_codegen::Codegen::new(&invalid).unwrap_err();
     assert!(error.message.contains("31"));
+}
+
+#[test]
+fn nested_record_layout_matches_the_emitted_msl_declarations() {
+    use ir::{Aggregate, RecordField};
+    let mut module = module(vec![]);
+    let position = module
+        .types
+        .intern(Aggregate::Tuple(vec![Type::Scalar(ir::Scalar::F32); 3]));
+    let velocity = module.types.intern(Aggregate::Array {
+        element: Type::Scalar(ir::Scalar::F32),
+        length: 2,
+    });
+    let particle = module.types.intern(Aggregate::Record {
+        name: "Particle".into(),
+        fields: [
+            ("tag", Type::Scalar(ir::Scalar::U8)),
+            ("flags", Type::Scalar(ir::Scalar::U16)),
+            ("id", Type::Scalar(ir::Scalar::U32)),
+            ("position", position),
+            ("velocity", velocity),
+        ]
+        .into_iter()
+        .map(|(name, ty)| RecordField {
+            name: name.into(),
+            ty,
+        })
+        .collect(),
+    });
+    module.functions[0].parameters = 1;
+    module.functions[0].locals.push(particle);
+    let codegen = metal_oxide_codegen::Codegen::new(&module).unwrap();
+    let abi = codegen.abi().unwrap();
+    let ParameterType::Value { layout } = &abi.kernels[0].parameters[0].ty else {
+        panic!()
+    };
+    assert_eq!((layout.size, layout.alignment), (28, 4));
+    let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
+    assert!(bindings.contains("pub struct r#Particle"));
+    assert!(bindings.contains("pub r#position: (f32, f32, f32,)"));
+    assert!(bindings.contains("pub r#velocity: [f32; 2]"));
+    assert!(bindings.contains("bytes[8..20]"));
+    assert!(bindings.contains("bytes[20..28]"));
+    assert!(bindings.contains("module.verify_abi("));
+    let Type::Aggregate(id) = particle else {
+        panic!()
+    };
+    let main = format!(
+        "metal_oxide_aggregate_{id} value = {{}}; std::cout << sizeof(value) << ',' << alignof(decltype(value)); for (const void* field : {{(void*)&value.f0, (void*)&value.f1, (void*)&value.f2, (void*)&value.f3, (void*)&value.f4}}) std::cout << ',' << ((const char*)field - (const char*)&value);"
+    );
+    assert_eq!(support::execute(&module, &main), "28,4,0,2,4,8,20");
 }

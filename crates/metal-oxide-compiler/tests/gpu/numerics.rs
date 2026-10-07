@@ -62,7 +62,7 @@ fn simd_dot_matches_cpu_and_reference_msl() -> metal_oxide::Result<()> {
                         Argument::read(&input_a),
                         Argument::read(&input_b),
                         Argument::write(&mut output),
-                        Argument::u32(n),
+                        Argument::value::<u32>(n)?,
                     ],
                 )?;
             }
@@ -119,9 +119,9 @@ fn tiled_matmul_matches_cpu_and_reference_msl() -> metal_oxide::Result<()> {
                         Argument::read(&input_a),
                         Argument::read(&input_b),
                         Argument::write(&mut output),
-                        Argument::u32(rows),
-                        Argument::u32(columns),
-                        Argument::u32(inner),
+                        Argument::value::<u32>(rows)?,
+                        Argument::value::<u32>(columns)?,
+                        Argument::value::<u32>(inner)?,
                     ],
                 )?;
             }

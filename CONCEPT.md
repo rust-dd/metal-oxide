@@ -270,7 +270,7 @@ For `vec_add`, `abi.json` contains:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "required_features": [],
   "kernels": [
     {
@@ -278,19 +278,19 @@ For `vec_add`, `abi.json` contains:
       "parameters": [
         {
           "name": "a", "binding": 0,
-          "ty": { "kind": "buffer", "element": "f32", "access": "read" }
+          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "read" }
         },
         {
           "name": "b", "binding": 1,
-          "ty": { "kind": "buffer", "element": "f32", "access": "read" }
+          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "read" }
         },
         {
           "name": "out", "binding": 2,
-          "ty": { "kind": "buffer", "element": "f32", "access": "write" }
+          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "write" }
         },
         {
           "name": "n", "binding": 3,
-          "ty": { "kind": "scalar", "scalar": "u32" }
+          "ty": { "kind": "value", "layout": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "u32" } } }
         }
       ],
       "required_block": null
@@ -299,8 +299,10 @@ For `vec_add`, `abi.json` contains:
 }
 ```
 
-Buffer handles become Metal bindings. Scalars use the ABI's defined scalar
-representation; `n` is a four-byte `u32`. The host does not copy the memory
+Buffer handles become Metal bindings. Values and buffer elements carry a
+canonical layout with size, alignment, field offsets, array stride, and padding.
+Generated record types implement `GpuValue` to encode/decode those bytes.
+Scalars also use this representation; `n` is a four-byte `u32`. The host does not copy the memory
 layout of the Rust device handles into the shader.
 
 Build-time and runtime consumers use this description:
@@ -309,7 +311,7 @@ Build-time and runtime consumers use this description:
 | --- | --- | --- |
 | Kernel build | Binding generator | Produce typed host parameters and ordered `Argument` values |
 | Artifact build | `cargo-metal` | Embed the ABI in `manifest.json` |
-| Artifact loading | Runtime | Validate the manifest and retain each kernel's ABI |
+| Artifact loading | Runtime | Validate the manifest and bindings ABI hash; retain each kernel's ABI |
 | Kernel launch | Runtime | Check argument count, scalar/element types, access modes, and any required block shape |
 
 The Apple compiler compiles the MSL declarations, including their binding
@@ -360,7 +362,7 @@ impl Kernels<'_> {
                     Argument::read(a),
                     Argument::read(b),
                     Argument::write(out),
-                    Argument::u32(n),
+                    Argument::value(n)?,
                 ],
             )
         }

@@ -42,11 +42,17 @@ pub enum Access {
     Atomic,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ParameterType {
-    Scalar { scalar: Scalar },
-    Buffer { element: Scalar, access: Access },
+    Value {
+        layout: crate::Layout,
+    },
+    Buffer {
+        element: crate::Layout,
+        stride: u64,
+        access: Access,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

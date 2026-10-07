@@ -72,7 +72,7 @@ fn verify_vec_add(
                 Argument::read(&a_buffer),
                 Argument::read(&b_buffer),
                 Argument::write(&mut output),
-                Argument::u32(n),
+                Argument::value::<u32>(n)?,
             ],
         )?;
     }
@@ -104,7 +104,7 @@ fn rust_nested_branches_loop_and_early_return_match_cpu() -> metal_oxide::Result
         device.launch(
             &pipeline,
             LaunchConfig::<32>::for_elements(n)?,
-            &[Argument::write(&mut output), Argument::u32(n)],
+            &[Argument::write(&mut output), Argument::value::<u32>(n)?],
         )?;
     }
     for (i, &actual) in output.as_slice()[..n as usize].iter().enumerate() {
@@ -176,9 +176,9 @@ fn rust_signed_integer_math_wraps_and_masks_shifts() -> metal_oxide::Result<()> 
                 LaunchConfig::<1>::new(Dim3::x(1)),
                 &[
                     Argument::write(&mut output),
-                    Argument::i32(a),
-                    Argument::i32(b),
-                    Argument::u32(shift),
+                    Argument::value::<i32>(a)?,
+                    Argument::value::<i32>(b)?,
+                    Argument::value::<u32>(shift)?,
                 ],
             )?;
         }
@@ -218,9 +218,9 @@ fn rust_float_operations_are_not_contracted_into_fma() -> metal_oxide::Result<()
             LaunchConfig::<1>::new(Dim3::x(1)),
             &[
                 Argument::write(&mut output),
-                Argument::f32(a),
-                Argument::f32(b),
-                Argument::f32(c),
+                Argument::value::<f32>(a)?,
+                Argument::value::<f32>(b)?,
+                Argument::value::<f32>(c)?,
             ],
         )?;
     }

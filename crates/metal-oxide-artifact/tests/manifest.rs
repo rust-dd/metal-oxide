@@ -11,7 +11,8 @@ fn manifest() -> Manifest {
                     name: "a".into(),
                     binding: 0,
                     ty: ParameterType::Buffer {
-                        element: Scalar::F32,
+                        element: Layout::scalar(Scalar::F32),
+                        stride: 4,
                         access: Access::Read,
                     },
                 }],
@@ -96,7 +97,38 @@ fn rejects_conflicting_names_slots_and_unknown_layouts() {
             .is_err()
     );
     assert!(
-        Manifest::from_json(&value.replace("\"version\": 2", "\"version\": 2, \"ignored\": true"))
+        Manifest::from_json(&value.replace("\"version\": 3", "\"version\": 3, \"ignored\": true"))
             .is_err()
     );
+}
+
+#[test]
+fn structured_layouts_stride_and_old_abi_are_checked() {
+    let mut manifest = manifest();
+    let layout = Layout::record(
+        "Particle",
+        vec![
+            ("tag".into(), Layout::scalar(Scalar::U8)),
+            ("id".into(), Layout::scalar(Scalar::U32)),
+        ],
+    )
+    .unwrap();
+    manifest.abi.kernels[0].parameters[0].ty = ParameterType::Buffer {
+        stride: layout.size,
+        element: layout,
+        access: Access::Write,
+    };
+    let json = manifest.to_json().unwrap();
+    assert_eq!(Manifest::from_json(&json).unwrap(), manifest);
+    for mutation in [
+        json.replace("\"stride\": 8", "\"stride\": 4"),
+        json.replace("\"offset\": 4", "\"offset\": 1"),
+        json.replace("\"write\"", "\"atomic\""),
+    ] {
+        assert!(Manifest::from_json(&mutation).is_err(), "{mutation}");
+    }
+    let error =
+        Manifest::from_json("{\"abi\": {\"version\": 2, \"kernels\": [{\"kind\": \"scalar\"}]}}")
+            .unwrap_err();
+    assert!(error.to_string().contains("ABI version 2"));
 }

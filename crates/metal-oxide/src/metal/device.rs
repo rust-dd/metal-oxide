@@ -10,7 +10,7 @@ use objc2::{
 };
 use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
 
-use crate::{Dim3, DynamicLaunchConfig, Error, GpuScalar, Result};
+use crate::{Dim3, DynamicLaunchConfig, Error, GpuValue, Result};
 
 use super::{Argument, Batch, Buffer, Pipeline, Submission, backend::Backend};
 
@@ -46,13 +46,13 @@ impl Device {
         autoreleasepool(|_| self.raw.name().to_string())
     }
 
-    pub fn buffer_from_slice<T: GpuScalar>(&self, values: &[T]) -> Result<Buffer<T>> {
+    pub fn buffer_from_slice<T: GpuValue>(&self, values: &[T]) -> Result<Buffer<T>> {
         let mut buffer = Buffer::zeroed(self, values.len())?;
         buffer.as_mut_slice().copy_from_slice(values);
         Ok(buffer)
     }
 
-    pub fn buffer_zeroed<T: GpuScalar>(&self, len: usize) -> Result<Buffer<T>> {
+    pub fn buffer_zeroed<T: GpuValue>(&self, len: usize) -> Result<Buffer<T>> {
         Buffer::zeroed(self, len)
     }
 

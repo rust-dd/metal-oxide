@@ -46,7 +46,10 @@ fn nested_owned_shapes_can_be_passed_and_returned() {
         length: 3,
     });
     let tuple = types.intern(Aggregate::Tuple(vec![array, Type::Scalar(Scalar::U32)]));
-    let record = types.intern(Aggregate::Record(vec![tuple, Type::Scalar(Scalar::Bool)]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![tuple, Type::Scalar(Scalar::Bool)],
+    ));
     let module = identity(types, record);
     validate(&module).unwrap();
     assert_eq!(
@@ -68,10 +71,10 @@ fn nested_owned_shapes_can_be_passed_and_returned() {
 fn interned_shape_identity_preserves_kind_length_and_components() {
     let mut types = TypeTable::default();
     let fields = vec![Type::Scalar(Scalar::U32), Type::Scalar(Scalar::Bool)];
-    let record = types.intern(Aggregate::Record(fields.clone()));
+    let record = types.intern(Aggregate::record("Record", fields.clone()));
     let tuple = types.intern(Aggregate::Tuple(fields.clone()));
     assert_ne!(record, tuple);
-    assert_eq!(record, types.intern(Aggregate::Record(fields)));
+    assert_eq!(record, types.intern(Aggregate::record("Record", fields)));
     let array = types.intern(Aggregate::Array {
         element: record,
         length: 2,
@@ -161,7 +164,7 @@ fn nested_component_replacement_keeps_the_exact_shape() {
         element: Type::Scalar(Scalar::U32),
         length: 3,
     });
-    let record = types.intern(Aggregate::Record(vec![array]));
+    let record = types.intern(Aggregate::record("Record", vec![array]));
     let mut module = identity(types, record);
     let function = &mut module.functions[0];
     function.parameters = 2;
@@ -183,13 +186,13 @@ fn nested_component_replacement_keeps_the_exact_shape() {
 fn recursive_forward_and_missing_type_references_are_rejected() {
     for child in [0, 1, usize::MAX] {
         let mut types = TypeTable::default();
-        let record = types.intern(Aggregate::Record(vec![Type::Aggregate(child)]));
+        let record = types.intern(Aggregate::record("Record", vec![Type::Aggregate(child)]));
         let error = validate(&identity(types, record)).unwrap_err();
         assert_eq!(error.source, source());
         assert!(error.message.contains("earlier definitions"));
     }
     let mut types = TypeTable::default();
-    let first = types.intern(Aggregate::Record(vec![Type::Aggregate(1)]));
+    let first = types.intern(Aggregate::record("Record", vec![Type::Aggregate(1)]));
     types.intern(Aggregate::Tuple(vec![first]));
     assert!(validate(&identity(types, first)).is_err());
     let error = validate(&identity(TypeTable::default(), Type::Aggregate(0))).unwrap_err();
@@ -204,18 +207,18 @@ fn non_value_components_are_rejected_in_nested_storage() {
         Type::Checked(Scalar::Bool),
         Type::Checked(Scalar::F32),
         Type::Buffer {
-            element: Scalar::U32,
+            element: Element::Scalar(Scalar::U32),
             access: Access::Read,
             address_space: AddressSpace::Device,
         },
         Type::Buffer {
-            element: Scalar::U32,
+            element: Element::Scalar(Scalar::U32),
             access: Access::ReadWrite,
             address_space: AddressSpace::Threadgroup,
         },
     ] {
         let mut types = TypeTable::default();
-        let record = types.intern(Aggregate::Record(vec![component]));
+        let record = types.intern(Aggregate::record("Record", vec![component]));
         let error = validate(&identity(types, record)).unwrap_err();
         assert!(error.message.contains("owned value components"));
     }
@@ -224,7 +227,7 @@ fn non_value_components_are_rejected_in_nested_storage() {
 #[test]
 fn empty_owned_aggregates_have_an_explicit_diagnostic() {
     for aggregate in [
-        Aggregate::Record(vec![]),
+        Aggregate::record("Record", vec![]),
         Aggregate::Tuple(vec![]),
         Aggregate::Array {
             element: Type::Scalar(Scalar::U32),
@@ -239,18 +242,15 @@ fn empty_owned_aggregates_have_an_explicit_diagnostic() {
 }
 
 #[test]
-fn aggregate_kernel_parameters_remain_outside_the_scalar_abi() {
-    let mut types = TypeTable::default();
-    let record = types.intern(Aggregate::Record(vec![Type::Scalar(Scalar::U32)]));
-    let mut module = identity(types, record);
-    let function = &mut module.functions[0];
-    function.kernel = true;
-    function.locals[0] = Type::Unit;
-    function.blocks[0].statements.clear();
-    assert!(
-        validate(&module)
-            .unwrap_err()
-            .message
-            .contains("unsupported kernel parameter")
-    );
+fn aggregate_kernel_parameters_require_canonical_owned_leaves() {
+    for scalar in [Scalar::U32, Scalar::Bool] {
+        let mut types = TypeTable::default();
+        let record = types.intern(Aggregate::record("Record", vec![Type::Scalar(scalar)]));
+        let mut module = identity(types, record);
+        let function = &mut module.functions[0];
+        function.kernel = true;
+        function.locals[0] = Type::Unit;
+        function.blocks[0].statements.clear();
+        assert_eq!(validate(&module).is_ok(), scalar == Scalar::U32);
+    }
 }

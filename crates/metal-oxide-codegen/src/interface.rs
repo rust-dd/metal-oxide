@@ -28,25 +28,29 @@ impl KernelInterfaces {
                     .enumerate()
                     .map(|(index, ty)| {
                         let ty = match *ty {
-                            Type::Scalar(value) => ParameterType::Scalar {
-                                scalar: scalar(value, function)?,
+                            Type::Scalar(_) | Type::Aggregate(_) => ParameterType::Value {
+                                layout: layout(module, *ty, function)?,
                             },
                             Type::Buffer {
                                 element, access, ..
-                            } => ParameterType::Buffer {
-                                element: scalar(element, function)?,
-                                access: match access {
-                                    Access::Read => artifact::Access::Read,
-                                    Access::Write => artifact::Access::Write,
-                                    Access::Atomic => artifact::Access::Atomic,
-                                    Access::ReadWrite => {
-                                        return Err(Error::new(
-                                            &function.source,
-                                            "threadgroup buffers cannot be kernel arguments",
-                                        ));
-                                    }
-                                },
-                            },
+                            } => {
+                                let element = layout(module, element.ty(), function)?;
+                                ParameterType::Buffer {
+                                    stride: element.size,
+                                    element,
+                                    access: match access {
+                                        Access::Read => artifact::Access::Read,
+                                        Access::Write => artifact::Access::Write,
+                                        Access::Atomic => artifact::Access::Atomic,
+                                        Access::ReadWrite => {
+                                            return Err(Error::new(
+                                                &function.source,
+                                                "threadgroup buffers cannot be kernel arguments",
+                                            ));
+                                        }
+                                    },
+                                }
+                            }
                             _ => {
                                 return Err(Error::new(
                                     &function.source,
@@ -117,4 +121,37 @@ fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error>
             "bool cannot cross the kernel ABI",
         )),
     }
+}
+
+fn layout(module: &Module, ty: Type, function: &Function) -> Result<artifact::Layout, Error> {
+    use artifact::Layout;
+    use metal_oxide_ir::Aggregate;
+    let result = match ty {
+        Type::Scalar(value) => return Ok(Layout::scalar(scalar(value, function)?)),
+        Type::Aggregate(id) => match module.types.get(id).unwrap() {
+            Aggregate::Array { element, length } => {
+                Layout::array(layout(module, *element, function)?, *length)
+            }
+            Aggregate::Tuple(fields) => Layout::tuple(
+                fields
+                    .iter()
+                    .map(|ty| layout(module, *ty, function))
+                    .collect::<Result<_, _>>()?,
+            ),
+            Aggregate::Record { name, fields } => Layout::record(
+                name,
+                fields
+                    .iter()
+                    .map(|field| Ok((field.name.clone(), layout(module, field.ty, function)?)))
+                    .collect::<Result<_, Error>>()?,
+            ),
+        },
+        _ => {
+            return Err(Error::new(
+                &function.source,
+                "unsupported value in kernel ABI layout",
+            ));
+        }
+    };
+    result.map_err(|error| Error::new(&function.source, error.to_string()))
 }

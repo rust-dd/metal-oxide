@@ -158,7 +158,7 @@ pub(crate) fn expression_type(
                 return Err(Error::new(source, "invalid threadgroup allocation"));
             }
             Ok(Type::Buffer {
-                element: *element,
+                element: Element::Scalar(*element),
                 access: Access::ReadWrite,
                 address_space: AddressSpace::Threadgroup,
             })
@@ -177,7 +177,7 @@ pub(crate) fn expression_type(
                     element,
                     access: Access::Read | Access::ReadWrite,
                     ..
-                } => Ok(Type::Scalar(element)),
+                } => Ok(element.ty()),
                 _ => Err(Error::new(source, "buffer load requires a read buffer")),
             }
         }
@@ -193,7 +193,7 @@ pub(crate) fn expression_type(
                     access: Access::Write | Access::ReadWrite,
                     ..
                 } => {
-                    require(ty(value)?, Type::Scalar(element))?;
+                    require(ty(value)?, element.ty())?;
                     Ok(Type::Unit)
                 }
                 _ => Err(Error::new(source, "buffer store requires a write buffer")),
@@ -230,7 +230,7 @@ pub(crate) fn expression_type(
             require(ty(index)?, Type::Scalar(Scalar::U32))?;
             match ty(buffer)? {
                 Type::Buffer {
-                    element: element @ (Scalar::U32 | Scalar::I32),
+                    element: Element::Scalar(element @ (Scalar::U32 | Scalar::I32)),
                     access: Access::Atomic,
                     address_space: AddressSpace::Device,
                 } => {

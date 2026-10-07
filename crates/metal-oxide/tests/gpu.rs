@@ -53,7 +53,7 @@ fn verify_vec_add(
                 Argument::read(&input_a),
                 Argument::read(&input_b),
                 Argument::write(&mut output),
-                Argument::u32(n),
+                Argument::value::<u32>(n)?,
             ],
         )?;
     }

@@ -70,3 +70,17 @@ fn zero_length_owned_arrays_have_an_explicit_diagnostic() {
     );
     support::rejected(output, "array length must be a nonzero concrete");
 }
+
+#[test]
+fn structured_parameters_and_record_buffers_emit_a_shared_host_contract() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/structured.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(abi.kernels[0].parameters.len(), 4);
+}

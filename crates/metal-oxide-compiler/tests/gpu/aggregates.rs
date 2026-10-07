@@ -28,7 +28,7 @@ fn rust_aggregate_copies_constants_and_generic_helpers_execute() -> metal_oxide:
                 device.launch(
                     pipeline,
                     LaunchConfig::<1>::new(Dim3::x(1)),
-                    &[Argument::write(&mut out), Argument::f32(seed)],
+                    &[Argument::write(&mut out), Argument::value::<f32>(seed)?],
                 )?;
             }
             assert_eq!(out.as_slice(), expected);
@@ -60,8 +60,8 @@ fn rust_nested_aggregate_updates_across_control_flow_execute() -> metal_oxide::R
                 LaunchConfig::<1>::new(Dim3::x(1)),
                 &[
                     Argument::write(&mut out),
-                    Argument::f32(10.0),
-                    Argument::u32(mode),
+                    Argument::value::<f32>(10.0)?,
+                    Argument::value::<u32>(mode)?,
                 ],
             )?;
         }

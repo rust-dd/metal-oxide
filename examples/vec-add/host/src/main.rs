@@ -86,7 +86,7 @@ mod tests {
                         Argument::read(&wrong),
                         Argument::read(&b),
                         Argument::write(&mut out),
-                        Argument::u32(0),
+                        Argument::value::<u32>(0)?,
                     ]
                 ),
                 Err(Error::Artifact(_))
@@ -99,7 +99,7 @@ mod tests {
                         Argument::read(&a),
                         Argument::read(&b),
                         Argument::read(&out),
-                        Argument::u32(0),
+                        Argument::value::<u32>(0)?,
                     ]
                 ),
                 Err(Error::Artifact(_))
@@ -112,7 +112,7 @@ mod tests {
                         Argument::read(&a),
                         Argument::read(&b),
                         Argument::write(&mut out),
-                        Argument::f32(0.0),
+                        Argument::value::<f32>(0.0)?,
                     ]
                 ),
                 Err(Error::Artifact(_))
@@ -124,7 +124,7 @@ mod tests {
                     Argument::read(&a),
                     Argument::read(&b),
                     Argument::write(&mut out),
-                    Argument::u32(0),
+                    Argument::value::<u32>(0)?,
                 ],
             )?;
         }
@@ -158,7 +158,7 @@ mod tests {
         std::fs::write(directory.0.join("kernels.metallib"), library)?;
         std::fs::write(
             directory.0.join("manifest.json"),
-            manifest.replace("\"version\": 2", "\"version\": 999"),
+            manifest.replace("\"version\": 3", "\"version\": 999"),
         )?;
         assert!(matches!(
             Module::from_artifact(&device, &directory.0),
@@ -170,6 +170,10 @@ mod tests {
             manifest.replace("\"required_block\": null", "\"required_block\": [32, 1, 1]"),
         )?;
         let module = Module::from_artifact(&device, &directory.0)?;
+        assert!(matches!(
+            super::kernels::load(&device, &directory.0),
+            Err(Error::Artifact(_))
+        ));
         let pipeline = Pipeline::new(&device, &module, "vec_add")?;
         let a = device.buffer_zeroed::<f32>(0)?;
         let b = device.buffer_zeroed::<f32>(0)?;
@@ -183,7 +187,7 @@ mod tests {
                     Argument::read(&a),
                     Argument::read(&b),
                     Argument::write(&mut out),
-                    Argument::u32(0),
+                    Argument::value::<u32>(0)?,
                 ],
             )
         };

@@ -71,22 +71,30 @@ impl<'d> Batch<'d> {
             return Ok(());
         }
         for argument in arguments {
-            if let Some(resource) = argument.resource()
-                && !self
+            argument.prepare();
+            if let Some(resource) = argument.resource() {
+                if let Some(existing) = self
                     .resources
-                    .iter()
-                    .any(|existing| Rc::ptr_eq(&existing.access, &resource.access))
-            {
-                self.resources.push(resource);
+                    .iter_mut()
+                    .find(|existing| Rc::ptr_eq(&existing.access, &resource.access))
+                {
+                    existing.written |= resource.written;
+                } else {
+                    self.resources.push(resource);
+                }
             }
         }
         self.pipelines.push(pipeline.raw.clone());
         // SAFETY: validation passed; the submit caller provides the shader safety contract.
         unsafe {
             match &mut self.native {
-                NativeBatch::Classic(batch) => {
-                    batch.launch(pipeline, config, arguments, self.dispatches != 0)
-                }
+                NativeBatch::Classic(batch) => batch.launch(
+                    &self.device.raw,
+                    pipeline,
+                    config,
+                    arguments,
+                    self.dispatches != 0,
+                )?,
                 NativeBatch::Metal4(batch) => batch.launch(
                     &self.device.raw,
                     pipeline,
@@ -107,6 +115,9 @@ impl<'d> Batch<'d> {
         } else {
             for resource in &self.resources {
                 resource.access.register(&completion);
+                if resource.written {
+                    resource.access.mark_written();
+                }
             }
             let buffers = self
                 .resources

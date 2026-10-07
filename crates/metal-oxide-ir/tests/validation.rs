@@ -100,7 +100,7 @@ fn write_requires_a_write_buffer() {
     let f = &mut module.functions[0];
     f.locals[0] = Type::Unit;
     f.locals[1] = Type::Buffer {
-        element: Scalar::F32,
+        element: Element::Scalar(Scalar::F32),
         access: Access::Read,
         address_space: AddressSpace::Device,
     };

@@ -54,17 +54,28 @@ impl Abi {
             }
             let mut parameters = HashSet::new();
             for (index, parameter) in kernel.parameters.iter().enumerate() {
-                if matches!(
-                    parameter.ty,
+                match &parameter.ty {
+                    ParameterType::Value { layout } => layout.validate()?,
                     ParameterType::Buffer {
-                        element: Scalar::F32 | Scalar::U8 | Scalar::U16,
-                        access: Access::Atomic
+                        element,
+                        stride,
+                        access,
+                    } => {
+                        element.validate()?;
+                        if *stride != element.size {
+                            return Err(Error(
+                                "buffer stride does not match its element layout".into(),
+                            ));
+                        }
+                        if *access == Access::Atomic
+                            && !matches!(element.scalar_type(), Some(Scalar::U32 | Scalar::I32))
+                        {
+                            return Err(Error(format!(
+                                "kernel {} requires integer atomic elements",
+                                kernel.name
+                            )));
+                        }
                     }
-                ) {
-                    return Err(Error(format!(
-                        "kernel {} requires integer atomic elements",
-                        kernel.name
-                    )));
                 }
                 if parameter.binding != index as u32 {
                     return Err(Error(format!(

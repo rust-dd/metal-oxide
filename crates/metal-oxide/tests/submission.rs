@@ -64,9 +64,9 @@ fn chained_kernels_publish_intermediate_writes_to_the_next_dispatch() -> metal_o
                     &[
                         Argument::read(&input),
                         Argument::write(&mut intermediate),
-                        Argument::f32(2.0),
-                        Argument::f32(3.0),
-                        Argument::u32(n),
+                        Argument::value::<f32>(2.0).unwrap(),
+                        Argument::value::<f32>(3.0).unwrap(),
+                        Argument::value::<u32>(n).unwrap(),
                     ],
                 )?;
                 batch.launch(
@@ -75,9 +75,9 @@ fn chained_kernels_publish_intermediate_writes_to_the_next_dispatch() -> metal_o
                     &[
                         Argument::read(&intermediate),
                         Argument::write(&mut output),
-                        Argument::f32(5.0),
-                        Argument::f32(7.0),
-                        Argument::u32(n),
+                        Argument::value::<f32>(5.0).unwrap(),
+                        Argument::value::<f32>(7.0).unwrap(),
+                        Argument::value::<u32>(n).unwrap(),
                     ],
                 )
             })
@@ -108,9 +108,9 @@ fn cancelled_and_forgotten_submissions_synchronize_cpu_access() -> metal_oxide::
                     &[
                         Argument::read(&input),
                         Argument::write(&mut output),
-                        Argument::f32(3.0),
-                        Argument::f32(1.0),
-                        Argument::u32(n),
+                        Argument::value::<f32>(3.0).unwrap(),
+                        Argument::value::<f32>(1.0).unwrap(),
+                        Argument::value::<u32>(n).unwrap(),
                     ],
                 )
             })
@@ -132,9 +132,9 @@ fn cancelled_and_forgotten_submissions_synchronize_cpu_access() -> metal_oxide::
                 &[
                     Argument::read(&input),
                     Argument::write(&mut output),
-                    Argument::f32(2.0),
-                    Argument::f32(5.0),
-                    Argument::u32(n),
+                    Argument::value::<f32>(2.0).unwrap(),
+                    Argument::value::<f32>(5.0).unwrap(),
+                    Argument::value::<u32>(n).unwrap(),
                 ],
             )
         })?);
@@ -147,9 +147,9 @@ fn cancelled_and_forgotten_submissions_synchronize_cpu_access() -> metal_oxide::
                     &[
                         Argument::read(&output),
                         Argument::write(&mut final_output),
-                        Argument::f32(3.0),
-                        Argument::f32(2.0),
-                        Argument::u32(n),
+                        Argument::value::<f32>(3.0).unwrap(),
+                        Argument::value::<f32>(2.0).unwrap(),
+                        Argument::value::<u32>(n).unwrap(),
                     ],
                 )
             })?
@@ -176,9 +176,9 @@ fn submission_retains_resources_owned_by_the_encoding_closure() -> metal_oxide::
                 &[
                     Argument::read(&input),
                     Argument::write(output_ref),
-                    Argument::f32(3.0),
-                    Argument::f32(2.0),
-                    Argument::u32(n),
+                    Argument::value::<f32>(3.0).unwrap(),
+                    Argument::value::<f32>(2.0).unwrap(),
+                    Argument::value::<u32>(n).unwrap(),
                 ],
             )
         })
@@ -203,9 +203,9 @@ fn encoding_error_discards_the_whole_batch() -> metal_oxide::Result<()> {
                 &[
                     Argument::read(&input),
                     Argument::write(&mut output),
-                    Argument::f32(1.0),
-                    Argument::f32(1.0),
-                    Argument::u32(32),
+                    Argument::value::<f32>(1.0).unwrap(),
+                    Argument::value::<f32>(1.0).unwrap(),
+                    Argument::value::<u32>(32).unwrap(),
                 ],
             )?;
             batch.launch(&pipeline, LaunchConfig::<0>::new(Dim3::x(1)), &[])

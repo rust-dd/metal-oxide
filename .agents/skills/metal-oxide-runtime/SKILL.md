@@ -18,7 +18,9 @@ launches and async ordered batches; Rust kernel compilation is separate.
 - Keep the public surface small. Add launch helpers, configuration variants, or
   wrapper layers only when a concrete current use case requires them. Prefer one
   clear path for each operation and keep implementation helpers private.
-- Preserve initialized owned buffers and the sealed scalar boundary. Do not
+- Preserve initialized CPU values and explicit GpuValue encoding/decoding.
+  Atomic elements remain sealed to u32/i32. Validate codec size/alignment against
+  the canonical layout; never reinterpret arbitrary Rust values as GPU bytes. Do not
   expose raw Metal handles or add Clone/Send/Sync without revisiting aliasing and
   resource ownership.
 - Input arguments hold shared borrows; writes hold exclusive borrows. Submission

@@ -7,7 +7,7 @@ use objc2::{
 };
 use objc2_metal::{
     MTLBarrierScope, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
-    MTLCommandQueue, MTLComputeCommandEncoder, MTLComputePipelineState,
+    MTLCommandQueue, MTLComputeCommandEncoder, MTLComputePipelineState, MTLDevice,
 };
 
 use super::{Argument, Pipeline, batch::metal_size, completion::Completion};
@@ -17,6 +17,7 @@ pub(super) struct ClassicBatch {
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     encoder: Option<Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
 }
 
 impl ClassicBatch {
@@ -31,29 +32,34 @@ impl ClassicBatch {
             command,
             encoder: Some(encoder),
             queue: queue.clone(),
+            bindings: Vec::new(),
         })
     }
 
     pub(super) unsafe fn launch(
-        &self,
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
         pipeline: &Pipeline,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
         has_previous_dispatch: bool,
-    ) {
+    ) -> Result<()> {
         let encoder = self.encoder.as_ref().unwrap();
         if has_previous_dispatch {
             encoder.memoryBarrierWithScope(MTLBarrierScope::Buffers);
         }
         encoder.setComputePipelineState(&pipeline.raw);
         for (index, argument) in arguments.iter().enumerate() {
-            // SAFETY: Batch validated bindings; its caller guarantees the shader contract.
-            unsafe { argument.encode(encoder, index) };
+            let buffer = argument.metal_buffer(device)?;
+            // SAFETY: Batch validated bindings; native buffers are retained through completion.
+            unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, index) };
+            self.bindings.push(buffer);
         }
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
             metal_size(config.grid),
             metal_size(config.block),
         );
+        Ok(())
     }
 
     pub(super) fn commit(
@@ -64,9 +70,10 @@ impl ClassicBatch {
     ) {
         self.encoder.take().unwrap().endEncoding();
         let queue = self.queue.clone();
+        let bindings = std::mem::take(&mut self.bindings);
         let handler = RcBlock::new(
             move |command: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                let _keepalive = (&buffers, &pipelines, &queue);
+                let _keepalive = (&buffers, &pipelines, &queue, &bindings);
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };

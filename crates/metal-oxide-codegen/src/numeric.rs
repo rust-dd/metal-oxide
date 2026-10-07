@@ -15,10 +15,11 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
             .functions
             .iter()
             .any(|f| f.locals.contains(&Type::Checked(scalar)))
-            || module
-                .types
-                .iter()
-                .any(|(_, aggregate)| aggregate.component_types().contains(&Type::Checked(scalar)))
+            || module.types.iter().any(|(_, aggregate)| {
+                aggregate
+                    .component_types()
+                    .any(|ty| ty == Type::Checked(scalar))
+            })
         {
             writeln!(
                 output,

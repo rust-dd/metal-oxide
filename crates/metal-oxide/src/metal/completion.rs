@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     future::Future,
     marker::PhantomData,
     pin::Pin,
@@ -79,18 +79,28 @@ impl Completion {
 }
 
 #[derive(Default)]
-pub(super) struct AccessState(RefCell<Vec<Arc<Completion>>>);
+pub(super) struct AccessState {
+    pending: RefCell<Vec<Arc<Completion>>>,
+    written: Cell<bool>,
+}
 
 impl AccessState {
+    pub(super) fn mark_written(&self) {
+        self.written.set(true);
+    }
+    pub(super) fn take_written(&self) -> bool {
+        self.written.replace(false)
+    }
+
     pub(super) fn register(&self, completion: &Arc<Completion>) {
-        let mut pending = self.0.borrow_mut();
+        let mut pending = self.pending.borrow_mut();
         pending.retain(|state| !state.is_finished());
         pending.push(Arc::clone(completion));
     }
 
     pub(super) fn synchronize(&self) {
-        for completion in self.0.borrow_mut().drain(..) {
-            // Written scalars remain valid on command failure; submission reports its error.
+        for completion in self.pending.borrow_mut().drain(..) {
+            // Decoding owned fields remains valid on failure; the submission reports its error.
             let _ = completion.wait();
         }
     }
@@ -175,6 +185,6 @@ mod tests {
         });
         access.synchronize();
         worker.join().unwrap();
-        assert!(access.0.borrow().is_empty());
+        assert!(access.pending.borrow().is_empty());
     }
 }

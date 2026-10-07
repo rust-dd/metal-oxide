@@ -45,8 +45,9 @@ library. `#[kernel]` marks entrypoints; it does not translate function bodies.
 | `metal-oxide` | Typed buffers, library loading, compute pipelines, and execution |
 | `cargo-metal` | Kernel build, Apple compiler invocation, artifact cache, and host build |
 
-The ABI defines each kernel's parameter types, buffer slots, access modes, and
-required block shape. The MSL signature and generated Rust bindings use the same
+The ABI defines value layouts, buffer strides and slots, access modes, and
+required block shapes. Generated record types encode fields and padding explicitly;
+their Rust memory layout is independent of the GPU layout. The MSL signature and generated Rust bindings use the same
 ABI. The runtime checks this metadata and the library hash when loading an
 artifact, then validates arguments before encoding a launch.
 
@@ -60,7 +61,7 @@ See [CONCEPT.md](CONCEPT.md) for the `vec_add` compiler, ABI, and runtime walkth
 
 A `Device` owns a GPU and command queue. A `Module` loads a shader library;
 a `Pipeline` selects one kernel entrypoint. `Buffer<T>` owns GPU memory, and
-`Argument` binds a buffer or scalar to a parameter slot. Generated bindings
+`Argument` binds a buffer or an encoded value to a parameter slot. Generated bindings
 construct these arguments from typed Rust parameters.
 
 `LaunchConfig<X, Y, Z>` sets threads per block through const generics. Its `grid`

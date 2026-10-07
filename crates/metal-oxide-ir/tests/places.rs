@@ -18,7 +18,10 @@ fn place(local: usize, projection: &[u32]) -> Place {
 fn module(complete: bool) -> Module {
     let mut types = TypeTable::default();
     let tuple = types.intern(Aggregate::Tuple(vec![Type::Scalar(Scalar::U32); 2]));
-    let record = types.intern(Aggregate::Record(vec![tuple, Type::Scalar(Scalar::U32)]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![tuple, Type::Scalar(Scalar::U32)],
+    ));
     let mut statements = vec![
         Statement {
             destination: place(1, &[0, 0]),

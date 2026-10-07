@@ -37,7 +37,10 @@ fn nested_record_tuple_and_array_copies_survive_helper_calls() {
         length: 3,
     });
     let tuple = types.intern(Aggregate::Tuple(vec![Type::Scalar(Scalar::U16), array]));
-    let record = types.intern(Aggregate::Record(vec![Type::Scalar(Scalar::U32), tuple]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![Type::Scalar(Scalar::U32), tuple],
+    ));
     let mut output = module(
         1,
         vec![record, record, tuple, array, array, tuple],
@@ -108,10 +111,10 @@ fn nested_record_tuple_and_array_copies_survive_helper_calls() {
 #[test]
 fn arrays_of_records_and_nested_arrays_preserve_construction_order() {
     let mut types = TypeTable::default();
-    let record = types.intern(Aggregate::Record(vec![
-        Type::Scalar(Scalar::F32),
-        Type::Scalar(Scalar::U8),
-    ]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![Type::Scalar(Scalar::F32), Type::Scalar(Scalar::U8)],
+    ));
     let inner = types.intern(Aggregate::Array {
         element: record,
         length: 2,
@@ -156,7 +159,10 @@ fn arrays_of_records_and_nested_arrays_preserve_construction_order() {
 #[test]
 fn replacement_reads_the_old_destination_before_it_is_overwritten() {
     let mut types = TypeTable::default();
-    let record = types.intern(Aggregate::Record(vec![Type::Scalar(Scalar::U32); 2]));
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![Type::Scalar(Scalar::U32); 2],
+    ));
     let mut output = module(
         2,
         vec![record; 3],

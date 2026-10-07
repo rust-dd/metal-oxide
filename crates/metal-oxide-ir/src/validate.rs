@@ -41,16 +41,15 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                 return Err(Error::new(&function.source, "kernels must return unit"));
             }
             for ty in &function.locals[1..=function.parameters] {
-                if !matches!(
-                    ty,
-                    Type::Scalar(
-                        Scalar::F32 | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16
-                    ) | Type::Buffer {
-                        element: Scalar::F32 | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16,
+                let valid = match *ty {
+                    Type::Buffer {
+                        element,
                         access: Access::Read | Access::Write | Access::Atomic,
                         address_space: AddressSpace::Device,
-                    }
-                ) {
+                    } => module.types.is_abi_value(element.ty()),
+                    _ => module.types.is_abi_value(*ty),
+                };
+                if !valid {
                     return Err(Error::new(
                         &function.source,
                         "unsupported kernel parameter type",
@@ -59,7 +58,11 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
         }
         for ty in &function.locals {
-            if let Type::Aggregate(id) = ty
+            if let Type::Aggregate(id)
+            | Type::Buffer {
+                element: Element::Aggregate(id),
+                ..
+            } = ty
                 && module.types.get(*id).is_none()
             {
                 return Err(Error::new(&function.source, "invalid aggregate type"));
@@ -84,11 +87,16 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             if matches!(
                 ty,
                 Type::Buffer {
-                    element: Scalar::Bool,
+                    element: Element::Scalar(Scalar::Bool),
                     ..
                 } | Type::Buffer {
-                    element: Scalar::F32 | Scalar::U8 | Scalar::U16,
+                    element: Element::Scalar(Scalar::F32 | Scalar::U8 | Scalar::U16)
+                        | Element::Aggregate(_),
                     access: Access::Atomic,
+                    ..
+                } | Type::Buffer {
+                    element: Element::Aggregate(_),
+                    address_space: AddressSpace::Threadgroup,
                     ..
                 } | Type::Checked(Scalar::Bool | Scalar::F32)
             ) {

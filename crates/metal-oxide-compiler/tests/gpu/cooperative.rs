@@ -27,7 +27,7 @@ fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
                 &[
                     Argument::read(&input),
                     Argument::write(&mut output),
-                    Argument::u32(n),
+                    Argument::value::<u32>(n)?,
                 ],
             )?;
         }
@@ -45,7 +45,7 @@ fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
                 &[
                     Argument::read(&input),
                     Argument::write(&mut reference_output),
-                    Argument::u32(n),
+                    Argument::value::<u32>(n)?,
                 ],
             )?;
         }
@@ -75,8 +75,8 @@ fn tiled_transpose_matches_cpu_on_rectangles_and_partial_tiles() -> metal_oxide:
                 &[
                     Argument::read(&input),
                     Argument::write(&mut output),
-                    Argument::u32(width),
-                    Argument::u32(height),
+                    Argument::value::<u32>(width)?,
+                    Argument::value::<u32>(height)?,
                 ],
             )?;
         }

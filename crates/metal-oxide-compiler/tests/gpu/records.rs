@@ -30,7 +30,7 @@ fn owned_struct_helpers_and_field_updates_match_cpu() -> metal_oxide::Result<()>
                     Argument::read(&input_b),
                     Argument::write(&mut sum),
                     Argument::write(&mut product),
-                    Argument::u32(n),
+                    Argument::value::<u32>(n)?,
                 ],
             )?;
         }

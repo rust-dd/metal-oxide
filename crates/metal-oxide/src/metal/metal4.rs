@@ -77,7 +77,7 @@ impl Metal4Batch {
             .newArgumentTableWithDescriptor_error(&descriptor)
             .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
         for (index, argument) in arguments.iter().enumerate() {
-            let buffer = argument.metal4_buffer(device)?;
+            let buffer = argument.metal_buffer(device)?;
             self.residency
                 .addAllocation(ProtocolObject::from_ref(&*buffer));
             // SAFETY: the table has this slot; the retained buffer stays resident through completion.

@@ -40,6 +40,21 @@ pub enum AddressSpace {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Element {
+    Scalar(Scalar),
+    Aggregate(usize),
+}
+
+impl Element {
+    pub const fn ty(self) -> Type {
+        match self {
+            Self::Scalar(s) => Type::Scalar(s),
+            Self::Aggregate(id) => Type::Aggregate(id),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Type {
     Unit,
     Never,
@@ -47,7 +62,7 @@ pub enum Type {
     Dim3,
     Aggregate(usize),
     Buffer {
-        element: Scalar,
+        element: Element,
         access: Access,
         address_space: AddressSpace,
     },
@@ -57,15 +72,42 @@ pub enum Type {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Aggregate {
-    Record(Vec<Type>),
+    Record {
+        name: String,
+        fields: Vec<RecordField>,
+    },
     Tuple(Vec<Type>),
-    Array { element: Type, length: u32 },
+    Array {
+        element: Type,
+        length: u32,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordField {
+    pub name: String,
+    pub ty: Type,
 }
 
 impl Aggregate {
+    pub fn record(name: impl Into<String>, values: Vec<Type>) -> Self {
+        Self::Record {
+            name: name.into(),
+            fields: values
+                .into_iter()
+                .enumerate()
+                .map(|(index, ty)| RecordField {
+                    name: format!("f{index}"),
+                    ty,
+                })
+                .collect(),
+        }
+    }
+
     pub fn len(&self) -> usize {
         match self {
-            Self::Record(fields) | Self::Tuple(fields) => fields.len(),
+            Self::Record { fields, .. } => fields.len(),
+            Self::Tuple(fields) => fields.len(),
             Self::Array { length, .. } => *length as usize,
         }
     }
@@ -76,17 +118,23 @@ impl Aggregate {
 
     pub fn field(&self, index: u32) -> Option<Type> {
         match self {
-            Self::Record(fields) | Self::Tuple(fields) => fields.get(index as usize).copied(),
+            Self::Record { fields, .. } => fields.get(index as usize).map(|field| field.ty),
+            Self::Tuple(fields) => fields.get(index as usize).copied(),
             Self::Array { element, length } => (index < *length).then_some(*element),
         }
     }
 
     /// Direct component types; an array contributes its element type once.
-    pub fn component_types(&self) -> &[Type] {
-        match self {
-            Self::Record(fields) | Self::Tuple(fields) => fields,
-            Self::Array { element, .. } => std::slice::from_ref(element),
-        }
+    pub fn component_types(&self) -> impl Iterator<Item = Type> + '_ {
+        let count = if matches!(self, Self::Array { .. }) {
+            1
+        } else {
+            self.len()
+        };
+        (0..count).map(|index| match self {
+            Self::Array { element, .. } => *element,
+            _ => self.field(index as u32).unwrap(),
+        })
     }
 }
 
@@ -132,6 +180,21 @@ impl TypeTable {
         self.aggregates.get(id)
     }
 
+    /// Owned types whose scalar leaves have a canonical host/GPU representation.
+    pub fn is_abi_value(&self, ty: Type) -> bool {
+        match ty {
+            Type::Scalar(scalar) => scalar != Scalar::Bool,
+            Type::Aggregate(id) => self.get(id).is_some_and(|aggregate| {
+                !aggregate.is_empty()
+                    && aggregate.component_types().all(|child| {
+                        (!matches!(child, Type::Aggregate(child_id) if child_id >= id))
+                            && self.is_abi_value(child)
+                    })
+            }),
+            _ => false,
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (usize, &Aggregate)> {
         self.aggregates.iter().enumerate()
     }
@@ -141,7 +204,7 @@ impl TypeTable {
             if aggregate.is_empty() {
                 return Err(Error::new(source, "empty aggregate types are unsupported"));
             }
-            for &ty in aggregate.component_types() {
+            for ty in aggregate.component_types() {
                 match ty {
                     Type::Scalar(_) | Type::Dim3 => {}
                     Type::Checked(scalar) if scalar.is_integer() => {}

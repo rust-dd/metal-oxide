@@ -10,6 +10,6 @@ mod validate;
 
 pub use control_flow::{ControlFlowGraph, Dominators};
 pub use model::*;
-pub use types::{Access, AddressSpace, Aggregate, Scalar, Type, TypeTable};
+pub use types::{Access, AddressSpace, Aggregate, Element, RecordField, Scalar, Type, TypeTable};
 pub use typing::{operand_type, place_type};
 pub use validate::validate;

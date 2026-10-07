@@ -83,4 +83,18 @@ impl Module {
             marker: PhantomData,
         })
     }
+    /// Checks that generated bindings describe this artifact's exact ABI.
+    pub fn verify_abi(&self, expected: &str) -> Result<()> {
+        let abi = self.abi.as_ref().ok_or_else(|| {
+            Error::Artifact(metal_oxide_artifact::Error(
+                "module has no artifact ABI".into(),
+            ))
+        })?;
+        if metal_oxide_artifact::sha256(abi.to_json()?.as_bytes()) != expected {
+            return Err(Error::Artifact(metal_oxide_artifact::Error(
+                "generated bindings do not match the artifact ABI".into(),
+            )));
+        }
+        Ok(())
+    }
 }
