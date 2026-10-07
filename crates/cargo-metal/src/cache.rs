@@ -1,5 +1,5 @@
 use crate::{metadata::Project, process::Result};
-use metal_oxide_artifact::{Abi, Manifest, sha256};
+use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, sha256};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -54,24 +54,21 @@ pub(crate) fn sources(project: &Project) -> Result<BTreeMap<PathBuf, String>> {
 
 pub(crate) fn valid(directory: &Path, fingerprint: &str) -> bool {
     let validate = || -> Result<()> {
-        let manifest =
-            Manifest::from_json(&std::fs::read_to_string(directory.join("manifest.json"))?)?;
+        let manifest = Manifest::from_json(&std::fs::read_to_string(
+            directory.join(ArtifactFile::Manifest.name()),
+        )?)?;
         if manifest.build.fingerprint != fingerprint {
             return Err("artifact fingerprint mismatch".into());
         }
-        let abi = Abi::from_json(&std::fs::read_to_string(directory.join("abi.json"))?)?;
+        let abi = Abi::from_json(&std::fs::read_to_string(
+            directory.join(ArtifactFile::Abi.name()),
+        )?)?;
         if abi != manifest.abi {
             return Err("cached ABI differs from manifest".into());
         }
-        for (name, expected) in [
-            ("kernels.metal", &manifest.files.msl),
-            ("kernels.oxide-ir", &manifest.files.oxide_ir),
-            ("kernels.ir", &manifest.files.ir),
-            ("kernels.metallib", &manifest.files.metallib),
-            ("bindings.rs", &manifest.files.bindings),
-        ] {
-            if sha256(&std::fs::read(directory.join(name))?) != *expected {
-                return Err(format!("artifact hash mismatch: {name}").into());
+        for (file, expected) in manifest.files.entries() {
+            if sha256(&std::fs::read(directory.join(file.name()))?) != expected {
+                return Err(format!("artifact hash mismatch: {}", file.name()).into());
             }
         }
         Ok(())

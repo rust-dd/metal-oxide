@@ -10,7 +10,7 @@ use objc2_metal::{
 use crate::{Error, Result};
 
 use super::Device;
-use metal_oxide_artifact::{Abi, Manifest};
+use metal_oxide_artifact::{Abi, ArtifactFile, Manifest};
 
 /// A Metal library loaded independently of Rust compiler internals.
 pub struct Module {
@@ -57,8 +57,9 @@ impl Module {
     /// Loads a precompiled library after checking its manifest and content hash.
     pub fn from_artifact(device: &Device, directory: impl AsRef<Path>) -> Result<Self> {
         let directory = directory.as_ref();
-        let manifest =
-            Manifest::from_json(&std::fs::read_to_string(directory.join("manifest.json"))?)?;
+        let manifest = Manifest::from_json(&std::fs::read_to_string(
+            directory.join(ArtifactFile::Manifest.name()),
+        )?)?;
         if manifest
             .required_features
             .iter()
@@ -69,7 +70,7 @@ impl Module {
                 "artifact requires SIMD-group support".into(),
             ));
         }
-        let bytes = std::fs::read(directory.join("kernels.metallib"))?;
+        let bytes = std::fs::read(directory.join(ArtifactFile::Metallib.name()))?;
         manifest.verify_library(&bytes)?;
         let data = dispatch2::DispatchData::from_bytes(&bytes);
         let raw = device

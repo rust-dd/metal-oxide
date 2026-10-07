@@ -119,16 +119,13 @@ impl Manifest {
                 self.required_features
             )));
         }
-        if [
-            &self.files.msl,
-            &self.files.oxide_ir,
-            &self.files.ir,
-            &self.files.metallib,
-            &self.files.bindings,
-            &self.build.fingerprint,
-        ]
-        .into_iter()
-        .any(|v| !hash(v))
+        if self
+            .files
+            .entries()
+            .into_iter()
+            .map(|(_, value)| value)
+            .chain(std::iter::once(self.build.fingerprint.as_str()))
+            .any(|v| !hash(v))
         {
             return Err(Error(
                 "artifact hashes must be lowercase SHA-256 values".into(),

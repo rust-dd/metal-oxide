@@ -2,7 +2,7 @@ use crate::{
     metadata::Project,
     process::{self, Result},
 };
-use metal_oxide_artifact::sha256;
+use metal_oxide_artifact::{COMPILER_OUTPUTS, sha256};
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -113,14 +113,9 @@ impl Rust {
             .join(format!("output-{}", sha256(project.kernel().id.as_bytes())));
         std::fs::create_dir_all(&output)?;
         self.check(project, &output)?;
-        if [
-            "kernels.metal",
-            "kernels.oxide-ir",
-            "abi.json",
-            "bindings.rs",
-        ]
-        .iter()
-        .any(|name| !output.join(name).is_file())
+        if COMPILER_OUTPUTS
+            .iter()
+            .any(|file| !output.join(file.name()).is_file())
         {
             process::run(
                 self.command(project, &output)

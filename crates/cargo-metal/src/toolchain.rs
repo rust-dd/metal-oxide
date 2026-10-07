@@ -1,4 +1,5 @@
 use crate::process::{self, Result};
+use metal_oxide_artifact::ArtifactFile;
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -87,15 +88,15 @@ impl Metal {
             self.command()
                 .args(METAL_FLAGS)
                 .arg("-c")
-                .arg(directory.join("kernels.metal"))
+                .arg(directory.join(ArtifactFile::Msl.name()))
                 .arg("-o")
-                .arg(directory.join("kernels.ir")),
+                .arg(directory.join(ArtifactFile::Air.name())),
         )?;
         process::run(
             self.command()
-                .arg(directory.join("kernels.ir"))
+                .arg(directory.join(ArtifactFile::Air.name()))
                 .arg("-o")
-                .arg(directory.join("kernels.metallib")),
+                .arg(directory.join(ArtifactFile::Metallib.name())),
         )
     }
 }

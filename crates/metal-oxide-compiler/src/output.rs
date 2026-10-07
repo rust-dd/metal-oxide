@@ -1,3 +1,4 @@
+use metal_oxide_artifact::{ArtifactFile, COMPILER_OUTPUTS};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn take_directory(arguments: &mut Vec<String>) -> Result<Option<PathBuf>, String> {
@@ -23,13 +24,8 @@ pub(crate) fn take_directory(arguments: &mut Vec<String>) -> Result<Option<PathB
 
 pub(crate) fn prepare(directory: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(directory)?;
-    for name in [
-        "kernels.oxide-ir",
-        "kernels.metal",
-        "abi.json",
-        "bindings.rs",
-    ] {
-        match std::fs::remove_file(directory.join(name)) {
+    for file in COMPILER_OUTPUTS {
+        match std::fs::remove_file(directory.join(file.name())) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
@@ -44,7 +40,10 @@ pub(crate) fn write<'tcx>(
     tcx: rustc_middle::ty::TyCtxt<'tcx>,
     entries: &[rustc_middle::ty::Instance<'tcx>],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::write(directory.join("kernels.oxide-ir"), format!("{module:#?}\n"))?;
+    std::fs::write(
+        directory.join(ArtifactFile::OxideIr.name()),
+        format!("{module:#?}\n"),
+    )?;
     let codegen = metal_oxide_codegen::Codegen::new(module)?;
     let msl = codegen.emit()?;
     let mut abi = codegen.abi()?;
@@ -81,8 +80,8 @@ pub(crate) fn write<'tcx>(
     }
     let bindings = metal_oxide_codegen::bindings(&abi)?;
     let abi = abi.to_json()?;
-    std::fs::write(directory.join("kernels.metal"), msl)?;
-    std::fs::write(directory.join("abi.json"), abi)?;
-    std::fs::write(directory.join("bindings.rs"), bindings)?;
+    std::fs::write(directory.join(ArtifactFile::Msl.name()), msl)?;
+    std::fs::write(directory.join(ArtifactFile::Abi.name()), abi)?;
+    std::fs::write(directory.join(ArtifactFile::Bindings.name()), bindings)?;
     Ok(())
 }

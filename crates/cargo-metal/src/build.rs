@@ -6,7 +6,10 @@ use crate::{
     rust::Rust,
     toolchain::{METAL_FLAGS, Metal},
 };
-use metal_oxide_artifact::{Abi, BuildInfo, DEVICE_TARGET, Files, MSL_VERSION, Manifest, sha256};
+use metal_oxide_artifact::{
+    Abi, ArtifactFile, BuildInfo, COMPILER_OUTPUTS, DEVICE_TARGET, Files, MSL_VERSION, Manifest,
+    sha256,
+};
 use std::{
     path::Path,
     process::Command,
@@ -18,20 +21,18 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
     let rust = Rust::prepare(&project)?;
     let output = rust.kernels(&project)?;
     if options.action == Action::Inspect {
-        print!("{}", std::fs::read_to_string(output.join("kernels.metal"))?);
+        print!(
+            "{}",
+            std::fs::read_to_string(output.join(ArtifactFile::Msl.name()))?
+        );
         return Ok(());
     }
     let metal = Metal::find()?;
     let source = cache::sources(&project)?;
-    let generated = [
-        "kernels.metal",
-        "kernels.oxide-ir",
-        "abi.json",
-        "bindings.rs",
-    ]
-    .map(|name| std::fs::read(output.join(name)))
-    .into_iter()
-    .collect::<std::io::Result<Vec<_>>>()?;
+    let generated = COMPILER_OUTPUTS
+        .map(|file| std::fs::read(output.join(file.name())))
+        .into_iter()
+        .collect::<std::io::Result<Vec<_>>>()?;
     let features = project
         .metadata
         .resolve
@@ -96,7 +97,10 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         .args(["--package", &project.host().name, "--locked"])
         .arg("--manifest-path")
         .arg(&project.host().manifest_path)
-        .env("METAL_OXIDE_BINDINGS", directory.join("bindings.rs"))
+        .env(
+            "METAL_OXIDE_BINDINGS",
+            directory.join(ArtifactFile::Bindings.name()),
+        )
         .env("METAL_OXIDE_ARTIFACT_DIR", &directory);
     if options.release {
         host.arg("--release");
@@ -117,29 +121,19 @@ fn create(
     metal: &Metal,
     fingerprint: &str,
 ) -> Result<()> {
-    for name in [
-        "kernels.metal",
-        "kernels.oxide-ir",
-        "abi.json",
-        "bindings.rs",
-    ] {
-        std::fs::copy(output.join(name), stage.join(name))?;
+    for file in COMPILER_OUTPUTS {
+        std::fs::copy(output.join(file.name()), stage.join(file.name()))?;
     }
-    let abi = Abi::from_json(&std::fs::read_to_string(stage.join("abi.json"))?)?;
+    let abi = Abi::from_json(&std::fs::read_to_string(
+        stage.join(ArtifactFile::Abi.name()),
+    )?)?;
     metal.compile(stage)?;
-    let hash = |name: &str| -> Result<String> { Ok(sha256(&std::fs::read(stage.join(name))?)) };
     let manifest = Manifest {
         required_features: abi.required_features.clone(),
         abi,
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
-        files: Files {
-            msl: hash("kernels.metal")?,
-            oxide_ir: hash("kernels.oxide-ir")?,
-            ir: hash("kernels.ir")?,
-            metallib: hash("kernels.metallib")?,
-            bindings: hash("bindings.rs")?,
-        },
+        files: Files::from_directory(stage)?,
         build: BuildInfo {
             fingerprint: fingerprint.into(),
             compiler: rust.identity.clone(),
@@ -152,6 +146,9 @@ fn create(
             metal_flags: METAL_FLAGS.iter().map(|v| (*v).to_owned()).collect(),
         },
     };
-    std::fs::write(stage.join("manifest.json"), manifest.to_json()?)?;
+    std::fs::write(
+        stage.join(ArtifactFile::Manifest.name()),
+        manifest.to_json()?,
+    )?;
     Ok(())
 }
