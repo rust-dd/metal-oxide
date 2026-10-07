@@ -248,6 +248,7 @@ fn informational_commands_preserve_generated_files() {
         vec![],
         vec!["--help"],
         vec!["--help", "tests/fixtures/m2_unit.rs"],
+        vec!["-vh", "tests/fixtures/m2_unit.rs"],
         vec![response_argument.as_str()],
         vec!["-C", "help", "tests/fixtures/m2_unit.rs"],
         vec!["-Chelp", "tests/fixtures/m2_unit.rs"],

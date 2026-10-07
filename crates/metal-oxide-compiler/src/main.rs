@@ -10,6 +10,7 @@ extern crate rustc_session;
 extern crate rustc_span;
 extern crate rustc_target;
 
+mod arguments;
 mod backend;
 mod collect;
 mod driver;
@@ -27,7 +28,7 @@ fn main() -> std::process::ExitCode {
     if let Some(status) = wrapper::forward(&mut arguments) {
         return status;
     }
-    let output = match output::take_directory(&mut arguments) {
+    let output = match arguments::take_directory(&mut arguments) {
         Ok(output) => output,
         Err(error) => {
             eprintln!("error: {error}");
@@ -35,23 +36,7 @@ fn main() -> std::process::ExitCode {
         }
     };
     rustc_driver::catch_with_exit_code(|| {
-        let expanded = {
-            let diagnostics = rustc_session::EarlyDiagCtxt::new(
-                rustc_session::config::ErrorOutputType::default(),
-            );
-            rustc_driver::args::arg_expand_all(&diagnostics, &arguments[1..])
-        };
-        let help = expanded.is_empty()
-            || expanded
-                .iter()
-                .enumerate()
-                .take_while(|(_, argument)| argument.as_str() != "--")
-                .any(|(index, argument)| {
-                    matches!(argument.as_str(), "--help" | "-h" | "-Chelp" | "-Zhelp")
-                        || (argument == "help"
-                            && index > 0
-                            && matches!(expanded[index - 1].as_str(), "-C" | "-Z"))
-                });
+        let help = arguments::help(&arguments);
         rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output, help });
     })
 }
