@@ -24,6 +24,14 @@ enum Location {
     Synced,
 }
 
+struct ReadbackGuard<'a>(&'a Cell<bool>);
+
+impl Drop for ReadbackGuard<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
 pub(super) trait BufferBinding {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>>;
     fn resource(&self) -> Resource;
@@ -48,6 +56,7 @@ pub struct Buffer<T: GpuValue> {
     pub(super) layout: Layout,
     values: UnsafeCell<Vec<T>>,
     location: Cell<Location>,
+    decoding: Cell<bool>,
     len: usize,
     marker: PhantomData<Rc<()>>,
 }
@@ -96,6 +105,7 @@ impl<T: GpuValue> Buffer<T> {
             layout,
             values: UnsafeCell::new(values),
             location: Cell::new(Location::Cpu),
+            decoding: Cell::new(false),
             len,
             marker: PhantomData,
         })
@@ -122,12 +132,20 @@ impl<T: GpuValue> Buffer<T> {
     }
 
     fn download(&self) {
+        assert!(
+            !self.decoding.get(),
+            "buffer readback cannot reenter its decoder"
+        );
         self.access.synchronize();
         if !self.access.take_written() && self.location.get() != Location::Gpu {
             return;
         }
+        // A decoder panic must leave the GPU copy authoritative for the next readback.
+        self.location.set(Location::Gpu);
+        self.decoding.set(true);
+        let _guard = ReadbackGuard(&self.decoding);
         // SAFETY: pending GPU work completed; the preceding write required an exclusive buffer
-        // borrow. No CPU slice can exist while location is Gpu. Decoding constructs owned values.
+        // borrow. No CPU slice can exist while location is Gpu, and the guard rejects nested access.
         unsafe {
             let bytes = std::slice::from_raw_parts(
                 self.raw.contents().cast::<u8>().as_ptr(),
