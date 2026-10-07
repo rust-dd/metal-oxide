@@ -46,7 +46,7 @@ macro_rules! scalar {
         }
     )*};
 }
-scalar!(f32 => F32, u32 => U32, i32 => I32, u8 => U8, u16 => U16);
+scalar!(f32 => F32, u32 => U32, i32 => I32, u8 => U8, u16 => U16, i8 => I8, i16 => I16);
 
 impl<T: GpuValue, const N: usize> GpuValue for [T; N] {
     const SIZE: usize = T::SIZE.saturating_mul(N);

@@ -3,14 +3,16 @@ use std::fmt::Write;
 
 pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
     let mut output = String::new();
-    for scalar in [Scalar::U32, Scalar::I32, Scalar::U8, Scalar::U16] {
-        let (name, ty) = match scalar {
-            Scalar::U32 => ("u32", "uint"),
-            Scalar::I32 => ("i32", "int"),
-            Scalar::U8 => ("u8", "uchar"),
-            Scalar::U16 => ("u16", "ushort"),
-            _ => unreachable!(),
-        };
+    for scalar in [
+        Scalar::U32,
+        Scalar::I32,
+        Scalar::U8,
+        Scalar::U16,
+        Scalar::I8,
+        Scalar::I16,
+    ] {
+        let name = scalar.name();
+        let ty = crate::expressions::scalar_name(scalar);
         if module
             .functions
             .iter()
@@ -47,6 +49,17 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 continue;
             }
             writeln!(output, "inline metal_oxide_checked_{name} metal_oxide_{label}_checked_{name}({ty} a, {ty} b) {{").unwrap();
+            if matches!(scalar, Scalar::I8 | Scalar::I16) {
+                let minimum = -(1_i32 << (scalar.bits() - 1));
+                let maximum = -minimum - 1;
+                let unsigned = if scalar == Scalar::I8 {
+                    "uchar"
+                } else {
+                    "ushort"
+                };
+                writeln!(output, "    int wide = int(a) {symbol} int(b);\n    return {{as_type<{ty}>({unsigned}(uint(wide))), wide < {minimum} || wide > {maximum}}};\n}}\n").unwrap();
+                continue;
+            }
             if matches!(scalar, Scalar::U8 | Scalar::U16) {
                 let maximum = (1_u32 << scalar.bits()) - 1;
                 let overflow = match operation {

@@ -73,6 +73,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ir::Scalar::I32 => ir::Constant::I32(value as i32),
                 ir::Scalar::U8 => ir::Constant::U8(value as u8),
                 ir::Scalar::U16 => ir::Constant::U16(value as u16),
+                ir::Scalar::I8 => ir::Constant::I8(value as i8),
+                ir::Scalar::I16 => ir::Constant::I16(value as i16),
             }));
         }
         let count = self.module.types.table().field_count(lowered);

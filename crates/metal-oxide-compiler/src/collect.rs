@@ -135,6 +135,8 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
         Scalar::I32 => "i32",
         Scalar::U8 => "u8",
         Scalar::U16 => "u16",
+        Scalar::I8 => "i8",
+        Scalar::I16 => "i16",
         Scalar::Bool => return None,
     };
     let layout = tcx

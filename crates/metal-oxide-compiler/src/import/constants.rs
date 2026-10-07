@@ -16,6 +16,8 @@ pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Op
         ty::Int(ty::IntTy::I32) => ir::Constant::I32(bits as i32),
         ty::Uint(ty::UintTy::U8) => ir::Constant::U8(bits as u8),
         ty::Uint(ty::UintTy::U16) => ir::Constant::U16(bits as u16),
+        ty::Int(ty::IntTy::I8) => ir::Constant::I8(bits as i8),
+        ty::Int(ty::IntTy::I16) => ir::Constant::I16(bits as i16),
         ty::Float(ty::FloatTy::F32) => ir::Constant::F32(bits as u32),
         _ => return None,
     })
@@ -49,6 +51,8 @@ fn integer(value: ir::Constant) -> Option<i64> {
         ir::Constant::I32(n) => i64::from(n),
         ir::Constant::U8(n) => i64::from(n),
         ir::Constant::U16(n) => i64::from(n),
+        ir::Constant::I8(n) => i64::from(n),
+        ir::Constant::I16(n) => i64::from(n),
         ir::Constant::Bool(n) => i64::from(n),
         _ => return None,
     })

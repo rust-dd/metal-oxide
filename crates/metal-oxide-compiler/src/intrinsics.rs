@@ -1,4 +1,4 @@
-use metal_oxide_ir::{Builtin, SimdBuiltin};
+use metal_oxide_ir::{BinaryOp, Builtin, SimdBuiltin};
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::TyCtxt;
 use rustc_span::Symbol;
@@ -14,6 +14,7 @@ pub(crate) enum Intrinsic {
     SimdSum,
     SimdShuffle,
     AtomicAdd,
+    WrappingShift(BinaryOp),
 }
 
 impl Intrinsic {
@@ -34,11 +35,21 @@ impl Intrinsic {
             Self::SimdSum => "simd_sum",
             Self::SimdShuffle => "simd_shuffle",
             Self::AtomicAdd => "atomic_add",
+            Self::WrappingShift(_) => "wrapping_shift",
         }
     }
 }
 
 pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
+    if tcx.crate_name(definition.krate).as_str() == "core"
+        && tcx.def_path_str(definition).starts_with("core::num::")
+    {
+        match tcx.item_name(definition).as_str() {
+            "wrapping_shl" => return Some(Intrinsic::WrappingShift(BinaryOp::Shl)),
+            "wrapping_shr" => return Some(Intrinsic::WrappingShift(BinaryOp::Shr)),
+            _ => {}
+        }
+    }
     [
         ("metal_oxide_buffer_load", Intrinsic::BufferLoad),
         ("metal_oxide_buffer_store", Intrinsic::BufferStore),

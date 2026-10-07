@@ -58,6 +58,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<ir::Expression> {
         Ok(match intrinsic {
+            Intrinsic::WrappingShift(op) => {
+                let [value, count] = arguments(values, span)?;
+                ir::Expression::Binary(op, value, count)
+            }
             Intrinsic::Coordinates(builtin) => {
                 arguments::<0>(values, span)?;
                 ir::Expression::Coordinates(builtin)

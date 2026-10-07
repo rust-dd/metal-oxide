@@ -8,20 +8,42 @@ pub enum Scalar {
     I32,
     U8,
     U16,
+    I8,
+    I16,
 }
 
 impl Scalar {
     pub const fn bits(self) -> u32 {
         match self {
-            Self::U8 => 8,
-            Self::U16 => 16,
+            Self::U8 | Self::I8 => 8,
+            Self::U16 | Self::I16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
         }
     }
 
     pub const fn is_integer(self) -> bool {
-        matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::I32)
+        matches!(
+            self,
+            Self::U8 | Self::U16 | Self::U32 | Self::I32 | Self::I8 | Self::I16
+        )
+    }
+
+    pub const fn is_signed(self) -> bool {
+        matches!(self, Self::I8 | Self::I16 | Self::I32)
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::F32 => "f32",
+            Self::U32 => "u32",
+            Self::I32 => "i32",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+        }
     }
 }
 

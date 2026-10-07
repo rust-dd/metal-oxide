@@ -134,6 +134,8 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
         ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
         ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
         ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),
+        ty::Int(ty::IntTy::I8) => Some(ir::Scalar::I8),
+        ty::Int(ty::IntTy::I16) => Some(ir::Scalar::I16),
         _ => None,
     }
 }

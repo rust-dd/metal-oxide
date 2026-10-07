@@ -19,6 +19,8 @@ impl HostTypes {
                 "i32",
                 "u8",
                 "u16",
+                "i8",
+                "i16",
                 "usize",
                 "load",
             ]

@@ -60,6 +60,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(value as i32),
                     ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(value as u8),
                     ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(value as u16),
+                    ir::Type::Scalar(ir::Scalar::I8) => ir::Constant::I8(value as i8),
+                    ir::Type::Scalar(ir::Scalar::I16) => ir::Constant::I16(value as i16),
                     _ => return Err((span, "unsupported switch discriminant type".into())),
                 };
                 Ok((value, target.as_usize()))

@@ -75,13 +75,21 @@ pub(crate) fn expression_type(
             let t = ty(v)?;
             let valid = matches!(
                 (op, t),
-                (UnaryOp::Neg, Type::Scalar(Scalar::F32 | Scalar::I32))
-                    | (
-                        UnaryOp::Not,
-                        Type::Scalar(
-                            Scalar::Bool | Scalar::U32 | Scalar::I32 | Scalar::U8 | Scalar::U16
-                        )
+                (
+                    UnaryOp::Neg,
+                    Type::Scalar(Scalar::F32 | Scalar::I8 | Scalar::I16 | Scalar::I32)
+                ) | (
+                    UnaryOp::Not,
+                    Type::Scalar(
+                        Scalar::Bool
+                            | Scalar::U32
+                            | Scalar::I32
+                            | Scalar::U8
+                            | Scalar::U16
+                            | Scalar::I8
+                            | Scalar::I16
                     )
+                )
             );
             if valid {
                 Ok(t)

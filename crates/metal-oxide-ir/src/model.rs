@@ -78,6 +78,8 @@ pub enum Constant {
     I32(i32),
     U8(u8),
     U16(u16),
+    I8(i8),
+    I16(i16),
 }
 
 impl Constant {
@@ -90,6 +92,8 @@ impl Constant {
             Self::I32(_) => Type::Scalar(Scalar::I32),
             Self::U8(_) => Type::Scalar(Scalar::U8),
             Self::U16(_) => Type::Scalar(Scalar::U16),
+            Self::I8(_) => Type::Scalar(Scalar::I8),
+            Self::I16(_) => Type::Scalar(Scalar::I16),
         }
     }
 }

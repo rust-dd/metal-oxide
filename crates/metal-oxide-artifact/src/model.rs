@@ -8,13 +8,15 @@ pub enum Scalar {
     I32,
     U8,
     U16,
+    I8,
+    I16,
 }
 
 impl Scalar {
     pub const fn size(self) -> usize {
         match self {
-            Self::U8 => 1,
-            Self::U16 => 2,
+            Self::U8 | Self::I8 => 1,
+            Self::U16 | Self::I16 => 2,
             Self::F32 | Self::U32 | Self::I32 => 4,
         }
     }
@@ -30,6 +32,8 @@ impl Scalar {
             Self::I32 => "i32",
             Self::U8 => "u8",
             Self::U16 => "u16",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
         }
     }
 }

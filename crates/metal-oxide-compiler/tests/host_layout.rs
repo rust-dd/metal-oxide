@@ -49,6 +49,27 @@ fn main() {
     );
 }
 
+#[test]
+fn generated_signed_record_codecs_preserve_bits_and_padding() {
+    run_codecs(
+        "crates/metal-oxide-compiler/tests/fixtures/signed_narrow.rs",
+        r#"
+use metal_oxide::GpuValue;
+fn main() {
+    assert_eq!((SignedRecord::SIZE, SignedRecord::ALIGNMENT), (8, 2));
+    let value = SignedRecord { small: -128, wide: -32768, pair: (-1, 0x1234) };
+    let mut bytes = [0xff; 8];
+    value.encode(&mut bytes);
+    assert_eq!(bytes, [128, 0, 0, 128, 255, 0, 52, 18]);
+    assert_eq!(SignedRecord::decode(&bytes), value);
+    bytes[1] = 0xaa;
+    bytes[5] = 0xbb;
+    assert_eq!(SignedRecord::decode(&bytes), value);
+}
+"#,
+    );
+}
+
 fn run_codecs(fixture: &str, program: &str) {
     let (output, directory) = support::emit(fixture, &["-C", "overflow-checks=off"]);
     support::checked(output);

@@ -90,8 +90,9 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     element: Element::Scalar(Scalar::Bool),
                     ..
                 } | Type::Buffer {
-                    element: Element::Scalar(Scalar::F32 | Scalar::U8 | Scalar::U16)
-                        | Element::Aggregate(_),
+                    element: Element::Scalar(
+                        Scalar::F32 | Scalar::U8 | Scalar::U16 | Scalar::I8 | Scalar::I16
+                    ) | Element::Aggregate(_),
                     access: Access::Atomic,
                     ..
                 } | Type::Buffer {
