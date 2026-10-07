@@ -1,5 +1,5 @@
 use rustc_hir::{Safety, def::DefKind, def_id::DefId};
-use rustc_middle::ty::{self, Instance, Ty, TyCtxt, TypingEnv};
+use rustc_middle::ty::{Instance, Ty, TyCtxt, TypingEnv};
 use rustc_span::Symbol;
 
 pub(crate) fn block_shape(
@@ -99,51 +99,50 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
     valid
 }
 
-fn scalar(ty: Ty<'_>) -> Option<&'static str> {
-    match ty.kind() {
-        ty::Float(ty::FloatTy::F32) => Some("f32"),
-        ty::Uint(ty::UintTy::U32) => Some("u32"),
-        ty::Int(ty::IntTy::I32) => Some("i32"),
-        ty::Uint(ty::UintTy::U8) => Some("u8"),
-        ty::Uint(ty::UintTy::U16) => Some("u16"),
-        _ => None,
-    }
-}
-
 fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
-    if let Some(scalar) = scalar(ty) {
-        let layout = tcx
-            .layout_of(TypingEnv::fully_monomorphized().as_query_input(ty))
-            .ok()?;
-        return Some(format!(
-            "scalar<{scalar}> size={} align={}",
-            layout.size.bytes(),
-            layout.align.abi.bytes()
-        ));
-    }
-    let ty::Adt(definition, arguments) = ty.kind() else {
-        return None;
+    use metal_oxide_ir::{Access, Scalar, Type};
+    let (scalar, element, prefix) = match crate::types::parameter(tcx, ty)? {
+        Type::Scalar(scalar) => (scalar, ty, "scalar"),
+        Type::Buffer {
+            element: scalar,
+            access,
+            ..
+        } => {
+            let rustc_middle::ty::Adt(_, arguments) = ty.kind() else {
+                return None;
+            };
+            let prefix = match access {
+                Access::Read => "read_buffer",
+                Access::Write => "write_buffer",
+                Access::Atomic => "atomic_buffer",
+                Access::ReadWrite => return None,
+            };
+            (scalar, arguments.type_at(0), prefix)
+        }
+        _ => return None,
     };
-    let access = [
-        ("metal_oxide_read_buffer", "read_buffer"),
-        ("metal_oxide_write_buffer", "write_buffer"),
-        ("metal_oxide_atomic_buffer", "atomic_buffer"),
-    ]
-    .into_iter()
-    .find_map(|(item, access)| {
-        (tcx.get_diagnostic_item(Symbol::intern(item)) == Some(definition.did())).then_some(access)
-    })?;
-    let element = arguments.type_at(0);
-    let scalar = scalar(element)?;
-    if access == "atomic_buffer" && !["u32", "i32"].contains(&scalar) {
-        return None;
-    }
+    let name = match scalar {
+        Scalar::F32 => "f32",
+        Scalar::U32 => "u32",
+        Scalar::I32 => "i32",
+        Scalar::U8 => "u8",
+        Scalar::U16 => "u16",
+        Scalar::Bool => return None,
+    };
     let layout = tcx
         .layout_of(TypingEnv::fully_monomorphized().as_query_input(element))
         .ok()?;
-    Some(format!(
-        "{access}<{scalar}> address_space=device element_size={} element_align={}",
-        layout.size.bytes(),
-        layout.align.abi.bytes()
-    ))
+    Some(if prefix == "scalar" {
+        format!(
+            "scalar<{name}> size={} align={}",
+            layout.size.bytes(),
+            layout.align.abi.bytes()
+        )
+    } else {
+        format!(
+            "{prefix}<{name}> address_space=device element_size={} element_align={}",
+            layout.size.bytes(),
+            layout.align.abi.bytes()
+        )
+    })
 }

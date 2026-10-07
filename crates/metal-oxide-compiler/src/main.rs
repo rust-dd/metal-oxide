@@ -19,6 +19,7 @@ mod metadata_abi;
 mod monomorphize;
 mod output;
 mod target;
+mod types;
 mod wrapper;
 
 fn main() -> std::process::ExitCode {

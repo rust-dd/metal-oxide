@@ -1,106 +1,24 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{
     mir,
-    ty::{self, EarlyBinder, Ty, TypingEnv},
+    ty::{EarlyBinder, Ty, TypingEnv},
 };
-use rustc_span::{Span, Symbol};
+use rustc_span::Span;
 
-use super::{Context, Result};
+use super::{Result, function::FunctionImporter};
 
-impl<'tcx> Context<'_, 'tcx> {
+impl<'tcx> FunctionImporter<'_, 'tcx> {
     pub(super) fn normalize_type(&self, ty: Ty<'tcx>) -> Ty<'tcx> {
         self.instance.instantiate_mir_and_normalize_erasing_regions(
-            self.tcx,
+            self.module.tcx,
             TypingEnv::fully_monomorphized(),
-            EarlyBinder::bind(self.tcx, ty),
+            EarlyBinder::bind(self.module.tcx, ty),
         )
     }
 
-    pub(super) fn ty(&self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type> {
-        let scalar = |ty: Ty<'tcx>| match ty.kind() {
-            ty::Bool => Some(ir::Scalar::Bool),
-            ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
-            ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
-            ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
-            ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
-            ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),
-            _ => None,
-        };
-        if let Some(s) = scalar(ty) {
-            return Ok(ir::Type::Scalar(s));
-        }
-        if ty.is_unit() {
-            return Ok(ir::Type::Unit);
-        }
-        if ty.is_never() {
-            return Ok(ir::Type::Never);
-        }
-        if let ty::Tuple(types) = ty.kind()
-            && types.len() == 2
-            && types[1].is_bool()
-            && let Some(s) = scalar(types[0])
-            && s.is_integer()
-        {
-            return Ok(ir::Type::Checked(s));
-        }
-        if let ty::Adt(definition, args) = ty.kind() {
-            let marker =
-                |name| self.tcx.get_diagnostic_item(Symbol::intern(name)) == Some(definition.did());
-            if marker("metal_oxide_dim3") {
-                return Ok(ir::Type::Dim3);
-            }
-            for (name, access) in [
-                ("metal_oxide_read_buffer", ir::Access::Read),
-                ("metal_oxide_write_buffer", ir::Access::Write),
-                ("metal_oxide_atomic_buffer", ir::Access::Atomic),
-                ("metal_oxide_threadgroup_buffer", ir::Access::ReadWrite),
-            ] {
-                if marker(name)
-                    && let Some(
-                        element @ (ir::Scalar::F32
-                        | ir::Scalar::U32
-                        | ir::Scalar::I32
-                        | ir::Scalar::U8
-                        | ir::Scalar::U16),
-                    ) = scalar(args.type_at(0))
-                {
-                    return Ok(ir::Type::Buffer {
-                        element,
-                        access,
-                        address_space: if access == ir::Access::ReadWrite {
-                            ir::AddressSpace::Threadgroup
-                        } else {
-                            ir::AddressSpace::Device
-                        },
-                    });
-                }
-            }
-            if definition.is_struct() {
-                let fields = definition
-                    .non_enum_variant()
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        scalar(self.normalize_type(field.ty(self.tcx, args).skip_norm_wip()))
-                    })
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or((span, "device records require scalar fields".into()))?;
-                if fields.is_empty() {
-                    return Err((span, "empty device records are unsupported".into()));
-                }
-                let mut records = self.records.borrow_mut();
-                let id = match records.iter().position(|record| *record == fields) {
-                    Some(id) => id,
-                    None => {
-                        let id = records.len();
-                        records.push(fields);
-                        id
-                    }
-                };
-                return Ok(ir::Type::Record(id));
-            }
-        }
-        Err((span, format!("unsupported device type: {ty}")))
+    pub(super) fn lower_type(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type> {
+        let ty = self.normalize_type(ty);
+        self.module.types.lower(ty, span)
     }
 
     pub(super) fn destination(&self, place: &mir::Place<'tcx>, span: Span) -> Result<usize> {
@@ -113,7 +31,11 @@ impl<'tcx> Context<'_, 'tcx> {
         Ok(place.local.as_usize())
     }
 
-    pub(super) fn operand(&self, operand: &mir::Operand<'tcx>, span: Span) -> Result<ir::Operand> {
+    pub(super) fn operand(
+        &mut self,
+        operand: &mir::Operand<'tcx>,
+        span: Span,
+    ) -> Result<ir::Operand> {
         match operand {
             mir::Operand::Copy(place) | mir::Operand::Move(place) => {
                 let field = match place.projection.as_slice() {
@@ -128,16 +50,16 @@ impl<'tcx> Context<'_, 'tcx> {
             }
             mir::Operand::Constant(value) => {
                 let constant = self.instance.instantiate_mir_and_normalize_erasing_regions(
-                    self.tcx,
+                    self.module.tcx,
                     TypingEnv::fully_monomorphized(),
-                    EarlyBinder::bind(self.tcx, value.const_),
+                    EarlyBinder::bind(self.module.tcx, value.const_),
                 );
-                let ty = self.ty(constant.ty(), span)?;
+                let ty = self.lower_type(constant.ty(), span)?;
                 if ty == ir::Type::Unit {
                     return Ok(ir::Operand::Constant(ir::Constant::Unit));
                 }
                 let bits = constant
-                    .try_eval_bits(self.tcx, TypingEnv::fully_monomorphized())
+                    .try_eval_bits(self.module.tcx, TypingEnv::fully_monomorphized())
                     .ok_or((span, "unsupported device constant".into()))?;
                 let constant = match ty {
                     ir::Type::Scalar(ir::Scalar::Bool) => ir::Constant::Bool(bits != 0),
@@ -155,24 +77,27 @@ impl<'tcx> Context<'_, 'tcx> {
     }
 
     pub(super) fn expression(
-        &self,
+        &mut self,
         value: &mir::Rvalue<'tcx>,
         span: Span,
     ) -> Result<ir::Expression> {
-        let operand = |v| self.operand(v, span);
         match value {
             mir::Rvalue::Aggregate(kind, fields) => {
                 let mir::AggregateKind::Adt(def, _, args, _, _) = kind.as_ref() else {
                     return Err((span, "unsupported MIR aggregate".into()));
                 };
                 let ty = self.normalize_type(
-                    self.tcx
+                    self.module
+                        .tcx
                         .type_of(*def)
-                        .instantiate(self.tcx, args)
+                        .instantiate(self.module.tcx, args)
                         .skip_norm_wip(),
                 );
-                let ty = self.ty(ty, span)?;
-                let fields = fields.iter().map(operand).collect::<Result<Vec<_>>>()?;
+                let ty = self.lower_type(ty, span)?;
+                let fields = fields
+                    .iter()
+                    .map(|value| self.operand(value, span))
+                    .collect::<Result<Vec<_>>>()?;
                 match ty {
                     ir::Type::Record(ty) => Ok(ir::Expression::Record { ty, fields }),
                     ir::Type::Dim3 => Ok(ir::Expression::Dim3(
@@ -183,11 +108,11 @@ impl<'tcx> Context<'_, 'tcx> {
                     _ => Err((span, "unsupported MIR aggregate type".into())),
                 }
             }
-            mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(operand(v)?)),
+            mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(self.operand(v, span)?)),
             mir::Rvalue::BinaryOp(op, values) => Ok(ir::Expression::Binary(
                 binary(*op, span)?,
-                operand(&values.0)?,
-                operand(&values.1)?,
+                self.operand(&values.0, span)?,
+                self.operand(&values.1, span)?,
             )),
             mir::Rvalue::UnaryOp(op, v) => {
                 let op = match op {
@@ -195,7 +120,7 @@ impl<'tcx> Context<'_, 'tcx> {
                     mir::UnOp::Not => ir::UnaryOp::Not,
                     _ => return Err((span, "unsupported MIR unary operation".into())),
                 };
-                Ok(ir::Expression::Unary(op, operand(v)?))
+                Ok(ir::Expression::Unary(op, self.operand(v, span)?))
             }
             mir::Rvalue::Cast(
                 mir::CastKind::IntToInt
@@ -205,10 +130,10 @@ impl<'tcx> Context<'_, 'tcx> {
                 v,
                 to,
             ) => {
-                let ir::Type::Scalar(to) = self.ty(self.normalize_type(*to), span)? else {
+                let ir::Type::Scalar(to) = self.lower_type(*to, span)? else {
                     return Err((span, "unsupported cast destination".into()));
                 };
-                Ok(ir::Expression::Cast(operand(v)?, to))
+                Ok(ir::Expression::Cast(self.operand(v, span)?, to))
             }
             other => Err((span, format!("unsupported MIR rvalue: {other:?}"))),
         }

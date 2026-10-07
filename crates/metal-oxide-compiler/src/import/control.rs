@@ -5,7 +5,7 @@ use rustc_middle::mir::{
 };
 use rustc_span::Span;
 
-use super::{Context, Result};
+use super::{Result, function::FunctionImporter};
 
 pub(super) fn used_locals(body: &mir::Body<'_>) -> Vec<bool> {
     struct Used(Vec<bool>);
@@ -22,9 +22,9 @@ pub(super) fn used_locals(body: &mir::Body<'_>) -> Vec<bool> {
     used.0
 }
 
-impl<'tcx> Context<'_, 'tcx> {
+impl<'tcx> FunctionImporter<'_, 'tcx> {
     pub(super) fn switch(
-        &self,
+        &mut self,
         discriminant: &mir::Operand<'tcx>,
         targets: &mir::SwitchTargets,
         body: &mir::Body<'tcx>,
@@ -36,8 +36,8 @@ impl<'tcx> Context<'_, 'tcx> {
             return Ok(ir::Terminator::Goto(otherwise));
         }
         let operand = self.operand(discriminant, span)?;
-        let ty = self.ty(
-            self.normalize_type(discriminant.ty(&body.local_decls, self.tcx)),
+        let ty = self.lower_type(
+            self.normalize_type(discriminant.ty(&body.local_decls, self.module.tcx)),
             span,
         )?;
         if ty == ir::Type::Scalar(ir::Scalar::Bool) {

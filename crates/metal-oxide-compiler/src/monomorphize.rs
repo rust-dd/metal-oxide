@@ -80,7 +80,7 @@ impl<'tcx> Collector<'tcx> {
         crate::trace(format_args!("instance: {instance}"));
         self.instances.push(instance);
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
-            crate::trace(format_args!("builtin: {builtin} mir=available"));
+            crate::trace(format_args!("builtin: {} mir=available", builtin.name()));
             return;
         }
         let body = tcx.instance_mir(instance.def);

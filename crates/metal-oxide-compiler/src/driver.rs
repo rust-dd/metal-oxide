@@ -29,7 +29,7 @@ impl Callbacks for Frontend {
         let (entries, instances) = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();
         if let Some(directory) = &self.output {
-            match crate::import::module(tcx, &entries, &instances) {
+            match crate::import::ModuleImporter::new(tcx).import(&entries, &instances) {
                 Ok(module) => {
                     if let Err(error) = metal_oxide_ir::validate(&module) {
                         tcx.dcx().err(error.to_string());
