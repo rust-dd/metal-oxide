@@ -1,8 +1,10 @@
 //! Versioned kernel metadata shared by the compiler, tools, and runtime.
 
+mod layout;
 mod model;
 mod validate;
 
+pub use layout::{FieldLayout, Layout, LayoutKind};
 pub use model::*;
 
 use sha2::{Digest, Sha256};
