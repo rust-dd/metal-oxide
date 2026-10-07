@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::{Scalar, Type, TypeTable};
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
     pub file: String,
@@ -34,64 +36,10 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scalar {
-    Bool,
-    F32,
-    U32,
-    I32,
-    U8,
-    U16,
-}
-
-impl Scalar {
-    pub const fn bits(self) -> u32 {
-        match self {
-            Self::U8 => 8,
-            Self::U16 => 16,
-            Self::Bool => 1,
-            Self::F32 | Self::U32 | Self::I32 => 32,
-        }
-    }
-    pub const fn is_integer(self) -> bool {
-        matches!(self, Self::U8 | Self::U16 | Self::U32 | Self::I32)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Access {
-    Read,
-    Write,
-    ReadWrite,
-    Atomic,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AddressSpace {
-    Device,
-    Threadgroup,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Type {
-    Unit,
-    Never,
-    Scalar(Scalar),
-    Dim3,
-    Record(usize),
-    Buffer {
-        element: Scalar,
-        access: Access,
-        address_space: AddressSpace,
-    },
-    /// Integer value and its overflow flag, in that order.
-    Checked(Scalar),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Module {
     pub functions: Vec<Function>,
-    pub records: Vec<Vec<Scalar>>,
+    pub types: TypeTable,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -217,12 +165,12 @@ pub enum Expression {
         lane: Operand,
     },
     Dim3([Operand; 3]),
-    Record {
+    Aggregate {
         ty: usize,
         fields: Vec<Operand>,
     },
-    RecordUpdate {
-        record: Operand,
+    AggregateUpdate {
+        aggregate: Operand,
         field: u32,
         value: Operand,
     },
@@ -265,8 +213,10 @@ impl Expression {
                 vec![]
             }
             Self::Dim3(values) => values.iter().collect(),
-            Self::Record { fields, .. } => fields.iter().collect(),
-            Self::RecordUpdate { record, value, .. } => vec![record, value],
+            Self::Aggregate { fields, .. } => fields.iter().collect(),
+            Self::AggregateUpdate {
+                aggregate, value, ..
+            } => vec![aggregate, value],
             Self::BufferLoad { buffer, index } => vec![buffer, index],
             Self::BufferStore {
                 buffer,

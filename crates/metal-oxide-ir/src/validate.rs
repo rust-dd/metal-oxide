@@ -3,6 +3,17 @@ use std::collections::HashSet;
 use crate::{typing::expression_type, *};
 
 pub fn validate(module: &Module) -> Result<(), Error> {
+    let type_source = SourceLocation {
+        file: "<types>".into(),
+        line: 0,
+        column: 0,
+    };
+    module.types.validate(
+        module
+            .functions
+            .first()
+            .map_or(&type_source, |function| &function.source),
+    )?;
     let mut names = HashSet::new();
     for function in &module.functions {
         if let Some(shape) = function.required_block
@@ -48,10 +59,10 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
         }
         for ty in &function.locals {
-            if let Type::Record(id) = ty
-                && module.records.get(*id).is_none_or(Vec::is_empty)
+            if let Type::Aggregate(id) = ty
+                && module.types.get(*id).is_none()
             {
-                return Err(Error::new(&function.source, "invalid record type"));
+                return Err(Error::new(&function.source, "invalid aggregate type"));
             }
             if matches!(
                 ty,

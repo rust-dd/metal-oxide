@@ -22,7 +22,7 @@ fn module() -> Module {
         source: source(),
     };
     Module {
-        records: vec![],
+        types: TypeTable::default(),
         functions: vec![Function {
             name: "classify".into(),
             kernel: false,

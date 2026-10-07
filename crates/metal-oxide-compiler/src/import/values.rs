@@ -98,7 +98,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     .map(|value| self.operand(value, span))
                     .collect::<Result<Vec<_>>>()?;
                 match ty {
-                    ir::Type::Record(ty) => Ok(ir::Expression::Record { ty, fields }),
+                    ir::Type::Aggregate(ty) => Ok(ir::Expression::Aggregate { ty, fields }),
                     ir::Type::Dim3 => Ok(ir::Expression::Dim3(
                         fields
                             .try_into()

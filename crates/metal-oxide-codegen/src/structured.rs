@@ -128,7 +128,7 @@ impl Emitter<'_> {
                 } => {
                     let join = self.branch_join(current, contexts, stop);
                     self.branches(
-                        &[(operand(self.function, condition), *then_block)],
+                        &[(operand(self.module, self.function, condition), *then_block)],
                         *else_block,
                         join,
                         contexts,
@@ -160,8 +160,12 @@ impl Emitter<'_> {
                                 .map(|value| {
                                     format!(
                                         "{} == {}",
-                                        operand(self.function, discriminant),
-                                        operand(self.function, &Operand::Constant(*value)),
+                                        operand(self.module, self.function, discriminant),
+                                        operand(
+                                            self.module,
+                                            self.function,
+                                            &Operand::Constant(*value)
+                                        ),
                                     )
                                 })
                                 .collect::<Vec<_>>()

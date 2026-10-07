@@ -11,7 +11,7 @@ fn module(parameters: Vec<Type>) -> Module {
     let mut locals = vec![Type::Unit];
     locals.extend(parameters);
     Module {
-        records: vec![],
+        types: ir::TypeTable::default(),
         functions: vec![Function {
             name: "vec_add".into(),
             kernel: true,

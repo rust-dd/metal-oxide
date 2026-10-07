@@ -97,7 +97,7 @@ fn cargo_imports_external_struct_helpers_and_const_specializations() {
         assert_eq!(kernel.required_block, Some(block));
     }
     let msl = std::fs::read_to_string(output.join("kernels.metal")).unwrap();
-    assert!(msl.contains("metal_oxide_record_"));
+    assert!(msl.contains("metal_oxide_aggregate_"));
     assert!(msl.contains("kernel void scale_128"));
     assert!(msl.contains("kernel void scale_256"));
     let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();

@@ -5,7 +5,7 @@ pub(crate) fn type_name(ty: Type) -> String {
         Type::Unit | Type::Never => "void".into(),
         Type::Scalar(s) => scalar_name(s).into(),
         Type::Dim3 => "uint3".into(),
-        Type::Record(id) => format!("metal_oxide_record_{id}"),
+        Type::Aggregate(id) => format!("metal_oxide_aggregate_{id}"),
         Type::Checked(s) => format!(
             "metal_oxide_checked_{}",
             match s {
@@ -47,7 +47,23 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
     }
 }
 
-pub(crate) fn operand(function: &Function, value: &Operand) -> String {
+fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
+    let fields = fields.join(", ");
+    let fields = match module.types.get(id).unwrap() {
+        Aggregate::Array { .. } => format!("{{{fields}}}"),
+        Aggregate::Record(_) | Aggregate::Tuple(_) => fields,
+    };
+    format!("metal_oxide_aggregate_{id}{{{fields}}}")
+}
+
+pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u32) -> String {
+    match module.types.get(id).unwrap() {
+        Aggregate::Array { .. } => format!("{value}.elements[{field}]"),
+        Aggregate::Record(_) | Aggregate::Tuple(_) => format!("{value}.f{field}"),
+    }
+}
+
+pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> String {
     match value {
         Operand::Place { local, field: None } if function.locals[*local] == Type::Unit => {
             String::new()
@@ -57,8 +73,8 @@ pub(crate) fn operand(function: &Function, value: &Operand) -> String {
             local,
             field: Some(field),
         } => {
-            if matches!(function.locals[*local], Type::Record(_)) {
-                return format!("v{local}.f{field}");
+            if let Type::Aggregate(id) = function.locals[*local] {
+                return aggregate_field(module, id, &format!("v{local}"), *field);
             }
             let field = match function.locals[*local] {
                 Type::Dim3 => ["x", "y", "z"][*field as usize],
@@ -85,32 +101,26 @@ pub(crate) fn expression(
     value: &Expression,
     source: &SourceLocation,
 ) -> Result<String, Error> {
-    let op = |v| operand(function, v);
+    let op = |v| operand(module, function, v);
     let ty = |v| operand_type(module, function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
-        Expression::Record { ty, fields } => format!(
-            "metal_oxide_record_{ty}{{{}}}",
-            fields.iter().map(op).collect::<Vec<_>>().join(", ")
-        ),
-        Expression::RecordUpdate {
-            record,
+        Expression::Aggregate { ty, fields } => {
+            aggregate_value(module, *ty, fields.iter().map(op).collect())
+        }
+        Expression::AggregateUpdate {
+            aggregate,
             field,
             value,
         } => {
-            let Type::Record(id) = ty(record)? else {
-                unreachable!("validated record update")
+            let Type::Aggregate(id) = ty(aggregate)? else {
+                unreachable!("validated aggregate update")
             };
-            let fields = (0..module.records[id].len())
-                .map(|i| {
-                    if i == *field as usize {
-                        op(value)
-                    } else {
-                        format!("{}.f{i}", op(record))
-                    }
-                })
-                .collect::<Vec<_>>();
-            format!("metal_oxide_record_{id}{{{}}}", fields.join(", "))
+            format!(
+                "metal_oxide_update_{id}_{field}({}, {})",
+                op(aggregate),
+                op(value)
+            )
         }
         Expression::SimdCoordinate(builtin) => format!(
             "metal_oxide_ctx.simd_{}",

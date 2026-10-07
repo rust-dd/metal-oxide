@@ -10,7 +10,7 @@ fn source() -> SourceLocation {
 
 fn module() -> Module {
     Module {
-        records: vec![],
+        types: TypeTable::default(),
         functions: vec![Function {
             name: "sum".into(),
             kernel: false,

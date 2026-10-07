@@ -3,11 +3,13 @@
 mod control_flow;
 mod dataflow;
 mod model;
+mod types;
 mod typing;
 mod uniform;
 mod validate;
 
 pub use control_flow::{ControlFlowGraph, Dominators};
 pub use model::*;
+pub use types::{Access, AddressSpace, Aggregate, Scalar, Type, TypeTable};
 pub use typing::operand_type;
 pub use validate::validate;

@@ -73,7 +73,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                         destination.projection.as_slice()
                     {
                         let local = destination.local.as_usize();
-                        if !matches!(self.locals[local], ir::Type::Record(_)) {
+                        if !matches!(self.locals[local], ir::Type::Aggregate(_)) {
                             return Err((
                                 span,
                                 "field writes require an owned scalar record".into(),
@@ -92,8 +92,8 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                         });
                         statements.push(ir::Statement {
                             destination: local,
-                            value: ir::Expression::RecordUpdate {
-                                record: ir::Operand::local(local),
+                            value: ir::Expression::AggregateUpdate {
+                                aggregate: ir::Operand::local(local),
                                 field: field.as_u32(),
                                 value: ir::Operand::local(temporary),
                             },

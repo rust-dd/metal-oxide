@@ -19,13 +19,11 @@ pub fn operand_type(
                 (Type::Dim3, Some(0..=2)) => Ok(Type::Scalar(Scalar::U32)),
                 (Type::Checked(scalar), Some(0)) => Ok(Type::Scalar(scalar)),
                 (Type::Checked(_), Some(1)) => Ok(Type::Scalar(Scalar::Bool)),
-                (Type::Record(id), Some(field)) => module
-                    .records
+                (Type::Aggregate(id), Some(field)) => module
+                    .types
                     .get(id)
-                    .and_then(|fields| fields.get(*field as usize))
-                    .copied()
-                    .map(Type::Scalar)
-                    .ok_or_else(|| Error::new(source, "invalid record field")),
+                    .and_then(|aggregate| aggregate.field(*field))
+                    .ok_or_else(|| Error::new(source, "invalid aggregate field")),
                 _ => Err(Error::new(source, "unsupported field projection")),
             }
         }
@@ -78,35 +76,34 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
-        Expression::Record { ty: id, fields } => {
+        Expression::Aggregate { ty: id, fields } => {
             let types = module
-                .records
+                .types
                 .get(*id)
-                .ok_or_else(|| Error::new(source, "invalid record type"))?;
+                .ok_or_else(|| Error::new(source, "invalid aggregate type"))?;
             if fields.len() != types.len() {
-                return Err(Error::new(source, "record field count mismatch"));
+                return Err(Error::new(source, "aggregate field count mismatch"));
             }
-            for (value, expected) in fields.iter().zip(types) {
-                require(ty(value)?, Type::Scalar(*expected))?;
+            for (index, value) in fields.iter().enumerate() {
+                require(ty(value)?, types.field(index as u32).unwrap())?;
             }
-            Ok(Type::Record(*id))
+            Ok(Type::Aggregate(*id))
         }
-        Expression::RecordUpdate {
-            record,
+        Expression::AggregateUpdate {
+            aggregate,
             field,
             value,
         } => {
-            let Type::Record(id) = ty(record)? else {
-                return Err(Error::new(source, "field update requires a record"));
+            let Type::Aggregate(id) = ty(aggregate)? else {
+                return Err(Error::new(source, "field update requires an aggregate"));
             };
             let expected = module
-                .records
+                .types
                 .get(id)
-                .and_then(|fields| fields.get(*field as usize))
-                .copied()
-                .ok_or_else(|| Error::new(source, "invalid record field"))?;
-            require(ty(value)?, Type::Scalar(expected))?;
-            Ok(Type::Record(id))
+                .and_then(|aggregate| aggregate.field(*field))
+                .ok_or_else(|| Error::new(source, "invalid aggregate field"))?;
+            require(ty(value)?, expected)?;
+            Ok(Type::Aggregate(id))
         }
         Expression::SimdCoordinate(_) => Ok(Type::Scalar(Scalar::U32)),
         Expression::SimdSum(value) => {

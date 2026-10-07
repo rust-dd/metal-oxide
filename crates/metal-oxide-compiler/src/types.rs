@@ -4,19 +4,19 @@ use rustc_span::{Span, Symbol};
 
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
-    records: Vec<Vec<ir::Scalar>>,
+    types: ir::TypeTable,
 }
 
 impl<'tcx> TypeLowering<'tcx> {
     pub(crate) fn new(tcx: TyCtxt<'tcx>) -> Self {
         Self {
             tcx,
-            records: Vec::new(),
+            types: ir::TypeTable::default(),
         }
     }
 
-    pub(crate) fn into_records(self) -> Vec<Vec<ir::Scalar>> {
-        self.records
+    pub(crate) fn into_types(self) -> ir::TypeTable {
+        self.types
     }
 
     pub(crate) fn lower(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
@@ -65,15 +65,9 @@ impl<'tcx> TypeLowering<'tcx> {
                 if fields.is_empty() {
                     return Err((span, "empty device records are unsupported".into()));
                 }
-                let id = match self.records.iter().position(|record| *record == fields) {
-                    Some(id) => id,
-                    None => {
-                        let id = self.records.len();
-                        self.records.push(fields);
-                        id
-                    }
-                };
-                return Ok(ir::Type::Record(id));
+                return Ok(self.types.intern(ir::Aggregate::Record(
+                    fields.into_iter().map(ir::Type::Scalar).collect(),
+                )));
             }
         }
         Err((span, format!("unsupported device type: {ty}")))

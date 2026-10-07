@@ -15,7 +15,7 @@ pub fn source() -> SourceLocation {
 
 pub fn module(parameters: usize, locals: Vec<Type>, blocks: Vec<Block>) -> Module {
     Module {
-        records: vec![],
+        types: TypeTable::default(),
         functions: vec![Function {
             name: "helper".into(),
             kernel: false,

@@ -57,7 +57,7 @@ impl<'tcx> ModuleImporter<'tcx> {
         }
         Ok(ir::Module {
             functions,
-            records: self.types.into_records(),
+            types: self.types.into_types(),
         })
     }
 }
