@@ -13,6 +13,12 @@ pub(crate) struct StructuredGraph {
     pub(crate) postdominators: Dominators,
 }
 
+#[derive(Clone, Copy)]
+enum Reachability {
+    Visiting,
+    Resolved(bool),
+}
+
 impl StructuredGraph {
     pub(crate) fn branch_join(&self, targets: &[usize], stop: usize) -> usize {
         let join = self.postdominators.closest_common(targets);
@@ -45,9 +51,11 @@ impl StructuredGraph {
             .collect::<Vec<_>>();
         candidates.sort_by_key(|&(id, (count, distance))| (std::cmp::Reverse(count), distance, id));
         for (candidate, _) in candidates {
-            if targets.iter().all(|&target| {
-                self.returns_or_reaches(target, candidate, stop, &mut BTreeSet::new())
-            }) {
+            let mut results = vec![None; self.cfg.exit_block()];
+            if targets
+                .iter()
+                .all(|&target| self.returns_or_reaches(target, candidate, stop, &mut results))
+            {
                 return candidate;
             }
         }
@@ -59,20 +67,26 @@ impl StructuredGraph {
         id: usize,
         candidate: usize,
         stop: usize,
-        visiting: &mut BTreeSet<usize>,
+        results: &mut [Option<Reachability>],
     ) -> bool {
         if id == candidate || self.cfg.successors(id).is_empty() {
             return true;
         }
-        if id == stop || !visiting.insert(id) {
+        if id == stop {
             return false;
         }
+        match results[id] {
+            Some(Reachability::Resolved(valid)) => return valid,
+            Some(Reachability::Visiting) => return false,
+            None => {}
+        }
+        results[id] = Some(Reachability::Visiting);
         let valid = self
             .cfg
             .successors(id)
             .iter()
-            .all(|&next| self.returns_or_reaches(next, candidate, stop, visiting));
-        visiting.remove(&id);
+            .all(|&next| self.returns_or_reaches(next, candidate, stop, results));
+        results[id] = Some(Reachability::Resolved(valid));
         valid
     }
 

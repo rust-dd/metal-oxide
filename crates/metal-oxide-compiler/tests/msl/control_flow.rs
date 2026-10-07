@@ -71,6 +71,39 @@ fn labelled_exits_cross_two_nested_loops() {
     assert_eq!(execute("loop_exits", "nested_exits", &values), expected);
 }
 
+#[test]
+fn repeated_diamonds_after_early_returns_share_their_continuation() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/join_cost.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let actual = support::execute_msl(
+        &directory,
+        "for (uint selector : {0u, 1u}) for (uint skip : {0u, 1u, 2u}) \
+         for (uint bits : {0u, 1u, 0x155555u, 0x3fffffu}) { \
+         uint value = 0xffffffffu; \
+         join_cost(&value, selector, skip, bits, {}, {}, {}, {}); \
+         std::cout << value << ','; }",
+    );
+    let mut expected = Vec::new();
+    for selector in 0..2 {
+        for skip in 0..3 {
+            for bits in [0_u32, 1, 0x155555, 0x3fffff] {
+                let value = if skip == selector {
+                    u32::MAX
+                } else {
+                    (0..22)
+                        .map(|i| 2 * i + 1 + 2 * selector + u32::from(bits & (1 << i) == 0))
+                        .sum()
+                };
+                expected.push(format!("{value},"));
+            }
+        }
+    }
+    assert_eq!(actual, expected.concat());
+}
+
 fn execute<T: std::fmt::Display>(fixture: &str, entry: &str, values: &[T]) -> Vec<u32> {
     let (output, directory) = support::emit(
         &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
