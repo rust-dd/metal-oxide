@@ -80,7 +80,7 @@ impl<'tcx> TypeLowering<'tcx> {
     }
 }
 
-pub(crate) fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
+fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
     match ty.kind() {
         ty::Bool => Some(ir::Scalar::Bool),
         ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),

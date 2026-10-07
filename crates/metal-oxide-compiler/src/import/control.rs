@@ -36,10 +36,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Ok(ir::Terminator::Goto(otherwise));
         }
         let operand = self.operand(discriminant, span)?;
-        let ty = self.lower_type(
-            self.normalize_type(discriminant.ty(&body.local_decls, self.module.tcx)),
-            span,
-        )?;
+        let ty = self.lower_type(discriminant.ty(&body.local_decls, self.module.tcx), span)?;
         if ty == ir::Type::Scalar(ir::Scalar::Bool) {
             let [(value, target)] = cases.as_slice() else {
                 return Err((span, "invalid bool switch cases".into()));

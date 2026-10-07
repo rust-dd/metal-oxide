@@ -50,7 +50,7 @@ impl Scalar {
             Self::U8 => 8,
             Self::U16 => 16,
             Self::Bool => 1,
-            _ => 32,
+            Self::F32 | Self::U32 | Self::I32 => 32,
         }
     }
     pub const fn is_integer(self) -> bool {

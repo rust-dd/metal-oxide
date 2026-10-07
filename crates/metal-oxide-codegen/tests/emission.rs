@@ -102,7 +102,9 @@ fn signed_integer_addition_wraps_without_cpp_signed_overflow() {
 #[test]
 fn enabled_assertion_is_not_silently_discarded() {
     let module = assertion(true);
-    let error = metal_oxide_codegen::emit(&module).unwrap_err();
+    let error = metal_oxide_codegen::Codegen::new(&module)
+        .and_then(|codegen| codegen.emit())
+        .unwrap_err();
     assert_eq!(error.source, support::source());
     assert!(error.message.contains("assertion"));
 }
@@ -172,7 +174,8 @@ fn irreducible_control_flow_is_rejected() {
         ],
     );
     assert!(
-        metal_oxide_codegen::emit(&module)
+        metal_oxide_codegen::Codegen::new(&module)
+            .and_then(|codegen| codegen.emit())
             .unwrap_err()
             .message
             .contains("control flow")
@@ -241,7 +244,9 @@ fn uniform_switch_can_share_cooperative_cases_with_its_default() {
         ],
     );
     module.functions[0].kernel = true;
-    let output = metal_oxide_codegen::emit(&module).unwrap();
+    let output = metal_oxide_codegen::Codegen::new(&module)
+        .and_then(|codegen| codegen.emit())
+        .unwrap();
     assert_eq!(output.matches("threadgroup_barrier(").count(), 1);
 }
 
@@ -256,7 +261,8 @@ fn float_to_integer_cast_requires_supported_saturation_semantics() {
         )],
     );
     assert!(
-        metal_oxide_codegen::emit(&module)
+        metal_oxide_codegen::Codegen::new(&module)
+            .and_then(|codegen| codegen.emit())
             .unwrap_err()
             .message
             .contains("float-to-integer")
@@ -308,7 +314,9 @@ fn reserved_msl_kernel_names_have_source_diagnostics() {
         let mut module = module(0, vec![Type::Unit], vec![block(vec![], Terminator::Return)]);
         module.functions[0].kernel = true;
         module.functions[0].name = name.into();
-        let error = metal_oxide_codegen::emit(&module).unwrap_err();
+        let error = metal_oxide_codegen::Codegen::new(&module)
+            .and_then(|codegen| codegen.emit())
+            .unwrap_err();
         assert_eq!(error.source, support::source());
         assert!(error.message.contains("identifier"));
     }
@@ -325,7 +333,7 @@ fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
             vec![block(vec![], Terminator::Return)],
         );
         module.functions[0].kernel = kernel;
-        match metal_oxide_codegen::emit(&module) {
+        match metal_oxide_codegen::Codegen::new(&module).and_then(|codegen| codegen.emit()) {
             Ok(_) => assert!(valid),
             Err(error) => {
                 assert!(!valid);

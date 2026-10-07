@@ -86,13 +86,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let mir::AggregateKind::Adt(def, _, args, _, _) = kind.as_ref() else {
                     return Err((span, "unsupported MIR aggregate".into()));
                 };
-                let ty = self.normalize_type(
-                    self.module
-                        .tcx
-                        .type_of(*def)
-                        .instantiate(self.module.tcx, args)
-                        .skip_norm_wip(),
-                );
+                let ty = self
+                    .module
+                    .tcx
+                    .type_of(*def)
+                    .instantiate(self.module.tcx, args)
+                    .skip_norm_wip();
                 let ty = self.lower_type(ty, span)?;
                 let fields = fields
                     .iter()

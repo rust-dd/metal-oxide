@@ -59,7 +59,9 @@ pub fn execute(module: &Module, main: &str) -> String {
     ));
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("metal_stdlib"), include_str!("metal_stdlib")).unwrap();
-    let msl = metal_oxide_codegen::emit(module).unwrap();
+    let msl = metal_oxide_codegen::Codegen::new(module)
+        .and_then(|codegen| codegen.emit())
+        .unwrap();
     let program = format!(
         "{msl}\n#include <iostream>\nint main() {{ metal_oxide_context ctx = {{ {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}} }}; {main} }}\n"
     );

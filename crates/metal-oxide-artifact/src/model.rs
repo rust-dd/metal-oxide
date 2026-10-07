@@ -15,7 +15,7 @@ impl Scalar {
         match self {
             Self::U8 => 1,
             Self::U16 => 2,
-            _ => 4,
+            Self::F32 | Self::U32 | Self::I32 => 4,
         }
     }
 

@@ -80,9 +80,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                             ));
                         }
                         let ty = self.lower_type(
-                            self.normalize_type(
-                                destination.ty(&body.local_decls, self.module.tcx).ty,
-                            ),
+                            destination.ty(&body.local_decls, self.module.tcx).ty,
                             span,
                         )?;
                         let temporary = self.locals.len();

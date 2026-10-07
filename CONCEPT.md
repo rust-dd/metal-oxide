@@ -207,16 +207,18 @@ Codegen produces three outputs from the imported program:
 
 | Function | Input | Output |
 | --- | --- | --- |
-| `metal_oxide_codegen::emit` | Validated IR module | MSL source |
-| `metal_oxide_codegen::abi` | Kernel parameter types and requirements in the IR | In-memory `Abi` |
+| `metal_oxide_codegen::Codegen::new` | IR module | Validated codegen context and kernel parameter bindings |
+| `Codegen::emit` | Codegen context | MSL source |
+| `Codegen::abi` | The same context | In-memory `Abi` |
 | `metal_oxide_codegen::bindings` | `Abi` | Rust host source |
 
 The compiler restores parameter names from MIR debug information before writing
 the ABI and bindings.
 
-MSL emission and ABI generation derive binding indices from the same kernel
-parameter order. The MSL emitter uses the IR directly; it does not read
-`abi.json`. The binding generator consumes the in-memory ABI.
+The codegen context assigns binding indices once. MSL emission and ABI generation
+use that shared kernel interface. The MSL emitter also reads the IR for types and
+function bodies; it does not read `abi.json`. The binding generator consumes the
+in-memory ABI.
 
 ### MSL
 

@@ -45,8 +45,9 @@ pub(crate) fn write<'tcx>(
     entries: &[rustc_middle::ty::Instance<'tcx>],
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(directory.join("kernels.oxide-ir"), format!("{module:#?}\n"))?;
-    let msl = metal_oxide_codegen::emit(module)?;
-    let mut abi = metal_oxide_codegen::abi(module)?;
+    let codegen = metal_oxide_codegen::Codegen::new(module)?;
+    let msl = codegen.emit()?;
+    let mut abi = codegen.abi()?;
     for kernel in &mut abi.kernels {
         let entry = entries
             .iter()
