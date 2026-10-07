@@ -104,30 +104,41 @@ pub(crate) fn load(options: &Options) -> Result<Project> {
     if targets != 1 {
         return Err("kernel package requires one library target".into());
     }
-    let mut dependencies = HashSet::new();
-    let mut pending = vec![metadata.packages[kernel].id.clone()];
-    while let Some(id) = pending.pop() {
-        if dependencies.insert(id.clone()) {
-            let node = metadata
-                .resolve
-                .nodes
-                .iter()
-                .find(|n| n.id == id)
-                .ok_or("missing Cargo resolve node")?;
-            pending.extend(
-                node.deps
+    Ok(Project {
+        metadata,
+        host,
+        kernel,
+    })
+}
+
+impl Metadata {
+    pub(crate) fn validate_dependencies(&self, kernel_id: &str) -> Result<()> {
+        let mut dependencies = HashSet::new();
+        let mut pending = vec![kernel_id];
+        while let Some(id) = pending.pop() {
+            if dependencies.insert(id) {
+                let node = self
+                    .resolve
+                    .nodes
                     .iter()
-                    .filter(|dep| {
-                        dep.dep_kinds
-                            .iter()
-                            .any(|kind| kind.kind.as_deref() != Some("dev"))
-                    })
-                    .map(|dep| dep.pkg.clone()),
-            );
+                    .find(|n| n.id == id)
+                    .ok_or("missing Cargo resolve node")?;
+                pending.extend(
+                    node.deps
+                        .iter()
+                        .filter(|dep| {
+                            dep.dep_kinds
+                                .iter()
+                                .any(|kind| kind.kind.as_deref() != Some("dev"))
+                        })
+                        .map(|dep| dep.pkg.as_str()),
+                );
+            }
         }
-    }
-    for package in &metadata.packages {
-        if dependencies.contains(&package.id) {
+        for package in &self.packages {
+            if !dependencies.contains(package.id.as_str()) {
+                continue;
+            }
             if package
                 .targets
                 .iter()
@@ -150,12 +161,8 @@ pub(crate) fn load(options: &Options) -> Result<Project> {
                 .into());
             }
         }
+        Ok(())
     }
-    Ok(Project {
-        metadata,
-        host,
-        kernel,
-    })
 }
 
 impl Project {

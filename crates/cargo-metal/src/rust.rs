@@ -1,6 +1,6 @@
 use crate::{
     inputs::Inputs,
-    metadata::Project,
+    metadata::{Metadata, Project},
     process::{self, Result},
 };
 use metal_oxide_artifact::{COMPILER_OUTPUTS, sha256};
@@ -118,6 +118,21 @@ impl Rust {
             .directory
             .join(format!("output-{}", sha256(project.kernel().id.as_bytes())));
         std::fs::create_dir_all(&output)?;
+        let json = process::capture(
+            self.command(project, &output)
+                .args([
+                    "metadata",
+                    "-Zjson-target-spec",
+                    "--format-version",
+                    "1",
+                    "--locked",
+                ])
+                .arg("--manifest-path")
+                .arg(&project.kernel().manifest_path)
+                .arg("--filter-platform")
+                .arg(&self.target),
+        )?;
+        serde_json::from_str::<Metadata>(&json)?.validate_dependencies(&project.kernel().id)?;
         let mut inputs = self.check(project, &output)?;
         if COMPILER_OUTPUTS
             .iter()

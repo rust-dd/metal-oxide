@@ -60,6 +60,29 @@ impl Workspace {
             arguments: vec![],
         }
     }
+
+    fn validate(&self) -> Result<()> {
+        let project = load(&self.options())?;
+        let version = process::capture(Command::new("rustc").arg("-vV"))?;
+        let host = version
+            .lines()
+            .find_map(|line| line.strip_prefix("host: "))
+            .unwrap();
+        let json = process::capture(
+            Command::new("cargo")
+                .args([
+                    "metadata",
+                    "--format-version",
+                    "1",
+                    "--locked",
+                    "--filter-platform",
+                    host,
+                ])
+                .arg("--manifest-path")
+                .arg(&project.kernel().manifest_path),
+        )?;
+        serde_json::from_str::<Metadata>(&json)?.validate_dependencies(&project.kernel().id)
+    }
 }
 
 impl Drop for Workspace {
@@ -71,20 +94,36 @@ impl Drop for Workspace {
 #[test]
 fn unused_dev_build_script_is_outside_the_kernel_graph() {
     let workspace = Workspace::new("dev-dependencies", false);
-    assert!(load(&workspace.options()).is_ok());
+    assert!(workspace.validate().is_ok());
 }
 
 #[test]
 fn unused_dev_proc_macro_is_outside_the_kernel_graph() {
     let workspace = Workspace::new("dev-dependencies", true);
-    assert!(load(&workspace.options()).is_ok());
+    assert!(workspace.validate().is_ok());
+}
+
+#[test]
+fn inactive_target_build_scripts_are_outside_the_kernel_graph() {
+    let workspace = Workspace::new("target.'cfg(any())'.dependencies", false);
+    assert!(workspace.validate().is_ok());
+}
+
+#[test]
+fn inactive_target_proc_macros_are_outside_the_kernel_graph() {
+    let workspace = Workspace::new("target.'cfg(any())'.dependencies", true);
+    assert!(workspace.validate().is_ok());
 }
 
 #[test]
 fn required_build_scripts_are_rejected_before_execution() {
-    for kind in ["dependencies", "build-dependencies"] {
+    for kind in [
+        "dependencies",
+        "build-dependencies",
+        "target.'cfg(all())'.dependencies",
+    ] {
         let workspace = Workspace::new(kind, false);
-        let error = load(&workspace.options()).err().unwrap();
+        let error = workspace.validate().unwrap_err();
         assert!(
             error
                 .to_string()
@@ -96,6 +135,6 @@ fn required_build_scripts_are_rejected_before_execution() {
 #[test]
 fn required_proc_macros_are_rejected_before_execution() {
     let workspace = Workspace::new("dependencies", true);
-    let error = load(&workspace.options()).err().unwrap();
+    let error = workspace.validate().unwrap_err();
     assert!(error.to_string().contains("kernel proc macros"));
 }
