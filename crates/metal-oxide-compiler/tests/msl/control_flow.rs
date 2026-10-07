@@ -31,6 +31,23 @@ fn uniform_device_results_preserve_cooperative_branches() {
 }
 
 #[test]
+fn helper_participation_depends_on_the_arguments_it_uses() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/uniform_helpers.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    assert!(directory.join("kernels.metal").exists());
+    for configuration in ["varying", "varying_return"] {
+        let (output, _) = support::emit(
+            "crates/metal-oxide-compiler/tests/fixtures/uniform_helpers.rs",
+            &["--cfg", configuration, "-C", "overflow-checks=off"],
+        );
+        support::rejected(output, "uniform participation");
+    }
+}
+
+#[test]
 fn uniform_match_and_labelled_exits_preserve_cooperative_calls() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/cooperative_control.rs",

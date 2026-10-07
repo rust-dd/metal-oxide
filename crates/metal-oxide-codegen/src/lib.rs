@@ -13,7 +13,7 @@ mod numeric;
 mod structured;
 
 use interface::KernelInterfaces;
-use metal_oxide_ir::{Error, Module};
+use metal_oxide_ir::{Error, FunctionAnalysis, Module};
 
 pub use bindings::bindings;
 
@@ -22,15 +22,17 @@ pub use bindings::bindings;
 pub struct Codegen<'a> {
     module: &'a Module,
     interfaces: KernelInterfaces,
+    analyses: Vec<FunctionAnalysis>,
 }
 
 impl<'a> Codegen<'a> {
     pub fn new(module: &'a Module) -> Result<Self, Error> {
-        metal_oxide_ir::validate(module)?;
+        let analyses = metal_oxide_ir::validate(module)?;
         metal_oxide_ir::prove_numerics(module)?;
         Ok(Self {
             module,
             interfaces: KernelInterfaces::new(module)?,
+            analyses,
         })
     }
 
@@ -39,7 +41,7 @@ impl<'a> Codegen<'a> {
     /// Compile the result with safe math and precise floating-point functions.
     /// Assertions require a proof; unsupported operations are errors.
     pub fn emit(&self) -> Result<String, Error> {
-        emit::ModuleEmitter::new(self.module, &self.interfaces).emit()
+        emit::ModuleEmitter::new(self.module, &self.interfaces, &self.analyses).emit()
     }
 
     pub fn abi(&self) -> Result<metal_oxide_artifact::Abi, metal_oxide_artifact::Error> {

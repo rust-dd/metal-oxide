@@ -118,7 +118,9 @@ fn array_construction_checks_every_element_and_arity() {
             fields: fields.into_iter().map(Operand::Constant).collect(),
         };
         match expected {
-            None => validate(&module).unwrap(),
+            None => {
+                validate(&module).unwrap();
+            }
             Some(message) => {
                 let error = validate(&module).unwrap_err();
                 assert_eq!(error.source, source());
@@ -147,7 +149,9 @@ fn array_updates_validate_the_index_and_replacement_type() {
             value: Operand::Constant(replacement),
         };
         match expected {
-            None => validate(&module).unwrap(),
+            None => {
+                validate(&module).unwrap();
+            }
             Some(message) => assert!(validate(&module).unwrap_err().message.contains(message)),
         }
     }

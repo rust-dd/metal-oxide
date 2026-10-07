@@ -9,14 +9,20 @@ use std::{collections::BTreeSet, fmt::Write};
 pub(crate) struct ModuleEmitter<'a> {
     module: &'a Module,
     interfaces: &'a KernelInterfaces,
+    analyses: &'a [FunctionAnalysis],
     output: String,
 }
 
 impl<'a> ModuleEmitter<'a> {
-    pub(crate) fn new(module: &'a Module, interfaces: &'a KernelInterfaces) -> Self {
+    pub(crate) fn new(
+        module: &'a Module,
+        interfaces: &'a KernelInterfaces,
+        analyses: &'a [FunctionAnalysis],
+    ) -> Self {
         Self {
             module,
             interfaces,
+            analyses,
             output: String::new(),
         }
     }
@@ -56,7 +62,7 @@ impl<'a> ModuleEmitter<'a> {
         }
         self.output.push('\n');
         for (id, function) in module.functions.iter().enumerate() {
-            let graph = StructuredGraph::new(function)?;
+            let graph = StructuredGraph::new(function, &self.analyses[id])?;
             for (index, block) in function.blocks.iter().enumerate() {
                 if !graph.cfg.is_reachable(index) {
                     continue;
@@ -116,7 +122,7 @@ impl<'a> ModuleEmitter<'a> {
                     writeln!(self.output, "    {} v{local};", type_name(ty)).unwrap();
                 }
             }
-            crate::structured::body(module, function, graph, &mut self.output)?;
+            crate::structured::body(module, function, graph, self.analyses, &mut self.output)?;
             self.output.push_str("}\n\n");
         }
         Ok(self.output)

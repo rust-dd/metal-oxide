@@ -2,6 +2,33 @@ use super::*;
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn conditional_barrier_helpers_preserve_uniform_participation() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let pipeline = pipeline(
+        &device,
+        "crates/metal-oxide-compiler/tests/fixtures/uniform_helpers.rs",
+        "uniform_helpers",
+    )?;
+    for mode in [0_u32, 1, 9] {
+        let mut output = device.buffer_zeroed::<u32>(32)?;
+        // SAFETY: one full block initializes every shared cell; mode is uniform.
+        unsafe {
+            device.launch(
+                &pipeline,
+                LaunchConfig::<32>::new(Dim3::x(1)),
+                &[Argument::write(&mut output), Argument::value(mode)?],
+            )?;
+        }
+        let expected = (0..32)
+            .map(|lane| if mode == 0 { lane } else { (lane + 1) & 31 })
+            .collect::<Vec<_>>();
+        assert_eq!(output.as_slice(), expected);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let pipeline = pipeline(

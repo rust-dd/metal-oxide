@@ -8,13 +8,15 @@ use std::{collections::HashMap, fmt::Write};
 pub(crate) fn body(
     module: &Module,
     function: &Function,
-    graph: StructuredGraph,
+    graph: StructuredGraph<'_>,
+    analyses: &[FunctionAnalysis],
     output: &mut String,
 ) -> Result<(), Error> {
     Emitter {
         module,
         function,
         graph,
+        analyses,
         output,
         visits: HashMap::new(),
         indent: 1,
@@ -25,7 +27,8 @@ pub(crate) fn body(
 struct Emitter<'a> {
     module: &'a Module,
     function: &'a Function,
-    graph: StructuredGraph,
+    graph: StructuredGraph<'a>,
+    analyses: &'a [FunctionAnalysis],
     output: &'a mut String,
     visits: HashMap<usize, usize>,
     indent: usize,
@@ -75,16 +78,10 @@ impl Emitter<'_> {
             *visits += 1;
             if *visits > 8
                 || (*visits > 1
-                    && block.statements.iter().any(|s| {
-                        matches!(
-                            s.value,
-                            Expression::ThreadgroupAlloc { .. }
-                                | Expression::ThreadgroupBarrier
-                                | Expression::SimdSum(_)
-                                | Expression::SimdShuffle { .. }
-                                | Expression::Call { .. }
-                        )
-                    }))
+                    && block
+                        .statements
+                        .iter()
+                        .any(|s| s.value.is_cooperative(self.analyses)))
             {
                 return Err(Error::new(
                     &block.source,

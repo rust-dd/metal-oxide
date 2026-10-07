@@ -2,59 +2,94 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn validate(module: &Module, graphs: &[ControlFlowGraph]) -> Result<(), Error> {
-    let uniform_returns = uniform_returns(module, graphs);
-    let mut cooperative = vec![false; module.functions.len()];
-    loop {
-        let mut changed = false;
-        for (id, function) in module.functions.iter().enumerate() {
-            let effect = function.blocks.iter().flat_map(|b| &b.statements).any(|s| {
-                matches!(
-                    s.value,
-                    Expression::ThreadgroupBarrier
-                        | Expression::ThreadgroupAlloc { .. }
-                        | Expression::SimdSum(_)
-                        | Expression::SimdShuffle { .. }
-                ) || matches!(s.value, Expression::Call { function, .. } if cooperative[function])
-            });
-            changed |= effect && !cooperative[id];
-            cooperative[id] |= effect;
-        }
-        if !changed {
-            break;
-        }
+#[derive(Clone, Default, PartialEq, Eq)]
+struct Dependencies {
+    varying: bool,
+    parameters: BTreeSet<usize>,
+}
+
+impl Dependencies {
+    fn merge(&mut self, other: &Self) -> bool {
+        let before = self.clone();
+        self.varying |= other.varying;
+        self.parameters.extend(&other.parameters);
+        *self != before
     }
-    for (function, graph) in module.functions.iter().zip(graphs) {
-        check_function(function, graph, &cooperative, &uniform_returns)?;
+
+    fn substitute(&self, arguments: &[Dependencies]) -> Self {
+        let mut result = Self {
+            varying: self.varying,
+            parameters: BTreeSet::new(),
+        };
+        for &parameter in &self.parameters {
+            result.merge(&arguments[parameter]);
+        }
+        result
+    }
+}
+
+#[derive(Clone, Default)]
+struct Summary {
+    returns: Dependencies,
+    participation: Dependencies,
+}
+
+pub(crate) fn validate(
+    module: &Module,
+    analyses: &mut [FunctionAnalysis],
+    order: &[usize],
+) -> Result<(), Error> {
+    let mut summaries = vec![Summary::default(); module.functions.len()];
+    let kernels = module.functions.iter().any(|function| function.kernel);
+    for &id in order {
+        let function = &module.functions[id];
+        let analysis = &analyses[id];
+        allocations(function, &analysis.cfg)?;
+        let (values, control) = flow(function, analysis, &summaries);
+        let mut summary = Summary {
+            returns: values[0].clone(),
+            ..Summary::default()
+        };
+        let mut cooperative = false;
+        for (id, block) in function
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(id, _)| analysis.cfg.is_reachable(*id))
+        {
+            for statement in &block.statements {
+                if !statement.value.is_cooperative(analyses) {
+                    continue;
+                }
+                cooperative = true;
+                let mut required = control[id].clone();
+                if let Expression::Call {
+                    function,
+                    arguments,
+                } = &statement.value
+                {
+                    let arguments = arguments
+                        .iter()
+                        .map(|v| dependencies(v, &values))
+                        .collect::<Vec<_>>();
+                    required.merge(&summaries[*function].participation.substitute(&arguments));
+                }
+                if required.varying || (!kernels && !required.parameters.is_empty()) {
+                    return Err(Error::new(
+                        &statement.source,
+                        "cooperative operation requires uniform participation; divergent control flow is unsupported",
+                    ));
+                }
+                summary.participation.merge(&required);
+            }
+        }
+        summaries[id] = summary;
+        analyses[id].cooperative = cooperative;
     }
     Ok(())
 }
 
-fn uniform_returns(module: &Module, graphs: &[ControlFlowGraph]) -> Vec<bool> {
-    let mut uniform = vec![false; module.functions.len()];
-    loop {
-        let mut changed = false;
-        for (id, (function, graph)) in module.functions.iter().zip(graphs).enumerate() {
-            if !uniform[id] {
-                let (varying, _) = flow(function, graph, &uniform, false);
-                if !varying[0] {
-                    uniform[id] = true;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            return uniform;
-        }
-    }
-}
-
-fn check_function(
-    function: &Function,
-    graph: &ControlFlowGraph,
-    cooperative: &[bool],
-    uniform_returns: &[bool],
-) -> Result<(), Error> {
+fn allocations(function: &Function, graph: &ControlFlowGraph) -> Result<(), Error> {
     let mut ids = BTreeSet::new();
     for (block_id, block) in function
         .blocks
@@ -85,44 +120,22 @@ fn check_function(
             }
         }
     }
-    let (_, divergent) = flow(function, graph, uniform_returns, !function.kernel);
-    for (id, block) in function
-        .blocks
-        .iter()
-        .enumerate()
-        .filter(|(id, _)| graph.is_reachable(*id))
-    {
-        for statement in &block.statements {
-            let synchronized = matches!(
-                statement.value,
-                Expression::ThreadgroupBarrier
-                    | Expression::ThreadgroupAlloc { .. }
-                    | Expression::SimdSum(_)
-                    | Expression::SimdShuffle { .. }
-            ) || matches!(statement.value, Expression::Call { function, .. } if cooperative[function]);
-            if synchronized && divergent[id] {
-                return Err(Error::new(
-                    &statement.source,
-                    "cooperative operation requires uniform participation; divergent control flow is unsupported",
-                ));
-            }
-        }
-    }
     Ok(())
 }
 
 fn flow(
     function: &Function,
-    graph: &ControlFlowGraph,
-    uniform_returns: &[bool],
-    parameters_varying: bool,
-) -> (Vec<bool>, Vec<bool>) {
-    let postdominators = graph.postdominators();
-    let mut varying = vec![false; function.locals.len()];
-    if parameters_varying {
-        varying[1..=function.parameters].fill(true);
+    analysis: &FunctionAnalysis,
+    summaries: &[Summary],
+) -> (Vec<Dependencies>, Vec<Dependencies>) {
+    let graph = &analysis.cfg;
+    let mut values = vec![Dependencies::default(); function.locals.len()];
+    if !function.kernel {
+        for (index, value) in values[1..=function.parameters].iter_mut().enumerate() {
+            value.parameters.insert(index);
+        }
     }
-    let mut divergent = vec![false; function.blocks.len()];
+    let mut control = vec![Dependencies::default(); function.blocks.len()];
     loop {
         let mut changed = false;
         for (id, block) in function
@@ -132,68 +145,86 @@ fn flow(
             .filter(|(id, _)| graph.is_reachable(*id))
         {
             for statement in &block.statements {
-                let variable = divergent[id]
-                    || statement
-                        .destination
-                        .projection
-                        .iter()
-                        .any(|p| matches!(p, Projection::Index(index) if varying[*index]))
-                    || matches!(
-                        statement.value,
-                        Expression::Coordinates(Builtin::ThreadIdx)
-                            | Expression::SimdCoordinate(SimdBuiltin::Lane | SimdBuiltin::Group)
-                            | Expression::BufferLoad { .. }
-                            | Expression::AtomicAdd { .. }
-                    )
-                    || matches!(statement.value, Expression::Call { function, .. } if !uniform_returns[function])
-                    || statement
-                        .value
-                        .operands()
-                        .into_iter()
-                        .any(|v| operand_varying(v, &varying));
-                if variable && !varying[statement.destination.local] {
-                    varying[statement.destination.local] = true;
-                    changed = true;
+                let mut value = control[id].clone();
+                for projection in &statement.destination.projection {
+                    if let Projection::Index(index) = projection {
+                        value.merge(&values[*index]);
+                    }
                 }
+                match &statement.value {
+                    Expression::Call {
+                        function,
+                        arguments,
+                    } => {
+                        let arguments = arguments
+                            .iter()
+                            .map(|v| dependencies(v, &values))
+                            .collect::<Vec<_>>();
+                        value.merge(&summaries[*function].returns.substitute(&arguments));
+                    }
+                    expression => {
+                        value.varying |= matches!(
+                            expression,
+                            Expression::Coordinates(Builtin::ThreadIdx)
+                                | Expression::SimdCoordinate(
+                                    SimdBuiltin::Lane | SimdBuiltin::Group
+                                )
+                                | Expression::BufferLoad { .. }
+                                | Expression::AtomicAdd { .. }
+                        );
+                        for operand in expression.operands() {
+                            value.merge(&dependencies(operand, &values));
+                        }
+                    }
+                }
+                changed |= values[statement.destination.local].merge(&value);
             }
             if let Terminator::Branch { condition, .. }
             | Terminator::Switch {
                 discriminant: condition,
                 ..
             } = &block.terminator
-                && operand_varying(condition, &varying)
             {
-                let join = postdominators.immediate(id);
+                let dependency = dependencies(condition, &values);
+                if dependency == Dependencies::default() {
+                    continue;
+                }
+                let join = analysis.postdominators.immediate(id);
                 let mut pending = graph.successors(id).to_vec();
                 let mut visited = BTreeSet::new();
                 while let Some(node) = pending.pop() {
                     if node == join || !visited.insert(node) {
                         continue;
                     }
-                    if !divergent[node] {
-                        divergent[node] = true;
-                        changed = true;
-                    }
+                    changed |= control[node].merge(&dependency);
                     pending.extend(graph.successors(node));
                 }
             }
         }
         if !changed {
-            break;
+            return (values, control);
         }
     }
-    (varying, divergent)
 }
 
-fn operand_varying(value: &Operand, varying: &[bool]) -> bool {
+fn dependencies(value: &Operand, values: &[Dependencies]) -> Dependencies {
     match value {
-        Operand::Constant(_) | Operand::AggregateConstant { .. } => false,
+        Operand::Constant(_) => Dependencies::default(),
+        Operand::AggregateConstant { fields, .. } => {
+            let mut result = Dependencies::default();
+            for field in fields {
+                result.merge(&dependencies(field, values));
+            }
+            result
+        }
         Operand::Place(place) => {
-            varying[place.local]
-                || place
-                    .projection
-                    .iter()
-                    .any(|p| matches!(p, Projection::Index(index) if varying[*index]))
+            let mut result = values[place.local].clone();
+            for projection in &place.projection {
+                if let Projection::Index(index) = projection {
+                    result.merge(&values[*index]);
+                }
+            }
+            result
         }
     }
 }

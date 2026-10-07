@@ -1,4 +1,4 @@
-use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function};
+use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function, FunctionAnalysis};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub(crate) struct Loop {
@@ -6,11 +6,11 @@ pub(crate) struct Loop {
     pub(crate) exits: Vec<usize>,
 }
 
-pub(crate) struct StructuredGraph {
-    pub(crate) cfg: ControlFlowGraph,
+pub(crate) struct StructuredGraph<'a> {
+    pub(crate) cfg: &'a ControlFlowGraph,
     pub(crate) loops: HashMap<usize, Loop>,
     forward: Vec<Vec<usize>>,
-    pub(crate) postdominators: Dominators,
+    pub(crate) postdominators: &'a Dominators,
 }
 
 #[derive(Clone, Copy)]
@@ -19,7 +19,7 @@ enum Reachability {
     Resolved(bool),
 }
 
-impl StructuredGraph {
+impl<'a> StructuredGraph<'a> {
     pub(crate) fn branch_join(&self, targets: &[usize], stop: usize) -> usize {
         let join = self.postdominators.closest_common(targets);
         if join != self.cfg.exit_block() && !self.cfg.successors(join).is_empty() {
@@ -90,11 +90,11 @@ impl StructuredGraph {
         valid
     }
 
-    pub(crate) fn new(function: &Function) -> Result<Self, Error> {
+    pub(crate) fn new(function: &Function, analysis: &'a FunctionAnalysis) -> Result<Self, Error> {
         let n = function.blocks.len();
-        let cfg = ControlFlowGraph::new(function)?;
+        let cfg = &analysis.cfg;
         let all = cfg.reachable_blocks().collect::<BTreeSet<_>>();
-        let dominators = cfg.dominators();
+        let dominators = &analysis.dominators;
         let mut loop_members = HashMap::<usize, BTreeSet<usize>>::new();
         let mut forward = vec![Vec::new(); n];
         let mut incoming = vec![0; n];
@@ -159,7 +159,7 @@ impl StructuredGraph {
                 },
             );
         }
-        let postdominators = cfg.postdominators();
+        let postdominators = &analysis.postdominators;
         Ok(Self {
             cfg,
             loops,

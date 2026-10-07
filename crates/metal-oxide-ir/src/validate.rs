@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{typing::expression_type, *};
 
-pub fn validate(module: &Module) -> Result<(), Error> {
+pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
     let type_source = SourceLocation {
         file: "<types>".into(),
         line: 0,
@@ -166,13 +166,19 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
         }
         crate::dataflow::initialized(module, function, &graph)?;
-        graphs.push(graph);
+        graphs.push(FunctionAnalysis {
+            dominators: graph.dominators(),
+            postdominators: graph.postdominators(),
+            cfg: graph,
+            cooperative: false,
+        });
     }
-    acyclic_calls(module)?;
-    crate::uniform::validate(module, &graphs)
+    let order = acyclic_calls(module)?;
+    crate::uniform::validate(module, &mut graphs, &order)?;
+    Ok(graphs)
 }
 
-fn acyclic_calls(module: &Module) -> Result<(), Error> {
+fn acyclic_calls(module: &Module) -> Result<Vec<usize>, Error> {
     let mut incoming = vec![0_usize; module.functions.len()];
     let mut edges = vec![Vec::new(); module.functions.len()];
     for (id, function) in module.functions.iter().enumerate() {
@@ -191,9 +197,9 @@ fn acyclic_calls(module: &Module) -> Result<(), Error> {
         .enumerate()
         .filter_map(|(id, &n)| (n == 0).then_some(id))
         .collect::<Vec<_>>();
-    let mut count = 0;
+    let mut order = Vec::new();
     while let Some(id) = ready.pop() {
-        count += 1;
+        order.push(id);
         for &callee in &edges[id] {
             incoming[callee] -= 1;
             if incoming[callee] == 0 {
@@ -201,8 +207,9 @@ fn acyclic_calls(module: &Module) -> Result<(), Error> {
             }
         }
     }
-    if count == module.functions.len() {
-        Ok(())
+    if order.len() == module.functions.len() {
+        order.reverse();
+        Ok(order)
     } else {
         let id = incoming.iter().position(|&n| n > 0).unwrap();
         Err(Error::new(
