@@ -1,5 +1,5 @@
 use crate::{
-    control::Graph,
+    control::StructuredGraph,
     expressions::{expression, operand},
 };
 use metal_oxide_ir::*;
@@ -8,7 +8,7 @@ use std::{collections::HashMap, fmt::Write};
 pub(crate) fn body(
     module: &Module,
     function: &Function,
-    graph: Graph,
+    graph: StructuredGraph,
     output: &mut String,
 ) -> Result<(), Error> {
     Emitter {
@@ -25,7 +25,7 @@ pub(crate) fn body(
 struct Emitter<'a> {
     module: &'a Module,
     function: &'a Function,
-    graph: Graph,
+    graph: StructuredGraph,
     output: &'a mut String,
     visits: HashMap<usize, usize>,
     indent: usize,
@@ -187,7 +187,7 @@ impl Emitter<'_> {
                 stop,
             )
         } else {
-            self.graph.join(block)
+            self.graph.postdominators.immediate(block)
         }
     }
 
@@ -241,7 +241,7 @@ impl Emitter<'_> {
         let join = if let Some(&parent) = contexts.last() {
             self.graph.loop_join(&exits, parent, stop)
         } else {
-            self.graph.common_join(&exits)
+            self.graph.postdominators.closest_common(&exits)
         };
         let branches = exits[..exits.len() - 1]
             .iter()

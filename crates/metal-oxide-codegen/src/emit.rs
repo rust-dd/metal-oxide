@@ -1,4 +1,4 @@
-use crate::{control::Graph, expressions::type_name};
+use crate::{control::StructuredGraph, expressions::type_name};
 use metal_oxide_ir::*;
 use std::fmt::Write;
 
@@ -22,9 +22,9 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
     }
     output.push('\n');
     for (id, function) in module.functions.iter().enumerate() {
-        let graph = Graph::new(function)?;
+        let graph = StructuredGraph::new(function)?;
         for (index, block) in function.blocks.iter().enumerate() {
-            if !graph.reachable[index] {
+            if !graph.cfg.is_reachable(index) {
                 continue;
             }
             match &block.terminator {
@@ -60,7 +60,7 @@ pub(crate) fn module(module: &Module) -> Result<String, Error> {
             .blocks
             .iter()
             .enumerate()
-            .filter(|(id, _)| graph.reachable[*id])
+            .filter(|(id, _)| graph.cfg.is_reachable(*id))
             .flat_map(|(_, b)| &b.statements)
         {
             if let Expression::ThreadgroupAlloc {

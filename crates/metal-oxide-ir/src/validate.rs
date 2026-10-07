@@ -85,7 +85,9 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             }
         }
     }
+    let mut graphs = Vec::with_capacity(module.functions.len());
     for function in &module.functions {
+        let graph = ControlFlowGraph::new(function)?;
         for block in &function.blocks {
             for statement in &block.statements {
                 let expected = function
@@ -101,11 +103,6 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                             "assignment type mismatch: expected {expected:?}, found {actual:?}"
                         ),
                     ));
-                }
-            }
-            for target in block.terminator.successors() {
-                if target >= function.blocks.len() {
-                    return Err(Error::new(&block.source, "invalid block target"));
                 }
             }
             if let Terminator::Branch { condition, .. } | Terminator::Assert { condition, .. } =
@@ -145,10 +142,11 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                 }
             }
         }
-        crate::dataflow::initialized(function)?;
+        crate::dataflow::initialized(function, &graph)?;
+        graphs.push(graph);
     }
     acyclic_calls(module)?;
-    crate::uniform::validate(module)
+    crate::uniform::validate(module, &graphs)
 }
 
 fn acyclic_calls(module: &Module) -> Result<(), Error> {

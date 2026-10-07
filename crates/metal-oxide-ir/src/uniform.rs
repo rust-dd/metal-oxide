@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn validate(module: &Module) -> Result<(), Error> {
+pub(crate) fn validate(module: &Module, graphs: &[ControlFlowGraph]) -> Result<(), Error> {
     let mut cooperative = vec![false; module.functions.len()];
     loop {
         let mut changed = false;
@@ -23,32 +23,24 @@ pub(crate) fn validate(module: &Module) -> Result<(), Error> {
             break;
         }
     }
-    for function in &module.functions {
-        check_function(function, &cooperative)?;
+    for (function, graph) in module.functions.iter().zip(graphs) {
+        check_function(function, graph, &cooperative)?;
     }
     Ok(())
 }
 
-fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error> {
+fn check_function(
+    function: &Function,
+    graph: &ControlFlowGraph,
+    cooperative: &[bool],
+) -> Result<(), Error> {
     let n = function.blocks.len();
-    let successors = function
-        .blocks
-        .iter()
-        .map(|b| b.terminator.successors())
-        .collect::<Vec<_>>();
-    let mut reachable = vec![false; n];
-    let mut pending = vec![0];
-    while let Some(id) = pending.pop() {
-        if !std::mem::replace(&mut reachable[id], true) {
-            pending.extend(&successors[id]);
-        }
-    }
     let mut ids = BTreeSet::new();
     for (block_id, block) in function
         .blocks
         .iter()
         .enumerate()
-        .filter(|(id, _)| reachable[*id])
+        .filter(|(id, _)| graph.is_reachable(*id))
     {
         for statement in &block.statements {
             if let Expression::ThreadgroupAlloc { id, .. } = statement.value {
@@ -64,7 +56,7 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
                         "duplicate threadgroup allocation ID",
                     ));
                 }
-                if reaches(&successors, block_id, block_id) {
+                if graph.reaches(block_id, block_id) {
                     return Err(Error::new(
                         &statement.source,
                         "threadgroup allocations inside loops are unsupported",
@@ -73,7 +65,7 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
             }
         }
     }
-    let joins = joins(&successors, &reachable);
+    let postdominators = graph.postdominators();
     let mut varying = vec![false; function.locals.len()];
     if !function.kernel {
         varying[1..=function.parameters].fill(true);
@@ -85,7 +77,7 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
             .blocks
             .iter()
             .enumerate()
-            .filter(|(id, _)| reachable[*id])
+            .filter(|(id, _)| graph.is_reachable(*id))
         {
             for statement in &block.statements {
                 let variable = divergent[id]
@@ -114,17 +106,18 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
             } = &block.terminator
                 && operand_varying(condition, &varying)
             {
-                let mut pending = successors[id].clone();
+                let join = postdominators.immediate(id);
+                let mut pending = graph.successors(id).to_vec();
                 let mut visited = BTreeSet::new();
                 while let Some(node) = pending.pop() {
-                    if node == joins[id] || !visited.insert(node) {
+                    if node == join || !visited.insert(node) {
                         continue;
                     }
                     if !divergent[node] {
                         divergent[node] = true;
                         changed = true;
                     }
-                    pending.extend(&successors[node]);
+                    pending.extend(graph.successors(node));
                 }
             }
         }
@@ -136,7 +129,7 @@ fn check_function(function: &Function, cooperative: &[bool]) -> Result<(), Error
         .blocks
         .iter()
         .enumerate()
-        .filter(|(id, _)| reachable[*id])
+        .filter(|(id, _)| graph.is_reachable(*id))
     {
         for statement in &block.statements {
             let synchronized = matches!(
@@ -162,57 +155,4 @@ fn operand_varying(value: &Operand, varying: &[bool]) -> bool {
         Operand::Constant(_) => false,
         Operand::Place { local, .. } => varying[*local],
     }
-}
-
-fn reaches(successors: &[Vec<usize>], from: usize, target: usize) -> bool {
-    let mut visited = BTreeSet::new();
-    let mut pending = successors[from].clone();
-    while let Some(id) = pending.pop() {
-        if id == target {
-            return true;
-        }
-        if visited.insert(id) {
-            pending.extend(&successors[id]);
-        }
-    }
-    false
-}
-
-fn joins(successors: &[Vec<usize>], reachable: &[bool]) -> Vec<usize> {
-    let n = successors.len();
-    let all = (0..=n)
-        .filter(|&id| id == n || reachable[id])
-        .collect::<BTreeSet<_>>();
-    let mut post = vec![all.clone(); n + 1];
-    post[n] = BTreeSet::from([n]);
-    loop {
-        let mut changed = false;
-        for id in (0..n).rev().filter(|&id| reachable[id]) {
-            let mut next = all.clone();
-            let targets = if successors[id].is_empty() {
-                vec![n]
-            } else {
-                successors[id].clone()
-            };
-            for target in targets {
-                next.retain(|v| post[target].contains(v));
-            }
-            next.insert(id);
-            changed |= next != post[id];
-            post[id] = next;
-        }
-        if !changed {
-            break;
-        }
-    }
-    (0..n)
-        .map(|id| {
-            post[id]
-                .iter()
-                .copied()
-                .filter(|&v| v != id)
-                .max_by_key(|&v| post[v].len())
-                .unwrap_or(n)
-        })
-        .collect()
 }

@@ -1,4 +1,4 @@
-use metal_oxide_ir::{Error, Function};
+use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub(crate) struct Loop {
@@ -6,69 +6,32 @@ pub(crate) struct Loop {
     pub(crate) exits: Vec<usize>,
 }
 
-pub(crate) struct Graph {
-    pub(crate) reachable: Vec<bool>,
+pub(crate) struct StructuredGraph {
+    pub(crate) cfg: ControlFlowGraph,
     pub(crate) loops: HashMap<usize, Loop>,
     forward: Vec<Vec<usize>>,
-    postdominators: Vec<BTreeSet<usize>>,
+    pub(crate) postdominators: Dominators,
 }
 
-impl Graph {
+impl StructuredGraph {
     pub(crate) fn new(function: &Function) -> Result<Self, Error> {
         let n = function.blocks.len();
-        let successors = function
-            .blocks
-            .iter()
-            .map(|b| b.terminator.successors())
-            .collect::<Vec<_>>();
-        let mut reachable = vec![false; n];
-        let mut pending = vec![0];
-        while let Some(id) = pending.pop() {
-            if std::mem::replace(&mut reachable[id], true) {
-                continue;
-            }
-            pending.extend(&successors[id]);
-        }
-        let all = (0..n).filter(|&i| reachable[i]).collect::<BTreeSet<_>>();
-        let mut predecessors = vec![Vec::new(); n];
-        for &id in &all {
-            for &target in &successors[id] {
-                predecessors[target].push(id);
-            }
-        }
-        let mut dominators = vec![all.clone(); n];
-        dominators[0] = BTreeSet::from([0]);
-        loop {
-            let mut changed = false;
-            for &id in &all {
-                if id == 0 {
-                    continue;
-                }
-                let mut next = all.clone();
-                for &pred in &predecessors[id] {
-                    next.retain(|v| dominators[pred].contains(v));
-                }
-                next.insert(id);
-                changed |= next != dominators[id];
-                dominators[id] = next;
-            }
-            if !changed {
-                break;
-            }
-        }
+        let cfg = ControlFlowGraph::new(function)?;
+        let all = cfg.reachable_blocks().collect::<BTreeSet<_>>();
+        let dominators = cfg.dominators();
         let mut loop_members = HashMap::<usize, BTreeSet<usize>>::new();
         let mut forward = vec![Vec::new(); n];
         let mut incoming = vec![0; n];
         for &id in &all {
-            for &target in &successors[id] {
-                if dominators[id].contains(&target) {
+            for &target in cfg.successors(id) {
+                if dominators.dominates(target, id) {
                     let members = loop_members
                         .entry(target)
                         .or_insert_with(|| BTreeSet::from([target]));
                     let mut pending = vec![id];
                     while let Some(node) = pending.pop() {
                         if members.insert(node) {
-                            pending.extend(&predecessors[node]);
+                            pending.extend(cfg.predecessors(node));
                         }
                     }
                 } else {
@@ -102,7 +65,7 @@ impl Graph {
         for (header, members) in loop_members {
             let exits = members
                 .iter()
-                .flat_map(|&id| &successors[id])
+                .flat_map(|&id| cfg.successors(id))
                 .copied()
                 .filter(|id| !members.contains(id))
                 .collect::<BTreeSet<_>>();
@@ -120,56 +83,13 @@ impl Graph {
                 },
             );
         }
-        let mut universe = all.clone();
-        universe.insert(n);
-        let mut postdominators = vec![universe.clone(); n + 1];
-        postdominators[n] = BTreeSet::from([n]);
-        loop {
-            let mut changed = false;
-            for &id in all.iter().rev() {
-                let mut next = universe.clone();
-                let targets = if successors[id].is_empty() {
-                    vec![n]
-                } else {
-                    successors[id].clone()
-                };
-                for target in targets {
-                    next.retain(|v| postdominators[target].contains(v));
-                }
-                next.insert(id);
-                changed |= next != postdominators[id];
-                postdominators[id] = next;
-            }
-            if !changed {
-                break;
-            }
-        }
+        let postdominators = cfg.postdominators();
         Ok(Self {
-            reachable,
+            cfg,
             loops,
             forward,
             postdominators,
         })
-    }
-
-    pub(crate) fn join(&self, block: usize) -> usize {
-        self.postdominators[block]
-            .iter()
-            .copied()
-            .filter(|&id| id != block)
-            .max_by_key(|&id| self.postdominators[id].len())
-            .unwrap_or(self.reachable.len())
-    }
-
-    pub(crate) fn common_join(&self, blocks: &[usize]) -> usize {
-        let mut common = self.postdominators[blocks[0]].clone();
-        for &block in &blocks[1..] {
-            common.retain(|id| self.postdominators[block].contains(id));
-        }
-        common
-            .into_iter()
-            .max_by_key(|&id| self.postdominators[id].len())
-            .unwrap_or(self.reachable.len())
     }
 
     pub(crate) fn loop_join(&self, targets: &[usize], header: usize, stop: usize) -> usize {
@@ -193,9 +113,9 @@ impl Graph {
             }
         }
         let Some(first) = paths.first() else {
-            return self.reachable.len();
+            return self.cfg.exit_block();
         };
-        let join = self.common_join(targets);
+        let join = self.postdominators.closest_common(targets);
         if paths.iter().all(|path| path.contains_key(&join)) {
             return join;
         }

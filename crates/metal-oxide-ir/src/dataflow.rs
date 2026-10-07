@@ -2,24 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::*;
 
-pub(crate) fn initialized(function: &Function) -> Result<(), Error> {
+pub(crate) fn initialized(function: &Function, graph: &ControlFlowGraph) -> Result<(), Error> {
     let n = function.blocks.len();
-    let mut reachable = vec![false; n];
-    let mut pending = vec![0];
-    while let Some(id) = pending.pop() {
-        if std::mem::replace(&mut reachable[id], true) {
-            continue;
-        }
-        pending.extend(function.blocks[id].terminator.successors());
-    }
-    let mut predecessors = vec![Vec::new(); n];
-    for (id, block) in function.blocks.iter().enumerate() {
-        if reachable[id] {
-            for target in block.terminator.successors() {
-                predecessors[target].push(id);
-            }
-        }
-    }
     let all = (0..function.locals.len()).collect::<BTreeSet<_>>();
     let entry = (1..=function.parameters).collect::<BTreeSet<_>>();
     let mut inputs = vec![all.clone(); n];
@@ -27,14 +11,14 @@ pub(crate) fn initialized(function: &Function) -> Result<(), Error> {
     loop {
         let mut changed = false;
         for (id, block) in function.blocks.iter().enumerate() {
-            if !reachable[id] {
+            if !graph.is_reachable(id) {
                 continue;
             }
             let input = if id == 0 {
                 entry.clone()
             } else {
-                let mut intersection = outputs[predecessors[id][0]].clone();
-                for &pred in &predecessors[id][1..] {
+                let mut intersection = outputs[graph.predecessors(id)[0]].clone();
+                for &pred in &graph.predecessors(id)[1..] {
                     intersection.retain(|v| outputs[pred].contains(v));
                 }
                 intersection
@@ -50,7 +34,7 @@ pub(crate) fn initialized(function: &Function) -> Result<(), Error> {
         }
     }
     for (id, block) in function.blocks.iter().enumerate() {
-        if !reachable[id] {
+        if !graph.is_reachable(id) {
             continue;
         }
         let mut initialized = inputs[id].clone();
