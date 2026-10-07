@@ -131,6 +131,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
     };
     let name = match scalar {
         Scalar::F32 => "f32",
+        Scalar::F16 => "f16",
         Scalar::U32 => "u32",
         Scalar::I32 => "i32",
         Scalar::U8 => "u8",

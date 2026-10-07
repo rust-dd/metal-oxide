@@ -48,6 +48,25 @@ macro_rules! scalar {
 }
 scalar!(f32 => F32, u32 => U32, i32 => I32, u8 => U8, u16 => U16, i8 => I8, i16 => I16);
 
+impl GpuValue for crate::F16 {
+    const SIZE: usize = 2;
+    const ALIGNMENT: usize = 2;
+    fn layout() -> Result<Layout> {
+        Ok(Layout::scalar(Scalar::F16))
+    }
+    fn zeroed() -> Self {
+        Self::ZERO
+    }
+    fn encode(self, bytes: &mut [u8]) {
+        bytes.copy_from_slice(&self.to_bits().to_le_bytes());
+    }
+    fn decode(bytes: &[u8]) -> Self {
+        Self::from_bits(u16::from_le_bytes(
+            bytes.try_into().expect("half byte length"),
+        ))
+    }
+}
+
 impl<T: GpuValue, const N: usize> GpuValue for [T; N] {
     const SIZE: usize = T::SIZE.saturating_mul(N);
     const ALIGNMENT: usize = T::ALIGNMENT;

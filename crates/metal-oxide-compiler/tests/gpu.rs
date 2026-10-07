@@ -8,6 +8,8 @@ mod control_flow;
 mod cooperative;
 #[path = "gpu/float.rs"]
 mod float;
+#[path = "gpu/half.rs"]
+mod half;
 #[path = "gpu/ir_aggregates.rs"]
 mod ir_aggregates;
 #[path = "gpu/narrow.rs"]

@@ -111,7 +111,21 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Cast(v, to) => {
-            if matches!(ty(v)?, Type::Scalar(_)) {
+            let from = ty(v)?;
+            if matches!(from, Type::Scalar(Scalar::F16)) || *to == Scalar::F16 {
+                if matches!(
+                    (from, to),
+                    (Type::Scalar(Scalar::F16), Scalar::F32)
+                        | (Type::Scalar(Scalar::F32), Scalar::F16)
+                ) {
+                    return Ok(Type::Scalar(*to));
+                }
+                return Err(Error::new(
+                    source,
+                    "f16 storage requires an explicit f32 conversion",
+                ));
+            }
+            if matches!(from, Type::Scalar(_)) {
                 Ok(Type::Scalar(*to))
             } else {
                 Err(Error::new(source, "casts require scalar types"))
@@ -121,7 +135,10 @@ pub(crate) fn expression_type(
         Expression::Bitcast(value, to) => {
             if matches!(
                 (ty(value)?, to),
-                (Type::Scalar(Scalar::F32), Scalar::U32) | (Type::Scalar(Scalar::U32), Scalar::F32)
+                (Type::Scalar(Scalar::F32), Scalar::U32)
+                    | (Type::Scalar(Scalar::U32), Scalar::F32)
+                    | (Type::Scalar(Scalar::F16), Scalar::U16)
+                    | (Type::Scalar(Scalar::U16), Scalar::F16)
             ) {
                 Ok(Type::Scalar(*to))
             } else {

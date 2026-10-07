@@ -31,6 +31,7 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
     match scalar {
         Scalar::Bool => "bool",
         Scalar::F32 => "float",
+        Scalar::F16 => "half",
         Scalar::U32 => "uint",
         Scalar::I32 => "int",
         Scalar::U8 => "uchar",
@@ -104,6 +105,7 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::Unit => String::new(),
             Constant::Bool(v) => v.to_string(),
             Constant::F32(bits) => format!("as_type<float>(0x{bits:08x}u)"),
+            Constant::F16(bits) => format!("as_type<half>(ushort({bits}u))"),
             Constant::U32(v) => format!("{v}u"),
             Constant::I32(v) => format!("as_type<int>(0x{:08x}u)", *v as u32),
             Constant::U8(v) => format!("uchar({v}u)"),

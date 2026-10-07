@@ -4,6 +4,7 @@ use crate::{Error, SourceLocation};
 pub enum Scalar {
     Bool,
     F32,
+    F16,
     U32,
     I32,
     U8,
@@ -18,7 +19,7 @@ impl Scalar {
     pub const fn bits(self) -> u32 {
         match self {
             Self::U8 | Self::I8 => 8,
-            Self::U16 | Self::I16 => 16,
+            Self::U16 | Self::I16 | Self::F16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
             Self::Usize => 64,
@@ -40,6 +41,7 @@ impl Scalar {
         match self {
             Self::Bool => "bool",
             Self::F32 => "f32",
+            Self::F16 => "f16",
             Self::U32 => "u32",
             Self::I32 => "i32",
             Self::U8 => "u8",

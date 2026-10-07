@@ -33,6 +33,7 @@ version = "0.1.0-alpha.1"
 [workspace.dependencies]
 block2 = "0.6.2"
 dispatch2 = "0.3.1"
+half = { version = "2.7.1", default-features = false }
 metal-oxide = { path = "crates/metal-oxide" }
 metal-oxide-artifact = { path = "crates/metal-oxide-artifact" }
 metal-oxide-codegen = { path = "crates/metal-oxide-codegen" }

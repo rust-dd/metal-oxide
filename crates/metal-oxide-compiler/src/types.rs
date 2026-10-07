@@ -81,6 +81,13 @@ impl<'tcx> TypeLowering<'tcx> {
         if let ty::Adt(definition, args) = ty.kind() {
             if self
                 .tcx
+                .get_diagnostic_item(Symbol::intern("metal_oxide_f16"))
+                == Some(definition.did())
+            {
+                return Ok(ir::Type::Scalar(ir::Scalar::F16));
+            }
+            if self
+                .tcx
                 .get_diagnostic_item(Symbol::intern("metal_oxide_dim3"))
                 == Some(definition.did())
             {

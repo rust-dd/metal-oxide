@@ -71,6 +71,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Bitcast(value, to)
             }
+            Intrinsic::FloatConvert(to) => {
+                let [value] = arguments(values, span)?;
+                ir::Expression::Cast(value, to)
+            }
             Intrinsic::WrappingShift(op) => {
                 let [value, count] = arguments(values, span)?;
                 ir::Expression::Binary(op, value, count)

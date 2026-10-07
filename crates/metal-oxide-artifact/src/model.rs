@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum Scalar {
     F32,
+    F16,
     U32,
     I32,
     U8,
@@ -16,7 +17,7 @@ impl Scalar {
     pub const fn size(self) -> usize {
         match self {
             Self::U8 | Self::I8 => 1,
-            Self::U16 | Self::I16 => 2,
+            Self::U16 | Self::I16 | Self::F16 => 2,
             Self::F32 | Self::U32 | Self::I32 => 4,
         }
     }
@@ -28,6 +29,7 @@ impl Scalar {
     pub const fn rust_name(self) -> &'static str {
         match self {
             Self::F32 => "f32",
+            Self::F16 => "metal_oxide::F16",
             Self::U32 => "u32",
             Self::I32 => "i32",
             Self::U8 => "u8",

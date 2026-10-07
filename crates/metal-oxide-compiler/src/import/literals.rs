@@ -69,6 +69,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Ok(ir::Operand::Constant(match scalar {
                 ir::Scalar::Bool => ir::Constant::Bool(value != 0),
                 ir::Scalar::F32 => ir::Constant::F32(value as u32),
+                ir::Scalar::F16 => ir::Constant::F16(value as u16),
                 ir::Scalar::U32 => ir::Constant::U32(value as u32),
                 ir::Scalar::Usize => ir::Constant::Usize(value),
                 ir::Scalar::I32 => ir::Constant::I32(value as i32),

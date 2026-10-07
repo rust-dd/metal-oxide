@@ -91,7 +91,12 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     ..
                 } | Type::Buffer {
                     element: Element::Scalar(
-                        Scalar::F32 | Scalar::U8 | Scalar::U16 | Scalar::I8 | Scalar::I16
+                        Scalar::F32
+                            | Scalar::F16
+                            | Scalar::U8
+                            | Scalar::U16
+                            | Scalar::I8
+                            | Scalar::I16
                     ) | Element::Aggregate(_),
                     access: Access::Atomic,
                     ..
@@ -99,7 +104,7 @@ pub fn validate(module: &Module) -> Result<(), Error> {
                     element: Element::Aggregate(_),
                     address_space: AddressSpace::Threadgroup,
                     ..
-                } | Type::Checked(Scalar::Bool | Scalar::F32)
+                } | Type::Checked(Scalar::Bool | Scalar::F32 | Scalar::F16)
             ) {
                 return Err(Error::new(&function.source, "unsupported local type"));
             }

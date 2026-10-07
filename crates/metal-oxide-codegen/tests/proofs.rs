@@ -64,3 +64,28 @@ fn usize_casts_and_shifts_preserve_all_sixty_four_bits() {
         "4294967296"
     );
 }
+
+#[test]
+fn half_storage_does_not_implicitly_enable_half_arithmetic() {
+    for (result, expression) in [
+        (
+            Scalar::F16,
+            Expression::Binary(BinaryOp::Add, local(1), local(1)),
+        ),
+        (Scalar::I32, Expression::Cast(local(1), Scalar::I32)),
+        (
+            Scalar::F32,
+            Expression::Math {
+                op: MathOp::Sqrt,
+                arguments: vec![local(1)],
+            },
+        ),
+    ] {
+        let module = module(
+            1,
+            vec![Type::Scalar(result), Type::Scalar(Scalar::F16)],
+            vec![block(vec![(0, expression)], Terminator::Return)],
+        );
+        assert!(metal_oxide_codegen::Codegen::new(&module).is_err());
+    }
+}

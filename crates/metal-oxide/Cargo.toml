@@ -16,6 +16,7 @@ objc2-foundation = { workspace = true }
 objc2-metal = { workspace = true }
 
 [dependencies]
+half = { workspace = true }
 metal-oxide-artifact = { workspace = true }
 
 [lints]

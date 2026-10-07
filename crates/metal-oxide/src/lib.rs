@@ -6,6 +6,7 @@ mod scalar;
 mod value;
 
 pub use error::{Error, Result};
+pub use half::f16 as F16;
 pub use launch::{Dim3, DynamicLaunchConfig, LaunchConfig};
 pub use metal_oxide_artifact::{Layout, LayoutKind};
 pub use scalar::GpuAtomic;

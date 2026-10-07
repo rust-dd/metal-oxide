@@ -112,6 +112,7 @@ fn uses_simd(module: &Module) -> bool {
 fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error> {
     match value {
         Scalar::F32 => Ok(artifact::Scalar::F32),
+        Scalar::F16 => Ok(artifact::Scalar::F16),
         Scalar::U32 => Ok(artifact::Scalar::U32),
         Scalar::I32 => Ok(artifact::Scalar::I32),
         Scalar::U8 => Ok(artifact::Scalar::U8),

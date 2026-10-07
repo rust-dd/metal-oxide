@@ -17,6 +17,7 @@ pub(crate) enum Intrinsic {
     WrappingShift(BinaryOp),
     Math(MathOp),
     Bitcast(Scalar),
+    FloatConvert(Scalar),
 }
 
 impl Intrinsic {
@@ -40,6 +41,7 @@ impl Intrinsic {
             Self::WrappingShift(_) => "wrapping_shift",
             Self::Math(_) => "float_math",
             Self::Bitcast(_) => "scalar_bitcast",
+            Self::FloatConvert(_) => "float_conversion",
         }
     }
 }
@@ -69,6 +71,16 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
         }
     }
     [
+        ("metal_oxide_f16_from_bits", Intrinsic::Bitcast(Scalar::F16)),
+        ("metal_oxide_f16_to_bits", Intrinsic::Bitcast(Scalar::U16)),
+        (
+            "metal_oxide_f16_from_f32",
+            Intrinsic::FloatConvert(Scalar::F16),
+        ),
+        (
+            "metal_oxide_f16_to_f32",
+            Intrinsic::FloatConvert(Scalar::F32),
+        ),
         ("metal_oxide_sqrt", Intrinsic::Math(MathOp::Sqrt)),
         ("metal_oxide_fma", Intrinsic::Math(MathOp::Fma)),
         ("metal_oxide_buffer_load", Intrinsic::BufferLoad),

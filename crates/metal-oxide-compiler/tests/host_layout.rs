@@ -70,6 +70,28 @@ fn main() {
     );
 }
 
+#[test]
+fn generated_half_record_codecs_work_on_stable_rust() {
+    run_codecs(
+        "crates/metal-oxide-compiler/tests/fixtures/half.rs",
+        r#"
+use metal_oxide::{F16, GpuValue};
+fn main() {
+    assert_eq!((HalfRecord::SIZE, HalfRecord::ALIGNMENT), (10, 2));
+    let value = HalfRecord { tag: 7, pair: (F16::from_bits(0x3c00), F16::from_bits(0xbc00)), samples: [F16::from_bits(1), F16::INFINITY] };
+    let mut bytes = [0xff; 10];
+    value.encode(&mut bytes);
+    assert_eq!(bytes, [7, 0, 0, 60, 0, 188, 1, 0, 0, 124]);
+    bytes[1] = 0xaa;
+    assert_eq!(HalfRecord::decode(&bytes), value);
+    let layout = HalfRecord::layout().unwrap();
+    layout.validate().unwrap();
+    assert_eq!((layout.size, layout.alignment), (10, 2));
+}
+"#,
+    );
+}
+
 fn run_codecs(fixture: &str, program: &str) {
     let (output, directory) = support::emit(fixture, &["-C", "overflow-checks=off"]);
     support::checked(output);
