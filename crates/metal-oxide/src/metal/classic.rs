@@ -65,7 +65,6 @@ impl ClassicBatch {
     pub(super) fn commit(
         mut self,
         completion: Arc<Completion>,
-        buffers: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     ) {
         self.encoder.take().unwrap().endEncoding();
@@ -73,7 +72,7 @@ impl ClassicBatch {
         let bindings = std::mem::take(&mut self.bindings);
         let handler = RcBlock::new(
             move |command: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                let _keepalive = (&buffers, &pipelines, &queue, &bindings);
+                let _keepalive = (&pipelines, &queue, &bindings);
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };

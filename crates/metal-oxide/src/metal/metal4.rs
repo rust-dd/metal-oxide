@@ -107,7 +107,6 @@ impl Metal4Batch {
     pub(super) fn commit(
         mut self,
         completion: Arc<Completion>,
-        buffers: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     ) {
         self.encoder.take().unwrap().endEncoding();
@@ -121,7 +120,6 @@ impl Metal4Batch {
             self.residency.clone(),
             std::mem::take(&mut self.tables),
             std::mem::take(&mut self.bindings),
-            buffers,
             pipelines,
         );
         let handler = RcBlock::new(

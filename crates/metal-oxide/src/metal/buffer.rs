@@ -12,7 +12,6 @@ use super::{Device, completion::AccessState};
 use crate::{Error, GpuValue, Result};
 
 pub(super) struct Resource {
-    pub(super) raw: Retained<ProtocolObject<dyn MTLBuffer>>,
     pub(super) access: Rc<AccessState>,
     pub(super) written: bool,
 }
@@ -171,7 +170,6 @@ impl<T: GpuValue> BufferBinding for Buffer<T> {
     }
     fn resource(&self) -> Resource {
         Resource {
-            raw: self.raw.clone(),
             access: Rc::clone(&self.access),
             written: false,
         }

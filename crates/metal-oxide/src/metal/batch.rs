@@ -119,18 +119,11 @@ impl<'d> Batch<'d> {
                     resource.access.mark_written();
                 }
             }
-            let buffers = self
-                .resources
-                .into_iter()
-                .map(|resource| resource.raw)
-                .collect();
             match self.native {
                 NativeBatch::Classic(batch) => {
-                    batch.commit(Arc::clone(&completion), buffers, self.pipelines)
+                    batch.commit(Arc::clone(&completion), self.pipelines)
                 }
-                NativeBatch::Metal4(batch) => {
-                    batch.commit(Arc::clone(&completion), buffers, self.pipelines)
-                }
+                NativeBatch::Metal4(batch) => batch.commit(Arc::clone(&completion), self.pipelines),
             }
         }
         Submission {
