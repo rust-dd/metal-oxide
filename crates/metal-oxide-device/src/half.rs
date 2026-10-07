@@ -1,40 +1,43 @@
 /// IEEE binary16 storage. Convert to f32 before arithmetic.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-#[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_f16")]
 pub struct F16(u16);
 
 impl F16 {
     /// Constructs a value from its exact binary16 representation.
-    #[cfg_attr(
-        target_env = "metal",
-        rustc_diagnostic_item = "metal_oxide_f16_from_bits"
-    )]
     pub const fn from_bits(bits: u16) -> Self {
-        Self(bits)
+        // SAFETY: F16 is transparent over u16 and every bit pattern is valid.
+        unsafe { core::mem::transmute::<u16, Self>(bits) }
     }
 
     /// Returns the exact binary16 representation.
-    #[cfg_attr(
-        target_env = "metal",
-        rustc_diagnostic_item = "metal_oxide_f16_to_bits"
-    )]
     pub const fn to_bits(self) -> u16 {
-        self.0
+        // SAFETY: F16 is transparent over u16 and every bit pattern is valid.
+        unsafe { core::mem::transmute::<Self, u16>(self) }
     }
 
     /// Rounds f32 to binary16 using round to nearest, ties to even.
-    #[cfg_attr(
-        target_env = "metal",
-        rustc_diagnostic_item = "metal_oxide_f16_from_f32"
-    )]
-    pub fn from_f32(_value: f32) -> Self {
-        panic!("F16 conversion is only available in Metal kernels")
+    pub fn from_f32(value: f32) -> Self {
+        crate::intrinsics::__metal_f16_from_f32(value)
     }
 
     /// Widens binary16 to f32 without rounding finite values.
-    #[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_f16_to_f32")]
     pub fn to_f32(self) -> f32 {
-        panic!("F16 conversion is only available in Metal kernels")
+        crate::intrinsics::__metal_f16_to_f32(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::F16;
+
+    #[test]
+    fn bit_conversions_preserve_all_representations_and_support_const_evaluation() {
+        const NEGATIVE_ZERO: F16 = F16::from_bits(0x8000);
+        const BITS: u16 = NEGATIVE_ZERO.to_bits();
+        assert_eq!(BITS, 0x8000);
+        for bits in 0..=u16::MAX {
+            assert_eq!(F16::from_bits(bits).to_bits(), bits);
+        }
     }
 }

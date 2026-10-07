@@ -67,7 +67,21 @@ impl<'tcx> Collector<'tcx> {
             .fn_sig(instance.def_id())
             .instantiate(tcx, instance.args)
             .skip_binder();
-        if !signature.abi().is_rustic_abi() {
+        if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
+            crate::trace(format_args!("instance: {instance}"));
+            crate::trace(format_args!(
+                "builtin: {} mir={}",
+                builtin.name(),
+                if tcx.is_mir_available(instance.def_id()) {
+                    "available"
+                } else {
+                    "unavailable"
+                }
+            ));
+            self.instances.push(instance);
+            return;
+        }
+        if !signature.abi().is_rustic_abi() || tcx.is_foreign_item(instance.def_id()) {
             tcx.dcx()
                 .span_err(span, "foreign ABI calls are not supported in Metal kernels");
             return;
@@ -79,10 +93,6 @@ impl<'tcx> Collector<'tcx> {
         }
         crate::trace(format_args!("instance: {instance}"));
         self.instances.push(instance);
-        if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
-            crate::trace(format_args!("builtin: {} mir=available", builtin.name()));
-            return;
-        }
         let body = tcx.instance_mir(instance.def);
         let assertions = body
             .basic_blocks

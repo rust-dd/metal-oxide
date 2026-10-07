@@ -1,7 +1,11 @@
 use metal_oxide_ir::{BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin};
+mod device;
+mod signatures;
+
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::TyCtxt;
-use rustc_span::Symbol;
+use rustc_middle::ty::{self, TyCtxt};
+
+pub(crate) use device::{DeviceType, device_type};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Intrinsic {
@@ -47,11 +51,24 @@ impl Intrinsic {
 }
 
 pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
-    if tcx.crate_name(definition.krate).as_str() == "core"
-        && tcx
-            .def_path_str(definition)
-            .starts_with("core::f32::<impl f32>::")
-    {
+    if let Some(operation) = device::operation(tcx, definition) {
+        if !signatures::valid(tcx, definition, operation) {
+            tcx.dcx().span_fatal(
+                tcx.def_span(definition),
+                "invalid device intrinsic signature",
+            );
+        }
+        return Some(operation);
+    }
+    if tcx.crate_name(definition.krate).as_str() != "core" {
+        return None;
+    }
+    let implementation = tcx.inherent_impl_of_assoc(definition)?;
+    let ty = tcx.normalize_erasing_regions(
+        ty::TypingEnv::non_body_analysis(tcx, implementation),
+        tcx.type_of(implementation).instantiate_identity(),
+    );
+    if matches!(ty.kind(), ty::Float(ty::FloatTy::F32)) {
         match tcx.item_name(definition).as_str() {
             "abs" => return Some(Intrinsic::Math(MathOp::Abs)),
             "min" => return Some(Intrinsic::Math(MathOp::Min)),
@@ -61,75 +78,12 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
             _ => {}
         }
     }
-    if tcx.crate_name(definition.krate).as_str() == "core"
-        && tcx.def_path_str(definition).starts_with("core::num::")
-    {
+    if matches!(ty.kind(), ty::Int(_) | ty::Uint(_)) {
         match tcx.item_name(definition).as_str() {
             "wrapping_shl" => return Some(Intrinsic::WrappingShift(BinaryOp::Shl)),
             "wrapping_shr" => return Some(Intrinsic::WrappingShift(BinaryOp::Shr)),
             _ => {}
         }
     }
-    [
-        ("metal_oxide_f16_from_bits", Intrinsic::Bitcast(Scalar::F16)),
-        ("metal_oxide_f16_to_bits", Intrinsic::Bitcast(Scalar::U16)),
-        (
-            "metal_oxide_f16_from_f32",
-            Intrinsic::FloatConvert(Scalar::F16),
-        ),
-        (
-            "metal_oxide_f16_to_f32",
-            Intrinsic::FloatConvert(Scalar::F32),
-        ),
-        ("metal_oxide_sqrt", Intrinsic::Math(MathOp::Sqrt)),
-        ("metal_oxide_fma", Intrinsic::Math(MathOp::Fma)),
-        ("metal_oxide_buffer_load", Intrinsic::BufferLoad),
-        ("metal_oxide_buffer_store", Intrinsic::BufferStore),
-        ("metal_oxide_threadgroup_alloc", Intrinsic::ThreadgroupAlloc),
-        ("metal_oxide_threadgroup_load", Intrinsic::BufferLoad),
-        ("metal_oxide_threadgroup_store", Intrinsic::BufferStore),
-        (
-            "metal_oxide_threadgroup_barrier",
-            Intrinsic::ThreadgroupBarrier,
-        ),
-        (
-            "metal_oxide_simd_lane",
-            Intrinsic::SimdCoordinate(SimdBuiltin::Lane),
-        ),
-        (
-            "metal_oxide_simd_size",
-            Intrinsic::SimdCoordinate(SimdBuiltin::Size),
-        ),
-        (
-            "metal_oxide_simd_group",
-            Intrinsic::SimdCoordinate(SimdBuiltin::Group),
-        ),
-        (
-            "metal_oxide_simd_count",
-            Intrinsic::SimdCoordinate(SimdBuiltin::Count),
-        ),
-        ("metal_oxide_simd_sum", Intrinsic::SimdSum),
-        ("metal_oxide_simd_shuffle", Intrinsic::SimdShuffle),
-        ("metal_oxide_atomic_add", Intrinsic::AtomicAdd),
-        (
-            "metal_oxide_thread_idx",
-            Intrinsic::Coordinates(Builtin::ThreadIdx),
-        ),
-        (
-            "metal_oxide_block_idx",
-            Intrinsic::Coordinates(Builtin::BlockIdx),
-        ),
-        (
-            "metal_oxide_block_dim",
-            Intrinsic::Coordinates(Builtin::BlockDim),
-        ),
-        (
-            "metal_oxide_grid_dim",
-            Intrinsic::Coordinates(Builtin::GridDim),
-        ),
-    ]
-    .into_iter()
-    .find_map(|(item, builtin)| {
-        (tcx.get_diagnostic_item(Symbol::intern(item)) == Some(definition)).then_some(builtin)
-    })
+    None
 }

@@ -1,6 +1,8 @@
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
-use rustc_span::{Span, Symbol};
+use rustc_span::Span;
+
+use crate::intrinsics::{DeviceType, device_type};
 
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
@@ -79,18 +81,10 @@ impl<'tcx> TypeLowering<'tcx> {
             return Ok(self.types.intern(ir::Aggregate::Tuple(fields)));
         }
         if let ty::Adt(definition, args) = ty.kind() {
-            if self
-                .tcx
-                .get_diagnostic_item(Symbol::intern("metal_oxide_f16"))
-                == Some(definition.did())
-            {
+            if device_type(self.tcx, definition.did()) == Some(DeviceType::F16) {
                 return Ok(ir::Type::Scalar(ir::Scalar::F16));
             }
-            if self
-                .tcx
-                .get_diagnostic_item(Symbol::intern("metal_oxide_dim3"))
-                == Some(definition.did())
-            {
+            if device_type(self.tcx, definition.did()) == Some(DeviceType::Dim3) {
                 return Ok(ir::Type::Dim3);
             }
             if definition.is_struct() {
@@ -154,17 +148,14 @@ fn buffer<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(ir::Access, Ty<'tcx>
     let ty::Adt(definition, args) = ty.kind() else {
         return None;
     };
-    let access = [
-        ("metal_oxide_read_buffer", ir::Access::Read),
-        ("metal_oxide_write_buffer", ir::Access::Write),
-        ("metal_oxide_atomic_buffer", ir::Access::Atomic),
-        ("metal_oxide_threadgroup_buffer", ir::Access::ReadWrite),
-    ]
-    .into_iter()
-    .find_map(|(name, access)| {
-        (tcx.get_diagnostic_item(Symbol::intern(name)) == Some(definition.did())).then_some(access)
-    })?;
-    Some((access, args.type_at(0)))
+    let access = match device_type(tcx, definition.did())? {
+        DeviceType::ReadBuffer => ir::Access::Read,
+        DeviceType::WriteBuffer => ir::Access::Write,
+        DeviceType::AtomicBuffer => ir::Access::Atomic,
+        DeviceType::ThreadgroupBuffer => ir::Access::ReadWrite,
+        _ => return None,
+    };
+    Some((access, args.first()?.as_type()?))
 }
 
 pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {

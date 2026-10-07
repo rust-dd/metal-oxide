@@ -120,6 +120,27 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 };
                 Ok(ir::Expression::Cast(self.operand(v, span)?, to))
             }
+            mir::Rvalue::Cast(mir::CastKind::Transmute, value, to) => {
+                let body = self.module.tcx.instance_mir(self.instance.def);
+                let from = self.lower_type(value.ty(&body.local_decls, self.module.tcx), span)?;
+                let to = self.lower_type(*to, span)?;
+                if !matches!(
+                    (from, to),
+                    (
+                        ir::Type::Scalar(ir::Scalar::F16),
+                        ir::Type::Scalar(ir::Scalar::U16)
+                    ) | (
+                        ir::Type::Scalar(ir::Scalar::U16),
+                        ir::Type::Scalar(ir::Scalar::F16)
+                    )
+                ) {
+                    return Err((span, "only F16/u16 transmute is supported".into()));
+                }
+                let ir::Type::Scalar(to) = to else {
+                    unreachable!()
+                };
+                Ok(ir::Expression::Bitcast(self.operand(value, span)?, to))
+            }
             other => Err((span, format!("unsupported MIR rvalue: {other:?}"))),
         }
     }

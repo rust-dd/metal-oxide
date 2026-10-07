@@ -10,7 +10,7 @@ impl Callbacks for Frontend {
     fn config(&mut self, config: &mut Config) {
         config.make_codegen_backend = Some(Box::new(|_| Box::new(crate::backend::FrontendBackend)));
         config.opts.unstable_opts.crate_attr.extend([
-            "feature(register_tool,rustc_attrs)".into(),
+            "feature(register_tool)".into(),
             "register_tool(metal_oxide)".into(),
             "allow(internal_features)".into(),
         ]);

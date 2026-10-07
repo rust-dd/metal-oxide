@@ -84,10 +84,17 @@ preserves the function body. MSL and host binding generation happen later.
 They avoid handing every GPU thread an exclusive Rust reference to the same
 whole buffer.
 
-Thread coordinates and buffer operations are device intrinsics. Their Rust
-definitions let rustc type-check calls; CPU execution of the intrinsic bodies
-panics. The MIR importer recognizes the definitions and lowers their calls to
-GPU operations.
+Thread coordinates, math, and cooperative operations use bodyless
+`extern "Rust"` declarations behind the device API. Rustc type-checks the
+wrappers and calls. The importer checks the declaration's crate, module, and
+signature through its resolved `DefId`, then emits the corresponding IR
+operation. A normal CPU linker has no implementation for these GPU symbols.
+
+Generic buffer and threadgroup methods adapt concrete Rust type/const arguments
+to the memory declarations. The importer lowers these device adapters directly
+to typed buffer operations, preserving their access and address space. Erased
+pointers stay inside the adapter; they are not part of the kernel ABI or IR.
+`F16::from_bits` and `F16::to_bits` remain ordinary const Rust bit conversions.
 
 ## Rust frontend and MIR
 

@@ -1,12 +1,8 @@
 /// A device buffer accessed through relaxed integer atomic operations.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-#[cfg_attr(
-    target_env = "metal",
-    rustc_diagnostic_item = "metal_oxide_atomic_buffer"
-)]
 pub struct AtomicBuffer<T> {
-    _ptr: *mut T,
+    ptr: *mut T,
 }
 
 impl<T: Copy> AtomicBuffer<T> {
@@ -15,8 +11,18 @@ impl<T: Copy> AtomicBuffer<T> {
     /// # Safety
     /// The index must be in bounds and initialized. Concurrent accesses must all
     /// be atomic; this operation does not order accesses to other memory.
-    #[cfg_attr(target_env = "metal", rustc_diagnostic_item = "metal_oxide_atomic_add")]
-    pub unsafe fn fetch_add_relaxed(self, _index: u32, _value: T) -> T {
-        panic!("device atomics are only available in Metal kernels")
+    pub unsafe fn fetch_add_relaxed(self, index: u32, value: T) -> T {
+        let mut out = core::mem::MaybeUninit::<T>::uninit();
+        // SAFETY: the caller guarantees bounds, initialization, and atomic access.
+        unsafe {
+            crate::intrinsics::__metal_atomic_add(
+                self.ptr.cast(),
+                index,
+                (&raw const value).cast(),
+                out.as_mut_ptr().cast(),
+                core::mem::size_of::<T>(),
+            );
+            out.assume_init()
+        }
     }
 }
