@@ -126,6 +126,72 @@ fn unsupported_reachable_calls_are_reported() {
 }
 
 #[test]
+fn device_extern_operations_do_not_require_mir_bodies() {
+    let report = support::checked(support::fixture("intrinsic_declarations"));
+    for operation in [
+        "thread_idx",
+        "block_idx",
+        "block_dim",
+        "grid_dim",
+        "float_math",
+        "float_conversion",
+        "threadgroup_barrier",
+        "simd_lane",
+        "simd_size",
+        "simd_group",
+        "simd_count",
+        "simd_sum",
+        "simd_shuffle",
+    ] {
+        assert!(
+            report.contains(&format!("builtin: {operation} mir=unavailable")),
+            "{operation}:\n{report}"
+        );
+    }
+    for operation in [
+        "buffer_load",
+        "buffer_store",
+        "threadgroup_alloc",
+        "atomic_add",
+    ] {
+        assert!(
+            report.contains(&format!("builtin: {operation}")),
+            "{report}"
+        );
+    }
+}
+
+#[test]
+fn foreign_rust_aliases_cannot_claim_device_intrinsic_symbols() {
+    support::rejected(
+        support::fixture("foreign_rust_call"),
+        "foreign ABI calls are not supported in Metal kernels",
+    );
+}
+
+#[test]
+fn device_declarations_require_the_exact_intrinsic_signature() {
+    support::rejected(
+        support::invalid_device("malformed_device", "malformed_device_client", &[]),
+        "invalid device intrinsic signature",
+    );
+}
+
+#[test]
+fn shared_adapters_require_matching_type_and_length_parameters() {
+    for variant in ["reversed", "fixed_length", "fixed_element"] {
+        support::rejected(
+            support::invalid_device(
+                "malformed_shared",
+                "malformed_shared_client",
+                &["--cfg", variant],
+            ),
+            "invalid device intrinsic signature",
+        );
+    }
+}
+
+#[test]
 fn generic_drops_are_checked_after_monomorphization() {
     let report = support::checked(support::fixture("generic_drop"));
     assert!(report.contains("consume::<u32>"), "{report}");

@@ -17,7 +17,11 @@ fn directory() -> PathBuf {
 }
 
 fn compiler(source: &Path, name: &str, emit: &str) -> Command {
-    std::fs::create_dir_all(directory()).unwrap();
+    compiler_in(source, name, emit, &directory())
+}
+
+fn compiler_in(source: &Path, name: &str, emit: &str, output: &Path) -> Command {
+    std::fs::create_dir_all(output).unwrap();
     let extension = if emit == "metadata" { "rmeta" } else { "o" };
     let mut command = Command::new(COMPILER);
     command
@@ -36,7 +40,7 @@ fn compiler(source: &Path, name: &str, emit: &str) -> Command {
         .arg("-L")
         .arg(format!("dependency={}", directory().display()))
         .arg("-o")
-        .arg(directory().join(format!("lib{name}.{extension}")));
+        .arg(output.join(format!("lib{name}.{extension}")));
     command
 }
 
@@ -150,6 +154,56 @@ pub fn fixture(source: &str) -> Output {
         "metadata",
         true,
     )
+}
+
+pub fn invalid_device(source: &str, client: &str, options: &[&str]) -> Output {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    prepare_dependencies();
+    let alternate = directory().join(format!(
+        "invalid-device-{}",
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let fixtures = root().join("crates/metal-oxide-compiler/tests/fixtures");
+    let mut device = compiler_in(
+        &fixtures.join(format!("{source}.rs")),
+        "metal_oxide_device",
+        "metadata",
+        &alternate,
+    );
+    for name in ["core", "compiler_builtins"] {
+        dependency(&mut device, name);
+    }
+    let macros = directory().join(format!(
+        "{}metal_oxide_macros{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX,
+    ));
+    checked(
+        device
+            .arg("--extern")
+            .arg(format!("metal_oxide_macros={}", macros.display()))
+            .args(options)
+            .output()
+            .unwrap(),
+    );
+    let mut client = compiler(
+        &fixtures.join(format!("{client}.rs")),
+        "invalid_signature",
+        "metadata",
+    );
+    for name in ["core", "compiler_builtins"] {
+        dependency(&mut client, name);
+    }
+    client.arg("--extern").arg(format!(
+        "metal_oxide_device={}/libmetal_oxide_device.rmeta",
+        alternate.display()
+    ));
+    client
+        .args(options)
+        .arg("--metal-output")
+        .arg(alternate.join("output"));
+    client.output().unwrap()
 }
 
 pub fn rejected(output: Output, expected: &str) {
