@@ -19,6 +19,7 @@ impl HostTypes {
                 "i32",
                 "u8",
                 "u16",
+                "usize",
                 "load",
             ]
             .into_iter()
@@ -109,7 +110,7 @@ impl HostTypes {
                 )
                 .unwrap();
             }
-            writeln!(output, "}}\n\nimpl metal_oxide::GpuValue for r#{name} {{\n    const SIZE: usize = {};\n    const ALIGNMENT: usize = {};", layout.size, layout.alignment).unwrap();
+            writeln!(output, "}}\n\nimpl metal_oxide::GpuValue for r#{name} {{\n    const SIZE: std::primitive::usize = {};\n    const ALIGNMENT: std::primitive::usize = {};", layout.size, layout.alignment).unwrap();
             writeln!(output, "    fn layout() -> metal_oxide::Result<metal_oxide::Layout> {{\n        Ok(metal_oxide::Layout::record({source_name:?}, vec![").unwrap();
             for field in fields {
                 writeln!(

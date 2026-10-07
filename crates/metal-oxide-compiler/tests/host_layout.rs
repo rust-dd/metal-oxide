@@ -6,24 +6,9 @@ use std::{path::PathBuf, process::Command};
 
 #[test]
 fn generated_record_codecs_work_on_stable_rust() {
-    let (output, directory) = support::emit(
+    run_codecs(
         "crates/metal-oxide-compiler/tests/fixtures/structured.rs",
-        &["-C", "overflow-checks=off"],
-    );
-    support::checked(output);
-    let source = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    let records = source.split("pub struct Kernels").next().unwrap();
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap();
-    let project = directory.join("host-codecs");
-    std::fs::create_dir_all(project.join("src")).unwrap();
-    std::fs::write(project.join("Cargo.toml"), format!(
-        "[workspace]\n[workspace.dependencies]\nmetal-oxide = {{ path = {:?} }}\n[package]\nname = \"host-codecs\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nmetal-oxide.workspace = true\n",
-        root.join("crates/metal-oxide").to_str().unwrap()
-    )).unwrap();
-    std::fs::write(project.join("src/main.rs"), format!("{records}\n{}", r#"
+        r#"
 use metal_oxide::GpuValue;
 fn main() {
     assert_eq!((Particle::SIZE, Particle::ALIGNMENT), (24, 4));
@@ -41,7 +26,48 @@ fn main() {
     assert_eq!(<[Particle; 2]>::decode(&array), [value; 2]);
     assert_eq!(&array[0..24], &array[24..48]);
 }
-"#)).unwrap();
+"#,
+    );
+}
+
+#[test]
+fn generated_record_names_do_not_shadow_binding_dependencies() {
+    run_codecs(
+        "crates/metal-oxide-compiler/tests/fixtures/host_names.rs",
+        r#"
+use metal_oxide::GpuValue;
+fn main() {
+    let value = usize2 { value: 7 };
+    let mut bytes = [0; 4];
+    value.encode(&mut bytes);
+    assert_eq!(usize2::decode(&bytes), value);
+    assert_eq!(AsRef::SIZE, 4);
+    assert_eq!(Ok::SIZE, 4);
+    assert_eq!(Into::SIZE, 4);
+}
+"#,
+    );
+}
+
+fn run_codecs(fixture: &str, program: &str) {
+    let (output, directory) = support::emit(fixture, &["-C", "overflow-checks=off"]);
+    support::checked(output);
+    let source = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let project = directory.join("host-codecs");
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    std::fs::write(project.join("Cargo.toml"), format!(
+        "[workspace]\n[workspace.dependencies]\nmetal-oxide = {{ path = {:?} }}\n[package]\nname = \"host-codecs\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nmetal-oxide.workspace = true\n",
+        root.join("crates/metal-oxide").to_str().unwrap()
+    )).unwrap();
+    std::fs::write(
+        project.join("src/main.rs"),
+        format!("#![allow(non_camel_case_types)]\n{source}\n{program}"),
+    )
+    .unwrap();
     let output = Command::new("cargo")
         .env("RUSTUP_TOOLCHAIN", "stable")
         .current_dir(project)

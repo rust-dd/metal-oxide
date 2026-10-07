@@ -21,7 +21,7 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
     for index in 0..abi.kernels.len() {
         writeln!(output, "    pipeline_{index}: metal_oxide::Pipeline,").unwrap();
     }
-    output.push_str("}\n\npub fn load(device: &metal_oxide::Device, directory: impl AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    let module = metal_oxide::Module::from_artifact(device, directory)?;\n");
+    output.push_str("}\n\npub fn load(device: &metal_oxide::Device, directory: impl std::convert::AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    let module = metal_oxide::Module::from_artifact(device, directory)?;\n");
     writeln!(
         output,
         "    module.verify_abi({:?})?;",
@@ -62,7 +62,7 @@ fn emit_method(
     output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n    #[allow(clippy::too_many_arguments)]\n");
     let config = match kernel.required_block {
         Some([x, y, z]) => format!("metal_oxide::LaunchConfig<{x}, {y}, {z}>"),
-        None => "impl Into<metal_oxide::DynamicLaunchConfig>".into(),
+        None => "impl std::convert::Into<metal_oxide::DynamicLaunchConfig>".into(),
     };
     let name = if enqueue {
         format!("enqueue_{}", kernel.name)
