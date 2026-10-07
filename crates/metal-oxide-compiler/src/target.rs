@@ -26,11 +26,13 @@ pub(crate) fn validate(tcx: TyCtxt<'_>) {
                 "unexpected {name} layout for the Metal device target"
             ));
         }
-        crate::trace(format_args!(
-            "{name}: size={} align={}",
-            layout.size.bytes(),
-            layout.align.abi.bytes()
-        ));
+        crate::trace(|| {
+            println!(
+                "{name}: size={} align={}",
+                layout.size.bytes(),
+                layout.align.abi.bytes()
+            );
+        });
     }
-    crate::trace(format_args!("target: pointer=64 usize=64 endian=little"));
+    crate::trace(|| println!("target: pointer=64 usize=64 endian=little"));
 }

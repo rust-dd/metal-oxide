@@ -41,8 +41,8 @@ fn main() -> std::process::ExitCode {
     })
 }
 
-fn trace(arguments: std::fmt::Arguments<'_>) {
+fn trace(emit: impl FnOnce()) {
     if std::env::var_os("METAL_OXIDE_CARGO_TARGET").is_none() {
-        println!("{arguments}");
+        emit();
     }
 }

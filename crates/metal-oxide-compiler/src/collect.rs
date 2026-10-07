@@ -81,15 +81,17 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
     if !signature.output().is_unit() {
         return error("kernel entrypoints must return ()");
     }
-    crate::trace(format_args!(
-        "kernel: {} parameters={}",
-        tcx.item_name(definition),
-        signature.inputs().len()
-    ));
+    crate::trace(|| {
+        println!(
+            "kernel: {} parameters={}",
+            tcx.item_name(definition),
+            signature.inputs().len()
+        );
+    });
     let mut valid = true;
     for (index, &ty) in signature.inputs().iter().enumerate() {
         match parameter(tcx, ty) {
-            Some(description) => crate::trace(format_args!("parameter {index}: {description}")),
+            Some(description) => crate::trace(|| println!("parameter {index}: {description}")),
             None => {
                 error(&format!("unsupported kernel parameter type: {ty}"));
                 valid = false;

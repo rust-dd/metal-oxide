@@ -68,16 +68,18 @@ impl<'tcx> Collector<'tcx> {
             .instantiate(tcx, instance.args)
             .skip_binder();
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
-            crate::trace(format_args!("instance: {instance}"));
-            crate::trace(format_args!(
-                "builtin: {} mir={}",
-                builtin.name(),
-                if tcx.is_mir_available(instance.def_id()) {
-                    "available"
-                } else {
-                    "unavailable"
-                }
-            ));
+            crate::trace(|| {
+                println!("instance: {instance}");
+                println!(
+                    "builtin: {} mir={}",
+                    builtin.name(),
+                    if tcx.is_mir_available(instance.def_id()) {
+                        "available"
+                    } else {
+                        "unavailable"
+                    }
+                );
+            });
             self.instances.push(instance);
             return;
         }
@@ -91,27 +93,29 @@ impl<'tcx> Collector<'tcx> {
                 .span_err(span, format!("device MIR is unavailable for {instance}"));
             return;
         }
-        crate::trace(format_args!("instance: {instance}"));
         self.instances.push(instance);
         let body = tcx.instance_mir(instance.def);
-        let assertions = body
-            .basic_blocks
-            .iter()
-            .filter(|block| matches!(block.terminator().kind, TerminatorKind::Assert { .. }))
-            .count();
-        crate::trace(format_args!(
-            "mir: blocks={} locals={} asserts={assertions}",
-            body.basic_blocks.len(),
-            body.local_decls.len()
-        ));
-        for (local, declaration) in body.local_decls.iter_enumerated() {
-            let ty = instance.instantiate_mir_and_normalize_erasing_regions(
-                tcx,
-                TypingEnv::fully_monomorphized(),
-                EarlyBinder::bind(tcx, declaration.ty),
+        crate::trace(|| {
+            println!("instance: {instance}");
+            let assertions = body
+                .basic_blocks
+                .iter()
+                .filter(|block| matches!(block.terminator().kind, TerminatorKind::Assert { .. }))
+                .count();
+            println!(
+                "mir: blocks={} locals={} asserts={assertions}",
+                body.basic_blocks.len(),
+                body.local_decls.len()
             );
-            crate::trace(format_args!("local {local:?}: {ty}"));
-        }
+            for (local, declaration) in body.local_decls.iter_enumerated() {
+                let ty = instance.instantiate_mir_and_normalize_erasing_regions(
+                    tcx,
+                    TypingEnv::fully_monomorphized(),
+                    EarlyBinder::bind(tcx, declaration.ty),
+                );
+                println!("local {local:?}: {ty}");
+            }
+        });
         self.active.insert(instance);
         for block in body.basic_blocks.iter() {
             let terminator = block.terminator();
