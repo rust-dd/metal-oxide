@@ -63,13 +63,14 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         "device constant contains uninitialized or pointer bytes".into(),
                     )
                 })?;
-            let mut bits = [0_u8; 4];
+            let mut bits = [0_u8; 8];
             bits[..bytes.len()].copy_from_slice(bytes);
-            let value = u32::from_le_bytes(bits);
+            let value = u64::from_le_bytes(bits);
             return Ok(ir::Operand::Constant(match scalar {
                 ir::Scalar::Bool => ir::Constant::Bool(value != 0),
-                ir::Scalar::F32 => ir::Constant::F32(value),
-                ir::Scalar::U32 => ir::Constant::U32(value),
+                ir::Scalar::F32 => ir::Constant::F32(value as u32),
+                ir::Scalar::U32 => ir::Constant::U32(value as u32),
+                ir::Scalar::Usize => ir::Constant::Usize(value),
                 ir::Scalar::I32 => ir::Constant::I32(value as i32),
                 ir::Scalar::U8 => ir::Constant::U8(value as u8),
                 ir::Scalar::U16 => ir::Constant::U16(value as u16),

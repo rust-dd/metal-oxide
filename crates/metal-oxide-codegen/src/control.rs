@@ -14,6 +14,68 @@ pub(crate) struct StructuredGraph {
 }
 
 impl StructuredGraph {
+    pub(crate) fn branch_join(&self, targets: &[usize], stop: usize) -> usize {
+        let join = self.postdominators.closest_common(targets);
+        if join != self.cfg.exit_block() && !self.cfg.successors(join).is_empty() {
+            return join;
+        }
+        let mut distance = HashMap::<usize, (usize, usize)>::new();
+        for &target in targets {
+            let mut pending = VecDeque::from([(target, 0)]);
+            let mut visited = BTreeSet::new();
+            while let Some((id, depth)) = pending.pop_front() {
+                if !visited.insert(id) {
+                    continue;
+                }
+                distance
+                    .entry(id)
+                    .and_modify(|(count, d)| {
+                        *count += 1;
+                        *d = (*d).max(depth);
+                    })
+                    .or_insert((1, depth));
+                if id != stop {
+                    pending.extend(self.cfg.successors(id).iter().map(|&id| (id, depth + 1)));
+                }
+            }
+        }
+        let mut candidates = distance
+            .into_iter()
+            .filter(|(id, _)| !self.cfg.successors(*id).is_empty())
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|&(id, (count, distance))| (std::cmp::Reverse(count), distance, id));
+        for (candidate, _) in candidates {
+            if targets.iter().all(|&target| {
+                self.returns_or_reaches(target, candidate, stop, &mut BTreeSet::new())
+            }) {
+                return candidate;
+            }
+        }
+        join
+    }
+
+    fn returns_or_reaches(
+        &self,
+        id: usize,
+        candidate: usize,
+        stop: usize,
+        visiting: &mut BTreeSet<usize>,
+    ) -> bool {
+        if id == candidate || self.cfg.successors(id).is_empty() {
+            return true;
+        }
+        if id == stop || !visiting.insert(id) {
+            return false;
+        }
+        let valid = self
+            .cfg
+            .successors(id)
+            .iter()
+            .all(|&next| self.returns_or_reaches(next, candidate, stop, visiting));
+        visiting.remove(&id);
+        valid
+    }
+
     pub(crate) fn new(function: &Function) -> Result<Self, Error> {
         let n = function.blocks.len();
         let cfg = ControlFlowGraph::new(function)?;

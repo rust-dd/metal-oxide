@@ -37,6 +37,7 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
         Scalar::U16 => "ushort",
         Scalar::I8 => "char",
         Scalar::I16 => "short",
+        Scalar::Usize => "ulong",
     }
 }
 
@@ -59,7 +60,21 @@ pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u3
 pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> String {
     let mut ty = function.locals[value.local];
     let mut result = format!("v{}", value.local);
-    for &field in &value.projection {
+    for projection in &value.projection {
+        if let Projection::Index(index) = *projection {
+            result = format!("{result}.elements[v{index}]");
+            let Type::Aggregate(id) = ty else {
+                unreachable!()
+            };
+            let Aggregate::Array { element, .. } = module.types.get(id).unwrap() else {
+                unreachable!()
+            };
+            ty = *element;
+            continue;
+        }
+        let Projection::Field(field) = *projection else {
+            unreachable!()
+        };
         result = match ty {
             Type::Aggregate(id) => aggregate_field(module, id, &result, field),
             Type::Dim3 => format!("{result}.{}", ["x", "y", "z"][field as usize]),
@@ -95,6 +110,7 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::U16(v) => format!("ushort({v}u)"),
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
+            Constant::Usize(v) => format!("{v}ul"),
         },
     }
 }

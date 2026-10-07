@@ -58,7 +58,7 @@ fn nested_owned_shapes_can_be_passed_and_returned() {
             &module.functions[0],
             &Operand::Place(Place {
                 local: 1,
-                projection: vec![0]
+                projection: vec![Projection::Field(0)]
             }),
             &source(),
         )

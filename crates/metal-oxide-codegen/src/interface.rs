@@ -118,9 +118,9 @@ fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error>
         Scalar::U16 => Ok(artifact::Scalar::U16),
         Scalar::I8 => Ok(artifact::Scalar::I8),
         Scalar::I16 => Ok(artifact::Scalar::I16),
-        Scalar::Bool => Err(Error::new(
+        Scalar::Bool | Scalar::Usize => Err(Error::new(
             &function.source,
-            "bool cannot cross the kernel ABI",
+            format!("{} cannot cross the kernel ABI", value.name()),
         )),
     }
 }

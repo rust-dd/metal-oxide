@@ -10,6 +10,8 @@ pub enum Scalar {
     U16,
     I8,
     I16,
+    /// Device pointer-width integer, restricted to internal values.
+    Usize,
 }
 
 impl Scalar {
@@ -19,13 +21,14 @@ impl Scalar {
             Self::U16 | Self::I16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
+            Self::Usize => 64,
         }
     }
 
     pub const fn is_integer(self) -> bool {
         matches!(
             self,
-            Self::U8 | Self::U16 | Self::U32 | Self::I32 | Self::I8 | Self::I16
+            Self::U8 | Self::U16 | Self::U32 | Self::I32 | Self::I8 | Self::I16 | Self::Usize
         )
     }
 
@@ -43,6 +46,7 @@ impl Scalar {
             Self::U16 => "u16",
             Self::I8 => "i8",
             Self::I16 => "i16",
+            Self::Usize => "usize",
         }
     }
 }
@@ -205,7 +209,7 @@ impl TypeTable {
     /// Owned types whose scalar leaves have a canonical host/GPU representation.
     pub fn is_abi_value(&self, ty: Type) -> bool {
         match ty {
-            Type::Scalar(scalar) => scalar != Scalar::Bool,
+            Type::Scalar(scalar) => !matches!(scalar, Scalar::Bool | Scalar::Usize),
             Type::Aggregate(id) => self.get(id).is_some_and(|aggregate| {
                 !aggregate.is_empty()
                     && aggregate.component_types().all(|child| {

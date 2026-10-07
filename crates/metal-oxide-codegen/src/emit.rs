@@ -61,24 +61,11 @@ impl<'a> ModuleEmitter<'a> {
                 if !graph.cfg.is_reachable(index) {
                     continue;
                 }
-                match &block.terminator {
-                    Terminator::Assert {
-                        enabled: true,
-                        message,
-                        ..
-                    } => {
-                        return Err(Error::new(
-                            &block.source,
-                            format!("MIR assertion cannot be lowered to Metal yet: {message}"),
-                        ));
-                    }
-                    Terminator::Unreachable => {
-                        return Err(Error::new(
-                            &block.source,
-                            "reachable unreachable terminator is unsupported",
-                        ));
-                    }
-                    _ => {}
+                if block.terminator == Terminator::Unreachable {
+                    return Err(Error::new(
+                        &block.source,
+                        "reachable unreachable terminator is unsupported",
+                    ));
                 }
             }
             let signature = self.signature(function, id)?;

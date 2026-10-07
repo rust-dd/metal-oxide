@@ -43,7 +43,9 @@ impl<'tcx> TypeLowering<'tcx> {
         }
         if let Some((access, element)) = buffer(self.tcx, ty) {
             let element = match self.owned(element, span)? {
-                ir::Type::Scalar(s) if s != ir::Scalar::Bool => ir::Element::Scalar(s),
+                ir::Type::Scalar(s) if !matches!(s, ir::Scalar::Bool | ir::Scalar::Usize) => {
+                    ir::Element::Scalar(s)
+                }
                 ir::Type::Aggregate(id) => ir::Element::Aggregate(id),
                 _ => return Err((span, "unsupported buffer element type".into())),
             };
@@ -131,6 +133,7 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
         ty::Bool => Some(ir::Scalar::Bool),
         ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
         ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
+        ty::Uint(ty::UintTy::Usize) => Some(ir::Scalar::Usize),
         ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
         ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
         ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),

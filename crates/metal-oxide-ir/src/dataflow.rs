@@ -19,10 +19,25 @@ fn intersect(a: &State, b: &State) -> State {
 }
 
 fn covered(state: &State, place: &Place) -> bool {
-    state.iter().any(|value| value.contains(place))
+    let mut required = place.clone();
+    if let Some(index) = required
+        .projection
+        .iter()
+        .position(|p| matches!(p, Projection::Index(_)))
+    {
+        required.projection.truncate(index);
+    }
+    state.iter().any(|value| value.contains(&required))
 }
 
 fn mark(module: &Module, function: &Function, state: &mut State, place: &Place) {
+    if place
+        .projection
+        .iter()
+        .any(|p| matches!(p, Projection::Index(_)))
+    {
+        return;
+    }
     if covered(state, place) {
         return;
     }
@@ -91,6 +106,7 @@ pub(crate) fn initialized(
         }
         let mut initialized = inputs[id].clone();
         for statement in &block.statements {
+            check_indices(&initialized, &statement.destination, &statement.source)?;
             for operand in statement.value.operands() {
                 check(function, &initialized, operand, &statement.source)?;
             }
@@ -120,17 +136,28 @@ fn check(
     operand: &Operand,
     source: &SourceLocation,
 ) -> Result<(), Error> {
-    if let Operand::Place(place) = operand
-        && function.locals[place.local] != Type::Unit
-        && !covered(initialized, place)
-    {
-        return Err(Error::new(
-            source,
-            format!(
-                "read of uninitialized local {} projection {:?}",
-                place.local, place.projection
-            ),
-        ));
+    if let Operand::Place(place) = operand {
+        check_indices(initialized, place, source)?;
+        if function.locals[place.local] != Type::Unit && !covered(initialized, place) {
+            return Err(Error::new(
+                source,
+                format!(
+                    "read of uninitialized local {} projection {:?}",
+                    place.local, place.projection
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn check_indices(initialized: &State, place: &Place, source: &SourceLocation) -> Result<(), Error> {
+    for projection in &place.projection {
+        if let Projection::Index(index) = projection
+            && !covered(initialized, &Place::local(*index))
+        {
+            return Err(Error::new(source, "read of uninitialized array index"));
+        }
     }
     Ok(())
 }

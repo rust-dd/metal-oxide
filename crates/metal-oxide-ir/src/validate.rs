@@ -87,7 +87,7 @@ pub fn validate(module: &Module) -> Result<(), Error> {
             if matches!(
                 ty,
                 Type::Buffer {
-                    element: Element::Scalar(Scalar::Bool),
+                    element: Element::Scalar(Scalar::Bool | Scalar::Usize),
                     ..
                 } | Type::Buffer {
                     element: Element::Scalar(

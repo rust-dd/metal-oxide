@@ -114,12 +114,7 @@ impl Emitter<'_> {
                 }
             }
             match &block.terminator {
-                Terminator::Goto(target)
-                | Terminator::Assert {
-                    enabled: false,
-                    target,
-                    ..
-                } => current = *target,
+                Terminator::Goto(target) | Terminator::Assert { target, .. } => current = *target,
                 Terminator::Return => {
                     if self.function.locals[0] == Type::Unit {
                         self.line("return;");
@@ -198,7 +193,8 @@ impl Emitter<'_> {
                 stop,
             )
         } else {
-            self.graph.postdominators.immediate(block)
+            self.graph
+                .branch_join(&self.function.blocks[block].terminator.successors(), stop)
         }
     }
 

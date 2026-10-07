@@ -48,6 +48,7 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
         }
         (UnaryOp::Neg, _) => format!("(-{value})"),
         (UnaryOp::Not, Type::Scalar(Scalar::Bool)) => format!("(!{value})"),
+        (UnaryOp::Not, Type::Scalar(Scalar::Usize)) => format!("(~{value})"),
         (UnaryOp::Not, Type::Scalar(scalar)) => integer_value(scalar, &format!("~uint({value})")),
         _ => unreachable!("validated unary type"),
     }
@@ -58,7 +59,7 @@ pub(crate) fn binary(
     a: &str,
     b: &str,
     ty: Type,
-    source: &SourceLocation,
+    _source: &SourceLocation,
 ) -> Result<String, Error> {
     use BinaryOp::*;
     let symbol = match op {
@@ -93,16 +94,8 @@ pub(crate) fn binary(
             scalar.name()
         ));
     }
-    if matches!(op, Div | Rem) {
-        if ty != Type::Scalar(Scalar::F32) {
-            return Err(Error::new(
-                source,
-                "integer division/remainder are not supported yet",
-            ));
-        }
-        if op == Rem {
-            return Ok(format!("fmod({a}, {b})"));
-        }
+    if ty == Type::Scalar(Scalar::F32) && op == Rem {
+        return Ok(format!("fmod({a}, {b})"));
     }
     let Type::Scalar(scalar) = ty else {
         unreachable!("validated binary type")
@@ -120,7 +113,12 @@ pub(crate) fn binary(
                 "(uint(int({a})) >> {count}) | (((0u - uint({a} < 0)) << ((32u - {count}) & 31u)) & (0u - uint({count} != 0u)))"
             )
         } else {
-            format!("uint({a}) {symbol} {count}")
+            let width = if scalar == Scalar::Usize {
+                "ulong"
+            } else {
+                "uint"
+            };
+            format!("{width}({a}) {symbol} {count}")
         };
         return Ok(integer_value(scalar, &value));
     }

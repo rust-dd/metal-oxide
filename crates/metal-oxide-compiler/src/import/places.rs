@@ -11,10 +11,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let mut projection = Vec::new();
         for element in place.projection.iter() {
             let index = match element {
-                mir::ProjectionElem::Field(field, _) => field.as_u32(),
+                mir::ProjectionElem::Field(field, _) => ir::Projection::Field(field.as_u32()),
                 mir::ProjectionElem::Index(index) => match self.constants[index.as_usize()] {
-                    Some(ir::Constant::U32(value)) => value,
-                    _ => return Err((span, "array indices must be provable constants".into())),
+                    Some(ir::Constant::Usize(value)) if u32::try_from(value).is_ok() => {
+                        ir::Projection::Field(value as u32)
+                    }
+                    _ => ir::Projection::Index(index.as_usize()),
                 },
                 mir::ProjectionElem::ConstantIndex {
                     offset,
@@ -30,18 +32,26 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     } else {
                         Some(offset)
                     };
-                    index
-                        .and_then(|n| u32::try_from(n).ok())
-                        .ok_or((span, "invalid constant array projection".into()))?
+                    ir::Projection::Field(
+                        index
+                            .and_then(|n| u32::try_from(n).ok())
+                            .ok_or((span, "invalid constant array projection".into()))?,
+                    )
                 }
                 _ => return Err((span, "unsupported MIR place projection".into())),
             };
-            ty = self
-                .module
-                .types
-                .table()
-                .field(ty, index)
-                .ok_or((span, "invalid aggregate field or array index".into()))?;
+            let table = self.module.types.table();
+            ty = match index {
+                ir::Projection::Field(field) => table.field(ty, field),
+                ir::Projection::Index(_) => match ty {
+                    ir::Type::Aggregate(id) => match table.get(id) {
+                        Some(ir::Aggregate::Array { element, .. }) => Some(*element),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+            }
+            .ok_or((span, "invalid aggregate field or array index".into()))?;
             projection.push(index);
         }
         Ok(ir::Place { local, projection })

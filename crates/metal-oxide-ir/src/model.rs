@@ -80,6 +80,7 @@ pub enum Constant {
     U16(u16),
     I8(i8),
     I16(i16),
+    Usize(u64),
 }
 
 impl Constant {
@@ -94,14 +95,22 @@ impl Constant {
             Self::U16(_) => Type::Scalar(Scalar::U16),
             Self::I8(_) => Type::Scalar(Scalar::I8),
             Self::I16(_) => Type::Scalar(Scalar::I16),
+            Self::Usize(_) => Type::Scalar(Scalar::Usize),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Projection {
+    Field(u32),
+    /// The index is a pointer-width integer local.
+    Index(usize),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Place {
     pub local: usize,
-    pub projection: Vec<u32>,
+    pub projection: Vec<Projection>,
 }
 
 impl Place {

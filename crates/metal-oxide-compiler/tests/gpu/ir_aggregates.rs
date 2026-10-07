@@ -62,7 +62,7 @@ fn block(statements: Vec<(usize, Expression)>) -> Block {
 fn field(local: usize, field: u32) -> Operand {
     Operand::Place(Place {
         local,
-        projection: vec![field],
+        projection: vec![ir::Projection::Field(field)],
     })
 }
 

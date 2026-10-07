@@ -13,7 +13,7 @@ fn id(ty: Type) -> usize {
 fn field(local: usize, field: u32) -> Operand {
     Operand::Place(Place {
         local,
-        projection: vec![field],
+        projection: vec![Projection::Field(field)],
     })
 }
 

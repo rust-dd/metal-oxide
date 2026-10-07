@@ -6,6 +6,7 @@
 #define device
 #define constant const
 using uint = std::uint32_t;
+using ulong = std::uint64_t;
 using uchar = std::uint8_t;
 using ushort = std::uint16_t;
 struct uint3 {

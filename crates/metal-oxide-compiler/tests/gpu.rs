@@ -12,6 +12,8 @@ mod ir_aggregates;
 mod narrow;
 #[path = "gpu/numerics.rs"]
 mod numerics;
+#[path = "gpu/proofs.rs"]
+mod proofs;
 #[path = "gpu/records.rs"]
 mod records;
 mod support;

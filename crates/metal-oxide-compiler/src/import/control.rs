@@ -57,6 +57,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .map(|(value, target)| {
                 let value = match ty {
                     ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(value as u32),
+                    ir::Type::Scalar(ir::Scalar::Usize) => ir::Constant::Usize(value as u64),
                     ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(value as i32),
                     ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(value as u8),
                     ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(value as u16),

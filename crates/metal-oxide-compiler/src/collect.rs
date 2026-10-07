@@ -137,7 +137,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
         Scalar::U16 => "u16",
         Scalar::I8 => "i8",
         Scalar::I16 => "i16",
-        Scalar::Bool => return None,
+        Scalar::Bool | Scalar::Usize => return None,
     };
     let layout = tcx
         .layout_of(TypingEnv::fully_monomorphized().as_query_input(element))

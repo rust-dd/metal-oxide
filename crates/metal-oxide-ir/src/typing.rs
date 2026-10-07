@@ -13,11 +13,23 @@ pub fn place_type(
     if ty == Type::Never {
         return Err(Error::new(source, "never-typed values cannot be read"));
     }
-    for &field in &place.projection {
-        ty = module
-            .types
-            .field(ty, field)
-            .ok_or_else(|| Error::new(source, "invalid aggregate field projection"))?;
+    for projection in &place.projection {
+        ty = match *projection {
+            Projection::Field(field) => module.types.field(ty, field),
+            Projection::Index(index) => {
+                if function.locals.get(index) != Some(&Type::Scalar(Scalar::Usize)) {
+                    return Err(Error::new(source, "array indices require a usize local"));
+                }
+                match ty {
+                    Type::Aggregate(id) => match module.types.get(id) {
+                        Some(Aggregate::Array { element, .. }) => Some(*element),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+        }
+        .ok_or_else(|| Error::new(source, "invalid aggregate field projection"))?;
     }
     Ok(ty)
 }
@@ -88,6 +100,7 @@ pub(crate) fn expression_type(
                             | Scalar::U16
                             | Scalar::I8
                             | Scalar::I16
+                            | Scalar::Usize
                     )
                 )
             );
@@ -160,7 +173,7 @@ pub(crate) fn expression_type(
             element, length, ..
         } => {
             if *length == 0
-                || *element == Scalar::Bool
+                || matches!(element, Scalar::Bool | Scalar::Usize)
                 || length.checked_mul(element.bits() / 8).is_none()
             {
                 return Err(Error::new(source, "invalid threadgroup allocation"));

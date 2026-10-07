@@ -29,10 +29,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let used = control::used_locals(body);
         self.constants = super::constants::locals(tcx, self.instance, body);
         for (index, local) in body.local_decls.iter().enumerate() {
-            let normalized = self.normalize_type(local.ty);
-            let ty = if normalized.is_usize() && self.constants[index].is_some() {
-                ir::Type::Scalar(ir::Scalar::U32)
-            } else if used[index] {
+            let ty = if used[index] {
                 self.lower_type(local.ty, local.source_info.span)?
             } else {
                 ir::Type::Unit

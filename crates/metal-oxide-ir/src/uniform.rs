@@ -81,6 +81,11 @@ fn check_function(
         {
             for statement in &block.statements {
                 let variable = divergent[id]
+                    || statement
+                        .destination
+                        .projection
+                        .iter()
+                        .any(|p| matches!(p, Projection::Index(index) if varying[*index]))
                     || matches!(
                         statement.value,
                         Expression::Coordinates(Builtin::ThreadIdx)
@@ -153,6 +158,12 @@ fn check_function(
 fn operand_varying(value: &Operand, varying: &[bool]) -> bool {
     match value {
         Operand::Constant(_) | Operand::AggregateConstant { .. } => false,
-        Operand::Place(place) => varying[place.local],
+        Operand::Place(place) => {
+            varying[place.local]
+                || place
+                    .projection
+                    .iter()
+                    .any(|p| matches!(p, Projection::Index(index) if varying[*index]))
+        }
     }
 }

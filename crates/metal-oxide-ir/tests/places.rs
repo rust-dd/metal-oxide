@@ -11,7 +11,7 @@ fn source() -> SourceLocation {
 fn place(local: usize, projection: &[u32]) -> Place {
     Place {
         local,
-        projection: projection.to_vec(),
+        projection: projection.iter().copied().map(Projection::Field).collect(),
     }
 }
 
