@@ -233,11 +233,6 @@ pub enum Expression {
         ty: usize,
         fields: Vec<Operand>,
     },
-    AggregateUpdate {
-        aggregate: Operand,
-        field: u32,
-        value: Operand,
-    },
     ThreadgroupAlloc {
         id: u32,
         element: Scalar,
@@ -285,9 +280,6 @@ impl Expression {
                 value, overflow, ..
             } => vec![value, overflow],
             Self::Aggregate { fields, .. } => fields.iter().collect(),
-            Self::AggregateUpdate {
-                aggregate, value, ..
-            } => vec![aggregate, value],
             Self::BufferLoad { buffer, index } => vec![buffer, index],
             Self::BufferStore {
                 buffer,

@@ -21,14 +21,6 @@ fn construct(ty: Type, fields: Vec<Operand>) -> Expression {
     Expression::Aggregate { ty: id(ty), fields }
 }
 
-fn update(aggregate: Operand, field: u32, value: Operand) -> Expression {
-    Expression::AggregateUpdate {
-        aggregate,
-        field,
-        value,
-    }
-}
-
 #[test]
 fn nested_record_tuple_and_array_copies_survive_helper_calls() {
     let mut types = TypeTable::default();
@@ -43,18 +35,24 @@ fn nested_record_tuple_and_array_copies_survive_helper_calls() {
     ));
     let mut output = module(
         1,
-        vec![record, record, tuple, array, array, tuple],
+        vec![record; 2],
         vec![block(
-            vec![
-                (2, Expression::Use(field(1, 1))),
-                (3, Expression::Use(field(2, 1))),
-                (4, update(local(3), 1, uint(99))),
-                (5, update(local(2), 1, local(4))),
-                (0, update(local(1), 1, local(5))),
-            ],
+            vec![(0, Expression::Use(local(1)))],
             Terminator::Return,
         )],
     );
+    output.functions[0].blocks[0].statements.push(Statement {
+        destination: Place {
+            local: 0,
+            projection: vec![
+                Projection::Field(1),
+                Projection::Field(1),
+                Projection::Field(1),
+            ],
+        },
+        value: Expression::Use(uint(99)),
+        source: support::source(),
+    });
     let constructor = module(
         0,
         vec![record, array, tuple],
@@ -165,15 +163,24 @@ fn replacement_reads_the_old_destination_before_it_is_overwritten() {
     ));
     let mut output = module(
         2,
-        vec![record; 3],
+        vec![record, record, record, Type::Scalar(Scalar::U32)],
         vec![block(
             vec![
                 (0, Expression::Use(local(1))),
-                (0, update(local(2), 0, field(0, 1))),
+                (3, Expression::Use(field(0, 1))),
+                (0, Expression::Use(local(2))),
             ],
             Terminator::Return,
         )],
     );
+    output.functions[0].blocks[0].statements.push(Statement {
+        destination: Place {
+            local: 0,
+            projection: vec![Projection::Field(0)],
+        },
+        value: Expression::Use(local(3)),
+        source: support::source(),
+    });
     output.types = types;
     assert_eq!(
         support::execute(
@@ -218,10 +225,18 @@ fn array_update_source_size_is_bounded_independently_of_length() {
             1,
             vec![array; 2],
             vec![block(
-                vec![(0, update(local(1), 0, uint(9)))],
+                vec![(0, Expression::Use(local(1)))],
                 Terminator::Return,
             )],
         );
+        output.functions[0].blocks[0].statements.push(Statement {
+            destination: Place {
+                local: 0,
+                projection: vec![Projection::Field(0)],
+            },
+            value: Expression::Use(uint(9)),
+            source: support::source(),
+        });
         output.types = types;
         let msl = metal_oxide_codegen::Codegen::new(&output)
             .and_then(|codegen| codegen.emit())

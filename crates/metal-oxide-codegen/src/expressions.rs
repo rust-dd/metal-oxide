@@ -145,20 +145,6 @@ pub(crate) fn expression(
         Expression::Aggregate { ty, fields } => {
             aggregate_value(module, *ty, fields.iter().map(op).collect())
         }
-        Expression::AggregateUpdate {
-            aggregate,
-            field,
-            value,
-        } => {
-            let Type::Aggregate(id) = ty(aggregate)? else {
-                unreachable!("validated aggregate update")
-            };
-            format!(
-                "metal_oxide_update_{id}_{field}({}, {})",
-                op(aggregate),
-                op(value)
-            )
-        }
         Expression::SimdCoordinate(builtin) => format!(
             "metal_oxide_ctx.simd_{}",
             match builtin {

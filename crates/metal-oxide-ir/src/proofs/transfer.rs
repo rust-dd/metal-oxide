@@ -76,16 +76,6 @@ impl Analysis<'_> {
             }
             Expression::Aggregate { fields, .. } => aggregate(state, fields),
             Expression::Dim3(fields) => aggregate(state, fields),
-            Expression::AggregateUpdate {
-                aggregate,
-                field,
-                value: v,
-            } => {
-                let mut result = value(aggregate);
-                result.0.retain(|p, _| p.first() != Some(field));
-                result.field(*field, value(v));
-                result
-            }
             Expression::Cast(operand, to) if to.is_integer() || *to == Scalar::Bool => {
                 if let Some(from) = range(operand) {
                     let full = Range::full(*to);

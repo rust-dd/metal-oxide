@@ -1,10 +1,6 @@
-use crate::{
-    control::StructuredGraph,
-    expressions::{aggregate_field, type_name},
-    interface::KernelInterfaces,
-};
+use crate::{control::StructuredGraph, expressions::type_name, interface::KernelInterfaces};
 use metal_oxide_ir::*;
-use std::{collections::BTreeSet, fmt::Write};
+use std::fmt::Write;
 
 pub(crate) struct ModuleEmitter<'a> {
     module: &'a Module,
@@ -53,7 +49,6 @@ impl<'a> ModuleEmitter<'a> {
             }
             self.output.push_str("};\n\n");
         }
-        self.aggregate_updates()?;
         for (id, f) in module.functions.iter().enumerate() {
             if !f.kernel {
                 let signature = self.signature(f, id)?;
@@ -126,37 +121,6 @@ impl<'a> ModuleEmitter<'a> {
             self.output.push_str("}\n\n");
         }
         Ok(self.output)
-    }
-
-    fn aggregate_updates(&mut self) -> Result<(), Error> {
-        let mut updates = BTreeSet::new();
-        for function in &self.module.functions {
-            for statement in function.blocks.iter().flat_map(|block| &block.statements) {
-                if let Expression::AggregateUpdate {
-                    aggregate, field, ..
-                } = &statement.value
-                {
-                    let Type::Aggregate(id) =
-                        operand_type(self.module, function, aggregate, &statement.source)?
-                    else {
-                        unreachable!("validated aggregate update")
-                    };
-                    updates.insert((id, *field));
-                }
-            }
-        }
-        for (id, field) in updates {
-            let ty = type_name(Type::Aggregate(id));
-            let component = self.module.types.get(id).unwrap().field(field).unwrap();
-            writeln!(
-                self.output,
-                "inline {ty} metal_oxide_update_{id}_{field}({ty} value, {} replacement) {{\n    {} = replacement;\n    return value;\n}}\n",
-                type_name(component),
-                aggregate_field(self.module, id, "value", field),
-            )
-            .unwrap();
-        }
-        Ok(())
     }
 
     fn signature(&self, function: &Function, id: usize) -> Result<String, Error> {

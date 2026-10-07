@@ -77,14 +77,6 @@ fn construct(ty: Type, fields: Vec<Operand>) -> Expression {
     Expression::Aggregate { ty, fields }
 }
 
-fn update(local: usize, field: u32, value: usize) -> Expression {
-    Expression::AggregateUpdate {
-        aggregate: Operand::local(local),
-        field,
-        value: Operand::local(value),
-    }
-}
-
 fn store(buffer: usize, index: u32, value: Operand) -> Expression {
     Expression::BufferStore {
         buffer: Operand::local(buffer),
@@ -168,29 +160,27 @@ fn aggregate_module() -> ir::Module {
         ])],
         source: source(),
     };
-    let helper = Function {
+    let mut helper = Function {
         name: "update_nested".into(),
         kernel: false,
         required_block: None,
         parameters: 2,
-        locals: vec![
-            record,
-            record,
-            Type::Scalar(Scalar::U32),
-            tuple,
-            array,
-            array,
-            tuple,
-        ],
-        blocks: vec![block(vec![
-            (3, Expression::Use(field(1, 0))),
-            (4, Expression::Use(field(3, 1))),
-            (5, update(4, 1, 2)),
-            (6, update(3, 1, 5)),
-            (0, update(1, 0, 6)),
-        ])],
+        locals: vec![record, record, Type::Scalar(Scalar::U32)],
+        blocks: vec![block(vec![(0, Expression::Use(Operand::local(1)))])],
         source: source(),
     };
+    helper.blocks[0].statements.push(Statement {
+        destination: Place {
+            local: 0,
+            projection: vec![
+                ir::Projection::Field(0),
+                ir::Projection::Field(1),
+                ir::Projection::Field(1),
+            ],
+        },
+        value: Expression::Use(Operand::local(2)),
+        source: source(),
+    });
     ir::Module {
         types,
         functions: vec![kernel, helper],

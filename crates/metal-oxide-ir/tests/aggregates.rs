@@ -143,11 +143,14 @@ fn array_updates_validate_the_index_and_replacement_type() {
             length: 2,
         });
         let mut module = identity(types, array);
-        module.functions[0].blocks[0].statements[0].value = Expression::AggregateUpdate {
-            aggregate: Operand::local(1),
-            field,
-            value: Operand::Constant(replacement),
-        };
+        module.functions[0].blocks[0].statements.push(Statement {
+            destination: Place {
+                local: 0,
+                projection: vec![Projection::Field(field)],
+            },
+            value: Expression::Use(Operand::Constant(replacement)),
+            source: source(),
+        });
         match expected {
             None => {
                 validate(&module).unwrap();
@@ -173,11 +176,14 @@ fn nested_component_replacement_keeps_the_exact_shape() {
     let function = &mut module.functions[0];
     function.parameters = 2;
     function.locals.push(other);
-    function.blocks[0].statements[0].value = Expression::AggregateUpdate {
-        aggregate: Operand::local(1),
-        field: 0,
-        value: Operand::local(2),
-    };
+    function.blocks[0].statements.push(Statement {
+        destination: Place {
+            local: 0,
+            projection: vec![Projection::Field(0)],
+        },
+        value: Expression::Use(Operand::local(2)),
+        source: source(),
+    });
     assert!(
         validate(&module)
             .unwrap_err()

@@ -179,22 +179,6 @@ pub(crate) fn expression_type(
             }
             Ok(Type::Aggregate(*id))
         }
-        Expression::AggregateUpdate {
-            aggregate,
-            field,
-            value,
-        } => {
-            let Type::Aggregate(id) = ty(aggregate)? else {
-                return Err(Error::new(source, "field update requires an aggregate"));
-            };
-            let expected = module
-                .types
-                .get(id)
-                .and_then(|aggregate| aggregate.field(*field))
-                .ok_or_else(|| Error::new(source, "invalid aggregate field"))?;
-            require(ty(value)?, expected)?;
-            Ok(Type::Aggregate(id))
-        }
         Expression::SimdCoordinate(_) => Ok(Type::Scalar(Scalar::U32)),
         Expression::SimdSum(value) => {
             require(ty(value)?, Type::Scalar(Scalar::F32))?;
