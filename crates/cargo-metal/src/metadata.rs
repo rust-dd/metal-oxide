@@ -5,6 +5,9 @@ use crate::{
 use serde::Deserialize;
 use std::{collections::HashSet, path::PathBuf, process::Command};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Deserialize)]
 pub(crate) struct Metadata {
     pub(crate) workspace_root: PathBuf,
@@ -36,8 +39,19 @@ pub(crate) struct Resolve {
 #[derive(Deserialize)]
 pub(crate) struct Node {
     pub(crate) id: String,
-    pub(crate) dependencies: Vec<String>,
+    pub(crate) deps: Vec<Dependency>,
     pub(crate) features: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Dependency {
+    pub(crate) pkg: String,
+    pub(crate) dep_kinds: Vec<DependencyKind>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DependencyKind {
+    pub(crate) kind: Option<String>,
 }
 
 pub(crate) struct Project {
@@ -102,7 +116,16 @@ pub(crate) fn load(options: &Options) -> Result<Project> {
                 .iter()
                 .find(|n| n.id == id)
                 .ok_or("missing Cargo resolve node")?;
-            pending.extend(node.dependencies.iter().cloned());
+            pending.extend(
+                node.deps
+                    .iter()
+                    .filter(|dep| {
+                        dep.dep_kinds
+                            .iter()
+                            .any(|kind| kind.kind.as_deref() != Some("dev"))
+                    })
+                    .map(|dep| dep.pkg.clone()),
+            );
         }
     }
     for package in &metadata.packages {
