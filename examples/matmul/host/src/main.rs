@@ -4,10 +4,23 @@ mod kernels {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+mod mixed;
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use metal_oxide::{Device, Dim3, LaunchConfig};
-    let device = Device::system_default()?;
+    let device = metal_oxide::Device::system_default()?;
     let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
+    verify_f32(&device, &kernels)?;
+    mixed::verify(&device, &kernels)?;
+    Ok(())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+fn verify_f32(
+    device: &metal_oxide::Device,
+    kernels: &kernels::Kernels<'_>,
+) -> metal_oxide::Result<()> {
+    use metal_oxide::{Dim3, LaunchConfig};
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
         let a = (0..n)
             .map(|i| (i % 13) as f32 * 0.25 - 1.0)
@@ -90,5 +103,21 @@ fn main() -> std::process::ExitCode {
 #[test]
 #[ignore = "requires a Metal device and generated artifact"]
 fn generated_matmul_matches_cpu() {
-    main().unwrap();
+    let device = metal_oxide::Device::system_default().unwrap();
+    let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR")).unwrap();
+    verify_f32(&device, &kernels).unwrap();
+}
+
+#[cfg(all(
+    test,
+    target_os = "macos",
+    target_arch = "aarch64",
+    metal_oxide_artifact
+))]
+#[test]
+#[ignore = "requires a Metal device and generated artifact"]
+fn generated_half_matmul_matches_cpu_and_msl() {
+    let device = metal_oxide::Device::system_default().unwrap();
+    let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR")).unwrap();
+    mixed::verify(&device, &kernels).unwrap();
 }

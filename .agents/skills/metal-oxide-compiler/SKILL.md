@@ -29,7 +29,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   define launch dimensions automatically.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   assertions, recursion, layouts, and conversions must produce diagnostics.
-  Never discard bounds/overflow assertions or silently change semantics.
+  Never remove a bounds/overflow check without a sound proof or silently change semantics.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
 - Device records contain owned scalar fields; keep their internal shape separate
@@ -56,7 +56,8 @@ synthetic IR example, or MIR dump does not satisfy that criterion.
 Run generated-kernel hardware tests from the compiler directory with
 `cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler
 -- --ignored --test-threads=1`. Tests explicitly select wrapping integers;
-preserve enabled/always-on assertions as errors. When available locally, use
+preserve enabled/always-on assertions unless a typed proof establishes safety;
+unknown checks remain errors. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
 
 `bash scripts/test-gpu.sh` from the root verifies both native runtime APIs and
