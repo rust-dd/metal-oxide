@@ -59,6 +59,7 @@ fn cache_recovers_each_missing_or_corrupt_file_and_abandoned_stage() {
         ArtifactFile::Air,
         ArtifactFile::Metallib,
         ArtifactFile::Bindings,
+        ArtifactFile::RustcArgs,
         ArtifactFile::Abi,
         ArtifactFile::Manifest,
     ] {

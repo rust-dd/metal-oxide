@@ -31,12 +31,19 @@ fn installed() -> Result<Option<PathBuf>> {
     Err("no installed metal-oxide-compiler; install the complete private bundle or set METAL_OXIDE_COMPILER".into())
 }
 
-pub(crate) fn resolve(directory: &Path) -> Result<PathBuf> {
+pub(crate) fn resolve(directory: &Path, rustc: &str) -> Result<PathBuf> {
     if let Some(path) = installed()? {
         return Ok(path);
     }
-    process::run(
+    let host = rustc
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .ok_or("rustc did not report its host target")?;
+    let messages = process::capture(
         Command::new("rustup")
+            .current_dir(source().parent().unwrap())
+            .env_remove("RUSTFLAGS")
+            .env_remove("CARGO_ENCODED_RUSTFLAGS")
             .args([
                 "run",
                 COMPILER_NIGHTLY,
@@ -47,15 +54,29 @@ pub(crate) fn resolve(directory: &Path) -> Result<PathBuf> {
                 "--bin",
                 "metal-oxide-compiler",
                 "--locked",
+                "--message-format=json-render-diagnostics",
+                "--target",
+                host,
             ])
             .arg("--manifest-path")
             .arg(source())
             .arg("--target-dir")
             .arg(directory),
     )?;
-    Ok(directory
-        .join("debug/metal-oxide-compiler")
-        .canonicalize()?)
+    let mut binaries = Vec::new();
+    for line in messages.lines() {
+        let message: serde_json::Value = serde_json::from_str(line)?;
+        if message["reason"] == "compiler-artifact"
+            && message["target"]["name"] == "metal-oxide-compiler"
+            && let Some(path) = message["executable"].as_str()
+        {
+            binaries.push(PathBuf::from(path));
+        }
+    }
+    match binaries.as_slice() {
+        [path] => Ok(path.canonicalize()?),
+        _ => Err("Cargo did not report exactly one metal-oxide-compiler executable".into()),
+    }
 }
 
 pub(crate) fn verify(path: &Path, rustc: &str) -> Result<CompilerInfo> {

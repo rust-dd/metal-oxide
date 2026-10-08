@@ -306,6 +306,16 @@ fn informational_commands_preserve_generated_files() {
 }
 
 #[test]
+fn compiler_flags_preserve_the_end_of_options_marker() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/m2_unit.rs",
+        &["--"],
+    );
+    support::checked(output);
+    assert!(directory.join("kernels.metal").is_file());
+}
+
+#[test]
 fn atomic_threadgroup_storage_rejects_float_elements() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/invalid_atomic_shared.rs",

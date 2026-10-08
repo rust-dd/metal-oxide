@@ -31,6 +31,7 @@ fn frontend_errors_invalidate_previous_generated_files() {
             "kernels.oxide-ir",
             "abi.json",
             "bindings.rs",
+            "rustc-args.json",
         ] {
             assert!(!directory.join(name).exists(), "stale {name} after {error}");
         }

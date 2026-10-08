@@ -12,7 +12,7 @@ use crate::{Error, Result};
 use super::Device;
 use metal_oxide_artifact::{Abi, ArtifactFile, Manifest};
 
-/// A Metal library loaded independently of Rust compiler internals.
+/// A compiled Metal library and its optional kernel ABI.
 pub struct Module {
     pub(super) raw: Retained<ProtocolObject<dyn MTLLibrary>>,
     pub(super) device_id: u64,
@@ -60,7 +60,7 @@ impl Module {
         let manifest = Manifest::from_json(&std::fs::read_to_string(
             directory.join(ArtifactFile::Manifest.name()),
         )?)?;
-        for feature in &manifest.required_features {
+        for feature in &manifest.abi.required_features {
             let (family, reason) = match feature.as_str() {
                 "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
                 "int32_atomics" => (

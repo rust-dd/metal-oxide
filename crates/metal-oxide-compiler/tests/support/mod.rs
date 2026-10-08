@@ -37,7 +37,7 @@ fn compiler_in(source: &Path, name: &str, emit: &str, output: &Path) -> Command 
             "--edition",
             "2024",
         ])
-        .args(["--emit", emit, "-Z", "unstable-options"])
+        .args(["--emit", emit])
         .arg("--target")
         .arg(root().join("targets/metal64-unknown-none.json"))
         .arg("-L")

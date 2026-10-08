@@ -17,6 +17,7 @@ rustc-private = []
 metal-oxide-artifact = { workspace = true }
 metal-oxide-codegen.workspace = true
 metal-oxide-ir.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 metal-oxide.workspace = true

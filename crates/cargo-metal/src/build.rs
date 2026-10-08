@@ -60,7 +60,6 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         &generated,
         &rust.identity,
         &rust.version,
-        &rust.flags,
         std::fs::read(&rust.target)?,
         &metal.version,
         &metal.sdk,
@@ -145,7 +144,6 @@ fn create(
     )?)?;
     metal.compile(stage)?;
     let manifest = Manifest {
-        required_features: abi.required_features.clone(),
         abi,
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
@@ -156,9 +154,9 @@ fn create(
             rustc: rust.version.clone(),
             metal: metal.version.clone(),
             sdk: metal.sdk.clone(),
-            rust_flags: std::iter::once("--release".to_owned())
-                .chain(rust.flags.iter().cloned())
-                .collect(),
+            rustc_args: serde_json::from_slice(&std::fs::read(
+                stage.join(ArtifactFile::RustcArgs.name()),
+            )?)?,
             metal_flags: METAL_FLAGS.iter().map(|v| (*v).to_owned()).collect(),
         },
     };

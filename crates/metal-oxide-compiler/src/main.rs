@@ -40,7 +40,15 @@ fn main() -> std::process::ExitCode {
     };
     rustc_driver::catch_with_exit_code(|| {
         let help = arguments::help(&arguments);
-        rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output, help });
+        if !help {
+            arguments.insert(1, "-Zunstable-options".into());
+        }
+        let mut frontend = driver::Frontend {
+            output,
+            help,
+            arguments: arguments[1..].to_vec(),
+        };
+        rustc_driver::compiler_entrypoint(&arguments, &mut frontend);
     })
 }
 

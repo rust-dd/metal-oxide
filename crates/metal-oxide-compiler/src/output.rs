@@ -18,6 +18,7 @@ pub(crate) fn write<'tcx>(
     module: &metal_oxide_ir::Module,
     tcx: rustc_middle::ty::TyCtxt<'tcx>,
     entries: &[rustc_middle::ty::Instance<'tcx>],
+    arguments: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         directory.join(ArtifactFile::OxideIr.name()),
@@ -62,5 +63,9 @@ pub(crate) fn write<'tcx>(
     std::fs::write(directory.join(ArtifactFile::Msl.name()), msl)?;
     std::fs::write(directory.join(ArtifactFile::Abi.name()), abi)?;
     std::fs::write(directory.join(ArtifactFile::Bindings.name()), bindings)?;
+    std::fs::write(
+        directory.join(ArtifactFile::RustcArgs.name()),
+        serde_json::to_vec_pretty(arguments)?,
+    )?;
     Ok(())
 }

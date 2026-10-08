@@ -21,7 +21,6 @@ fn manifest() -> Manifest {
         },
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
-        required_features: vec![],
         files: Files {
             msl: sha256(b"msl"),
             oxide_ir: sha256(b"oxide ir"),
@@ -35,7 +34,7 @@ fn manifest() -> Manifest {
             rustc: "nightly".into(),
             metal: "metal".into(),
             sdk: "macosx".into(),
-            rust_flags: vec![],
+            rustc_args: vec![],
             metal_flags: vec![],
         },
     }
@@ -83,7 +82,7 @@ fn manifest_mutations_fail_without_panicking() {
             "/abi/kernels/0/required_block",
             serde_json::json!([256, 0, 1]),
         ),
-        ("/required_features", serde_json::json!(["unknown"])),
+        ("/abi/required_features", serde_json::json!(["unknown"])),
         ("/files/metallib", serde_json::json!("invalid")),
         ("/build/fingerprint", serde_json::json!("")),
     ] {
@@ -112,7 +111,7 @@ fn rejects_incompatible_metadata() {
             .contains("ABI version")
     );
     let mut value = manifest();
-    value.required_features.push("atomic_u64".into());
+    value.abi.required_features.push("atomic_u64".into());
     assert!(value.validate().is_err());
     let mut value = manifest();
     value.msl_version = "4.0".into();
@@ -139,10 +138,9 @@ fn rejects_conflicting_names_slots_and_unknown_layouts() {
         Manifest::from_json(&value.replace("\"binding\": 0", "\"binding\": 0, \"offset\": 8"))
             .is_err()
     );
-    assert!(
-        Manifest::from_json(&value.replace("\"version\": 3", "\"version\": 3, \"ignored\": true"))
-            .is_err()
-    );
+    let mut value = serde_json::to_value(manifest()).unwrap();
+    value["abi"]["ignored"] = serde_json::json!(true);
+    assert!(Manifest::from_json(&value.to_string()).is_err());
 }
 
 #[test]

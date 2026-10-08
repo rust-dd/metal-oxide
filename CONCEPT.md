@@ -278,7 +278,7 @@ For `vec_add`, `abi.json` contains:
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "required_features": [],
   "kernels": [
     {
@@ -414,6 +414,7 @@ The artifact is stored under `target/metal/<build-hash>/`:
 | File | Created by | Use |
 | --- | --- | --- |
 | `kernels.oxide-ir` | MIR importer/output stage | Diagnostic dump of our IR |
+| `rustc-args.json` | Compiler driver | Effective kernel compiler arguments, included in the build identity |
 | `kernels.metal` | MSL codegen | Input to the Apple compiler; inspectable shader source |
 | `abi.json` | ABI codegen | Standalone kernel contract |
 | `bindings.rs` | Binding codegen | Compiled into the host |
