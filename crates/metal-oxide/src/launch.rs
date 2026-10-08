@@ -1,5 +1,8 @@
 use crate::{Error, Result};
 
+#[cfg(test)]
+mod tests;
+
 /// Dimensions along the x, y, and z axes, following CUDA's dim3 convention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dim3 {
@@ -35,13 +38,11 @@ impl Dim3 {
 
 /// A runtime grid with block dimensions encoded in its type.
 ///
-/// Metal executes each block as a threadgroup. The grid counts blocks, not
-/// individual threads. Unspecified block axes default to one. An empty grid is
-/// a no-op; block dimensions must be positive and fit the device/pipeline limits.
-/// These limits are checked when the kernel is launched.
+/// Each block maps to a Metal threadgroup; the grid counts blocks. Omitted block
+/// axes default to one. Launches validate the block against device/pipeline limits,
+/// including for empty grids, which execute no threads.
 ///
-/// The block constants configure the launch. Loading handwritten MSL does not
-/// specialize the shader for those constants.
+/// The constants set launch geometry; they do not specialize handwritten MSL.
 ///
 /// ```
 /// use metal_oxide::{Dim3, LaunchConfig};
@@ -81,16 +82,6 @@ impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
     pub fn total_threads(self) -> Result<u64> {
         DynamicLaunchConfig::from(self).total_threads()
     }
-
-    /// Checks the pipeline's total block limit and the device's per-axis limits.
-    pub fn validate(
-        self,
-        maximum_threads_per_block: usize,
-        maximum_block_dimensions: Dim3,
-    ) -> Result<()> {
-        DynamicLaunchConfig::from(self)
-            .validate(maximum_threads_per_block, maximum_block_dimensions)
-    }
 }
 
 impl<const BLOCK_X: u32> LaunchConfig<BLOCK_X> {
@@ -125,9 +116,7 @@ impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
 
 /// Launch geometry with runtime-selected block dimensions.
 ///
-/// Use this when block dimensions come from pipeline queries or runtime tuning.
-/// `Device::launch` accepts both this type and a const-generic `LaunchConfig`.
-/// Both paths validate the same device, pipeline, and dimension limits.
+/// `Device::launch` accepts this or a const-generic `LaunchConfig`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DynamicLaunchConfig {
     pub grid: Dim3,
@@ -167,8 +156,8 @@ impl DynamicLaunchConfig {
         self.global_size()?.volume()
     }
 
-    /// Checks the pipeline's total block limit and the device's per-axis limits.
-    pub fn validate(
+    #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+    pub(crate) fn validate(
         self,
         maximum_threads_per_block: usize,
         maximum_block_dimensions: Dim3,

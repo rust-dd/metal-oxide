@@ -1,4 +1,4 @@
-use metal_oxide::{Dim3, DynamicLaunchConfig, Error, LaunchConfig};
+use super::{Dim3, DynamicLaunchConfig, Error, LaunchConfig};
 
 const AXIS_LIMITS: Dim3 = Dim3::new(1024, 1024, 1024);
 
@@ -6,18 +6,24 @@ const AXIS_LIMITS: Dim3 = Dim3::new(1024, 1024, 1024);
 fn grid_counts_blocks_and_block_counts_threads() {
     let config = LaunchConfig::<256>::new(Dim3::x(4));
     assert_eq!(config.total_threads().unwrap(), 1024);
-    config.validate(1024, AXIS_LIMITS).unwrap();
+    DynamicLaunchConfig::from(config)
+        .validate(1024, AXIS_LIMITS)
+        .unwrap();
 }
 
 #[test]
 fn multidimensional_launches_count_all_axes() {
     let two_dimensional = LaunchConfig::<4, 5>::new(Dim3::xy(2, 3));
     assert_eq!(two_dimensional.total_threads().unwrap(), 120);
-    two_dimensional.validate(1024, AXIS_LIMITS).unwrap();
+    DynamicLaunchConfig::from(two_dimensional)
+        .validate(1024, AXIS_LIMITS)
+        .unwrap();
 
     let three_dimensional = LaunchConfig::<3, 2, 2>::new(Dim3::new(2, 3, 4));
     assert_eq!(three_dimensional.total_threads().unwrap(), 288);
-    three_dimensional.validate(1024, AXIS_LIMITS).unwrap();
+    DynamicLaunchConfig::from(three_dimensional)
+        .validate(1024, AXIS_LIMITS)
+        .unwrap();
 }
 
 #[test]
@@ -40,33 +46,39 @@ fn element_helper_rounds_up_to_complete_blocks() {
 #[test]
 fn block_volume_must_fit_the_pipeline_limit() {
     let config = LaunchConfig::<16, 8, 8>::new(Dim3::x(1));
-    config.validate(1024, AXIS_LIMITS).unwrap();
+    DynamicLaunchConfig::from(config)
+        .validate(1024, AXIS_LIMITS)
+        .unwrap();
     assert!(matches!(
-        config.validate(512, AXIS_LIMITS),
+        DynamicLaunchConfig::from(config).validate(512, AXIS_LIMITS),
         Err(Error::InvalidLaunch(_))
     ));
-    assert!(config.validate(0, AXIS_LIMITS).is_err());
+    assert!(
+        DynamicLaunchConfig::from(config)
+            .validate(0, AXIS_LIMITS)
+            .is_err()
+    );
 }
 
 #[test]
 fn each_block_axis_must_fit_the_device_limit() {
     let limits = Dim3::new(8, 4, 2);
     assert!(
-        LaunchConfig::<9>::new(Dim3::x(1))
+        DynamicLaunchConfig::from(LaunchConfig::<9>::new(Dim3::x(1)))
             .validate(1024, limits)
             .is_err()
     );
     assert!(
-        LaunchConfig::<1, 5>::new(Dim3::x(1))
+        DynamicLaunchConfig::from(LaunchConfig::<1, 5>::new(Dim3::x(1)))
             .validate(1024, limits)
             .is_err()
     );
     assert!(
-        LaunchConfig::<1, 1, 3>::new(Dim3::x(1))
+        DynamicLaunchConfig::from(LaunchConfig::<1, 1, 3>::new(Dim3::x(1)))
             .validate(1024, limits)
             .is_err()
     );
-    LaunchConfig::<8, 4, 2>::new(Dim3::x(1))
+    DynamicLaunchConfig::from(LaunchConfig::<8, 4, 2>::new(Dim3::x(1)))
         .validate(1024, limits)
         .unwrap();
 }
@@ -77,20 +89,22 @@ fn empty_grid_is_a_no_op_but_block_dimensions_must_be_nonzero() {
         let config = LaunchConfig::<2, 3, 2>::new(grid);
         assert!(config.is_empty());
         assert_eq!(config.total_threads().unwrap(), 0);
-        config.validate(1024, AXIS_LIMITS).unwrap();
+        DynamicLaunchConfig::from(config)
+            .validate(1024, AXIS_LIMITS)
+            .unwrap();
     }
     assert!(
-        LaunchConfig::<0>::new(Dim3::x(0))
+        DynamicLaunchConfig::from(LaunchConfig::<0>::new(Dim3::x(0)))
             .validate(1024, AXIS_LIMITS)
             .is_err()
     );
     assert!(
-        LaunchConfig::<1, 0>::new(Dim3::x(0))
+        DynamicLaunchConfig::from(LaunchConfig::<1, 0>::new(Dim3::x(0)))
             .validate(1024, AXIS_LIMITS)
             .is_err()
     );
     assert!(
-        LaunchConfig::<1, 1, 0>::new(Dim3::x(0))
+        DynamicLaunchConfig::from(LaunchConfig::<1, 1, 0>::new(Dim3::x(0)))
             .validate(1024, AXIS_LIMITS)
             .is_err()
     );
@@ -104,7 +118,11 @@ fn global_coordinate_overflow_is_rejected_on_each_axis() {
         Dim3::new(1, 1, u32::MAX),
     ] {
         let config = LaunchConfig::<2, 2, 2>::new(grid);
-        assert!(config.validate(1024, AXIS_LIMITS).is_err());
+        assert!(
+            DynamicLaunchConfig::from(config)
+                .validate(1024, AXIS_LIMITS)
+                .is_err()
+        );
     }
     assert!(LaunchConfig::<256>::for_elements(u32::MAX).is_err());
     assert_eq!(
@@ -120,7 +138,11 @@ fn global_coordinate_overflow_is_rejected_on_each_axis() {
 fn total_thread_count_overflow_is_rejected() {
     let config = LaunchConfig::<1>::new(Dim3::new(u32::MAX, u32::MAX, u32::MAX));
     assert!(config.total_threads().is_err());
-    assert!(config.validate(1024, AXIS_LIMITS).is_err());
+    assert!(
+        DynamicLaunchConfig::from(config)
+            .validate(1024, AXIS_LIMITS)
+            .is_err()
+    );
 }
 
 #[test]

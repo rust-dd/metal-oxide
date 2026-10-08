@@ -24,7 +24,7 @@ pub struct Batch<'d> {
     native: NativeBatch,
     resources: Vec<Resource>,
     pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-    dispatches: usize,
+    has_dispatches: bool,
 }
 
 impl<'d> Batch<'d> {
@@ -39,7 +39,7 @@ impl<'d> Batch<'d> {
             },
             resources: Vec::new(),
             pipelines: Vec::new(),
-            dispatches: 0,
+            has_dispatches: false,
         })
     }
 
@@ -97,24 +97,24 @@ impl<'d> Batch<'d> {
                     pipeline,
                     config,
                     arguments,
-                    self.dispatches != 0,
+                    self.has_dispatches,
                 )?,
                 NativeBatch::Metal4(batch) => batch.launch(
                     &self.device.raw,
                     pipeline,
                     config,
                     arguments,
-                    self.dispatches != 0,
+                    self.has_dispatches,
                 )?,
             }
         };
-        self.dispatches += 1;
+        self.has_dispatches = true;
         Ok(())
     }
 
     pub(super) fn commit<'a>(self) -> Submission<'a> {
         let completion = Arc::new(Completion::default());
-        if self.dispatches == 0 {
+        if !self.has_dispatches {
             completion.finish(Ok(SubmissionReport::default()));
         } else {
             for resource in &self.resources {
