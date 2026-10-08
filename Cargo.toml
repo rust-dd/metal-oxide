@@ -8,6 +8,8 @@ members = [
     "crates/metal-oxide-device",
     "crates/metal-oxide-ir",
     "crates/metal-oxide-macros",
+    "examples/cooperation/host",
+    "examples/cooperation/kernels",
     "examples/matmul/host",
     "examples/matmul/kernels",
     "examples/particle-update/device-math",

@@ -95,6 +95,7 @@ cargo metal run -p reduction
 cargo metal run -p matmul
 cargo metal run -p pipeline
 cargo metal run -p particle-update
+cargo metal run -p cooperation
 ```
 
 Inspect the generated MSL or run the GPU tests:

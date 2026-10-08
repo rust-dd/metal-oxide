@@ -8,6 +8,8 @@ mod atomics;
 mod collectives;
 #[path = "gpu/control_flow.rs"]
 mod control_flow;
+#[path = "gpu/cooperation.rs"]
+mod cooperation;
 #[path = "gpu/cooperative.rs"]
 mod cooperative;
 #[path = "gpu/float.rs"]
