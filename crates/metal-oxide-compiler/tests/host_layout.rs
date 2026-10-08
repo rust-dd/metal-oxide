@@ -111,8 +111,13 @@ fn run_codecs(fixture: &str, program: &str) {
         format!("#![allow(non_camel_case_types)]\n{source}\n{program}"),
     )
     .unwrap();
+    std::fs::copy(
+        root.join("rust-toolchain.toml"),
+        project.join("rust-toolchain.toml"),
+    )
+    .unwrap();
     let output = Command::new("cargo")
-        .env("RUSTUP_TOOLCHAIN", "stable")
+        .env_remove("RUSTUP_TOOLCHAIN")
         .current_dir(project)
         .args(["run", "--offline", "--quiet", "--target-dir"])
         .arg(root.join("target/host-codecs"))
