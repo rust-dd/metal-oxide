@@ -25,6 +25,9 @@ mod wrapper;
 
 fn main() -> std::process::ExitCode {
     let mut arguments = std::env::args().collect::<Vec<_>>();
+    if arguments.len() == 2 && arguments[1] == "--metal-compiler-info" {
+        return compiler_info();
+    }
     if let Some(status) = wrapper::forward(&mut arguments) {
         return status;
     }
@@ -39,6 +42,27 @@ fn main() -> std::process::ExitCode {
         let help = arguments::help(&arguments);
         rustc_driver::compiler_entrypoint(&arguments, &mut driver::Frontend { output, help });
     })
+}
+
+fn compiler_info() -> std::process::ExitCode {
+    let result = || -> Result<String, Box<dyn std::error::Error>> {
+        let binary = std::fs::read(std::env::current_exe()?)?;
+        Ok(metal_oxide_artifact::CompilerInfo::new(
+            include_str!(concat!(env!("OUT_DIR"), "/rustc-version")),
+            &binary,
+        )
+        .to_json()?)
+    };
+    match result() {
+        Ok(info) => {
+            println!("{info}");
+            std::process::ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("compiler identity: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
 }
 
 fn trace(emit: impl FnOnce()) {

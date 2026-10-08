@@ -1,6 +1,7 @@
 mod build;
 mod cache;
 mod cli;
+mod compiler;
 mod doctor;
 mod inputs;
 mod metadata;

@@ -88,27 +88,38 @@ From the repository root:
 ```sh
 rustup toolchain install nightly-2026-10-04 --component rustc-dev --component rust-src --component llvm-tools
 xcodebuild -downloadComponent MetalToolchain
-cargo install --path crates/cargo-metal --locked
-cargo metal doctor
-cargo metal run -p vec-add
-cargo metal run -p reduction
-cargo metal run -p matmul
-cargo metal run -p pipeline
-cargo metal run -p particle-update
-cargo metal run -p cooperation
+cargo run -p cargo-metal -- doctor
+cargo run -p cargo-metal -- run -p vec-add
 ```
 
 Inspect the generated MSL or run the GPU tests:
 
 ```sh
-cargo metal inspect -p vec-add --emit msl
-cargo metal test -p vec-add
+cargo run -p cargo-metal -- inspect -p vec-add --emit msl
+cargo run -p cargo-metal -- test -p vec-add
 bash scripts/test-gpu.sh
 ```
 
 The host selects its kernel crate with `[package.metadata.metal]` and
 `kernels = "../kernels/Cargo.toml"`. Builds write the library, manifest, and
 bindings under `target/metal/<build-hash>/`.
+
+For a private installation, package a clean checkout and install into a fresh
+versioned directory (Python 3.11+):
+
+```sh
+python3 scripts/package.py build
+python3 scripts/package.py install target/dist/metal-oxide-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz --prefix "$HOME/.local/metal-oxide/0.1.0-alpha.1"
+export PATH="$HOME/.local/metal-oxide/0.1.0-alpha.1/bin:$PATH"
+cargo metal doctor
+```
+
+The bundle includes the CLI, pinned compiler, source crates, target data and
+checksums. Use the runtime and device crates under the installed `source/crates`
+as path dependencies. The CLI checks the adjacent compiler's version, ABI and
+exact Rust toolchain. `METAL_OXIDE_COMPILER` selects an explicit compiler instead.
+A deployed host needs only its compiled bindings, `manifest.json` and
+`kernels.metallib`; it does not need the compiler or nightly Rust.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 

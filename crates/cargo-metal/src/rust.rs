@@ -9,7 +9,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub(crate) const NIGHTLY: &str = "nightly-2026-10-04";
+pub(crate) use metal_oxide_artifact::COMPILER_NIGHTLY as NIGHTLY;
 const TARGET: &str = include_str!("../../../targets/metal64-unknown-none.json");
 
 pub(crate) struct Rust {
@@ -41,34 +41,11 @@ impl Rust {
             std::fs::write(&target, TARGET)?;
         }
         let target = target.canonicalize()?;
-        let compiler = if let Some(path) = std::env::var_os("METAL_OXIDE_COMPILER") {
-            PathBuf::from(path).canonicalize()?
-        } else {
-            let source =
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../metal-oxide-compiler/Cargo.toml");
-            let directory = project.metadata.target_directory.join("compiler");
-            process::run(
-                cargo()
-                    .args([
-                        "build",
-                        "--features",
-                        "rustc-private",
-                        "--bin",
-                        "metal-oxide-compiler",
-                        "--locked",
-                    ])
-                    .arg("--manifest-path")
-                    .arg(source)
-                    .arg("--target-dir")
-                    .arg(&directory),
-            )?;
-            directory
-                .join("debug/metal-oxide-compiler")
-                .canonicalize()?
-        };
+        let compiler =
+            crate::compiler::resolve(&project.metadata.target_directory.join("compiler"))?;
         let version =
             process::capture(Command::new("rustup").args(["run", NIGHTLY, "rustc", "-vV"]))?;
-        let identity = sha256(&std::fs::read(&compiler)?);
+        let identity = crate::compiler::verify(&compiler, &version)?.binary;
         let mut flags = if let Ok(value) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
             value
                 .split('\u{1f}')

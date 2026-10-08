@@ -51,6 +51,10 @@ pub(super) fn run() -> ExitCode {
             &["run", NIGHTLY, "rustc", "--version"],
         ),
         components(),
+        Check {
+            name: "metal-oxide compiler",
+            result: crate::compiler::doctor().map_err(|e| e.to_string()),
+        },
         probe("Xcode", "xcodebuild", &["-version"]),
         probe(
             "macOS SDK",

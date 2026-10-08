@@ -1,10 +1,12 @@
 //! Versioned kernel metadata shared by the compiler, tools, and runtime.
 
+mod compiler;
 mod files;
 mod layout;
 mod model;
 mod validate;
 
+pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
 pub use files::{ArtifactFile, COMPILER_OUTPUTS};
 pub use layout::{FieldLayout, Layout, LayoutKind};
 pub use model::*;
