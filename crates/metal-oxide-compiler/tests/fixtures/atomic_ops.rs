@@ -2,7 +2,7 @@
 use metal_oxide_device::{AtomicBuffer, WriteBuffer, block_idx, kernel, thread_idx, threadgroup};
 
 macro_rules! operations {
-    ($name:ident, $ty:ty) => {
+    ($name:ident, $ty:ty, $minimum:expr) => {
         #[kernel]
         pub unsafe fn $name(cell: AtomicBuffer<$ty>, out: WriteBuffer<$ty>, start: $ty) {
             unsafe {
@@ -11,7 +11,7 @@ macro_rules! operations {
                 out.store_unchecked(1, cell.exchange_relaxed(0, 5));
                 out.store_unchecked(2, cell.fetch_add_relaxed(0, 3));
                 out.store_unchecked(3, cell.fetch_sub_relaxed(0, 1));
-                out.store_unchecked(4, cell.fetch_min_relaxed(0, 2));
+                out.store_unchecked(4, cell.fetch_min_relaxed(0, $minimum));
                 out.store_unchecked(5, cell.fetch_max_relaxed(0, 9));
                 out.store_unchecked(6, cell.fetch_and_relaxed(0, 7));
                 out.store_unchecked(7, cell.fetch_or_relaxed(0, 4));
@@ -30,8 +30,8 @@ macro_rules! operations {
         }
     };
 }
-operations!(atomic_u32, u32);
-operations!(atomic_i32, i32);
+operations!(atomic_u32, u32, 2);
+operations!(atomic_i32, i32, -2);
 
 #[kernel(block = (256, 1, 1))]
 pub unsafe fn shared_counter(out: WriteBuffer<u32>) {

@@ -10,7 +10,7 @@ fn typed_simd_operations_compile_and_record_capabilities() {
         &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(abi.kernels.len(), 5);
+    assert_eq!(abi.kernels.len(), 6);
     assert_eq!(abi.required_features, ["simd_groups"]);
 }
 #[test]

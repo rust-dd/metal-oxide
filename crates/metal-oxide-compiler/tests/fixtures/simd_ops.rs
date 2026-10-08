@@ -1,5 +1,7 @@
 #![no_std]
-use metal_oxide_device::{WriteBuffer, block_dim, block_idx, kernel, simdgroup, thread_idx};
+use metal_oxide_device::{
+    ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, simdgroup, thread_idx,
+};
 macro_rules! numeric {
     ($name:ident, $ty:ty) => {
         #[kernel]
@@ -23,6 +25,20 @@ macro_rules! numeric {
 numeric!(collect_u32, u32);
 numeric!(collect_i32, i32);
 numeric!(collect_f32, f32);
+
+#[kernel]
+pub unsafe fn collect_i32_edges(input: ReadBuffer<i32>, out: WriteBuffer<i32>) {
+    let index = block_idx().x * block_dim().x + thread_idx().x;
+    let offset = index * 5;
+    unsafe {
+        let value = input.load_unchecked(index);
+        out.store_unchecked(offset, simdgroup::sum(value));
+        out.store_unchecked(offset + 1, simdgroup::min(value));
+        out.store_unchecked(offset + 2, simdgroup::max(value));
+        out.store_unchecked(offset + 3, simdgroup::inclusive_sum(value));
+        out.store_unchecked(offset + 4, simdgroup::exclusive_sum(value));
+    }
+}
 
 #[kernel]
 pub unsafe fn vote(out: WriteBuffer<u32>) {

@@ -46,7 +46,7 @@ fn relaxed_atomics_preserve_old_values_cas_results_and_wrapping() -> metal_oxide
     }
     assert_eq!(
         &out.as_slice()[..11],
-        &[i32::MAX, i32::MAX, 5, 8, 7, 2, 9, 1, 5, 6, 0]
+        &[i32::MAX, i32::MAX, 5, 8, 7, -2, 9, 1, 5, 6, 0]
     );
     assert_eq!(out.as_slice()[11], 6);
     let success = out.as_slice()[12];

@@ -55,6 +55,59 @@ fn numeric_collectives_match_active_lane_references() -> metal_oxide::Result<()>
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn signed_collectives_compare_negative_values_and_wrap_at_extremes() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let pipeline = pipeline(
+        &device,
+        "crates/metal-oxide-compiler/tests/fixtures/simd_ops.rs",
+        "collect_i32_edges",
+    )?;
+    let width = pipeline.thread_execution_width() as usize;
+    for block in [1, width - 1, width, width + 3, width * 2] {
+        for pattern in [
+            [i32::MAX, 1, -1, i32::MIN],
+            [i32::MIN, -1, 1, i32::MAX],
+            [-17, 5, -2, 11],
+            [i32::MAX, i32::MAX, i32::MIN, i32::MIN],
+        ] {
+            let values = (0..block * 2)
+                .map(|index| pattern[index % pattern.len()])
+                .collect::<Vec<_>>();
+            let input = device.buffer_from_slice(&values)?;
+            let mut output = device.buffer_zeroed::<i32>(values.len() * 5)?;
+            // SAFETY: every active lane participates; separate buffers cover every thread index.
+            unsafe {
+                device.launch(
+                    &pipeline,
+                    DynamicLaunchConfig::new(Dim3::x(2), Dim3::x(block as u32)),
+                    &[Argument::read(&input), Argument::write(&mut output)],
+                )?;
+            }
+            for (block_index, block_values) in values.chunks(block).enumerate() {
+                for (group, lanes) in block_values.chunks(width).enumerate() {
+                    let total = lanes.iter().copied().fold(0_i32, i32::wrapping_add);
+                    let minimum = *lanes.iter().min().unwrap();
+                    let maximum = *lanes.iter().max().unwrap();
+                    let mut prefix = 0_i32;
+                    for (lane, value) in lanes.iter().copied().enumerate() {
+                        let index = block_index * block + group * width + lane;
+                        let inclusive = prefix.wrapping_add(value);
+                        assert_eq!(
+                            &output.as_slice()[index * 5..(index + 1) * 5],
+                            &[total, minimum, maximum, inclusive, prefix],
+                            "block={block}, group={group}, lane={lane}, pattern={pattern:?}"
+                        );
+                        prefix = inclusive;
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn votes_clear_unused_bits_and_bit_reductions_preserve_all_lanes() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let pipeline = pipeline(
