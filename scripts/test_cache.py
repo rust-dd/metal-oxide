@@ -21,8 +21,10 @@ def checked(args, *, cwd=ROOT, env=None):
 
 
 def main():
-    checked(["cargo", "build", "-p", "cargo-metal", "--locked", "--target-dir", ROOT / "target"])
-    checked(["cargo", "build", "--features", "rustc-private", "--locked", "--target-dir", ROOT / "target/compiler"], cwd=ROOT / "crates/metal-oxide-compiler")
+    version = checked(["rustc", "-vV"])
+    host = next(line.removeprefix("host: ") for line in version.splitlines() if line.startswith("host: "))
+    checked(["cargo", "build", "-p", "cargo-metal", "--locked", "--target", host, "--target-dir", ROOT / "target"])
+    checked(["cargo", "build", "--features", "rustc-private", "--locked", "--target", host, "--target-dir", ROOT / "target/compiler"], cwd=ROOT / "crates/metal-oxide-compiler")
     component = json.loads(checked(["xcodebuild", "-showComponent", "MetalToolchain", "-json"]))
     directory = Path(component["toolchainSearchPath"]) / "Metal.xctoolchain/usr/metal"
     metal = max((p for p in directory.iterdir() if p.name.isdigit()), key=lambda p: int(p.name)) / "bin/metal"
@@ -36,8 +38,8 @@ def main():
         (workspace / "kernels/Cargo.toml").write_text('[package]\nname="kernels"\nversion="0.1.0"\nedition="2024"\n[dependencies]\nmetal-oxide-device={path=' + json.dumps(str(ROOT / "crates/metal-oxide-device")) + '}\n')
         (workspace / "kernels/src/lib.rs").write_text('#![no_std]\nuse metal_oxide_device::kernel;\n#[kernel]\npub unsafe fn empty() {}\n')
         checked(["cargo", "generate-lockfile", "--offline"], cwd=workspace)
-        environment = dict(os.environ, CARGO_TARGET_DIR=str(workspace / "target"), METAL_OXIDE_COMPILER=str(ROOT / "target/compiler/debug/metal-oxide-compiler"))
-        command = [ROOT / "target/debug/cargo-metal", "build", "-p", "host"]
+        environment = dict(os.environ, CARGO_TARGET_DIR=str(workspace / "target"), METAL_OXIDE_COMPILER=str(ROOT / "target/compiler" / host / "debug/metal-oxide-compiler"))
+        command = [ROOT / "target" / host / "debug/cargo-metal", "build", "-p", "host"]
 
         def build():
             log = checked(command, cwd=workspace, env=environment)

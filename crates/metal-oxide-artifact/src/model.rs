@@ -93,7 +93,7 @@ pub struct BuildInfo {
     pub rustc: String,
     pub metal: String,
     pub sdk: String,
-    pub rust_flags: Vec<String>,
+    pub rustc_args: Vec<String>,
     pub metal_flags: Vec<String>,
 }
 
@@ -113,7 +113,6 @@ pub struct Manifest {
     pub abi: Abi,
     pub target: String,
     pub msl_version: String,
-    pub required_features: Vec<String>,
     pub files: Files,
     pub build: BuildInfo,
 }

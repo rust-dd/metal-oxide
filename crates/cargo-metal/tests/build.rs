@@ -101,9 +101,7 @@ fn inconsistent_cargo_package_selection_stops_before_build_scripts() {
             .output()
             .unwrap(),
     );
-    let compiler = workspace
-        .0
-        .join("target/compiler/debug/metal-oxide-compiler");
+    let compiler = workspace.compiler();
     let manifest = workspace.0.join("Cargo.toml");
     let source = std::fs::read_to_string(&manifest).unwrap();
     std::fs::write(manifest, format!("{source}exclude=[\"safe\",\"active\"]\n")).unwrap();

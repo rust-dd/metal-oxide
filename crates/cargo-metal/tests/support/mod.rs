@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     path::PathBuf,
     process::{Command, Output},
@@ -65,6 +67,29 @@ impl Workspace {
             .env("CARGO_TARGET_DIR", self.0.join("target"))
             .args([action, "-p", "test-host"]);
         command
+    }
+
+    pub fn compiler(&self) -> PathBuf {
+        let version = checked(
+            Command::new("rustup")
+                .args([
+                    "run",
+                    metal_oxide_artifact::COMPILER_NIGHTLY,
+                    "rustc",
+                    "-vV",
+                ])
+                .output()
+                .unwrap(),
+        );
+        let version = String::from_utf8(version.stdout).unwrap();
+        let host = version
+            .lines()
+            .find_map(|line| line.strip_prefix("host: "))
+            .unwrap();
+        self.0
+            .join("target/compiler")
+            .join(host)
+            .join("debug/metal-oxide-compiler")
     }
 }
 

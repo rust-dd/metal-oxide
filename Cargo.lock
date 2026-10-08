@@ -209,6 +209,7 @@ dependencies = [
  "metal-oxide-artifact",
  "metal-oxide-codegen",
  "metal-oxide-ir",
+ "serde_json",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ use rustc_session::config::PrintKind;
 pub(crate) struct Frontend {
     pub(crate) output: Option<std::path::PathBuf>,
     pub(crate) help: bool,
+    pub(crate) arguments: Vec<String>,
 }
 
 impl Callbacks for Frontend {
@@ -50,7 +51,9 @@ impl Callbacks for Frontend {
         if let Some(directory) = &self.output {
             match crate::import::ModuleImporter::new(tcx).import(&entries, &instances) {
                 Ok(module) => {
-                    if let Err(error) = crate::output::write(directory, &module, tcx, &entries) {
+                    if let Err(error) =
+                        crate::output::write(directory, &module, tcx, &entries, &self.arguments)
+                    {
                         tcx.dcx().err(error.to_string());
                     }
                 }

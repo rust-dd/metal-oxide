@@ -158,7 +158,7 @@ mod tests {
         std::fs::write(directory.0.join("kernels.metallib"), library)?;
         std::fs::write(
             directory.0.join("manifest.json"),
-            manifest.replace("\"version\": 3", "\"version\": 999"),
+            manifest.replace("\"version\": 4", "\"version\": 999"),
         )?;
         assert!(matches!(
             Module::from_artifact(&device, &directory.0),

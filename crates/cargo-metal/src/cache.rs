@@ -38,6 +38,12 @@ pub(crate) fn valid(directory: &Path, fingerprint: &str) -> bool {
         if abi != manifest.abi {
             return Err("cached ABI differs from manifest".into());
         }
+        let arguments: Vec<String> = serde_json::from_slice(&std::fs::read(
+            directory.join(ArtifactFile::RustcArgs.name()),
+        )?)?;
+        if arguments != manifest.build.rustc_args {
+            return Err("cached compiler arguments differ from manifest".into());
+        }
         for (file, expected) in manifest.files.entries() {
             if sha256(&std::fs::read(directory.join(file.name()))?) != expected {
                 return Err(format!("artifact hash mismatch: {}", file.name()).into());
@@ -94,7 +100,6 @@ mod tests {
             abi: abi.clone(),
             target: DEVICE_TARGET.into(),
             msl_version: MSL_VERSION.into(),
-            required_features: vec![],
             files: Files {
                 msl: hash.clone(),
                 oxide_ir: hash.clone(),
@@ -108,7 +113,7 @@ mod tests {
                 rustc: "nightly".into(),
                 metal: "metal".into(),
                 sdk: "macosx".into(),
-                rust_flags: vec![],
+                rustc_args: vec![],
                 metal_flags: vec![],
             },
         };
@@ -118,6 +123,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(directory.0.join("abi.json"), abi.to_json().unwrap()).unwrap();
+        std::fs::write(directory.0.join("rustc-args.json"), b"[]").unwrap();
         let files = [
             "kernels.metal",
             "kernels.oxide-ir",
@@ -145,6 +151,9 @@ mod tests {
             std::fs::write(&path, b"file").unwrap();
         }
         let mut abi = abi;
+        std::fs::write(directory.0.join("rustc-args.json"), b"[\"--cfg=changed\"]").unwrap();
+        assert!(!valid(&directory.0, &fingerprint));
+        std::fs::write(directory.0.join("rustc-args.json"), b"[]").unwrap();
         abi.kernels[0].name = "different".into();
         std::fs::write(directory.0.join("abi.json"), abi.to_json().unwrap()).unwrap();
         assert!(!valid(&directory.0, &fingerprint));

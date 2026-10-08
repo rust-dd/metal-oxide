@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 mod support;
 
 use std::{os::unix::fs::PermissionsExt, path::Path, process::Command};
@@ -15,11 +14,16 @@ fn install_cli(workspace: &Workspace) -> std::path::PathBuf {
 fn compiler(path: &Path, changes: serde_json::Value) {
     let rustc = checked(
         Command::new("rustup")
-            .args(["run", "nightly-2026-10-04", "rustc", "-vV"])
+            .args([
+                "run",
+                metal_oxide_artifact::COMPILER_NIGHTLY,
+                "rustc",
+                "-vV",
+            ])
             .output()
             .unwrap(),
     );
-    let info = serde_json::json!({"protocol": 1, "abi": 3, "version": env!("CARGO_PKG_VERSION"), "rustc": String::from_utf8(rustc.stdout).unwrap().trim(), "binary": ""});
+    let info = serde_json::json!({"protocol": 1, "abi": metal_oxide_artifact::ABI_VERSION, "version": env!("CARGO_PKG_VERSION"), "rustc": String::from_utf8(rustc.stdout).unwrap().trim(), "binary": ""});
     std::fs::write(path, format!("#!/usr/bin/env python3\nimport hashlib,json,pathlib\nv=json.loads({:?})\nv.update(json.loads({:?}))\nv['binary']=hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()\nprint(json.dumps(v))\n", info.to_string(), changes.to_string())).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -118,9 +122,7 @@ fn copied_cli_and_compiler_build_an_external_kernel() {
     );
     let cli = install_cli(&workspace);
     std::fs::copy(
-        workspace
-            .0
-            .join("target/compiler/debug/metal-oxide-compiler"),
+        workspace.compiler(),
         cli.with_file_name("metal-oxide-compiler"),
     )
     .unwrap();

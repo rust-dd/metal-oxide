@@ -112,12 +112,6 @@ impl Manifest {
         if self.target != DEVICE_TARGET || self.msl_version != MSL_VERSION {
             return Err(Error("unsupported artifact target or MSL version".into()));
         }
-        if self.required_features != self.abi.required_features {
-            return Err(Error(format!(
-                "artifact features do not match the ABI: {:?}",
-                self.required_features
-            )));
-        }
         if self
             .files
             .entries()
