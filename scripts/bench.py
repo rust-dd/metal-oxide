@@ -152,7 +152,11 @@ def main():
     os_version, _ = command(["sw_vers"])
     report = {"schema": 1, "revision": revision, "dirty": bool(status),
               "timestamp_unix": time.time(), "os": os_version, "xcode": xcode,
-              "host_rustc": rustc, "config": config, "builds": builds,
+              "host_rustc": rustc, "host_binary_sha256": digest(host),
+              "host_build_environment": {k: v for k, v in host_env.items()
+                  if k in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET")
+                  or k.startswith("CARGO_PROFILE_RELEASE_")},
+              "config": config, "builds": builds,
               "identities": identities, "backends": backends,
               "validation_environment": {k: v for k, v in os.environ.items()
                   if k.startswith(("MTL_", "METAL_", "DYLD_"))},

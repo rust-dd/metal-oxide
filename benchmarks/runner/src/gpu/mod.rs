@@ -98,24 +98,25 @@ impl Case {
         if self.samples.is_empty() {
             return Err("cannot report a workload without measured samples".into());
         }
-        for name in [
-            "cpu_reference_ns",
-            "input_copy_ns",
-            "upload_ns",
-            "encode_ns",
-            "submit_ns",
-            "wait_ns",
-            "gpu_ns",
-            "readback_ns",
-        ] {
-            let values = self
-                .samples
-                .iter()
-                .filter_map(|sample| serde_json::to_value(sample).unwrap()[name].as_u64())
-                .collect::<Vec<_>>();
-            if !values.is_empty() {
-                self.summary_ns.insert(name.into(), Summary::new(&values)?);
+        let mut measurements = BTreeMap::<_, Vec<u64>>::new();
+        for sample in &self.samples {
+            for (name, value) in [
+                ("cpu_reference_ns", Some(sample.cpu_reference_ns)),
+                ("input_copy_ns", Some(sample.input_copy_ns)),
+                ("upload_ns", Some(sample.upload_ns)),
+                ("encode_ns", Some(sample.encode_ns)),
+                ("submit_ns", Some(sample.submit_ns)),
+                ("wait_ns", Some(sample.wait_ns)),
+                ("gpu_ns", sample.gpu_ns),
+                ("readback_ns", Some(sample.readback_ns)),
+            ] {
+                if let Some(value) = value {
+                    measurements.entry(name).or_default().push(value);
+                }
             }
+        }
+        for (name, values) in measurements {
+            self.summary_ns.insert(name.into(), Summary::new(&values)?);
         }
         Ok(self)
     }
