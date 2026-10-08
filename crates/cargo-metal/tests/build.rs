@@ -10,7 +10,7 @@ use support::{Workspace, checked};
 
 #[test]
 #[ignore = "requires the compiler nightly and rust-src"]
-fn device_build_ignores_host_only_dependencies() {
+fn device_build_validates_only_selected_dependencies() {
     let workspace = Workspace::new();
     let output = checked(
         workspace
@@ -45,6 +45,124 @@ fn device_build_ignores_host_only_dependencies() {
     );
     assert!(
         !error.contains("host-only build script must not execute"),
+        "{error}"
+    );
+
+    let source = source.split("[target.").next().unwrap();
+    let source = format!(
+        "{source}host-only={{path=\"../host-only\",optional=true}}\n[features]\nextra=[\"dep:host-only\"]\n"
+    );
+    std::fs::write(&manifest, &source).unwrap();
+    let host = workspace.0.join("host/Cargo.toml");
+    let host_source = std::fs::read_to_string(&host).unwrap();
+    std::fs::write(host, format!("{host_source}[dependencies]\ntest-kernels={{path=\"../kernels\",features=[\"extra\"]}}\n")).unwrap();
+    checked(
+        std::process::Command::new("cargo")
+            .current_dir(&workspace.0)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap(),
+    );
+    checked(
+        workspace
+            .command("inspect")
+            .args(["--emit", "msl"])
+            .output()
+            .unwrap(),
+    );
+
+    std::fs::write(manifest, format!("{source}default=[\"extra\"]\n")).unwrap();
+    let output = workspace
+        .command("inspect")
+        .args(["--emit", "msl"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        error.contains("kernel build scripts are unsupported: host-only"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("host-only build script must not execute"),
+        "{error}"
+    );
+}
+
+#[test]
+#[ignore = "requires the compiler nightly and rust-src"]
+fn inconsistent_cargo_package_selection_stops_before_build_scripts() {
+    let workspace = Workspace::new();
+    checked(
+        workspace
+            .command("inspect")
+            .args(["--emit", "msl"])
+            .env_remove("METAL_OXIDE_COMPILER")
+            .output()
+            .unwrap(),
+    );
+    let compiler = workspace
+        .0
+        .join("target/compiler/debug/metal-oxide-compiler");
+    let manifest = workspace.0.join("Cargo.toml");
+    let source = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(manifest, format!("{source}exclude=[\"safe\",\"active\"]\n")).unwrap();
+    for name in ["safe", "active"] {
+        let directory = workspace.0.join(name);
+        std::fs::create_dir_all(directory.join("src")).unwrap();
+        std::fs::write(
+            directory.join("Cargo.toml"),
+            "[package]\nname=\"probe-helper\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        )
+        .unwrap();
+        std::fs::write(directory.join("src/lib.rs"), "#![no_std]\n").unwrap();
+    }
+    std::fs::write(
+        workspace.0.join("active/build.rs"),
+        "fn main() { panic!(\"probe-helper build script must not execute\") }\n",
+    )
+    .unwrap();
+    for (directory, path) in [
+        (workspace.0.clone(), "active"),
+        (workspace.0.join("host"), "../safe"),
+    ] {
+        let config = directory.join(".cargo");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(
+            config.join("config.toml"),
+            format!("[patch.crates-io]\nprobe-helper={{path=\"{path}\"}}\n"),
+        )
+        .unwrap();
+    }
+    let manifest = workspace.0.join("kernels/Cargo.toml");
+    let source = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(
+        manifest,
+        source.replace("[dependencies]", "[dependencies]\nprobe-helper=\"0.1.0\""),
+    )
+    .unwrap();
+    checked(
+        std::process::Command::new("cargo")
+            .current_dir(&workspace.0)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap(),
+    );
+    let output = workspace
+        .command("inspect")
+        .args(["--emit", "msl"])
+        .env("METAL_OXIDE_COMPILER", compiler)
+        .current_dir(workspace.0.join("host"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        error.contains("missing Cargo package for") && error.contains("/active#probe-helper@0.1.0"),
+        "{error}"
+    );
+    assert!(
+        !error.contains("probe-helper build script must not execute"),
         "{error}"
     );
 }

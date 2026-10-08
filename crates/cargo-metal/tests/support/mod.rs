@@ -62,6 +62,7 @@ impl Workspace {
         let mut command = Command::new(env!("CARGO_BIN_EXE_cargo-metal"));
         command
             .current_dir(&self.0)
+            .env("CARGO_TARGET_DIR", self.0.join("target"))
             .args([action, "-p", "test-host"]);
         command
     }

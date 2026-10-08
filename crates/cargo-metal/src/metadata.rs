@@ -3,7 +3,7 @@ use crate::{
     process::{self, Result},
 };
 use serde::Deserialize;
-use std::{collections::HashSet, path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command};
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +13,6 @@ pub(crate) struct Metadata {
     pub(crate) workspace_root: PathBuf,
     pub(crate) target_directory: PathBuf,
     pub(crate) packages: Vec<Package>,
-    pub(crate) resolve: Resolve,
 }
 
 #[derive(Deserialize)]
@@ -32,25 +31,16 @@ pub(crate) struct Target {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct Resolve {
-    pub(crate) nodes: Vec<Node>,
+struct UnitGraph {
+    units: Vec<Unit>,
 }
 
 #[derive(Deserialize)]
-pub(crate) struct Node {
-    pub(crate) id: String,
-    pub(crate) deps: Vec<Dependency>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct Dependency {
-    pub(crate) pkg: String,
-    pub(crate) dep_kinds: Vec<DependencyKind>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct DependencyKind {
-    pub(crate) kind: Option<String>,
+struct Unit {
+    pkg_id: String,
+    target: Target,
+    #[serde(default)]
+    is_std: bool,
 }
 
 pub(crate) struct Project {
@@ -112,47 +102,21 @@ pub(crate) fn load(options: &Options) -> Result<Project> {
 }
 
 impl Metadata {
-    pub(crate) fn validate_dependencies(&self, kernel_id: &str) -> Result<()> {
-        let mut dependencies = HashSet::new();
-        let mut pending = vec![kernel_id];
-        while let Some(id) = pending.pop() {
-            if dependencies.insert(id) {
-                let node = self
-                    .resolve
-                    .nodes
-                    .iter()
-                    .find(|n| n.id == id)
-                    .ok_or("missing Cargo resolve node")?;
-                pending.extend(
-                    node.deps
-                        .iter()
-                        .filter(|dep| {
-                            dep.dep_kinds
-                                .iter()
-                                .any(|kind| kind.kind.as_deref() != Some("dev"))
-                        })
-                        .map(|dep| dep.pkg.as_str()),
-                );
-            }
-        }
-        for package in &self.packages {
-            if !dependencies.contains(package.id.as_str()) {
-                continue;
-            }
-            if package
-                .targets
+    pub(crate) fn validate_units(&self, json: &str) -> Result<()> {
+        let graph: UnitGraph = serde_json::from_str(json)?;
+        for unit in graph.units.into_iter().filter(|unit| !unit.is_std) {
+            let package = self
+                .packages
                 .iter()
-                .any(|t| t.kind.iter().any(|k| k == "custom-build"))
-            {
+                .find(|package| package.id == unit.pkg_id)
+                .ok_or_else(|| format!("missing Cargo package for {}", unit.pkg_id))?;
+            if unit.target.kind.iter().any(|kind| kind == "custom-build") {
                 return Err(
                     format!("kernel build scripts are unsupported: {}", package.name).into(),
                 );
             }
             if package.name != "metal-oxide-macros"
-                && package
-                    .targets
-                    .iter()
-                    .any(|t| t.kind.iter().any(|k| k == "proc-macro"))
+                && unit.target.kind.iter().any(|kind| kind == "proc-macro")
             {
                 return Err(format!(
                     "kernel proc macros other than #[kernel] are unsupported: {}",

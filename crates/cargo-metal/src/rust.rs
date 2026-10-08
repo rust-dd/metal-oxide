@@ -1,6 +1,6 @@
 use crate::{
     inputs::Inputs,
-    metadata::{Metadata, Project},
+    metadata::Project,
     process::{self, Result},
 };
 use metal_oxide_artifact::{COMPILER_OUTPUTS, sha256};
@@ -118,21 +118,11 @@ impl Rust {
             .directory
             .join(format!("output-{}", sha256(project.kernel().id.as_bytes())));
         std::fs::create_dir_all(&output)?;
-        let json = process::capture(
-            self.command(project, &output)
-                .args([
-                    "metadata",
-                    "-Zjson-target-spec",
-                    "--format-version",
-                    "1",
-                    "--locked",
-                ])
-                .arg("--manifest-path")
-                .arg(&project.kernel().manifest_path)
-                .arg("--filter-platform")
-                .arg(&self.target),
+        let units = process::capture(
+            self.check_command(project, &output)
+                .args(["--unit-graph", "-Zunstable-options"]),
         )?;
-        serde_json::from_str::<Metadata>(&json)?.validate_dependencies(&project.kernel().id)?;
+        project.metadata.validate_units(&units)?;
         let mut inputs = self.check(project, &output)?;
         if COMPILER_OUTPUTS
             .iter()
@@ -160,28 +150,32 @@ impl Rust {
         Ok(KernelBuild { output, inputs })
     }
 
+    fn check_command(&self, project: &Project, output: &Path) -> Command {
+        let mut command = self.command(project, output);
+        command
+            .args([
+                "check",
+                "-Zbuild-std=core",
+                "-Zjson-target-spec",
+                "--lib",
+                "--message-format=json-render-diagnostics",
+                "--release",
+                "--locked",
+                "--package",
+                &project.kernel().name,
+            ])
+            .arg("--manifest-path")
+            .arg(&project.kernel().manifest_path)
+            .arg("--target")
+            .arg(&self.target)
+            .arg("--target-dir")
+            .arg(&self.directory);
+        command
+    }
+
     fn check(&self, project: &Project, output: &Path) -> Result<Inputs> {
-        let messages = process::capture(
-            self.command(project, output)
-                .args([
-                    "check",
-                    "-Zbuild-std=core",
-                    "-Zjson-target-spec",
-                    "--lib",
-                    "--message-format=json-render-diagnostics",
-                    "--release",
-                    "--locked",
-                    "--package",
-                    &project.kernel().name,
-                ])
-                .arg("--manifest-path")
-                .arg(&project.kernel().manifest_path)
-                .arg("--target")
-                .arg(&self.target)
-                .arg("--target-dir")
-                .arg(&self.directory)
-                .stderr(Stdio::inherit()),
-        )?;
+        let messages =
+            process::capture(self.check_command(project, output).stderr(Stdio::inherit()))?;
         Inputs::from_cargo(&messages, project)
     }
 }

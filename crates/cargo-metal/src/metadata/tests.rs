@@ -63,25 +63,24 @@ impl Workspace {
 
     fn validate(&self) -> Result<()> {
         let project = load(&self.options())?;
-        let version = process::capture(Command::new("rustc").arg("-vV"))?;
-        let host = version
-            .lines()
-            .find_map(|line| line.strip_prefix("host: "))
-            .unwrap();
         let json = process::capture(
-            Command::new("cargo")
+            Command::new("rustup")
                 .args([
-                    "metadata",
-                    "--format-version",
-                    "1",
+                    "run",
+                    crate::rust::NIGHTLY,
+                    "cargo",
+                    "check",
+                    "-Zunstable-options",
+                    "--unit-graph",
                     "--locked",
-                    "--filter-platform",
-                    host,
+                    "--lib",
+                    "--package",
+                    &project.kernel().name,
                 ])
                 .arg("--manifest-path")
                 .arg(&project.kernel().manifest_path),
         )?;
-        serde_json::from_str::<Metadata>(&json)?.validate_dependencies(&project.kernel().id)
+        project.metadata.validate_units(&json)
     }
 }
 
@@ -92,36 +91,37 @@ impl Drop for Workspace {
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn unused_dev_build_script_is_outside_the_kernel_graph() {
     let workspace = Workspace::new("dev-dependencies", false);
     assert!(workspace.validate().is_ok());
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn unused_dev_proc_macro_is_outside_the_kernel_graph() {
     let workspace = Workspace::new("dev-dependencies", true);
     assert!(workspace.validate().is_ok());
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn inactive_target_build_scripts_are_outside_the_kernel_graph() {
     let workspace = Workspace::new("target.'cfg(any())'.dependencies", false);
     assert!(workspace.validate().is_ok());
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn inactive_target_proc_macros_are_outside_the_kernel_graph() {
     let workspace = Workspace::new("target.'cfg(any())'.dependencies", true);
     assert!(workspace.validate().is_ok());
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn required_build_scripts_are_rejected_before_execution() {
-    for kind in [
-        "dependencies",
-        "build-dependencies",
-        "target.'cfg(all())'.dependencies",
-    ] {
+    for kind in ["dependencies", "target.'cfg(all())'.dependencies"] {
         let workspace = Workspace::new(kind, false);
         let error = workspace.validate().unwrap_err();
         assert!(
@@ -133,8 +133,29 @@ fn required_build_scripts_are_rejected_before_execution() {
 }
 
 #[test]
+#[ignore = "requires nightly Cargo's unit graph"]
 fn required_proc_macros_are_rejected_before_execution() {
     let workspace = Workspace::new("dependencies", true);
     let error = workspace.validate().unwrap_err();
     assert!(error.to_string().contains("kernel proc macros"));
+}
+
+#[test]
+#[ignore = "requires nightly Cargo's unit graph"]
+fn unused_build_dependency_is_outside_the_kernel_graph() {
+    let workspace = Workspace::new("build-dependencies", false);
+    assert!(workspace.validate().is_ok());
+}
+
+#[test]
+#[ignore = "requires nightly Cargo's unit graph"]
+fn kernel_build_script_is_rejected_before_execution() {
+    let workspace = Workspace::new("dev-dependencies", false);
+    std::fs::write(workspace.0.join("kernels/build.rs"), "fn main() {}\n").unwrap();
+    let error = workspace.validate().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("kernel build scripts are unsupported: audit-kernels")
+    );
 }
