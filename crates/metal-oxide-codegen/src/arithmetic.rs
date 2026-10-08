@@ -51,13 +51,7 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
     }
 }
 
-pub(crate) fn binary(
-    op: BinaryOp,
-    a: &str,
-    b: &str,
-    ty: Type,
-    _source: &SourceLocation,
-) -> Result<String, Error> {
+pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     use BinaryOp::*;
     let symbol = match op {
         Add | AddWithOverflow => "+",
@@ -86,22 +80,16 @@ pub(crate) fn binary(
             SubWithOverflow => "sub",
             _ => "mul",
         };
-        return Ok(format!(
-            "metal_oxide_{label}_checked_{}({a}, {b})",
-            scalar.name()
-        ));
+        return format!("metal_oxide_{label}_checked_{}({a}, {b})", scalar.name());
     }
     if ty == Type::Scalar(Scalar::F32) && op == Rem {
-        return Ok(format!("fmod({a}, {b})"));
+        return format!("fmod({a}, {b})");
     }
     let Type::Scalar(scalar) = ty else {
         unreachable!("validated binary type")
     };
     if scalar.is_signed() && matches!(op, Add | Sub | Mul) {
-        return Ok(integer_value(
-            scalar,
-            &format!("uint(int({a})) {symbol} uint(int({b}))"),
-        ));
+        return integer_value(scalar, &format!("uint(int({a})) {symbol} uint(int({b}))"));
     }
     if matches!(op, Shl | Shr) {
         let count = format!("(uint({b}) & {}u)", scalar.bits() - 1);
@@ -117,16 +105,13 @@ pub(crate) fn binary(
             };
             format!("{width}({a}) {symbol} {count}")
         };
-        return Ok(integer_value(scalar, &value));
+        return integer_value(scalar, &value);
     }
     if scalar.bits() < 32
         && scalar.is_integer()
         && matches!(op, Add | Sub | Mul | BitAnd | BitOr | BitXor)
     {
-        return Ok(integer_value(
-            scalar,
-            &format!("uint({a}) {symbol} uint({b})"),
-        ));
+        return integer_value(scalar, &format!("uint({a}) {symbol} uint({b})"));
     }
-    Ok(format!("({a} {symbol} {b})"))
+    format!("({a} {symbol} {b})")
 }

@@ -203,7 +203,7 @@ pub(crate) fn expression(
         Expression::Cast(v, to) => crate::arithmetic::cast(&op(v), ty(v)?, *to, source)?,
         Expression::Unary(operation, v) => crate::arithmetic::unary(*operation, &op(v), ty(v)?),
         Expression::Binary(operation, a, b) => {
-            crate::arithmetic::binary(*operation, &op(a), &op(b), ty(a)?, source)?
+            crate::arithmetic::binary(*operation, &op(a), &op(b), ty(a)?)
         }
     })
 }
