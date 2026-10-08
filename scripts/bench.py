@@ -57,6 +57,23 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def build_binary(package, environment, log):
+    output, _ = command(["cargo", "build", "-p", package, "--release", "--locked",
+                         "--message-format=json"], env=environment, log=log)
+    binaries = []
+    for line in output.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (message.get("reason") == "compiler-artifact"
+                and message["target"]["name"] == package and message.get("executable")):
+            binaries.append(Path(message["executable"]))
+    if len(binaries) != 1:
+        raise RuntimeError(f"Cargo did not report exactly one {package} executable; see {log}")
+    return binaries[0]
+
+
 def positive(value):
     number = int(value)
     if number <= 0:
@@ -82,9 +99,7 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
     output = args.output.resolve() if args.output else run / "report.json"
     print(f"Benchmark work directory: {run}", flush=True)
-    command(["cargo", "build", "-p", "cargo-metal", "--release", "--locked"],
-            log=run / "cli.log")
-    cli = ROOT / "target/release/cargo-metal"
+    cli = build_binary("cargo-metal", os.environ, run / "cli.log")
     environment = dict(os.environ, CARGO_TARGET_DIR=str(run / "build"))
     artifacts, references, builds, identities = {}, {}, {}, {}
     metal = metal_command()
@@ -118,8 +133,7 @@ def main():
                                "reference_metallib_sha256": digest(reference)}
     binding = str(Path(artifacts["particle-update"]) / "bindings.rs")
     host_env = dict(os.environ, METAL_OXIDE_BENCH_BINDINGS=binding)
-    command(["cargo", "build", "-p", "metal-oxide-bench", "--release", "--locked"],
-            env=host_env, log=run / "host.log")
+    host = build_binary("metal-oxide-bench", host_env, run / "host.log")
     config = {"artifacts": artifacts, "references": references, "samples": args.samples,
               "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix}
     config_path = run / "config.json"
@@ -128,7 +142,7 @@ def main():
     for backend in ["classic", "metal4"]:
         print(f"Measuring {backend}", flush=True)
         result = run / f"{backend}.json"
-        command([ROOT / "target/release/metal-oxide-bench", config_path, result],
+        command([host, config_path, result],
                 env=dict(host_env, METAL_OXIDE_BACKEND=backend), log=run / f"{backend}.log")
         backends.append(json.loads(result.read_text()))
     revision, _ = command(["git", "rev-parse", "HEAD"])
