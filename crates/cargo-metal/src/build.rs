@@ -11,6 +11,7 @@ use metal_oxide_artifact::{
     sha256,
 };
 use std::{
+    fs::{OpenOptions, TryLockError},
     path::Path,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
@@ -18,6 +19,22 @@ use std::{
 
 pub(crate) fn execute(options: &Options) -> Result<()> {
     let project = metadata::load(options)?;
+    let root = project.metadata.target_directory.join("metal");
+    std::fs::create_dir_all(&root)?;
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root.join(".lock"))?;
+    match lock.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            eprintln!("Blocking waiting for Metal build lock");
+            lock.lock()?;
+        }
+        Err(TryLockError::Error(error)) => return Err(error.into()),
+    }
     let rust = Rust::prepare(&project)?;
     let kernels = rust.kernels(&project)?;
     let output = &kernels.output;
@@ -50,7 +67,6 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         profile,
     ))?;
     let fingerprint = sha256(&identity);
-    let root = project.metadata.target_directory.join("metal");
     let directory = root.join(&fingerprint);
     if !cache::valid(&directory, &fingerprint) {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -60,23 +76,20 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&stage)?;
-        let result = create(&stage, output, &rust, &metal, &fingerprint);
+        let result = create(&stage, &generated, &rust, &metal, &fingerprint);
         if let Err(error) = result {
             std::fs::remove_dir_all(&stage)?;
             return Err(error);
         }
-        if cache::valid(&directory, &fingerprint) {
-            std::fs::remove_dir_all(&stage)?;
-        } else {
-            if directory.exists() {
-                std::fs::remove_dir_all(&directory)?;
-            }
-            std::fs::rename(&stage, &directory)?;
+        if directory.exists() {
+            std::fs::remove_dir_all(&directory)?;
         }
+        std::fs::rename(&stage, &directory)?;
         eprintln!("Built Metal artifact {}", directory.display());
     } else {
         eprintln!("Cached Metal artifact {}", directory.display());
     }
+    drop(lock);
     let mut host = Command::new("cargo");
     host.current_dir(&project.metadata.workspace_root)
         .arg(match options.action {
@@ -107,13 +120,13 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
 
 fn create(
     stage: &Path,
-    output: &Path,
+    generated: &[Vec<u8>],
     rust: &Rust,
     metal: &Metal,
     fingerprint: &str,
 ) -> Result<()> {
-    for file in COMPILER_OUTPUTS {
-        std::fs::copy(output.join(file.name()), stage.join(file.name()))?;
+    for (file, bytes) in COMPILER_OUTPUTS.into_iter().zip(generated) {
+        std::fs::write(stage.join(file.name()), bytes)?;
     }
     let abi = Abi::from_json(&std::fs::read_to_string(
         stage.join(ArtifactFile::Abi.name()),
