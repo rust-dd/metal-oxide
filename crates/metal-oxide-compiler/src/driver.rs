@@ -10,6 +10,9 @@ pub(crate) struct Frontend {
 
 impl Callbacks for Frontend {
     fn config(&mut self, config: &mut Config) {
+        if config.opts.unstable_opts.unpretty.is_some() {
+            self.output = None;
+        }
         if !self.help
             && !config.opts.describe_lints
             && config.opts.prints.iter().all(|request| {
@@ -38,6 +41,9 @@ impl Callbacks for Frontend {
     }
 
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
+        if tcx.sess.opts.unstable_opts.unpretty.is_some() {
+            return Compilation::Continue;
+        }
         crate::target::validate(tcx);
         let (entries, instances) = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();

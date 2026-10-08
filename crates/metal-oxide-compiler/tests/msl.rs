@@ -244,6 +244,9 @@ fn informational_commands_preserve_generated_files() {
     let response = directory.join("help.args");
     std::fs::write(&response, "--help\ntests/fixtures/m2_unit.rs\n").unwrap();
     let response_argument = format!("@{}", response.display());
+    let inspection = directory.join("inspect.rs");
+    std::fs::write(&inspection, "fn main() {}\n").unwrap();
+    let inspection = inspection.to_str().unwrap();
     for arguments in [
         vec![],
         vec!["--help"],
@@ -258,6 +261,8 @@ fn informational_commands_preserve_generated_files() {
         vec!["--print=sysroot"],
         vec!["--print", "sysroot"],
         vec!["-W", "help"],
+        vec!["-Zunpretty=expanded", inspection],
+        vec!["-Zunpretty=mir", inspection],
     ] {
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_metal-oxide-compiler"))
             .arg("--metal-output")
