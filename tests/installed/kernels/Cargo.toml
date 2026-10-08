@@ -1,0 +1,13 @@
+[package]
+name = "external-kernels"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+version.workspace = true
+
+[dependencies]
+external-helper = { workspace = true }
+metal-oxide-device = { workspace = true }
+
+[lints]
+workspace = true

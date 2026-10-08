@@ -1,0 +1,15 @@
+[package]
+name = "external-host"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+version.workspace = true
+
+[package.metadata.metal]
+kernels = "../kernels/Cargo.toml"
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true

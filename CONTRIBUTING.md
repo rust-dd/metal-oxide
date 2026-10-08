@@ -77,6 +77,17 @@ narration.
 
 ## Hardware and CI
 
+Verify a private bundle with the independent host/kernel/helper workspace:
+
+```sh
+python3 scripts/test-installed.py target/dist/metal-oxide-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz
+```
+
+This runs both backends, debug/release builds, and a relocated stable host with
+only the runtime crates and precompiled bindings/artifact. It retains logs under
+`target/installed-*`. Portable packaging and benchmark-driver checks run with
+`python3 scripts/test_package.py` and `python3 scripts/test_bench.py`.
+
 Keep portable checks separate from explicit GPU checks. Use a hardware runner
 only after verifying its actual Metal device. Do not automatically execute
 untrusted PR code on a personal or self-hosted runner. No hardware runner is

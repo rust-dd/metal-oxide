@@ -96,6 +96,8 @@ fn run_codecs(fixture: &str, program: &str) {
     let (output, directory) = support::emit(fixture, &["-C", "overflow-checks=off"]);
     support::checked(output);
     let source = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
+    // Launch wrappers require macOS; the generated value codecs are portable.
+    let source = source.split_once("pub struct Kernels<'a>").unwrap().0;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
