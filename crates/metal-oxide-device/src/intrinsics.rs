@@ -39,13 +39,6 @@ unsafe extern "Rust" {
         value: *const (),
         bytes: usize,
     );
-    pub(crate) fn __metal_atomic_add(
-        buffer: *mut (),
-        index: u32,
-        value: *const (),
-        out: *mut (),
-        bytes: usize,
-    );
 }
 
 macro_rules! atomic_modify {
@@ -57,6 +50,7 @@ macro_rules! atomic_modify {
 }
 atomic_modify!(
     __metal_atomic_exchange,
+    __metal_atomic_add,
     __metal_atomic_sub,
     __metal_atomic_min,
     __metal_atomic_max,

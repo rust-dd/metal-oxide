@@ -102,7 +102,7 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
 }
 
 fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
-    use metal_oxide_ir::{Access, Element, Scalar, Type};
+    use metal_oxide_ir::{Access, Element, Type};
     let (scalar, element, prefix) = match crate::types::parameter(tcx, ty)? {
         Type::Scalar(scalar) => (scalar, ty, "scalar"),
         Type::Buffer {
@@ -131,17 +131,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
         Type::Aggregate(_) => return Some(format!("value<{ty}>")),
         _ => return None,
     };
-    let name = match scalar {
-        Scalar::F32 => "f32",
-        Scalar::F16 => "f16",
-        Scalar::U32 => "u32",
-        Scalar::I32 => "i32",
-        Scalar::U8 => "u8",
-        Scalar::U16 => "u16",
-        Scalar::I8 => "i8",
-        Scalar::I16 => "i16",
-        Scalar::Bool | Scalar::Usize => return None,
-    };
+    let name = scalar.name();
     let layout = tcx
         .layout_of(TypingEnv::fully_monomorphized().as_query_input(element))
         .ok()?;
