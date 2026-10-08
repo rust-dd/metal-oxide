@@ -32,10 +32,13 @@ def licenses(bundle, toolchain):
                  and p.name.lower().startswith(("license", "copying", "notice", "copyright"))]
         if package.get("license_file"):
             files.append(directory / package["license_file"])
+        if not files and package["repository"] == "https://github.com/madsmtm/objc2":
+            files.append(ROOT / "licenses/objc2.md")
         if not files:
             raise ValueError(f"missing license text for {package['name']}")
         destination = bundle / "licenses" / f"{package['name']}-{package['version']}"
         destination.mkdir(parents=True)
+        (destination / "package.json").write_text(json.dumps({key: package[key] for key in ["name", "version", "license", "repository"]}, indent=2) + "\n")
         for path in files:
             shutil.copy2(path, destination / path.name)
     for name, prefix in [("host-rust", ["rustc"]), ("compiler-rust", ["rustup", "run", toolchain, "rustc"])]:
