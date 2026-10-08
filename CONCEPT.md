@@ -202,8 +202,9 @@ done:
 
 The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
-Unsupported operations produce diagnostics. An enabled MIR assertion remains in
-the IR and is rejected by current codegen rather than silently discarded.
+Unsupported operations produce diagnostics. MIR assertions remain in the IR
+until a typed constant or range proof establishes that they cannot fail.
+Unproved assertions are rejected because GPU panic handling is unavailable.
 
 The compiler writes a diagnostic text dump of this structure to
 `kernels.oxide-ir`.
@@ -330,7 +331,8 @@ attributes. It does not generate our ABI file or Rust wrappers.
 function, and synchronous and enqueue methods for each entrypoint.
 
 For `vec_add`, the synchronous part is equivalent to the following, with
-generated identifiers and formatting shortened:
+generated identifiers and formatting shortened. `ABI_DIGEST` stands for the
+ABI hash embedded in the generated source:
 
 ```rust
 use metal_oxide::{Argument, Buffer, Device, DynamicLaunchConfig, Module, Pipeline, Result};
@@ -342,6 +344,7 @@ pub struct Kernels<'a> {
 
 pub fn load(device: &Device, directory: impl AsRef<std::path::Path>) -> Result<Kernels<'_>> {
     let module = Module::from_artifact(device, directory)?;
+    module.verify_abi(ABI_DIGEST)?;
     Ok(Kernels {
         device,
         pipeline_0: Pipeline::new(device, &module, "vec_add")?,
