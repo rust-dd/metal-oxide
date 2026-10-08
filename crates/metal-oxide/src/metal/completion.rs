@@ -6,13 +6,14 @@ use std::{
     rc::Rc,
     sync::{Arc, Condvar, Mutex},
     task::{Context, Poll, Waker},
+    time::Duration,
 };
 
 use crate::{Error, Result};
 
 #[derive(Default)]
 struct State {
-    result: Option<std::result::Result<(), String>>,
+    result: Option<std::result::Result<SubmissionReport, String>>,
     waker: Option<Waker>,
 }
 
@@ -23,7 +24,7 @@ pub(super) struct Completion {
 }
 
 impl Completion {
-    pub(super) fn finish(&self, result: std::result::Result<(), String>) {
+    pub(super) fn finish(&self, result: std::result::Result<SubmissionReport, String>) {
         let waker = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.result.is_some() {
@@ -47,7 +48,7 @@ impl Completion {
             .is_some()
     }
 
-    fn wait(&self) -> Result<()> {
+    fn wait(&self) -> Result<SubmissionReport> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         while state.result.is_none() {
             state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
@@ -60,7 +61,7 @@ impl Completion {
             .map_err(Error::Command)
     }
 
-    fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+    fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<SubmissionReport>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match &state.result {
             Some(result) => Poll::Ready(result.clone().map_err(Error::Command)),
@@ -106,6 +107,22 @@ impl AccessState {
     }
 }
 
+/// Measurements supplied by native command completion feedback.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SubmissionReport {
+    /// GPU execution time for the entire batch; None for empty batches or unavailable timestamps.
+    pub gpu_duration: Option<Duration>,
+}
+
+impl SubmissionReport {
+    pub(super) fn from_gpu_times(start: f64, end: f64) -> Self {
+        let gpu_duration = (start.is_finite() && start > 0.0 && end.is_finite() && end >= start)
+            .then(|| Duration::try_from_secs_f64(end - start).ok())
+            .flatten();
+        Self { gpu_duration }
+    }
+}
+
 /// A committed GPU batch. Dropping it leaves execution and resource retention active.
 ///
 /// Await it or call `wait` to receive the command's completion status. CPU buffer
@@ -117,13 +134,13 @@ pub struct Submission<'a> {
 }
 
 impl Submission<'_> {
-    pub fn wait(self) -> Result<()> {
+    pub fn wait(self) -> Result<SubmissionReport> {
         self.completion.wait()
     }
 }
 
 impl Future for Submission<'_> {
-    type Output = Result<()>;
+    type Output = Result<SubmissionReport>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.completion.poll(cx)
@@ -142,6 +159,26 @@ mod tests {
     impl Wake for Counter {
         fn wake(self: Arc<Self>) {
             self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn native_timestamps_reject_unavailable_and_invalid_measurements() {
+        assert_eq!(
+            SubmissionReport::from_gpu_times(12.0, 12.25).gpu_duration,
+            Some(std::time::Duration::from_millis(250))
+        );
+        for (start, end) in [
+            (0.0, 0.0),
+            (2.0, 1.0),
+            (-1.0, 1.0),
+            (f64::NAN, 1.0),
+            (1.0, f64::INFINITY),
+        ] {
+            assert_eq!(
+                SubmissionReport::from_gpu_times(start, end).gpu_duration,
+                None
+            );
         }
     }
 
@@ -180,8 +217,8 @@ mod tests {
         access.register(&first);
         access.register(&second);
         let worker = std::thread::spawn(move || {
-            first.finish(Ok(()));
-            second.finish(Ok(()));
+            first.finish(Ok(SubmissionReport::default()));
+            second.finish(Ok(SubmissionReport::default()));
         });
         access.synchronize();
         worker.join().unwrap();

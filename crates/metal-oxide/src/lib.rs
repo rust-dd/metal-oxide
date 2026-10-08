@@ -16,4 +16,4 @@ pub use value::GpuValue;
 mod metal;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-pub use metal::{Argument, Batch, Buffer, Device, Module, Pipeline, Submission};
+pub use metal::{Argument, Batch, Buffer, Device, Module, Pipeline, Submission, SubmissionReport};

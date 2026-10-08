@@ -121,6 +121,8 @@ impl Device {
         arguments: &[Argument<'_>],
     ) -> Result<()> {
         // SAFETY: this method forwards the caller's kernel contract to the batch.
-        unsafe { self.submit(|batch| batch.launch(pipeline, config, arguments))? }.wait()
+        unsafe { self.submit(|batch| batch.launch(pipeline, config, arguments))? }
+            .wait()
+            .map(|_| ())
     }
 }

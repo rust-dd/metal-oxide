@@ -4,8 +4,12 @@ use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLComputePipelineState, MTLSize};
 
 use super::{
-    Argument, Device, Pipeline, Submission, backend::Backend, buffer::Resource,
-    classic::ClassicBatch, completion::Completion, metal4::Metal4Batch,
+    Argument, Device, Pipeline, Submission,
+    backend::Backend,
+    buffer::Resource,
+    classic::ClassicBatch,
+    completion::{Completion, SubmissionReport},
+    metal4::Metal4Batch,
 };
 
 enum NativeBatch {
@@ -111,7 +115,7 @@ impl<'d> Batch<'d> {
     pub(super) fn commit<'a>(self) -> Submission<'a> {
         let completion = Arc::new(Completion::default());
         if self.dispatches == 0 {
-            completion.finish(Ok(()));
+            completion.finish(Ok(SubmissionReport::default()));
         } else {
             for resource in &self.resources {
                 resource.access.register(&completion);

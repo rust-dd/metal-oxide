@@ -130,6 +130,12 @@ impl<T: GpuValue> Buffer<T> {
         self.values.get_mut()
     }
 
+    /// Encodes dirty CPU values into shared Metal storage before a later dispatch.
+    /// Launches also perform this automatically. GPU-authored values are preserved.
+    pub fn upload(&mut self) {
+        self.prepare(Access::Read);
+    }
+
     fn download(&self) {
         assert!(
             !self.decoding.get(),

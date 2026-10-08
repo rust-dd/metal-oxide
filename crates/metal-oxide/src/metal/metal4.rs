@@ -12,7 +12,11 @@ use objc2_metal::{
     MTLDevice, MTLResidencySet, MTLResidencySetDescriptor, MTLStages,
 };
 
-use super::{Argument, Pipeline, batch::metal_size, completion::Completion};
+use super::{
+    Argument, Pipeline,
+    batch::metal_size,
+    completion::{Completion, SubmissionReport},
+};
 use crate::{DynamicLaunchConfig, Error, Result};
 
 pub(super) struct Metal4Batch {
@@ -127,9 +131,14 @@ impl Metal4Batch {
                 let _keepalive = &keepalive;
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes live feedback after this commit's GPU workload completes.
-                    unsafe { feedback.as_ref() }
-                        .error()
-                        .map_or(Ok(()), |e| Err(e.localizedDescription().to_string()))
+                    let feedback = unsafe { feedback.as_ref() };
+                    match feedback.error() {
+                        Some(error) => Err(error.localizedDescription().to_string()),
+                        None => Ok(SubmissionReport::from_gpu_times(
+                            feedback.GPUStartTime(),
+                            feedback.GPUEndTime(),
+                        )),
+                    }
                 });
                 completion.finish(result);
             },

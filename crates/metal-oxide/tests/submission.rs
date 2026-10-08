@@ -27,6 +27,46 @@ fn setup() -> metal_oxide::Result<(Device, Pipeline)> {
     Ok((device, pipeline))
 }
 
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn submission_reports_gpu_time_and_explicit_upload_preserves_gpu_writes() -> metal_oxide::Result<()>
+{
+    let (device, pipeline) = setup()?;
+    // SAFETY: the batch contains no commands.
+    let empty = unsafe { device.submit(|_| Ok(()))? }.wait()?;
+    assert!(empty.gpu_duration.is_none());
+    let mut input = device.buffer_zeroed::<f32>(257)?;
+    let mut output = device.buffer_zeroed::<f32>(257)?;
+    for value in [2.0, -5.0] {
+        input.as_mut_slice().fill(value);
+        input.upload();
+        let start = std::time::Instant::now();
+        // SAFETY: separate initialized buffers cover 257 elements and the kernel guards padding.
+        let submission = unsafe {
+            device.submit(|batch| {
+                batch.launch(
+                    &pipeline,
+                    LaunchConfig::<256>::for_elements(257)?,
+                    &[
+                        Argument::read(&input),
+                        Argument::write(&mut output),
+                        Argument::value(3.0_f32)?,
+                        Argument::value(1.0_f32)?,
+                        Argument::value(257_u32)?,
+                    ],
+                )
+            })?
+        };
+        let report = await_on_thread(submission)?;
+        let gpu = report.gpu_duration.expect("native completion timestamps");
+        assert!(!gpu.is_zero());
+        assert!(gpu <= start.elapsed());
+        output.upload();
+        assert!(output.as_slice().iter().all(|&x| x == value * 3.0 + 1.0));
+    }
+    Ok(())
+}
+
 struct Unpark(std::thread::Thread);
 impl Wake for Unpark {
     fn wake(self: Arc<Self>) {

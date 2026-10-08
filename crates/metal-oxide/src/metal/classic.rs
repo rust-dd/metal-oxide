@@ -10,7 +10,11 @@ use objc2_metal::{
     MTLCommandQueue, MTLComputeCommandEncoder, MTLComputePipelineState, MTLDevice,
 };
 
-use super::{Argument, Pipeline, batch::metal_size, completion::Completion};
+use super::{
+    Argument, Pipeline,
+    batch::metal_size,
+    completion::{Completion, SubmissionReport},
+};
 use crate::{DynamicLaunchConfig, Error, Result};
 
 pub(super) struct ClassicBatch {
@@ -77,7 +81,10 @@ impl ClassicBatch {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };
                     if command.status() == MTLCommandBufferStatus::Completed {
-                        Ok(())
+                        Ok(SubmissionReport::from_gpu_times(
+                            command.GPUStartTime(),
+                            command.GPUEndTime(),
+                        ))
                     } else {
                         Err(command
                             .error()
