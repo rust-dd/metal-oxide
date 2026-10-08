@@ -31,6 +31,10 @@ working features. Add crates and modules when they have an implementation.
 - Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
+- Keep `ABI_VERSION` at 4 until the first published release. Regenerate artifacts
+  after incompatible development changes. After that release, increment the ABI
+  version for incompatible contract or artifact-format changes. Retain version
+  and ABI validation throughout development.
 - Support classic `MTL*` and Metal 4 behind the same public runtime API. Keep
   native API selection internal and check OS/device capabilities. Verify both
   paths independently on hardware before changing their execution behavior.
