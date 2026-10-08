@@ -1,6 +1,7 @@
 use crate::process::{self, Result};
 use metal_oxide_artifact::ArtifactFile;
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -84,19 +85,39 @@ impl Metal {
     }
 
     pub(crate) fn compile(&self, directory: &Path) -> Result<()> {
-        process::run(
-            self.command()
-                .args(METAL_FLAGS)
-                .arg("-c")
-                .arg(directory.join(ArtifactFile::Msl.name()))
-                .arg("-o")
-                .arg(directory.join(ArtifactFile::Air.name())),
+        let mut compile = self.command();
+        compile
+            .args(METAL_FLAGS)
+            .arg("-c")
+            .arg(directory.join(ArtifactFile::Msl.name()))
+            .arg("-o")
+            .arg(directory.join(ArtifactFile::Air.name()));
+        let mut link = self.command();
+        link.arg(directory.join(ArtifactFile::Air.name()))
+            .arg("-o")
+            .arg(directory.join(ArtifactFile::Metallib.name()));
+        let commands = [&compile, &link].map(|command| {
+            serde_json::json!({
+                "program": command.get_program().to_string_lossy(),
+                "arguments": command.get_args().map(|a| a.to_string_lossy()).collect::<Vec<_>>(),
+                "SDKROOT": self.sdk_path,
+            })
+        });
+        std::fs::write(
+            directory.join("metal-commands.json"),
+            serde_json::to_vec_pretty(&commands)?,
         )?;
-        process::run(
-            self.command()
-                .arg(directory.join(ArtifactFile::Air.name()))
-                .arg("-o")
-                .arg(directory.join(ArtifactFile::Metallib.name())),
-        )
+        let mut log = std::fs::File::create(directory.join("metal.log"))?;
+        for command in [&mut compile, &mut link] {
+            let output = command.output()?;
+            log.write_all(&output.stdout)?;
+            log.write_all(&output.stderr)?;
+            std::io::stdout().write_all(&output.stdout)?;
+            std::io::stderr().write_all(&output.stderr)?;
+            if !output.status.success() {
+                return Err(format!("{command:?} exited with {}", output.status).into());
+            }
+        }
+        Ok(())
     }
 }

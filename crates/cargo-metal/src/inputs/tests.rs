@@ -70,15 +70,20 @@ impl Workspace {
     }
 
     fn inputs(&self) -> Inputs {
-        let output = process::capture(Command::new("cargo").current_dir(&self.0).args([
-            "check",
-            "--lib",
-            "--locked",
-            "--offline",
-            "-p",
-            "input-kernels",
-            "--message-format=json-render-diagnostics",
-        ]))
+        let output = process::capture(
+            Command::new("cargo")
+                .current_dir(&self.0)
+                .env("CARGO_TARGET_DIR", self.0.join("target"))
+                .args([
+                    "check",
+                    "--lib",
+                    "--locked",
+                    "--offline",
+                    "-p",
+                    "input-kernels",
+                    "--message-format=json-render-diagnostics",
+                ]),
+        )
         .unwrap();
         let project = metadata::load(&Options {
             action: Action::Inspect,
@@ -150,4 +155,52 @@ fn unused_dev_dependency_changes_do_not_change_inputs() {
     )
     .unwrap();
     assert_eq!(before, workspace.inputs());
+}
+
+#[test]
+fn fixture_build_outputs_are_isolated_from_inherited_cargo_targets() {
+    let workspace = Workspace::new();
+    let inputs = workspace.inputs();
+    let outputs = inputs
+        .files
+        .keys()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "rmeta")
+        })
+        .collect::<Vec<_>>();
+    assert!(!outputs.is_empty());
+    assert!(
+        outputs
+            .iter()
+            .all(|path| path.starts_with(workspace.0.join("target")))
+    );
+}
+
+#[test]
+fn feature_lockfile_and_configuration_changes_invalidate_inputs() {
+    let workspace = Workspace::new();
+    let before = workspace.inputs();
+    let manifest = workspace.0.join("kernels/Cargo.toml");
+    let source = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(
+        manifest,
+        format!("{source}[features]\nextra=[]\ndefault=[\"extra\"]\n"),
+    )
+    .unwrap();
+    let features = workspace.inputs();
+    assert_ne!(before, features);
+    assert!(features.features.values().any(|set| set.contains("extra")));
+    let lock = workspace.0.join("Cargo.lock");
+    let source = std::fs::read_to_string(&lock).unwrap();
+    std::fs::write(lock, format!("# input identity regression\n{source}")).unwrap();
+    let locked = workspace.inputs();
+    assert_ne!(features, locked);
+    std::fs::create_dir(workspace.0.join(".cargo")).unwrap();
+    std::fs::write(
+        workspace.0.join(".cargo/config.toml"),
+        "[build]\nrustflags=[\"--cfg\",\"cache_probe\"]\n",
+    )
+    .unwrap();
+    assert_ne!(locked, workspace.inputs());
 }

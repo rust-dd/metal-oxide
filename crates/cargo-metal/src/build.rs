@@ -35,6 +35,7 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         }
         Err(TryLockError::Error(error)) => return Err(error.into()),
     }
+    cache::discard_abandoned(&root)?;
     let rust = Rust::prepare(&project)?;
     let kernels = rust.kernels(&project)?;
     let output = &kernels.output;
@@ -78,8 +79,19 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         std::fs::create_dir(&stage)?;
         let result = create(&stage, &generated, &rust, &metal, &fingerprint);
         if let Err(error) = result {
-            std::fs::remove_dir_all(&stage)?;
-            return Err(error);
+            let failed = root.join(
+                stage
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .replacen(".build-", ".failed-", 1),
+            );
+            std::fs::rename(&stage, &failed)?;
+            return Err(format!(
+                "Metal build failed; inputs retained at {}: {error}",
+                failed.display()
+            )
+            .into());
         }
         if directory.exists() {
             std::fs::remove_dir_all(&directory)?;
