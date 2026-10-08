@@ -154,10 +154,10 @@ pub(crate) fn expression(
                 SimdBuiltin::Count => "count",
             }
         ),
-        Expression::SimdSum(value) => format!("simd_sum({})", op(value)),
-        Expression::SimdShuffle { value, lane } => {
-            format!("simd_shuffle({}, {})", op(value), op(lane))
-        }
+        Expression::Simd {
+            op: operation,
+            arguments,
+        } => crate::simd::expression(*operation, arguments.iter().map(op).collect()),
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
         Expression::Atomic {

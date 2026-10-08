@@ -11,6 +11,7 @@ mod host_types;
 mod interface;
 mod names;
 mod numeric;
+mod simd;
 mod structured;
 
 use interface::KernelInterfaces;

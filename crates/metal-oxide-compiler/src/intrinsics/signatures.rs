@@ -1,7 +1,7 @@
 use rustc_hir::{Mutability, Safety, def_id::DefId};
 use rustc_middle::{
     mir,
-    ty::{self, Ty, TyCtxt},
+    ty::{self, Ty, TyCtxt, consts::ConstExt},
 };
 
 use super::{
@@ -11,6 +11,7 @@ use super::{
 
 #[derive(Clone, Copy)]
 enum Slot {
+    Ballot,
     Bool,
     F32,
     U32,
@@ -43,8 +44,12 @@ pub(super) fn valid(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) ->
             declaration(tcx, definition, &[F16], F32, Safety::Safe)
         }
         Intrinsic::ThreadgroupBarrier => declaration(tcx, definition, &[], Unit, Safety::Unsafe),
-        Intrinsic::SimdSum => declaration(tcx, definition, &[F32], F32, Safety::Unsafe),
-        Intrinsic::SimdShuffle => declaration(tcx, definition, &[F32, U32], F32, Safety::Unsafe),
+        Intrinsic::Simd(metal_oxide_ir::SimdOp::Any | metal_oxide_ir::SimdOp::All) => {
+            declaration(tcx, definition, &[Bool], Bool, Safety::Unsafe)
+        }
+        Intrinsic::Simd(metal_oxide_ir::SimdOp::Ballot) => {
+            declaration(tcx, definition, &[Bool], Ballot, Safety::Unsafe)
+        }
         _ => false,
     }
 }
@@ -76,8 +81,11 @@ fn declaration(
         && slot_matches(tcx, output, signature.output())
 }
 
-fn slot_matches(tcx: TyCtxt<'_>, slot: Slot, ty: Ty<'_>) -> bool {
+fn slot_matches<'tcx>(tcx: TyCtxt<'tcx>, slot: Slot, ty: Ty<'tcx>) -> bool {
     match slot {
+        Slot::Ballot => {
+            matches!(ty.kind(), ty::Array(element, length) if *element == tcx.types.u32 && length.try_to_target_usize(tcx) == Some(2))
+        }
         Slot::Bool => ty.is_bool(),
         Slot::F32 => matches!(ty.kind(), ty::Float(ty::FloatTy::F32)),
         Slot::U32 => matches!(ty.kind(), ty::Uint(ty::UintTy::U32)),
@@ -125,58 +133,66 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
     }
     let input = signature.inputs();
     let output = signature.output();
-    let bridge = match (operation, input) {
-        (Intrinsic::ThreadgroupAlloc(access), []) if signature.safety() == Safety::Safe => {
-            let Some((kind, _)) = buffer_element(tcx, output) else {
-                return false;
-            };
-            if kind
-                != if access == metal_oxide_ir::Access::Atomic {
-                    DeviceType::AtomicThreadgroupBuffer
-                } else {
-                    DeviceType::ThreadgroupBuffer
+    let bridge = if let Intrinsic::Simd(op) = operation {
+        if !simd_signature(tcx, definition, input, output, op) {
+            return false;
+        }
+        format!("__metal_simd_{}", op.name())
+    } else {
+        match (operation, input) {
+            (Intrinsic::ThreadgroupAlloc(access), []) if signature.safety() == Safety::Safe => {
+                let Some((kind, _)) = buffer_element(tcx, output) else {
+                    return false;
+                };
+                if kind
+                    != if access == metal_oxide_ir::Access::Atomic {
+                        DeviceType::AtomicThreadgroupBuffer
+                    } else {
+                        DeviceType::ThreadgroupBuffer
+                    }
+                    || !allocation_shape(tcx, definition, output)
+                {
+                    return false;
                 }
-                || !allocation_shape(tcx, definition, output)
+                "__metal_threadgroup_alloc"
+            }
+            (Intrinsic::BufferLoad, &[buffer, index]) if index == tcx.types.u32 => {
+                let Some((kind, element)) = buffer_element(tcx, buffer) else {
+                    return false;
+                };
+                if output != element {
+                    return false;
+                }
+                match kind {
+                    DeviceType::ReadBuffer => "__metal_buffer_load",
+                    DeviceType::ThreadgroupBuffer => "__metal_threadgroup_load",
+                    _ => return false,
+                }
+            }
+            (Intrinsic::BufferStore, &[buffer, index, value])
+                if index == tcx.types.u32 && output.is_unit() =>
             {
-                return false;
+                let Some((kind, element)) = buffer_element(tcx, buffer) else {
+                    return false;
+                };
+                if value != element {
+                    return false;
+                }
+                match kind {
+                    DeviceType::WriteBuffer => "__metal_buffer_store",
+                    DeviceType::ThreadgroupBuffer => "__metal_threadgroup_store",
+                    _ => return false,
+                }
             }
-            "__metal_threadgroup_alloc"
+            (Intrinsic::Atomic(op), inputs) => {
+                if !atomic_signature(tcx, inputs, output, op) {
+                    return false;
+                }
+                atomic_bridge(op)
+            }
+            _ => return false,
         }
-        (Intrinsic::BufferLoad, &[buffer, index]) if index == tcx.types.u32 => {
-            let Some((kind, element)) = buffer_element(tcx, buffer) else {
-                return false;
-            };
-            if output != element {
-                return false;
-            }
-            match kind {
-                DeviceType::ReadBuffer => "__metal_buffer_load",
-                DeviceType::ThreadgroupBuffer => "__metal_threadgroup_load",
-                _ => return false,
-            }
-        }
-        (Intrinsic::BufferStore, &[buffer, index, value])
-            if index == tcx.types.u32 && output.is_unit() =>
-        {
-            let Some((kind, element)) = buffer_element(tcx, buffer) else {
-                return false;
-            };
-            if value != element {
-                return false;
-            }
-            match kind {
-                DeviceType::WriteBuffer => "__metal_buffer_store",
-                DeviceType::ThreadgroupBuffer => "__metal_threadgroup_store",
-                _ => return false,
-            }
-        }
-        (Intrinsic::Atomic(op), inputs) => {
-            if !atomic_signature(tcx, inputs, output, op) {
-                return false;
-            }
-            atomic_bridge(op)
-        }
-        _ => return false,
+        .to_owned()
     };
     if !matches!(operation, Intrinsic::ThreadgroupAlloc(_)) && signature.safety() != Safety::Unsafe
     {
@@ -246,6 +262,14 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
         Intrinsic::ThreadgroupAlloc(_) => {
             declaration(tcx, definition, &[Usize, Usize], write, Safety::Unsafe)
         }
+        Intrinsic::Simd(op) => {
+            let inputs: &[_] = if op.arity() == 2 {
+                &[read, U32, write, Usize]
+            } else {
+                &[read, write, Usize]
+            };
+            declaration(tcx, definition, inputs, Unit, Safety::Unsafe)
+        }
         Intrinsic::Atomic(op) => {
             use metal_oxide_ir::AtomicOp;
             let (inputs, output): (&[_], _) = match op {
@@ -303,4 +327,27 @@ fn atomic_bridge(op: metal_oxide_ir::AtomicOp) -> &'static str {
         Or => "__metal_atomic_or",
         Xor => "__metal_atomic_xor",
     }
+}
+
+fn simd_signature<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    definition: DefId,
+    input: &[Ty<'tcx>],
+    output: Ty<'tcx>,
+    op: metal_oxide_ir::SimdOp,
+) -> bool {
+    let generics = tcx.generics_of(definition);
+    if generics.parent_count != 0
+        || generics.own_params.len() != 1
+        || !matches!(
+            generics.own_params[0].kind,
+            ty::GenericParamDefKind::Type { .. }
+        )
+        || input.len() != op.arity()
+    {
+        return false;
+    }
+    matches!(input[0].kind(), ty::Param(parameter) if parameter.index == 0)
+        && output == input[0]
+        && (input.len() == 1 || input[1] == tcx.types.u32)
 }

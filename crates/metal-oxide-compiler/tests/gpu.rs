@@ -4,6 +4,8 @@
 mod aggregates;
 #[path = "gpu/atomics.rs"]
 mod atomics;
+#[path = "gpu/collectives.rs"]
+mod collectives;
 #[path = "gpu/control_flow.rs"]
 mod control_flow;
 #[path = "gpu/cooperative.rs"]

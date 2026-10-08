@@ -31,11 +31,10 @@ impl Abi {
             return Err(Error("artifact contains no kernels".into()));
         }
         let mut features = HashSet::new();
-        if self
-            .required_features
-            .iter()
-            .any(|feature| feature != "simd_groups" || !features.insert(feature))
-        {
+        if self.required_features.iter().any(|feature| {
+            !matches!(feature.as_str(), "simd_groups" | "int32_atomics")
+                || !features.insert(feature)
+        }) {
             return Err(Error("unsupported or duplicate artifact feature".into()));
         }
         let mut names = HashSet::new();

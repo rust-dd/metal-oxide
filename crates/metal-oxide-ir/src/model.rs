@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Access, AtomicOp, Scalar, Type, TypeTable};
+use crate::{Access, AtomicOp, Scalar, SimdOp, Type, TypeTable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
@@ -218,10 +218,9 @@ pub enum Expression {
     },
     Coordinates(Builtin),
     SimdCoordinate(SimdBuiltin),
-    SimdSum(Operand),
-    SimdShuffle {
-        value: Operand,
-        lane: Operand,
+    Simd {
+        op: SimdOp,
+        arguments: Vec<Operand>,
     },
     Dim3([Operand; 3]),
     Checked {
@@ -262,12 +261,7 @@ pub enum Expression {
 impl Expression {
     pub fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::Use(v)
-            | Self::Unary(_, v)
-            | Self::Cast(v, _)
-            | Self::Bitcast(v, _)
-            | Self::SimdSum(v) => vec![v],
-            Self::SimdShuffle { value, lane } => vec![value, lane],
+            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) | Self::Bitcast(v, _) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
@@ -288,6 +282,7 @@ impl Expression {
             } => vec![buffer, index, value],
             Self::Call { arguments, .. }
             | Self::Math { arguments, .. }
+            | Self::Simd { arguments, .. }
             | Self::Atomic { arguments, .. } => arguments.iter().collect(),
         }
     }

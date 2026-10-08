@@ -180,14 +180,8 @@ pub(crate) fn expression_type(
             Ok(Type::Aggregate(*id))
         }
         Expression::SimdCoordinate(_) => Ok(Type::Scalar(Scalar::U32)),
-        Expression::SimdSum(value) => {
-            require(ty(value)?, Type::Scalar(Scalar::F32))?;
-            Ok(Type::Scalar(Scalar::F32))
-        }
-        Expression::SimdShuffle { value, lane } => {
-            require(ty(value)?, Type::Scalar(Scalar::F32))?;
-            require(ty(lane)?, Type::Scalar(Scalar::U32))?;
-            Ok(Type::Scalar(Scalar::F32))
+        Expression::Simd { op, arguments } => {
+            crate::simd::simd_type(module, function, *op, arguments, source)
         }
         Expression::ThreadgroupAlloc {
             element,

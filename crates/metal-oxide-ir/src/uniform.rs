@@ -74,6 +74,11 @@ pub(crate) fn validate(
                         .collect::<Vec<_>>();
                     required.merge(&summaries[*function].participation.substitute(&arguments));
                 }
+                if let Expression::Simd { op, arguments } = &statement.value
+                    && op.uniform_control()
+                {
+                    required.merge(&dependencies(&arguments[1], &values));
+                }
                 if required.varying || (!kernels && !required.parameters.is_empty()) {
                     return Err(Error::new(
                         &statement.source,
@@ -171,6 +176,7 @@ fn flow(
                                 )
                                 | Expression::BufferLoad { .. }
                                 | Expression::Atomic { .. }
+                                | Expression::Simd { .. }
                         );
                         for operand in expression.operands() {
                             value.merge(&dependencies(operand, &values));

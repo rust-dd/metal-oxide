@@ -23,8 +23,6 @@ unsafe extern "Rust" {
     pub(crate) safe fn __metal_simd_size() -> u32;
     pub(crate) safe fn __metal_simd_group() -> u32;
     pub(crate) safe fn __metal_simd_count() -> u32;
-    pub(crate) fn __metal_simd_sum(value: f32) -> f32;
-    pub(crate) fn __metal_simd_shuffle(value: f32, lane: u32) -> f32;
     pub(crate) fn __metal_threadgroup_barrier();
     pub(crate) fn __metal_threadgroup_alloc(bytes: usize, alignment: usize) -> *mut ();
     pub(crate) fn __metal_buffer_load(buffer: *const (), index: u32, out: *mut (), bytes: usize);
@@ -66,3 +64,39 @@ atomic_modify!(
     __metal_atomic_or,
     __metal_atomic_xor
 );
+
+macro_rules! simd_reduce {
+    ($($name:ident),* $(,)?) => {
+        unsafe extern "Rust" {
+            $(pub(crate) fn $name(value: *const (), out: *mut (), size: usize);)*
+        }
+    };
+}
+simd_reduce!(
+    __metal_simd_sum,
+    __metal_simd_min,
+    __metal_simd_max,
+    __metal_simd_and,
+    __metal_simd_or,
+    __metal_simd_xor,
+    __metal_simd_inclusive_sum,
+    __metal_simd_exclusive_sum
+);
+macro_rules! simd_permute {
+    ($($name:ident),* $(,)?) => {
+        unsafe extern "Rust" {
+            $(pub(crate) fn $name(value: *const (), control: u32, out: *mut (), size: usize);)*
+        }
+    };
+}
+simd_permute!(
+    __metal_simd_shuffle,
+    __metal_simd_shuffle_up,
+    __metal_simd_shuffle_down,
+    __metal_simd_shuffle_xor
+);
+unsafe extern "Rust" {
+    pub(crate) fn __metal_simd_any(predicate: bool) -> bool;
+    pub(crate) fn __metal_simd_all(predicate: bool) -> bool;
+    pub(crate) fn __metal_simd_ballot(predicate: bool) -> [u32; 2];
+}

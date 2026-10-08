@@ -1,4 +1,4 @@
-use metal_oxide_ir::{Access, AtomicOp, Builtin, MathOp, Scalar, SimdBuiltin};
+use metal_oxide_ir::{Access, AtomicOp, Builtin, MathOp, Scalar, SimdBuiltin, SimdOp};
 use rustc_hir::{
     def::DefKind,
     def_id::{CRATE_DEF_INDEX, DefId},
@@ -51,10 +51,29 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             "__metal_simd_size" => Some(Intrinsic::SimdCoordinate(SimdBuiltin::Size)),
             "__metal_simd_group" => Some(Intrinsic::SimdCoordinate(SimdBuiltin::Group)),
             "__metal_simd_count" => Some(Intrinsic::SimdCoordinate(SimdBuiltin::Count)),
-            "__metal_simd_sum" => Some(Intrinsic::SimdSum),
-            "__metal_simd_shuffle" => Some(Intrinsic::SimdShuffle),
+            "__metal_simd_any" => Some(Intrinsic::Simd(SimdOp::Any)),
+            "__metal_simd_all" => Some(Intrinsic::Simd(SimdOp::All)),
+            "__metal_simd_ballot" => Some(Intrinsic::Simd(SimdOp::Ballot)),
             _ => None,
         };
+    }
+    if tcx.def_kind(definition) == DefKind::Fn && in_module(tcx, definition, "simdgroup") {
+        let op = match tcx.item_name(definition).as_str() {
+            "sum" => SimdOp::Sum,
+            "min" => SimdOp::Min,
+            "max" => SimdOp::Max,
+            "and" => SimdOp::And,
+            "or" => SimdOp::Or,
+            "xor" => SimdOp::Xor,
+            "inclusive_sum" => SimdOp::InclusiveSum,
+            "exclusive_sum" => SimdOp::ExclusiveSum,
+            "shuffle" => SimdOp::Shuffle,
+            "shuffle_up" => SimdOp::ShuffleUp,
+            "shuffle_down" => SimdOp::ShuffleDown,
+            "shuffle_xor" => SimdOp::ShuffleXor,
+            _ => return None,
+        };
+        return Some(Intrinsic::Simd(op));
     }
     if tcx.def_kind(definition) == DefKind::Fn
         && in_module(tcx, definition, "threadgroup")

@@ -1,5 +1,7 @@
 mod support;
 
+#[path = "msl/collectives.rs"]
+mod collectives;
 #[path = "msl/control_flow.rs"]
 mod control_flow;
 
@@ -15,6 +17,7 @@ fn atomic_operations_compile_with_device_and_threadgroup_memory() {
     )
     .unwrap();
     assert_eq!(abi.kernels.len(), 3);
+    assert_eq!(abi.required_features, ["int32_atomics"]);
     assert_eq!(abi.kernels[0].parameters[0].binding, 0);
     assert_eq!(
         abi.kernels

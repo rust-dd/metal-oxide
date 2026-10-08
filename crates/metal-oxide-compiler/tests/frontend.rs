@@ -140,8 +140,6 @@ fn device_extern_operations_do_not_require_mir_bodies() {
         "simd_size",
         "simd_group",
         "simd_count",
-        "simd_sum",
-        "simd_shuffle",
     ] {
         assert!(
             report.contains(&format!("builtin: {operation} mir=unavailable")),
@@ -153,6 +151,8 @@ fn device_extern_operations_do_not_require_mir_bodies() {
         "buffer_store",
         "threadgroup_alloc",
         "atomic_add",
+        "simd_sum",
+        "simd_shuffle",
     ] {
         assert!(
             report.contains(&format!("builtin: {operation}")),

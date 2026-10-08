@@ -5,6 +5,7 @@ use metal_oxide_ir::{Access, Error, Function, Module, Scalar, Type};
 pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
     pub(crate) simd: bool,
+    atomics: bool,
 }
 
 impl KernelInterfaces {
@@ -75,17 +76,30 @@ impl KernelInterfaces {
         Ok(Self {
             kernels,
             simd: uses_simd(module),
+            atomics: module
+                .functions
+                .iter()
+                .flat_map(|function| &function.locals)
+                .any(|ty| {
+                    matches!(
+                        ty,
+                        Type::Buffer {
+                            access: Access::Atomic,
+                            ..
+                        }
+                    )
+                }),
         })
     }
 
     pub(crate) fn abi(&self) -> Result<artifact::Abi, artifact::Error> {
         let abi = artifact::Abi {
             version: artifact::ABI_VERSION,
-            required_features: if self.simd {
-                vec!["simd_groups".into()]
-            } else {
-                vec![]
-            },
+            required_features: [(self.atomics, "int32_atomics"), (self.simd, "simd_groups")]
+                .into_iter()
+                .filter(|(required, _)| *required)
+                .map(|(_, name)| name.to_owned())
+                .collect(),
             kernels: self.kernels.iter().flatten().cloned().collect(),
         };
         abi.validate()?;
@@ -103,8 +117,7 @@ fn uses_simd(module: &Module) -> bool {
             matches!(
                 s.value,
                 metal_oxide_ir::Expression::SimdCoordinate(_)
-                    | metal_oxide_ir::Expression::SimdSum(_)
-                    | metal_oxide_ir::Expression::SimdShuffle { .. }
+                    | metal_oxide_ir::Expression::Simd { .. }
             )
         })
 }

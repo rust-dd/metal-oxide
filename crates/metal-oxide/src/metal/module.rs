@@ -60,15 +60,18 @@ impl Module {
         let manifest = Manifest::from_json(&std::fs::read_to_string(
             directory.join(ArtifactFile::Manifest.name()),
         )?)?;
-        if manifest
-            .required_features
-            .iter()
-            .any(|f| f == "simd_groups")
-            && !device.raw.supportsFamily(MTLGPUFamily::Apple7)
-        {
-            return Err(Error::UnsupportedDevice(
-                "artifact requires SIMD-group support".into(),
-            ));
+        for feature in &manifest.required_features {
+            let (family, reason) = match feature.as_str() {
+                "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
+                "int32_atomics" => (
+                    MTLGPUFamily::Apple1,
+                    "artifact requires 32-bit integer atomics",
+                ),
+                _ => unreachable!("validated artifact capabilities"),
+            };
+            if !device.raw.supportsFamily(family) {
+                return Err(Error::UnsupportedDevice(reason.into()));
+            }
         }
         let bytes = std::fs::read(directory.join(ArtifactFile::Metallib.name()))?;
         manifest.verify_library(&bytes)?;

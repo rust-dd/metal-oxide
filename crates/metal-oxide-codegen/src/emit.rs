@@ -50,6 +50,7 @@ impl<'a> ModuleEmitter<'a> {
             }
             self.output.push_str("};\n\n");
         }
+        self.output.push_str(&crate::simd::helpers(module));
         for (id, f) in module.functions.iter().enumerate() {
             if !f.kernel {
                 let signature = self.signature(f, id)?;

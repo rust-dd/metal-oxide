@@ -12,10 +12,7 @@ pub struct FunctionAnalysis {
 impl Expression {
     pub fn is_cooperative(&self, functions: &[FunctionAnalysis]) -> bool {
         match self {
-            Self::ThreadgroupAlloc { .. }
-            | Self::ThreadgroupBarrier
-            | Self::SimdSum(_)
-            | Self::SimdShuffle { .. } => true,
+            Self::ThreadgroupAlloc { .. } | Self::ThreadgroupBarrier | Self::Simd { .. } => true,
             Self::Call { function, .. } => functions[*function].cooperative,
             _ => false,
         }
