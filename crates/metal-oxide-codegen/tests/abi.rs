@@ -188,6 +188,16 @@ fn kernel_binding_limit_is_checked_before_emission() {
 }
 
 #[test]
+fn kernel_names_cannot_redefine_msl_scalar_aliases() {
+    for name in ["uchar", "ushort", "uint", "ulong", "size_t", "ptrdiff_t"] {
+        let mut module = module(vec![]);
+        module.functions[0].name = name.into();
+        let error = metal_oxide_codegen::Codegen::new(&module).unwrap_err();
+        assert!(error.message.contains("MSL identifier"), "{name}: {error}");
+    }
+}
+
+#[test]
 fn nested_record_layout_matches_the_emitted_msl_declarations() {
     use ir::{Aggregate, RecordField};
     let mut module = module(vec![]);
