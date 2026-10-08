@@ -16,7 +16,6 @@ pub use analysis::FunctionAnalysis;
 pub use atomic::AtomicOp;
 pub use control_flow::{ControlFlowGraph, Dominators};
 pub use model::*;
-pub use proofs::prove_numerics;
 pub use simd::{SimdOp, ballot_type};
 pub use types::{Access, AddressSpace, Aggregate, Element, RecordField, Scalar, Type, TypeTable};
 pub use typing::{operand_type, place_type};

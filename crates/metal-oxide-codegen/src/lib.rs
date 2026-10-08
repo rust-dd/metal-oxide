@@ -30,7 +30,6 @@ pub struct Codegen<'a> {
 impl<'a> Codegen<'a> {
     pub fn new(module: &'a Module) -> Result<Self, Error> {
         let analyses = metal_oxide_ir::validate(module)?;
-        metal_oxide_ir::prove_numerics(module)?;
         Ok(Self {
             module,
             interfaces: KernelInterfaces::new(module)?,

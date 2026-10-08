@@ -16,6 +16,7 @@ fn direct_ir_division_requires_checks_even_without_an_assert() {
         );
         let error = metal_oxide_codegen::Codegen::new(&module).unwrap_err();
         assert!(error.message.contains("proved"), "{error}");
+        assert_eq!(validate(&module).unwrap_err(), error);
     }
 }
 
@@ -47,6 +48,7 @@ fn dynamic_switch_discriminants_require_a_bounds_proof() {
     module.types = types;
     let error = metal_oxide_codegen::Codegen::new(&module).unwrap_err();
     assert!(error.message.contains("bounds"), "{error}");
+    assert_eq!(validate(&module).unwrap_err(), error);
 }
 
 #[test]

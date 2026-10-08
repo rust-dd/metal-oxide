@@ -8,20 +8,27 @@ mod transfer;
 
 use crate::*;
 
-/// Proves enabled assertions, integer division guards and dynamic array bounds.
-///
-/// Call after structural validation. Unknown facts and exhausted analysis budgets
-/// are errors; this function does not modify or disable IR assertions.
-pub fn prove_numerics(module: &Module) -> Result<(), Error> {
-    let needed = module.functions.iter().any(|function| function.blocks.iter().any(|block| {
-        matches!(block.terminator, Terminator::Assert { enabled: true, .. })
-            || control_operand(&block.terminator).is_some_and(|operand| matches!(operand, Operand::Place(p) if dynamic(p)))
-            || block.statements.iter().any(|statement| {
-                matches!(&statement.value, Expression::Binary(BinaryOp::Div | BinaryOp::Rem, a, _) if matches!(operand_type(module, function, a, &statement.source), Ok(Type::Scalar(s)) if s.is_integer()))
-                    || dynamic(&statement.destination)
-                    || statement.value.operands().iter().any(|operand| matches!(operand, Operand::Place(p) if dynamic(p)))
-            })
-    }));
+pub(crate) fn prove_numerics(module: &Module) -> Result<(), Error> {
+    let needed = module.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            matches!(block.terminator, Terminator::Assert { enabled: true, .. })
+                || control_operand(&block.terminator).is_some_and(dynamic_operand)
+                || block.statements.iter().any(|statement| {
+                    let division = match &statement.value {
+                        Expression::Binary(BinaryOp::Div | BinaryOp::Rem, value, _) => {
+                            matches!(
+                                operand_type(module, function, value, &statement.source),
+                                Ok(Type::Scalar(scalar)) if scalar.is_integer()
+                            )
+                        }
+                        _ => false,
+                    };
+                    division
+                        || dynamic(&statement.destination)
+                        || statement.value.operands().into_iter().any(dynamic_operand)
+                })
+        })
+    });
     if !needed {
         return Ok(());
     }
@@ -37,6 +44,10 @@ pub fn prove_numerics(module: &Module) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+fn dynamic_operand(operand: &Operand) -> bool {
+    matches!(operand, Operand::Place(place) if dynamic(place))
 }
 
 fn dynamic(place: &Place) -> bool {

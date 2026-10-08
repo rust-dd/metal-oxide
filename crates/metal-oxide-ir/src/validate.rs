@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::{typing::expression_type, *};
 
+/// Checks types, initialization, control flow, participation, and numerical safety.
 pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
     let type_source = SourceLocation {
         file: "<types>".into(),
@@ -175,6 +176,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
     }
     let order = acyclic_calls(module)?;
     crate::uniform::validate(module, &mut graphs, &order)?;
+    crate::proofs::prove_numerics(module)?;
     Ok(graphs)
 }
 
