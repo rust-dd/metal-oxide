@@ -67,7 +67,7 @@ pub fn execute(module: &Module, main: &str) -> String {
     );
     std::fs::write(directory.join("main.cpp"), program).unwrap();
     let output = Command::new("clang++")
-        .args(["-std=c++17", "-Wno-unknown-attributes"])
+        .args(["-std=c++17", "-fsigned-char", "-Wno-unknown-attributes"])
         .arg("-I")
         .arg(&directory)
         .arg(directory.join("main.cpp"))

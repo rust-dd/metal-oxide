@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+static_assert(char(-1) < 0, "MSL char is signed; compile the shim with -fsigned-char");
 #define kernel
 #define device
 #define constant const

@@ -249,7 +249,7 @@ pub fn execute_msl(directory: &Path, main: &str) -> String {
     .unwrap();
     let mut compiler = Command::new("clang++");
     compiler
-        .args(["-std=c++17", "-Wno-unknown-attributes"])
+        .args(["-std=c++17", "-fsigned-char", "-Wno-unknown-attributes"])
         .arg("-I")
         .arg(directory)
         .arg(directory.join("main.cpp"))
