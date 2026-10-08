@@ -1,6 +1,16 @@
 use crate::{Dim3, F16};
 
 unsafe extern "Rust" {
+    pub(crate) fn __metal_atomic_load(ptr: *mut (), index: u32, out: *mut (), size: usize);
+    pub(crate) fn __metal_atomic_store(ptr: *mut (), index: u32, value: *const (), size: usize);
+    pub(crate) fn __metal_atomic_compare_exchange_weak(
+        ptr: *mut (),
+        index: u32,
+        current: *const (),
+        new: *const (),
+        out: *mut (),
+        size: usize,
+    ) -> bool;
     pub(crate) safe fn __metal_thread_idx() -> Dim3;
     pub(crate) safe fn __metal_block_idx() -> Dim3;
     pub(crate) safe fn __metal_block_dim() -> Dim3;
@@ -39,3 +49,20 @@ unsafe extern "Rust" {
         bytes: usize,
     );
 }
+
+macro_rules! atomic_modify {
+    ($($name:ident),* $(,)?) => {
+        unsafe extern "Rust" {
+            $(pub(crate) fn $name(ptr: *mut (), index: u32, value: *const (), out: *mut (), size: usize);)*
+        }
+    };
+}
+atomic_modify!(
+    __metal_atomic_exchange,
+    __metal_atomic_sub,
+    __metal_atomic_min,
+    __metal_atomic_max,
+    __metal_atomic_and,
+    __metal_atomic_or,
+    __metal_atomic_xor
+);

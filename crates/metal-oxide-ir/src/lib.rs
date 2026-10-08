@@ -1,6 +1,7 @@
 //! Typed, source-located compute kernel IR.
 
 mod analysis;
+mod atomic;
 mod control_flow;
 mod dataflow;
 mod model;
@@ -11,6 +12,7 @@ mod uniform;
 mod validate;
 
 pub use analysis::FunctionAnalysis;
+pub use atomic::AtomicOp;
 pub use control_flow::{ControlFlowGraph, Dominators};
 pub use model::*;
 pub use proofs::prove_numerics;

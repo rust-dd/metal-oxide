@@ -43,7 +43,7 @@ impl<'tcx> TypeLowering<'tcx> {
         {
             return Ok(ir::Type::Checked(scalar));
         }
-        if let Some((access, element)) = buffer(self.tcx, ty) {
+        if let Some((access, address_space, element)) = buffer(self.tcx, ty) {
             let element = match self.owned(element, span)? {
                 ir::Type::Scalar(s) if !matches!(s, ir::Scalar::Bool | ir::Scalar::Usize) => {
                     ir::Element::Scalar(s)
@@ -54,11 +54,7 @@ impl<'tcx> TypeLowering<'tcx> {
             return Ok(ir::Type::Buffer {
                 element,
                 access,
-                address_space: if access == ir::Access::ReadWrite {
-                    ir::AddressSpace::Threadgroup
-                } else {
-                    ir::AddressSpace::Device
-                },
+                address_space,
             });
         }
         if let ty::Array(element, length) = ty.kind() {
@@ -144,18 +140,30 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
     }
 }
 
-fn buffer<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(ir::Access, Ty<'tcx>)> {
+fn buffer<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    ty: Ty<'tcx>,
+) -> Option<(ir::Access, ir::AddressSpace, Ty<'tcx>)> {
     let ty::Adt(definition, args) = ty.kind() else {
         return None;
     };
-    let access = match device_type(tcx, definition.did())? {
+    let kind = device_type(tcx, definition.did())?;
+    let access = match kind {
         DeviceType::ReadBuffer => ir::Access::Read,
         DeviceType::WriteBuffer => ir::Access::Write,
-        DeviceType::AtomicBuffer => ir::Access::Atomic,
+        DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer => ir::Access::Atomic,
         DeviceType::ThreadgroupBuffer => ir::Access::ReadWrite,
         _ => return None,
     };
-    Some((access, args.first()?.as_type()?))
+    let space = if matches!(
+        kind,
+        DeviceType::ThreadgroupBuffer | DeviceType::AtomicThreadgroupBuffer
+    ) {
+        ir::AddressSpace::Threadgroup
+    } else {
+        ir::AddressSpace::Device
+    };
+    Some((access, space, args.first()?.as_type()?))
 }
 
 pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {

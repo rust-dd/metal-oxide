@@ -170,7 +170,7 @@ fn flow(
                                     SimdBuiltin::Lane | SimdBuiltin::Group
                                 )
                                 | Expression::BufferLoad { .. }
-                                | Expression::AtomicAdd { .. }
+                                | Expression::Atomic { .. }
                         );
                         for operand in expression.operands() {
                             value.merge(&dependencies(operand, &values));

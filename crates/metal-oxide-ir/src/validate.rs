@@ -74,7 +74,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                     address_space: AddressSpace::Device,
                     ..
                 } | Type::Buffer {
-                    access: Access::Read | Access::Write | Access::Atomic,
+                    access: Access::Read | Access::Write,
                     address_space: AddressSpace::Threadgroup,
                     ..
                 }

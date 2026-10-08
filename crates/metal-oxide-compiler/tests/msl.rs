@@ -4,6 +4,29 @@ mod support;
 mod control_flow;
 
 #[test]
+fn atomic_operations_compile_with_device_and_threadgroup_memory() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/atomic_ops.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(abi.kernels.len(), 3);
+    assert_eq!(abi.kernels[0].parameters[0].binding, 0);
+    assert_eq!(
+        abi.kernels
+            .iter()
+            .find(|k| k.name == "shared_counter")
+            .unwrap()
+            .required_block,
+        Some([256, 1, 1])
+    );
+}
+
+#[test]
 fn records_with_references_are_rejected() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
@@ -277,4 +300,14 @@ fn informational_commands_preserve_generated_files() {
             ir
         );
     }
+}
+
+#[test]
+fn atomic_threadgroup_storage_rejects_float_elements() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/invalid_atomic_shared.rs",
+        &[],
+    );
+    support::rejected(output, "unsupported local type");
+    assert!(!directory.join("kernels.metal").exists());
 }

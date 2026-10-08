@@ -58,3 +58,17 @@ pub unsafe fn barrier() {
     // SAFETY: the caller guarantees uniform block participation.
     unsafe { crate::intrinsics::__metal_threadgroup_barrier() }
 }
+
+/// Allocates uninitialized `u32` or `i32` atomic storage for one threadgroup.
+/// Initialize each cell with an atomic store, then synchronize before reading.
+/// Each call site has distinct storage; allocation inside loops is unsupported.
+pub fn shared_atomic<T: Copy, const N: usize>() -> crate::AtomicThreadgroupBuffer<T, N> {
+    // SAFETY: the compiler allocates distinct, aligned atomic storage at this call site.
+    let ptr = unsafe {
+        crate::intrinsics::__metal_threadgroup_alloc(
+            core::mem::size_of::<T>() * N,
+            core::mem::align_of::<T>(),
+        )
+    };
+    crate::AtomicThreadgroupBuffer { ptr: ptr.cast() }
+}

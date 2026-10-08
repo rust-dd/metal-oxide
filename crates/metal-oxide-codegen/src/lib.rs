@@ -1,6 +1,7 @@
 //! Metal Shading Language generation from validated kernel IR.
 
 mod arithmetic;
+mod atomics;
 mod bindings;
 mod control;
 mod emit;

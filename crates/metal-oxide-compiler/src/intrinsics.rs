@@ -1,4 +1,4 @@
-use metal_oxide_ir::{BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin};
+use metal_oxide_ir::{Access, AtomicOp, BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin};
 mod device;
 mod signatures;
 
@@ -13,11 +13,11 @@ pub(crate) enum Intrinsic {
     SimdCoordinate(SimdBuiltin),
     BufferLoad,
     BufferStore,
-    ThreadgroupAlloc,
+    ThreadgroupAlloc(Access),
     ThreadgroupBarrier,
     SimdSum,
     SimdShuffle,
-    AtomicAdd,
+    Atomic(AtomicOp),
     WrappingShift(BinaryOp),
     Math(MathOp),
     Bitcast(Scalar),
@@ -37,11 +37,12 @@ impl Intrinsic {
             Self::SimdCoordinate(SimdBuiltin::Count) => "simd_count",
             Self::BufferLoad => "buffer_load",
             Self::BufferStore => "buffer_store",
-            Self::ThreadgroupAlloc => "threadgroup_alloc",
+            Self::ThreadgroupAlloc(_) => "threadgroup_alloc",
             Self::ThreadgroupBarrier => "threadgroup_barrier",
             Self::SimdSum => "simd_sum",
             Self::SimdShuffle => "simd_shuffle",
-            Self::AtomicAdd => "atomic_add",
+            Self::Atomic(AtomicOp::Add) => "atomic_add",
+            Self::Atomic(_) => "atomic",
             Self::WrappingShift(_) => "wrapping_shift",
             Self::Math(_) => "float_math",
             Self::Bitcast(_) => "scalar_bitcast",

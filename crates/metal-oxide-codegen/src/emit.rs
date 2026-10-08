@@ -30,6 +30,7 @@ impl<'a> ModuleEmitter<'a> {
             "#include <metal_stdlib>\nusing namespace metal;\n#pragma STDC FP_CONTRACT OFF\n\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n",
         );
         self.output.push_str(&crate::numeric::helpers(module)?);
+        self.output.push_str(&crate::atomics::helpers(module)?);
         for (id, aggregate) in module.types.iter() {
             writeln!(self.output, "struct metal_oxide_aggregate_{id} {{").unwrap();
             match aggregate {
@@ -90,11 +91,17 @@ impl<'a> ModuleEmitter<'a> {
                     id,
                     element,
                     length,
+                    access,
                 } = statement.value
                 {
                     writeln!(
                         self.output,
-                        "    threadgroup {} metal_oxide_shared_{id}[{length}];",
+                        "    threadgroup {}{} metal_oxide_shared_{id}[{length}];",
+                        if access == Access::Atomic {
+                            "atomic_"
+                        } else {
+                            ""
+                        },
                         type_name(Type::Scalar(element))
                     )
                     .unwrap();

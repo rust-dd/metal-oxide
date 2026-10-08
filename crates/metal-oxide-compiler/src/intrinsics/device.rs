@@ -1,4 +1,4 @@
-use metal_oxide_ir::{Builtin, MathOp, Scalar, SimdBuiltin};
+use metal_oxide_ir::{Access, AtomicOp, Builtin, MathOp, Scalar, SimdBuiltin};
 use rustc_hir::{
     def::DefKind,
     def_id::{CRATE_DEF_INDEX, DefId},
@@ -12,6 +12,7 @@ pub(crate) enum DeviceType {
     ReadBuffer,
     WriteBuffer,
     AtomicBuffer,
+    AtomicThreadgroupBuffer,
     ThreadgroupBuffer,
     Dim3,
     F16,
@@ -24,6 +25,7 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
     let (module, kind) = match tcx.item_name(definition).as_str() {
         "ReadBuffer" => ("buffer", DeviceType::ReadBuffer),
         "WriteBuffer" => ("buffer", DeviceType::WriteBuffer),
+        "AtomicThreadgroupBuffer" => ("atomic", DeviceType::AtomicThreadgroupBuffer),
         "AtomicBuffer" => ("atomic", DeviceType::AtomicBuffer),
         "ThreadgroupBuffer" => ("threadgroup", DeviceType::ThreadgroupBuffer),
         "Dim3" => ("thread", DeviceType::Dim3),
@@ -56,9 +58,18 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
     }
     if tcx.def_kind(definition) == DefKind::Fn
         && in_module(tcx, definition, "threadgroup")
-        && tcx.item_name(definition).as_str() == "shared"
+        && matches!(
+            tcx.item_name(definition).as_str(),
+            "shared" | "shared_atomic"
+        )
     {
-        return Some(Intrinsic::ThreadgroupAlloc);
+        return Some(Intrinsic::ThreadgroupAlloc(
+            if tcx.item_name(definition).as_str() == "shared_atomic" {
+                Access::Atomic
+            } else {
+                Access::ReadWrite
+            },
+        ));
     }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
@@ -78,7 +89,23 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         (DeviceType::WriteBuffer | DeviceType::ThreadgroupBuffer, "store_unchecked") => {
             Some(Intrinsic::BufferStore)
         }
-        (DeviceType::AtomicBuffer, "fetch_add_relaxed") => Some(Intrinsic::AtomicAdd),
+        (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
+            let op = match method {
+                "load_relaxed" => AtomicOp::Load,
+                "store_relaxed" => AtomicOp::Store,
+                "exchange_relaxed" => AtomicOp::Exchange,
+                "compare_exchange_weak_relaxed" => AtomicOp::CompareExchangeWeak,
+                "fetch_add_relaxed" => AtomicOp::Add,
+                "fetch_sub_relaxed" => AtomicOp::Sub,
+                "fetch_min_relaxed" => AtomicOp::Min,
+                "fetch_max_relaxed" => AtomicOp::Max,
+                "fetch_and_relaxed" => AtomicOp::And,
+                "fetch_or_relaxed" => AtomicOp::Or,
+                "fetch_xor_relaxed" => AtomicOp::Xor,
+                _ => return None,
+            };
+            Some(Intrinsic::Atomic(op))
+        }
         _ => None,
     }
 }

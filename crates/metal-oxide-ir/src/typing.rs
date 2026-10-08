@@ -190,9 +190,14 @@ pub(crate) fn expression_type(
             Ok(Type::Scalar(Scalar::F32))
         }
         Expression::ThreadgroupAlloc {
-            element, length, ..
+            element,
+            length,
+            access,
+            ..
         } => {
-            if *length == 0
+            if !matches!(access, Access::ReadWrite | Access::Atomic)
+                || (*access == Access::Atomic && !matches!(element, Scalar::U32 | Scalar::I32))
+                || *length == 0
                 || matches!(element, Scalar::Bool | Scalar::Usize)
                 || length.checked_mul(element.bits() / 8).is_none()
             {
@@ -200,7 +205,7 @@ pub(crate) fn expression_type(
             }
             Ok(Type::Buffer {
                 element: Element::Scalar(*element),
-                access: Access::ReadWrite,
+                access: *access,
                 address_space: AddressSpace::Threadgroup,
             })
         }
@@ -263,26 +268,8 @@ pub(crate) fn expression_type(
             }
             Ok(callee.locals[0])
         }
-        Expression::AtomicAdd {
-            buffer,
-            index,
-            value,
-        } => {
-            require(ty(index)?, Type::Scalar(Scalar::U32))?;
-            match ty(buffer)? {
-                Type::Buffer {
-                    element: Element::Scalar(element @ (Scalar::U32 | Scalar::I32)),
-                    access: Access::Atomic,
-                    address_space: AddressSpace::Device,
-                } => {
-                    require(ty(value)?, Type::Scalar(element))?;
-                    Ok(Type::Scalar(element))
-                }
-                _ => Err(Error::new(
-                    source,
-                    "atomic addition requires an i32/u32 atomic buffer",
-                )),
-            }
+        Expression::Atomic { op, arguments } => {
+            crate::atomic::atomic_type(module, function, *op, arguments, source)
         }
     }
 }

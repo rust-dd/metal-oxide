@@ -95,7 +95,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value, lane] = arguments(values, span)?;
                 ir::Expression::SimdShuffle { value, lane }
             }
-            Intrinsic::ThreadgroupAlloc => {
+            Intrinsic::ThreadgroupAlloc(access) => {
                 arguments::<0>(values, span)?;
                 let ir::Type::Scalar(element) = self.lower_type(types.type_at(0), span)? else {
                     return Err((span, "threadgroup elements must be scalars".into()));
@@ -114,18 +114,20 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     id,
                     element,
                     length,
+                    access,
                 }
             }
             Intrinsic::ThreadgroupBarrier => {
                 arguments::<0>(values, span)?;
                 ir::Expression::ThreadgroupBarrier
             }
-            Intrinsic::AtomicAdd => {
-                let [buffer, index, value] = arguments(values, span)?;
-                ir::Expression::AtomicAdd {
-                    buffer,
-                    index,
-                    value,
+            Intrinsic::Atomic(op) => {
+                if values.len() != op.arity() + 2 {
+                    return Err((span, "invalid atomic intrinsic arity".into()));
+                }
+                ir::Expression::Atomic {
+                    op,
+                    arguments: values,
                 }
             }
             Intrinsic::BufferLoad => {

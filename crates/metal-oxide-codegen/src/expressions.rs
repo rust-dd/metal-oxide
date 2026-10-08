@@ -160,16 +160,10 @@ pub(crate) fn expression(
         }
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
-        Expression::AtomicAdd {
-            buffer,
-            index,
-            value,
-        } => format!(
-            "atomic_fetch_add_explicit(&{}[{}], {}, memory_order_relaxed)",
-            op(buffer),
-            op(index),
-            op(value)
-        ),
+        Expression::Atomic {
+            op: operation,
+            arguments,
+        } => crate::atomics::expression(*operation, arguments.iter().map(op).collect()),
         Expression::Coordinates(builtin) => format!(
             "metal_oxide_ctx.{}",
             match builtin {

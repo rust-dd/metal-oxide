@@ -11,6 +11,7 @@ use super::{
 
 #[derive(Clone, Copy)]
 enum Slot {
+    Bool,
     F32,
     U32,
     Usize,
@@ -77,6 +78,7 @@ fn declaration(
 
 fn slot_matches(tcx: TyCtxt<'_>, slot: Slot, ty: Ty<'_>) -> bool {
     match slot {
+        Slot::Bool => ty.is_bool(),
         Slot::F32 => matches!(ty.kind(), ty::Float(ty::FloatTy::F32)),
         Slot::U32 => matches!(ty.kind(), ty::Uint(ty::UintTy::U32)),
         Slot::Usize => matches!(ty.kind(), ty::Uint(ty::UintTy::Usize)),
@@ -107,6 +109,7 @@ fn buffer_element<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(DeviceType, 
         DeviceType::ReadBuffer
         | DeviceType::WriteBuffer
         | DeviceType::AtomicBuffer
+        | DeviceType::AtomicThreadgroupBuffer
         | DeviceType::ThreadgroupBuffer => Some((kind, arguments.first()?.as_type()?)),
         _ => None,
     }
@@ -123,11 +126,18 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
     let input = signature.inputs();
     let output = signature.output();
     let bridge = match (operation, input) {
-        (Intrinsic::ThreadgroupAlloc, []) if signature.safety() == Safety::Safe => {
-            let Some((DeviceType::ThreadgroupBuffer, _)) = buffer_element(tcx, output) else {
+        (Intrinsic::ThreadgroupAlloc(access), []) if signature.safety() == Safety::Safe => {
+            let Some((kind, _)) = buffer_element(tcx, output) else {
                 return false;
             };
-            if !allocation_shape(tcx, definition, output) {
+            if kind
+                != if access == metal_oxide_ir::Access::Atomic {
+                    DeviceType::AtomicThreadgroupBuffer
+                } else {
+                    DeviceType::ThreadgroupBuffer
+                }
+                || !allocation_shape(tcx, definition, output)
+            {
                 return false;
             }
             "__metal_threadgroup_alloc"
@@ -160,18 +170,16 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                 _ => return false,
             }
         }
-        (Intrinsic::AtomicAdd, &[buffer, index, value]) if index == tcx.types.u32 => {
-            let Some((DeviceType::AtomicBuffer, element)) = buffer_element(tcx, buffer) else {
-                return false;
-            };
-            if value != element || output != element {
+        (Intrinsic::Atomic(op), inputs) => {
+            if !atomic_signature(tcx, inputs, output, op) {
                 return false;
             }
-            "__metal_atomic_add"
+            atomic_bridge(op)
         }
         _ => return false,
     };
-    if !matches!(operation, Intrinsic::ThreadgroupAlloc) && signature.safety() != Safety::Unsafe {
+    if !matches!(operation, Intrinsic::ThreadgroupAlloc(_)) && signature.safety() != Safety::Unsafe
+    {
         return false;
     }
     let body = tcx.instance_mir(ty::InstanceKind::Item(definition));
@@ -235,16 +243,64 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
             Unit,
             Safety::Unsafe,
         ),
-        Intrinsic::ThreadgroupAlloc => {
+        Intrinsic::ThreadgroupAlloc(_) => {
             declaration(tcx, definition, &[Usize, Usize], write, Safety::Unsafe)
         }
-        Intrinsic::AtomicAdd => declaration(
-            tcx,
-            definition,
-            &[write, U32, read, write, Usize],
-            Unit,
-            Safety::Unsafe,
-        ),
+        Intrinsic::Atomic(op) => {
+            use metal_oxide_ir::AtomicOp;
+            let (inputs, output): (&[_], _) = match op {
+                AtomicOp::Load => (&[write, U32, write, Usize], Unit),
+                AtomicOp::Store => (&[write, U32, read, Usize], Unit),
+                AtomicOp::CompareExchangeWeak => (&[write, U32, read, read, write, Usize], Bool),
+                _ => (&[write, U32, read, write, Usize], Unit),
+            };
+            declaration(tcx, definition, inputs, output, Safety::Unsafe)
+        }
         _ => false,
+    }
+}
+
+fn atomic_signature<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    input: &[Ty<'tcx>],
+    output: Ty<'tcx>,
+    op: metal_oxide_ir::AtomicOp,
+) -> bool {
+    if input.len() != 2 + op.arity() {
+        return false;
+    }
+    let Some((kind, element)) = buffer_element(tcx, input[0]) else {
+        return false;
+    };
+    if !matches!(
+        kind,
+        DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer
+    ) || input[1] != tcx.types.u32
+        || input[2..].iter().any(|&ty| ty != element)
+    {
+        return false;
+    }
+    match op {
+        metal_oxide_ir::AtomicOp::Store => output.is_unit(),
+        metal_oxide_ir::AtomicOp::CompareExchangeWeak => {
+            matches!(output.kind(), ty::Tuple(fields) if fields.len() == 2 && fields[0] == element && fields[1].is_bool())
+        }
+        _ => output == element,
+    }
+}
+fn atomic_bridge(op: metal_oxide_ir::AtomicOp) -> &'static str {
+    use metal_oxide_ir::AtomicOp::*;
+    match op {
+        Load => "__metal_atomic_load",
+        Store => "__metal_atomic_store",
+        Exchange => "__metal_atomic_exchange",
+        CompareExchangeWeak => "__metal_atomic_compare_exchange_weak",
+        Add => "__metal_atomic_add",
+        Sub => "__metal_atomic_sub",
+        Min => "__metal_atomic_min",
+        Max => "__metal_atomic_max",
+        And => "__metal_atomic_and",
+        Or => "__metal_atomic_or",
+        Xor => "__metal_atomic_xor",
     }
 }

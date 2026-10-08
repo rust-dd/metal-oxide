@@ -9,7 +9,7 @@ pub mod simdgroup;
 mod thread;
 pub mod threadgroup;
 
-pub use atomic::AtomicBuffer;
+pub use atomic::{AtomicBuffer, AtomicThreadgroupBuffer};
 pub use buffer::{ReadBuffer, WriteBuffer};
 pub use half::F16;
 pub use metal_oxide_macros::kernel;

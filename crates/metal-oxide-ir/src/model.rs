@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Scalar, Type, TypeTable};
+use crate::{Access, AtomicOp, Scalar, Type, TypeTable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
@@ -237,6 +237,7 @@ pub enum Expression {
         id: u32,
         element: Scalar,
         length: u32,
+        access: Access,
     },
     ThreadgroupBarrier,
     BufferLoad {
@@ -248,10 +249,9 @@ pub enum Expression {
         index: Operand,
         value: Operand,
     },
-    AtomicAdd {
-        buffer: Operand,
-        index: Operand,
-        value: Operand,
+    Atomic {
+        op: AtomicOp,
+        arguments: Vec<Operand>,
     },
     Call {
         function: usize,
@@ -285,15 +285,10 @@ impl Expression {
                 buffer,
                 index,
                 value,
-            }
-            | Self::AtomicAdd {
-                buffer,
-                index,
-                value,
             } => vec![buffer, index, value],
-            Self::Call { arguments, .. } | Self::Math { arguments, .. } => {
-                arguments.iter().collect()
-            }
+            Self::Call { arguments, .. }
+            | Self::Math { arguments, .. }
+            | Self::Atomic { arguments, .. } => arguments.iter().collect(),
         }
     }
 }
