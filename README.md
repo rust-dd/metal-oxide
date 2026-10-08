@@ -1,88 +1,73 @@
 # metal-oxide
 
-Rust compute kernels for Metal on Apple Silicon.
+Rust compute kernels for Metal on Apple Silicon. Ordinary `no_std` Rust kernels,
+CUDA-style thread/block indices, and a stable Rust host runtime. Supports classic
+Metal and Metal 4.
 
-Kernels are ordinary Rust functions in a separate `no_std` crate. A Rust host
-application loads the compiled kernels and launches them through `metal-oxide`.
+## Example
 
-## Architecture
+Kernel (`kernels/src/lib.rs`):
 
-```text
-       [Rust kernel]
-             |
-        [rustc: MIR]
-             |
-       [importer: IR]
-             |
-         [codegen] ----> ABI + bindings
-             |                 |
-            MSL                |
-             |                 |
-      [Apple compiler]         |
-             |                 |
-         .metallib             |
-             +-----------------+
-             |
-   [Rust host + runtime]
-             |
- [Classic Metal / Metal 4]
+```rust
+#![no_std]
+
+use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+
+/// # Safety
+/// Buffers cover n elements; output is disjoint from inputs. The launch is 1D.
+#[kernel]
+pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32) {
+    let i = block_idx().x * block_dim().x + thread_idx().x;
+    if i < n {
+        // SAFETY: the guard bounds each access; every output index has one writer.
+        unsafe { out.store_unchecked(i, a.load_unchecked(i) + b.load_unchecked(i)) };
+    }
+}
 ```
 
-`rustc` handles parsing, macros, type checking, borrow checking, and MIR generation.
-The MIR importer resolves concrete function instances and converts them to our
-typed IR. The IR records control flow, address spaces, and buffer access. Codegen
-emits Metal Shading Language (MSL), which Apple's compiler turns into a shader
-library. `#[kernel]` marks entrypoints; it does not translate function bodies.
+Host (`host/src/main.rs`):
 
-| Crate | Role |
-| --- | --- |
-| `metal-oxide-device` | `no_std` buffer handles, thread indices, shared memory, atomics, and SIMD-group operations |
-| `metal-oxide-macros` | `#[kernel]` entrypoint and block-shape markers |
-| `metal-oxide-compiler` | `rustc_driver` integration, function collection, and MIR import |
-| `metal-oxide-ir` | Typed intermediate representation and validation |
-| `metal-oxide-codegen` | MSL, kernel ABI, and Rust host binding generation |
-| `metal-oxide-artifact` | Versioned ABI, manifest format, and artifact verification |
-| `metal-oxide` | Typed buffers, library loading, compute pipelines, and execution |
-| `cargo-metal` | Kernel build, Apple compiler invocation, artifact cache, and host build |
+```rust
+use metal_oxide::{Device, LaunchConfig};
 
-The ABI defines value layouts, buffer strides and slots, access modes, and
-required block shapes. Generated record types encode fields and padding explicitly;
-their Rust memory layout is independent of the GPU layout. The MSL signature
-and generated Rust bindings use the same ABI. The runtime checks this metadata
-and the library hash when loading an artifact, then validates arguments before
-encoding a launch.
+mod kernels {
+    include!(env!("METAL_OXIDE_BINDINGS"));
+}
 
-The compiler uses `nightly-2026-10-04`; the runtime uses stable Rust 1.99.0.
-The runtime has no dependency on the compiler or `rustc_private`. `cargo metal`
-runs the compiler separately and builds the host with the generated bindings.
+fn main() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
+    let a = device.buffer_from_slice(&[1.0_f32, 2.0, 3.0])?;
+    let b = device.buffer_from_slice(&[10.0_f32, 20.0, 30.0])?;
+    let mut out = device.buffer_zeroed::<f32>(3)?;
+    let config = LaunchConfig::<256>::for_elements(3)?;
 
-See [CONCEPT.md](CONCEPT.md) for the `vec_add` compiler, ABI, and runtime walkthrough.
+    // SAFETY: disjoint three-element buffers, 1D launch, one writer per index.
+    unsafe { kernels.vec_add(config, &a, &b, &mut out, 3)? };
 
-## Runtime
+    assert_eq!(out.as_slice(), &[11.0, 22.0, 33.0]);
+    Ok(())
+}
+```
 
-A `Device` owns a GPU and command queue. A `Module` loads a shader library;
-a `Pipeline` selects one kernel entrypoint. `Buffer<T>` owns GPU memory, and
-`Argument` binds a buffer or an encoded value to a parameter slot. Generated
-bindings construct these arguments from typed Rust parameters.
+`cargo-metal` generates the bindings and supplies the build paths.
+Complete Cargo setup: [examples/vec-add](examples/vec-add).
 
-`LaunchConfig<X, Y, Z>` sets threads per block through const generics. Its `grid`
-counts blocks at runtime. Each block maps to a Metal threadgroup;
-`thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` follow CUDA's model.
+## Compiler flow
 
-`Device::launch` runs a kernel and waits for completion. `Device::submit` encodes
-ordered kernels in a `Batch` and returns a `Submission` that supports `.await`
-and `.wait()`. Completion callbacks retain GPU resources until execution ends.
-CPU buffer access waits for pending GPU work even if the submission is dropped.
-Kernel launches are unsafe: callers must satisfy the kernel's bounds and race
-requirements.
+```text
+Rust kernel
+    |
+rustc MIR -> metal-oxide IR
+                 +-> MSL -> Apple compiler -> .metallib
+                 +-> ABI -> Rust bindings          |
+                                |                 |
+                           Rust host + runtime <--+
+```
 
-The runtime selects Metal 4 on macOS 26 with a compatible GPU and classic Metal
-otherwise. Both backends use the same public API.
+## Run
 
-## Build and run
-
-Requires macOS 15+ on Apple Silicon and Xcode with the Metal Toolchain.
-
+Requires Rust 1.99.0, macOS 15+ on Apple Silicon, and Xcode with the Metal Toolchain.
 From the repository root:
 
 ```sh
@@ -92,53 +77,6 @@ cargo run -p cargo-metal -- doctor
 cargo run -p cargo-metal -- run -p vec-add
 ```
 
-Inspect the generated MSL or run the GPU tests:
+Verified on M4 Max, macOS 26.2, Xcode 26.6.
 
-```sh
-cargo run -p cargo-metal -- inspect -p vec-add --emit msl
-cargo run -p cargo-metal -- test -p vec-add
-bash scripts/test-gpu.sh
-```
-
-The host selects its kernel crate with `[package.metadata.metal]` and
-`kernels = "../kernels/Cargo.toml"`. Builds write the library, manifest, and
-bindings under `target/metal/<build-hash>/`.
-
-For a private installation, package a clean checkout and install into a fresh
-versioned directory (Python 3.11+):
-
-```sh
-python3 scripts/package.py build
-python3 scripts/package.py install target/dist/metal-oxide-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz --prefix "$HOME/.local/metal-oxide/0.1.0-alpha.1"
-export PATH="$HOME/.local/metal-oxide/0.1.0-alpha.1/bin:$PATH"
-cargo metal doctor
-```
-
-The bundle includes the CLI, pinned compiler, source crates, target data and
-checksums. Use the runtime and device crates under the installed `source/crates`
-as path dependencies. The CLI checks the adjacent compiler's version, ABI and
-exact Rust toolchain. `METAL_OXIDE_COMPILER` selects an explicit compiler instead.
-A deployed host needs only its compiled bindings, `manifest.json` and
-`kernels.metallib`; it does not need the compiler or nightly Rust.
-
-Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
-
-## Benchmarks
-
-```sh
-python3 scripts/bench.py --samples 20 --warmup 5 --output target/benchmarks/baseline.json
-```
-
-Compares vec-add, reduction, scan, histogram, particle update, and tiled matmul
-with CPU results and matching handwritten MSL on both backends. The JSON report
-contains raw samples, median and spread, build/cache times, library and pipeline
-creation, host copy/upload/encoding/wait/readback, and native GPU execution time.
-Every sample is checked. GPU timestamps remain null when unavailable.
-
-Each run uses a fresh artifact directory; common dependencies are reused between
-packages. Submit time includes encoding and can overlap GPU work. Host wait time
-includes execution and scheduling; it is not a separate queue-latency measurement.
-
-[Contributing](CONTRIBUTING.md)
-
-MIT licensed.
+[Architecture](CONCEPT.md) · [Build, test, benchmarks](CONTRIBUTING.md) · [MIT](LICENSE)
