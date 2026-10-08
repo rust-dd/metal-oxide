@@ -112,6 +112,22 @@ bindings under `target/metal/<build-hash>/`.
 
 Verified on Apple M4 Max, macOS 26.2, and Xcode 26.6.
 
+## Benchmarks
+
+```sh
+python3 scripts/bench.py --samples 20 --warmup 5 --output target/benchmarks/baseline.json
+```
+
+Compares vec-add, reduction, scan, histogram, particle update, and tiled matmul
+with CPU results and matching handwritten MSL on both backends. The JSON report
+contains raw samples, median and spread, build/cache times, library and pipeline
+creation, host copy/upload/encoding/wait/readback, and native GPU execution time.
+Every sample is checked. GPU timestamps remain null when unavailable.
+
+Each run uses a fresh artifact directory; common dependencies are reused between
+packages. Submit time includes encoding and can overlap GPU work. Host wait time
+includes execution and scheduling; it is not a separate queue-latency measurement.
+
 [Contributing](CONTRIBUTING.md)
 
 MIT licensed.

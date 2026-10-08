@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "benchmarks/runner",
     "crates/cargo-metal",
     "crates/metal-oxide",
     "crates/metal-oxide-artifact",
