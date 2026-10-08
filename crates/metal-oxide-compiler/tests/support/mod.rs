@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+pub mod differential;
+pub mod process;
+
 use std::{
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -232,7 +235,7 @@ pub fn emit_into(source: &str, options: &[&str], output: &Path) -> Output {
         dependency(&mut command, name);
     }
     command.arg("--metal-output").arg(output).args(options);
-    command.output().unwrap()
+    process::output(&mut command, std::time::Duration::from_secs(60)).unwrap()
 }
 
 pub fn execute_msl(directory: &Path, main: &str) -> String {
@@ -244,15 +247,21 @@ pub fn execute_msl(directory: &Path, main: &str) -> String {
         include_str!("../../../metal-oxide-codegen/tests/support/metal_stdlib"),
     )
     .unwrap();
-    let output = Command::new("clang++")
+    let mut compiler = Command::new("clang++");
+    compiler
         .args(["-std=c++17", "-Wno-unknown-attributes"])
         .arg("-I")
         .arg(directory)
         .arg(directory.join("main.cpp"))
         .arg("-o")
-        .arg(directory.join("run"))
-        .output()
-        .unwrap();
+        .arg(directory.join("run"));
+    let output = process::output(&mut compiler, std::time::Duration::from_secs(60)).unwrap();
     checked(output);
-    checked(Command::new(directory.join("run")).output().unwrap())
+    checked(
+        process::output(
+            &mut Command::new(directory.join("run")),
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap(),
+    )
 }

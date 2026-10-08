@@ -46,6 +46,20 @@ fn invalid_operand_reports_its_source_location() {
 }
 
 #[test]
+fn malformed_local_and_block_indices_remain_source_errors() {
+    for index in [3, 4, 255, usize::MAX] {
+        let mut bad = module();
+        bad.functions[0].blocks[0].statements[0].destination = Place::local(index);
+        let error = validate(&bad).unwrap_err();
+        assert_eq!(error.source, source());
+        let mut bad = module();
+        bad.functions[0].blocks[0].terminator = Terminator::Goto(index);
+        let error = validate(&bad).unwrap_err();
+        assert_eq!(error.source, source());
+    }
+}
+
+#[test]
 fn assignment_cannot_change_a_local_type() {
     let mut module = module();
     module.functions[0].blocks[0].statements[0].value =

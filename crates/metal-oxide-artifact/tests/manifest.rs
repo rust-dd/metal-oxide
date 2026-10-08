@@ -58,6 +58,49 @@ fn manifest_round_trip_and_library_identity() {
 }
 
 #[test]
+fn manifest_mutations_fail_without_panicking() {
+    let valid = serde_json::to_value(manifest()).unwrap();
+    for (path, replacement) in [
+        ("/abi/version", serde_json::json!(999)),
+        ("/abi/kernels/0/parameters/0/binding", serde_json::json!(31)),
+        (
+            "/abi/kernels/0/parameters/0/ty/stride",
+            serde_json::json!(0),
+        ),
+        (
+            "/abi/kernels/0/parameters/0/ty/element/size",
+            serde_json::json!(u64::MAX),
+        ),
+        (
+            "/abi/kernels/0/parameters/0/ty/element/alignment",
+            serde_json::json!(3),
+        ),
+        (
+            "/abi/kernels/0/parameters/0/ty/access",
+            serde_json::json!("atomic"),
+        ),
+        (
+            "/abi/kernels/0/required_block",
+            serde_json::json!([256, 0, 1]),
+        ),
+        ("/required_features", serde_json::json!(["unknown"])),
+        ("/files/metallib", serde_json::json!("invalid")),
+        ("/build/fingerprint", serde_json::json!("")),
+    ] {
+        let mut value = valid.clone();
+        *value.pointer_mut(path).unwrap() = replacement;
+        assert!(
+            Manifest::from_json(&value.to_string()).is_err(),
+            "accepted {path}"
+        );
+    }
+    let json = manifest().to_json().unwrap();
+    for end in (0..json.len()).step_by(31) {
+        assert!(Manifest::from_json(&json[..end]).is_err());
+    }
+}
+
+#[test]
 fn rejects_incompatible_metadata() {
     let mut value = manifest();
     value.abi.version += 1;
