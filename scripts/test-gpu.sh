@@ -19,6 +19,6 @@ for backend in classic metal4; do
         cargo run -p cargo-metal --locked -- test -p "$package"
     done
     for mode in precise fast; do
-        cargo run -p cargo-metal --locked -- test -p spectral --release --math-mode "$mode" -- --ignored --test-threads=1
+        cargo run -p cargo-metal --locked -- test -p spectral --release --math-mode "$mode"
     done
 done
