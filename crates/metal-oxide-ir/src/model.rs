@@ -76,6 +76,7 @@ pub enum Constant {
     F32(u32),
     F16(u16),
     U32(u32),
+    U64(u64),
     I32(i32),
     U8(u8),
     U16(u16),
@@ -92,6 +93,7 @@ impl Constant {
             Self::F32(_) => Type::Scalar(Scalar::F32),
             Self::F16(_) => Type::Scalar(Scalar::F16),
             Self::U32(_) => Type::Scalar(Scalar::U32),
+            Self::U64(_) => Type::Scalar(Scalar::U64),
             Self::I32(_) => Type::Scalar(Scalar::I32),
             Self::U8(_) => Type::Scalar(Scalar::U8),
             Self::U16(_) => Type::Scalar(Scalar::U16),
@@ -177,13 +179,29 @@ pub enum MathOp {
     Max,
     Sqrt,
     Fma,
+    Ln,
+    Exp,
+    Sin,
+    Cos,
+    Powf,
+    Tanh,
+    Atan,
+    Floor,
 }
 
 impl MathOp {
     pub const fn arity(self) -> usize {
         match self {
-            Self::Abs | Self::Sqrt => 1,
-            Self::Min | Self::Max => 2,
+            Self::Abs
+            | Self::Sqrt
+            | Self::Ln
+            | Self::Exp
+            | Self::Sin
+            | Self::Cos
+            | Self::Tanh
+            | Self::Atan
+            | Self::Floor => 1,
+            Self::Min | Self::Max | Self::Powf => 2,
             Self::Fma => 3,
         }
     }

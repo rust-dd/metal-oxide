@@ -32,6 +32,52 @@ fn module(parameters: Vec<Type>) -> Module {
 }
 
 #[test]
+fn buffer_and_threadgroup_tables_have_separate_slot_limits() {
+    let shared = Type::Buffer {
+        element: ir::Element::Scalar(ir::Scalar::U64),
+        access: ir::Access::ReadWrite,
+        address_space: ir::AddressSpace::Threadgroup,
+    };
+    let parameters = (0..31)
+        .flat_map(|_| [shared, Type::Scalar(ir::Scalar::U32)])
+        .collect::<Vec<_>>();
+    let valid = module(parameters.clone());
+    let codegen = metal_oxide_codegen::Codegen::new(&valid).unwrap();
+    let abi = codegen.abi().unwrap();
+    assert_eq!(abi.required_features, ["dynamic_threadgroup_memory"]);
+    assert_eq!(
+        abi.kernels[0]
+            .parameters
+            .iter()
+            .map(|p| p.binding)
+            .collect::<Vec<_>>(),
+        (0..31).flat_map(|i| [i, i]).collect::<Vec<_>>()
+    );
+    for extra in [shared, Type::Scalar(ir::Scalar::U32)] {
+        let mut invalid = parameters.clone();
+        invalid.push(extra);
+        assert!(
+            metal_oxide_codegen::Codegen::new(&module(invalid))
+                .unwrap_err()
+                .message
+                .contains("31")
+        );
+    }
+    let mut invalid = abi.clone();
+    invalid.kernels[0].parameters[2].binding = 0;
+    assert!(invalid.validate().is_err());
+    let mut invalid = abi.clone();
+    invalid.required_features.clear();
+    assert!(invalid.validate().is_err());
+    let mut invalid = abi;
+    let ParameterType::Threadgroup { stride, .. } = &mut invalid.kernels[0].parameters[0].ty else {
+        panic!()
+    };
+    *stride = 4;
+    assert!(invalid.validate().is_err());
+}
+
+#[test]
 fn abi_slots_match_msl_and_typed_host_arguments() {
     let buffer = |access| Type::Buffer {
         element: ir::Element::Scalar(ir::Scalar::F32),
@@ -42,6 +88,7 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
         buffer(ir::Access::Read),
         buffer(ir::Access::Write),
         Type::Scalar(ir::Scalar::U32),
+        buffer(ir::Access::ReadWrite),
     ]);
     let codegen = metal_oxide_codegen::Codegen::new(&module).unwrap();
     let abi = codegen.abi().unwrap();
@@ -67,12 +114,23 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
     assert!(bindings.contains("&metal_oxide::Buffer<f32>"));
     assert!(bindings.contains("&mut metal_oxide::Buffer<f32>"));
     assert!(bindings.contains("r#arg_2: u32"));
+    assert_eq!(
+        abi.kernels[0].parameters[3].ty,
+        ParameterType::Buffer {
+            element: Layout::scalar(Scalar::F32),
+            stride: 4,
+            access: Access::ReadWrite,
+        }
+    );
+    assert!(bindings.contains("Argument::read_write(r#arg_3)"));
     assert!(bindings.contains("pub unsafe fn r#vec_add"));
     assert!(
         bindings
             .contains("pub unsafe fn r#enqueue_vec_add(&self, batch: &mut metal_oxide::Batch<'_>")
     );
-    assert!(bindings.contains("batch.launch(&self.pipeline_0"));
+    assert!(bindings.contains(
+        "batch.launch(self::metal_oxide_pipeline(self.device, &self.module, &self.pipeline_0"
+    ));
 }
 
 #[test]

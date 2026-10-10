@@ -30,7 +30,7 @@ def clean_environment():
                 "METAL_OXIDE_BINDINGS", "METAL_OXIDE_ARTIFACT_DIR",
                 "DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH"]:
         env.pop(key, None)
-    env.update(RUSTUP_TOOLCHAIN="1.99.0", CARGO_NET_OFFLINE="true")
+    env.update(RUSTUP_TOOLCHAIN="1.89.0", CARGO_NET_OFFLINE="true")
     return env
 
 
@@ -133,6 +133,13 @@ def main():
     assert artifacts, "no compiled artifact"
     artifact = max(artifacts, key=lambda path: path.stat().st_mtime_ns).parent
     stable_deployment(work, source, project, artifact, env)
+    for mode in ["precise", "fast"]:
+        for backend in ["classic", "metal4"]:
+            output = run(["cargo", "metal", "run", "-p", "spectral", "--release", "--math-mode", mode],
+                         source, dict(env, METAL_OXIDE_BACKEND=backend),
+                         work / f"spectral-{mode}-{backend}.log")
+            assert "fGN n=65536: CPU and native parity" in output, output
+            assert "Euler: count/gamma/jump parity" in output, output
     print("Installed and relocated stable applications passed on both backends.")
 
 

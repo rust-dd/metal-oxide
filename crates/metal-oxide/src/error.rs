@@ -9,6 +9,7 @@ pub enum Error {
     AllocationFailed { bytes: usize },
     BufferTooLarge { bytes: usize, maximum: usize },
     LengthOverflow,
+    InvalidBuffer(&'static str),
     InvalidLaunch(&'static str),
     TooManyArguments(usize),
     DeviceMismatch,
@@ -16,6 +17,7 @@ pub enum Error {
     KernelNotFound(String),
     Pipeline(String),
     Command(String),
+    OutOfMemory(String),
     InvalidPath,
     Artifact(metal_oxide_artifact::Error),
     Io(std::io::Error),
@@ -33,6 +35,7 @@ impl fmt::Display for Error {
                 write!(f, "buffer size {bytes} exceeds limit {maximum}")
             }
             Self::LengthOverflow => write!(f, "buffer length overflows the host address range"),
+            Self::InvalidBuffer(reason) => write!(f, "invalid Metal buffer: {reason}"),
             Self::InvalidLaunch(reason) => write!(f, "invalid launch: {reason}"),
             Self::TooManyArguments(count) => {
                 write!(f, "{count} arguments exceed the 31 Metal buffer slots")
@@ -45,6 +48,7 @@ impl fmt::Display for Error {
             Self::KernelNotFound(name) => write!(f, "Metal kernel {name:?} was not found"),
             Self::Pipeline(reason) => write!(f, "Metal pipeline error: {reason}"),
             Self::Command(reason) => write!(f, "Metal command failed: {reason}"),
+            Self::OutOfMemory(reason) => write!(f, "Metal command ran out of memory: {reason}"),
             Self::InvalidPath => write!(f, "Metal library path is not valid UTF-8"),
             Self::Artifact(error) => write!(f, "kernel artifact error: {error}"),
             Self::Io(error) => error.fmt(f),

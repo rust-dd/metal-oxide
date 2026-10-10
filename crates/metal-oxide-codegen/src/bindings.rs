@@ -17,27 +17,51 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
     let types = HostTypes::new(abi)?;
     let mut output = String::new();
     types.emit(&mut output);
-    output.push_str("pub struct Kernels<'a> {\n    device: &'a metal_oxide::Device,\n");
+    output.push_str("pub struct Kernels<'a> {\n    device: &'a metal_oxide::Device,\n    module: metal_oxide::Module,\n");
     for index in 0..abi.kernels.len() {
-        writeln!(output, "    pipeline_{index}: metal_oxide::Pipeline,").unwrap();
+        writeln!(
+            output,
+            "    pipeline_{index}: std::cell::OnceCell<metal_oxide::Pipeline>,"
+        )
+        .unwrap();
     }
-    output.push_str("}\n\npub fn load(device: &metal_oxide::Device, directory: impl std::convert::AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    let module = metal_oxide::Module::from_artifact(device, directory)?;\n");
+    output.push_str("}\n\n#[allow(dead_code)]\npub fn load(device: &metal_oxide::Device, directory: impl std::convert::AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_artifact(device, directory)?)\n}\n");
+    output.push_str("\n#[allow(dead_code)]\npub fn load_bytes<'a>(device: &'a metal_oxide::Device, manifest: &str, metallib: &[u8]) -> metal_oxide::Result<Kernels<'a>> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_bytes(device, manifest, metallib)?)\n}\n");
+    output.push_str("\nfn metal_oxide_kernels(device: &metal_oxide::Device, module: metal_oxide::Module) -> metal_oxide::Result<Kernels<'_>> {\n");
     writeln!(
         output,
         "    module.verify_abi({:?})?;",
         metal_oxide_artifact::sha256(abi.to_json()?.as_bytes())
     )
     .unwrap();
-    output.push_str("    Ok(Kernels {\n        device,\n");
-    for (index, kernel) in abi.kernels.iter().enumerate() {
+    output.push_str("    Ok(Kernels {\n        device,\n        module,\n");
+    for index in 0..abi.kernels.len() {
         writeln!(
             output,
-            "        pipeline_{index}: metal_oxide::Pipeline::new(device, &module, {:?})?,",
-            kernel.name
+            "        pipeline_{index}: std::cell::OnceCell::new(),"
         )
         .unwrap();
     }
-    output.push_str("    })\n}\n\n#[allow(dead_code)]\nimpl Kernels<'_> {\n");
+    output.push_str("    })\n}\n");
+    output.push_str(
+        r#"
+fn metal_oxide_pipeline<'a>(
+    device: &metal_oxide::Device,
+    module: &metal_oxide::Module,
+    slot: &'a std::cell::OnceCell<metal_oxide::Pipeline>,
+    name: &str,
+) -> metal_oxide::Result<&'a metal_oxide::Pipeline> {
+    if let Some(pipeline) = slot.get() {
+        return Ok(pipeline);
+    }
+    let pipeline = metal_oxide::Pipeline::new(device, module, name)?;
+    Ok(slot.get_or_init(|| pipeline))
+}
+
+#[allow(dead_code)]
+impl Kernels<'_> {
+"#,
+    );
     for (index, kernel) in abi.kernels.iter().enumerate() {
         for enqueue in [false, true] {
             emit_method(&mut output, &types, index, kernel, enqueue)?;
@@ -94,12 +118,20 @@ fn emit_method(
                 types.name(layout),
                 format!("metal_oxide::Argument::value(r#{name})?"),
             ),
+            ParameterType::Threadgroup { element, .. } => (
+                "usize".into(),
+                format!(
+                    "metal_oxide::Argument::threadgroup::<{}>(r#{name})?",
+                    types.name(element)
+                ),
+            ),
             ParameterType::Buffer {
                 element, access, ..
             } => {
                 let (borrow, method) = match access {
                     Access::Read => ("&", "read"),
                     Access::Write => ("&mut ", "write"),
+                    Access::ReadWrite => ("&mut ", "read_write"),
                     Access::Atomic => ("&mut ", "atomic"),
                 };
                 (
@@ -115,8 +147,8 @@ fn emit_method(
     let receiver = if enqueue { "batch" } else { "self.device" };
     writeln!(
         output,
-        "            {receiver}.launch(&self.pipeline_{index}, config, &[{}])",
-        arguments.join(", ")
+        "            {receiver}.launch(self::metal_oxide_pipeline(self.device, &self.module, &self.pipeline_{index}, {:?})?, config, &[{}])",
+        kernel.name, arguments.join(", ")
     )
     .unwrap();
     output.push_str("        }\n    }\n\n");

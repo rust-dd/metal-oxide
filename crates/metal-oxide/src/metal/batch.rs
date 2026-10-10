@@ -63,8 +63,23 @@ impl<'d> Batch<'d> {
         {
             return Err(Error::DeviceMismatch);
         }
-        if arguments.len() > 31 {
-            return Err(Error::TooManyArguments(arguments.len()));
+        let mut shared = arguments.iter().filter_map(Argument::threadgroup_bytes);
+        let shared_count = shared.clone().count();
+        let buffer_count = arguments.len() - shared_count;
+        if buffer_count > 31 {
+            return Err(Error::TooManyArguments(buffer_count));
+        }
+        if shared_count > 31 {
+            return Err(Error::InvalidLaunch("more than 31 threadgroup arguments"));
+        }
+        let shared_bytes = shared.try_fold(
+            pipeline.raw.staticThreadgroupMemoryLength(),
+            |total, bytes| total.checked_add(bytes),
+        );
+        if shared_bytes.is_none_or(|bytes| bytes > self.device.max_threadgroup_memory_per_block()) {
+            return Err(Error::InvalidLaunch(
+                "kernel exceeds threadgroup memory capacity",
+            ));
         }
         pipeline.validate_arguments(config.block, arguments)?;
         config.validate(

@@ -19,11 +19,23 @@ launches and async ordered batches; Rust kernel compilation is separate.
   wrapper layers only when a concrete current use case requires them. Prefer one
   clear path for each operation and keep implementation helpers private.
 - Preserve initialized CPU values and explicit GpuValue encoding/decoding.
+  Built-in primitive scalars use direct shared-storage views after a private
+  type-identity proof; custom codecs retain their CPU mirror. Layout equality
+  alone does not authorize reinterpreting a custom Rust type.
   Atomic elements remain sealed to u32/i32. Validate codec size/alignment against
   the canonical layout; never reinterpret arbitrary Rust values as GPU bytes. Do not
-  expose raw Metal handles or add Clone/Send/Sync without revisiting aliasing and
-  resource ownership.
-- Input arguments hold shared borrows; writes hold exclusive borrows. Submission
+  add Clone/Send/Sync without revisiting aliasing and resource ownership.
+- Native buffer import is an unsafe owning handoff of initialized, shared,
+  hazard-tracked storage on the same physical device. External work must finish
+  before import and external aliases must remain idle through CPU views and
+  encoded/pending runtime accesses. Consuming export waits and encodes dirty
+  codec values. Preserve identity storage, codec, cancellation and residency
+  guarantees; dropping a buffer is not a synchronized handoff. Native device
+  import creates an independent queue context; it does not adopt pending work.
+- Share a cached context through a worker that creates and keeps all runtime
+  objects on its own thread. Send owned jobs/results and handle cancelled
+  requesters without destroying the cache. Do not add a public worker wrapper.
+- Input arguments hold shared borrows; writes and read-write access hold exclusive borrows. Submission
   lifetimes retain captured borrows until wait/await completes or the future is
   dropped. Pending buffer access state still synchronizes CPU slices after
   cancellation or `mem::forget`. Keep mutable slices on the host side only.
@@ -62,6 +74,13 @@ retain buffers, pipelines, queues, and Metal 4 allocation/binding/residency stat
 independently of the future. Do not replace this with waiting in `Drop`.
 
 Keep argument tables and constant buffers immutable after encoding. Metal 4
+packs each dispatch's constants into aligned, immutable shared storage; classic
+Metal copies values up to 4 KiB with setBytes and retains larger constant buffers.
+Keep both size boundaries and cancellation/reuse covered when changing binding.
+Dynamic threadgroup arguments have a separate 31-slot namespace; check rounded
+nonzero byte lengths plus static pipeline storage before encoding, including empty grids.
+Clear stale threadgroup slots when a reused encoder changes kernels.
+Metal 4
 requires dispatch barriers within a batch and queue barriers between batches.
 Do not reset or release a command allocator before GPU completion.
 

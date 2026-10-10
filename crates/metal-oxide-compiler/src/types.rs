@@ -130,6 +130,7 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
         ty::Bool => Some(ir::Scalar::Bool),
         ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
         ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
+        ty::Uint(ty::UintTy::U64) => Some(ir::Scalar::U64),
         ty::Uint(ty::UintTy::Usize) => Some(ir::Scalar::Usize),
         ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
         ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
@@ -152,12 +153,16 @@ fn buffer<'tcx>(
         DeviceType::ReadBuffer => ir::Access::Read,
         DeviceType::WriteBuffer => ir::Access::Write,
         DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer => ir::Access::Atomic,
-        DeviceType::ThreadgroupBuffer => ir::Access::ReadWrite,
+        DeviceType::ThreadgroupBuffer
+        | DeviceType::DynamicThreadgroupBuffer
+        | DeviceType::ReadWriteBuffer => ir::Access::ReadWrite,
         _ => return None,
     };
     let space = if matches!(
         kind,
-        DeviceType::ThreadgroupBuffer | DeviceType::AtomicThreadgroupBuffer
+        DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer
+            | DeviceType::AtomicThreadgroupBuffer
     ) {
         ir::AddressSpace::Threadgroup
     } else {
@@ -167,9 +172,15 @@ fn buffer<'tcx>(
 }
 
 pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {
+    let dynamic_shared = matches!(ty.kind(), ty::Adt(definition, _) if device_type(tcx, definition.did()) == Some(DeviceType::DynamicThreadgroupBuffer));
     let mut lowering = TypeLowering::new(tcx);
     let ty = lowering.lower(ty, rustc_span::DUMMY_SP).ok()?;
     match ty {
+        ir::Type::Buffer {
+            element,
+            access: ir::Access::ReadWrite,
+            address_space: ir::AddressSpace::Threadgroup,
+        } if dynamic_shared && lowering.types.is_abi_value(element.ty()) => Some(ty),
         ir::Type::Buffer {
             element,
             access,

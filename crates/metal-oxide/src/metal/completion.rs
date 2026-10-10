@@ -9,11 +9,11 @@ use std::{
     time::Duration,
 };
 
+use super::failure::CommandFailure;
 use crate::{Error, Result};
-
 #[derive(Default)]
 struct State {
-    result: Option<std::result::Result<SubmissionReport, String>>,
+    result: Option<std::result::Result<SubmissionReport, CommandFailure>>,
     waker: Option<Waker>,
 }
 
@@ -24,7 +24,7 @@ pub(super) struct Completion {
 }
 
 impl Completion {
-    pub(super) fn finish(&self, result: std::result::Result<SubmissionReport, String>) {
+    pub(super) fn finish(&self, result: std::result::Result<SubmissionReport, CommandFailure>) {
         let waker = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.result.is_some() {
@@ -53,18 +53,13 @@ impl Completion {
         while state.result.is_none() {
             state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
         }
-        state
-            .result
-            .as_ref()
-            .unwrap()
-            .clone()
-            .map_err(Error::Command)
+        state.result.as_ref().unwrap().clone().map_err(Error::from)
     }
 
     fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<SubmissionReport>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         match &state.result {
-            Some(result) => Poll::Ready(result.clone().map_err(Error::Command)),
+            Some(result) => Poll::Ready(result.clone().map_err(Error::from)),
             None => {
                 if !state
                     .waker
@@ -150,6 +145,7 @@ impl Future for Submission<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use objc2_foundation::{NSError, NSString};
     use std::{
         sync::atomic::{AtomicUsize, Ordering},
         task::Wake,
@@ -159,6 +155,36 @@ mod tests {
     impl Wake for Counter {
         fn wake(self: Arc<Self>) {
             self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn terminal_memory_errors_survive_wait_and_poll() {
+        for (domain, code, memory) in [
+            ("MTLCommandBufferErrorDomain", 8, true),
+            ("MTL4CommandQueueErrorDomain", 3, true),
+            ("MTLCommandBufferErrorDomain", 3, false),
+            ("MTL4CommandQueueErrorDomain", 8, false),
+            ("unrelated", 8, false),
+            ("unrelated", 3, false),
+        ] {
+            // SAFETY: no user-info dictionary or untyped objects are supplied.
+            let error = unsafe {
+                NSError::errorWithDomain_code_userInfo(&NSString::from_str(domain), code, None)
+            };
+            let completion = Completion::default();
+            completion.finish(Err(CommandFailure::from_native(&error)));
+            for _ in 0..2 {
+                let error = completion.wait().unwrap_err();
+                assert_eq!(matches!(error, Error::OutOfMemory(_)), memory, "{error}");
+                assert!(error.to_string().contains(domain));
+                let Poll::Ready(Err(error)) =
+                    completion.poll(&mut Context::from_waker(Waker::noop()))
+                else {
+                    panic!("terminal failure was lost");
+                };
+                assert_eq!(matches!(error, Error::OutOfMemory(_)), memory, "{error}");
+            }
         }
     }
 
@@ -195,7 +221,7 @@ mod tests {
                     .is_pending()
             );
         }
-        completion.finish(Err("test command failure".into()));
+        completion.finish(Err(CommandFailure::Other("test command failure".into())));
         assert_eq!(first.0.load(Ordering::Relaxed), 0);
         assert_eq!(second.0.load(Ordering::Relaxed), 1);
         assert_eq!(

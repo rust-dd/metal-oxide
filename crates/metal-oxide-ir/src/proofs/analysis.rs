@@ -19,31 +19,43 @@ impl<'a> Analysis<'a> {
             return Ok(result.clone());
         }
         let function = &self.module.functions[index];
+        let graph = ControlFlowGraph::new(function)?;
+        let dominators = graph.dominators();
+        let loop_headers = (0..function.blocks.len())
+            .map(|id| {
+                graph
+                    .predecessors(id)
+                    .iter()
+                    .any(|&from| dominators.dominates(id, from))
+            })
+            .collect::<Vec<_>>();
         let mut entry = State::new(self.module, function);
         for (index, argument) in arguments.iter().enumerate() {
             entry.assign(&Place::local(index + 1), argument.clone());
         }
         let mut inputs = vec![Vec::<State<'a>>::new(); function.blocks.len()];
-        let mut widened = vec![false; inputs.len()];
+        let mut merged = vec![false; inputs.len()];
         let mut pending = VecDeque::from([(0, entry)]);
         let mut result: Option<Value> = None;
         while let Some((id, mut state)) = pending.pop_front() {
             if inputs[id].contains(&state) {
                 continue;
             }
-            if widened[id] {
-                let merged = inputs[id][0].merge(&state, true);
-                if merged == inputs[id][0] {
+            if merged[id] {
+                // Widen only at loop headers. Widening after a guard can discard
+                // its bound even when every incoming path satisfies that guard.
+                let joined = inputs[id][0].merge(&state, loop_headers[id]);
+                if joined == inputs[id][0] {
                     continue;
                 }
-                inputs[id][0] = merged.clone();
-                state = merged;
+                inputs[id][0] = joined.clone();
+                state = joined;
             } else if inputs[id].len() >= 64 {
                 for input in &inputs[id] {
                     state = state.merge(input, false);
                 }
                 inputs[id] = vec![state.clone()];
-                widened[id] = true;
+                merged[id] = true;
             } else {
                 inputs[id].push(state.clone());
             }

@@ -178,6 +178,20 @@ fn device_declarations_require_the_exact_intrinsic_signature() {
 }
 
 #[test]
+fn transcendental_declarations_reject_wrong_types_and_arity() {
+    for variant in ["unary", "binary", "arity"] {
+        support::rejected(
+            support::invalid_device(
+                "malformed_math",
+                "malformed_math_client",
+                &["--cfg", variant],
+            ),
+            "invalid device intrinsic signature",
+        );
+    }
+}
+
+#[test]
 fn shared_adapters_require_matching_type_and_length_parameters() {
     for variant in ["reversed", "fixed_length", "fixed_element"] {
         support::rejected(

@@ -1,3 +1,4 @@
+use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::{MathOp, Scalar};
 
 use crate::expressions::scalar_name;
@@ -19,7 +20,7 @@ pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     };
     let maximum = format!(
         "{name}({maximum}{})",
-        if scalar == Scalar::Usize {
+        if scalar.bits() == 64 {
             "ul"
         } else if scalar.is_signed() {
             ""
@@ -32,16 +33,38 @@ pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     )
 }
 
-pub(crate) fn math(op: MathOp, values: Vec<String>) -> String {
+pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> String {
     if op == MathOp::Abs {
         return format!("as_type<float>(as_type<uint>({}) & 0x7fffffffu)", values[0]);
     }
     let name = match op {
         MathOp::Min => "fmin",
         MathOp::Max => "fmax",
-        MathOp::Sqrt => "precise::sqrt",
+        MathOp::Sqrt => "sqrt",
         MathOp::Fma => "fma",
+        MathOp::Ln => "log",
+        MathOp::Exp => "exp",
+        MathOp::Sin => "sin",
+        MathOp::Cos => "cos",
+        MathOp::Powf => "pow",
+        MathOp::Tanh => "tanh",
+        MathOp::Atan => "atan",
+        MathOp::Floor => "floor",
         MathOp::Abs => unreachable!(),
     };
-    format!("{name}({})", values.join(", "))
+    let namespace = if matches!(op, MathOp::Min | MathOp::Max | MathOp::Fma | MathOp::Floor) {
+        ""
+    } else {
+        match math_mode {
+            MathMode::Precise => "precise::",
+            MathMode::Fast => "fast::",
+        }
+    };
+    let result = format!("{namespace}{name}({})", values.join(", "));
+    if op == MathOp::Atan && math_mode == MathMode::Precise {
+        // Metal's precise atan can discard negative zero, including flushed inputs.
+        format!("copysign({result}, {})", values[0])
+    } else {
+        result
+    }
 }

@@ -53,6 +53,26 @@ fn main() -> metal_oxide::Result<()> {
 `cargo-metal` generates the bindings and supplies the build paths.
 Complete Cargo setup: [examples/vec-add](examples/vec-add).
 
+Precompiled hosts can commit the generated bindings, manifest and metallib, then
+use `kernels::load_bytes(&device, include_str!("manifest.json"),
+include_bytes!("kernels.metallib"))`. Pipelines are created on first use. These
+hosts need stable Rust and the runtime; kernel compilation tools stay on the
+build machine. See [generated bindings](CONCEPT.md#generated-rust-bindings).
+
+Use `Device::all()?.into_iter().nth(index)` to select a device explicitly.
+`recommended_max_working_set_size()` reports its advisory memory budget.
+Cached runtime objects stay on one host thread; a [worker](crates/metal-oxide/tests/worker.rs)
+can serve owned requests from multiple threads. Native Metal integration uses
+`Device::from_native`, unsafe `Buffer::from_native`, and consuming `Buffer::into_native`.
+See the [ownership contract](CONCEPT.md#native-resource-ownership).
+
+Kernels can request runtime-sized block-local storage with
+`DynamicThreadgroupBuffer<T>`. Generated bindings take an element count;
+raw launches use `Argument::threadgroup::<T>(elements)`. Both paths validate
+combined static/dynamic memory against `Device::max_threadgroup_memory_per_block()`.
+The [spectral example](examples/spectral) uses this for runtime-sized FFT tiles,
+with CPU/native references, seeded stream checks and matched-mode benchmarks.
+
 ## Compiler flow
 
 ```text
@@ -67,7 +87,9 @@ rustc MIR -> metal-oxide IR
 
 ## Run
 
-Requires Rust 1.99.0, macOS 15+ on Apple Silicon, and Xcode with the Metal Toolchain.
+The runtime supports Rust 1.89+, macOS 15+ on Apple Silicon. Kernel compilation
+also requires the pinned nightly and Xcode with the Metal Toolchain. Development
+uses the workspace's Rust 1.99 toolchain.
 From the repository root:
 
 ```sh
@@ -78,5 +100,12 @@ cargo run -p cargo-metal -- run -p vec-add
 ```
 
 Verified on M4 Max, macOS 26.2, Xcode 26.6.
+
+Math defaults to precise functions without implicit floating-point contraction.
+Use `cargo metal build -p HOST --math-mode fast` to opt into fast functions,
+reassociation, reciprocal approximations and contraction. Arithmetic keeps NaN
+and infinity support; fast functions have narrower accuracy/domain guarantees
+and zero signs are unspecified. The mode is recorded in the artifact and cache;
+see [numerical compilation](CONCEPT.md#apple-compilation-and-artifact).
 
 [Architecture](CONCEPT.md) · [Build, test, benchmarks](CONTRIBUTING.md) · [MIT](LICENSE)

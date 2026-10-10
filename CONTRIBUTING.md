@@ -11,11 +11,13 @@ From the repository root, run:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo +1.89.0 check --workspace --all-targets --locked
 bash scripts/test-gpu.sh
 ```
 
 Ordinary tests leave hardware checks ignored. Keep dependencies centralized and
-sorted in root `Cargo.toml`; every consumer uses `workspace = true`. Commit
+sorted in root `Cargo.toml`; every consumer uses `workspace = true`. The minimum
+supported stable Rust is 1.89; development uses the pinned 1.99 toolchain. Commit
 `Cargo.lock`. Keep the runtime buildable with stable Rust and independent of the
 nightly compiler.
 
@@ -41,6 +43,13 @@ a test-only Metal header shim.
 These hardware tests select classic Metal and Metal 4 independently, load the
 exact compiler output, and compare results with CPU and MSL references. They also
 test async kernel chains, cancelled submissions, and generated bindings.
+The numerical-mode test compares source, offline and handwritten MSL results,
+then measures matching Box-Muller/Euler workloads. It writes raw GPU timing
+samples to `target/math-modes-{classic,metal4}.json`; these measurements do not
+imply a speedup from fast math or consumer performance parity.
+The embedded-artifact test builds 484 entrypoints and runs a relocated stable
+host with an empty PATH. It checks lazy first-use failure, ABI/access/shape
+validation and corrupt or swapped library bytes on both native backends.
 Unsupported Rust operations must fail with diagnostics. Do not discard MIR
 assertions or change numerical semantics to
 make a kernel compile.

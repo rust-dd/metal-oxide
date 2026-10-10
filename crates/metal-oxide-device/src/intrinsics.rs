@@ -17,6 +17,14 @@ unsafe extern "Rust" {
     pub(crate) safe fn __metal_grid_dim() -> Dim3;
     pub(crate) safe fn __metal_sqrt_f32(value: f32) -> f32;
     pub(crate) safe fn __metal_fma_f32(a: f32, b: f32, c: f32) -> f32;
+    pub(crate) safe fn __metal_ln_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_exp_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_sin_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_cos_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_powf_f32(base: f32, exponent: f32) -> f32;
+    pub(crate) safe fn __metal_tanh_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_atan_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_floor_f32(value: f32) -> f32;
     pub(crate) safe fn __metal_f16_from_f32(value: f32) -> F16;
     pub(crate) safe fn __metal_f16_to_f32(value: F16) -> f32;
     pub(crate) safe fn __metal_simd_lane() -> u32;

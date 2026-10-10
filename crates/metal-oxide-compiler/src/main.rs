@@ -31,8 +31,8 @@ fn main() -> std::process::ExitCode {
     if let Some(status) = wrapper::forward(&mut arguments) {
         return status;
     }
-    let output = match arguments::take_directory(&mut arguments) {
-        Ok(output) => output,
+    let options = match arguments::take_options(&mut arguments) {
+        Ok(options) => options,
         Err(error) => {
             eprintln!("error: {error}");
             return std::process::ExitCode::FAILURE;
@@ -44,7 +44,8 @@ fn main() -> std::process::ExitCode {
             arguments.insert(1, "-Zunstable-options".into());
         }
         let mut frontend = driver::Frontend {
-            output,
+            output: options.directory,
+            math_mode: options.math_mode,
             help,
             arguments: arguments[1..].to_vec(),
         };

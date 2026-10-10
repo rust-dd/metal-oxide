@@ -16,6 +16,8 @@ use super::{
     Argument, Pipeline,
     batch::metal_size,
     completion::{Completion, SubmissionReport},
+    constants::Constants,
+    failure::CommandFailure,
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -27,6 +29,7 @@ pub(super) struct Metal4Batch {
     residency: Retained<ProtocolObject<dyn MTLResidencySet>>,
     tables: Vec<Retained<ProtocolObject<dyn MTL4ArgumentTable>>>,
     bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    threadgroup_slots: usize,
 }
 
 impl Metal4Batch {
@@ -63,6 +66,7 @@ impl Metal4Batch {
             residency,
             tables: Vec::new(),
             bindings: Vec::new(),
+            threadgroup_slots: 0,
         })
     }
 
@@ -75,22 +79,54 @@ impl Metal4Batch {
         has_previous_dispatch: bool,
     ) -> Result<()> {
         let descriptor = MTL4ArgumentTableDescriptor::new();
-        descriptor.setMaxBufferBindCount(arguments.len());
+        descriptor.setMaxBufferBindCount(
+            arguments
+                .iter()
+                .filter(|a| a.threadgroup_bytes().is_none())
+                .count(),
+        );
         descriptor.setInitializeBindings(true);
         let table = device
             .newArgumentTableWithDescriptor_error(&descriptor)
             .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
-        for (index, argument) in arguments.iter().enumerate() {
-            let buffer = argument.metal_buffer(device)?;
+        let encoder = self.encoder.as_ref().unwrap();
+        let constants = Constants::new(device, arguments)?;
+        if let Some(constants) = &constants {
             self.residency
-                .addAllocation(ProtocolObject::from_ref(&*buffer));
-            // SAFETY: the table has this slot; the retained buffer stays resident through completion.
-            unsafe { table.setAddress_atIndex(buffer.gpuAddress(), index) };
-            self.bindings.push(buffer);
+                .addAllocation(ProtocolObject::from_ref(&*constants.buffer));
+            self.bindings.push(constants.buffer.clone());
         }
+        let mut buffer_slot = 0;
+        let mut threadgroup_slot = 0;
+        for argument in arguments {
+            if let Some(bytes) = argument.threadgroup_bytes() {
+                // SAFETY: Batch validated the slot and combined per-block storage size.
+                unsafe { encoder.setThreadgroupMemoryLength_atIndex(bytes, threadgroup_slot) };
+                threadgroup_slot += 1;
+                continue;
+            }
+            let address = if argument.value_bytes().is_some() {
+                constants.as_ref().unwrap().address(buffer_slot)
+            } else {
+                let buffer = argument.metal_buffer(device)?;
+                self.residency
+                    .addAllocation(ProtocolObject::from_ref(&*buffer));
+                let address = buffer.gpuAddress();
+                self.bindings.push(buffer);
+                address
+            };
+            // SAFETY: the table has this slot; the aligned, immutable bytes stay
+            // resident and retained through completion, independently of later dispatches.
+            unsafe { table.setAddress_atIndex(address, buffer_slot) };
+            buffer_slot += 1;
+        }
+        for slot in threadgroup_slot..self.threadgroup_slots {
+            // SAFETY: a previously validated slot is unused by the next dispatch.
+            unsafe { encoder.setThreadgroupMemoryLength_atIndex(0, slot) };
+        }
+        self.threadgroup_slots = threadgroup_slot;
         self.residency
             .addAllocation(ProtocolObject::from_ref(&*pipeline.raw));
-        let encoder = self.encoder.as_ref().unwrap();
         if has_previous_dispatch {
             encoder.barrierAfterEncoderStages_beforeEncoderStages_visibilityOptions(
                 MTLStages::Dispatch,
@@ -133,7 +169,7 @@ impl Metal4Batch {
                     // SAFETY: Metal passes live feedback after this commit's GPU workload completes.
                     let feedback = unsafe { feedback.as_ref() };
                     match feedback.error() {
-                        Some(error) => Err(error.localizedDescription().to_string()),
+                        Some(error) => Err(CommandFailure::from_native(&error)),
                         None => Ok(SubmissionReport::from_gpu_times(
                             feedback.GPUStartTime(),
                             feedback.GPUEndTime(),

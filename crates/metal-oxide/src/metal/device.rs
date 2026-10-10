@@ -8,7 +8,7 @@ use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
+use objc2_metal::{MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice};
 
 use crate::{Dim3, DynamicLaunchConfig, Error, GpuValue, Result};
 
@@ -27,6 +27,21 @@ pub struct Device {
 impl Device {
     pub fn system_default() -> Result<Self> {
         let raw = MTLCreateSystemDefaultDevice().ok_or(Error::DeviceUnavailable)?;
+        Self::from_native(raw)
+    }
+
+    /// Opens an independent ordered context for each available device in native enumeration order.
+    /// Returns an error if any device cannot be initialized. The order is not a persistent identity.
+    pub fn all() -> Result<Vec<Self>> {
+        MTLCopyAllDevices()
+            .into_iter()
+            .map(Self::from_native)
+            .collect()
+    }
+
+    /// Retains a native device and creates a new independent ordered queue context.
+    /// Existing native queues and their pending work are not imported.
+    pub fn from_native(raw: Retained<ProtocolObject<dyn MTLDevice>>) -> Result<Self> {
         if !raw.hasUnifiedMemory() {
             return Err(Error::UnsupportedDevice(format!(
                 "{} does not have unified memory",
@@ -34,8 +49,9 @@ impl Device {
             )));
         }
         let backend = Backend::new(&raw)?;
+        #[allow(deprecated, reason = "try_update is unavailable at the MSRV")]
         let id = NEXT_DEVICE_ID
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| Error::Command("device identity space exhausted".into()))?;
         Ok(Self {
             raw,
@@ -47,6 +63,17 @@ impl Device {
 
     pub fn name(&self) -> String {
         autoreleasepool(|_| self.raw.name().to_string())
+    }
+
+    /// Borrows the native device for resource creation and external Metal integration.
+    pub fn as_native(&self) -> &ProtocolObject<dyn MTLDevice> {
+        &self.raw
+    }
+
+    /// The device's recommended working-set size in bytes, not currently free memory
+    /// or a guarantee that an allocation of this size will succeed.
+    pub fn recommended_max_working_set_size(&self) -> u64 {
+        self.raw.recommendedMaxWorkingSetSize()
     }
 
     pub fn buffer_from_slice<T: GpuValue>(&self, values: &[T]) -> Result<Buffer<T>> {
@@ -63,6 +90,11 @@ impl Device {
         let limits = self.raw.maxThreadsPerThreadgroup();
         let axis = |value: usize| value.min(u32::MAX as usize) as u32;
         Dim3::new(axis(limits.width), axis(limits.height), axis(limits.depth))
+    }
+
+    /// Maximum combined static and dynamic threadgroup storage per block, in bytes.
+    pub fn max_threadgroup_memory_per_block(&self) -> usize {
+        self.raw.maxThreadgroupMemoryLength()
     }
 
     pub(super) fn id(&self) -> u64 {
@@ -92,6 +124,7 @@ impl Device {
     ///
     /// Every encoded kernel must satisfy `Device::launch`'s safety contract.
     /// Accesses to resources across kernels must respect the encoded order.
+    /// CPU views acquired during encoding must end before committing GPU writes to them.
     pub unsafe fn submit<'a>(
         &'a self,
         encode: impl FnOnce(&mut Batch<'_>) -> Result<()> + 'a,

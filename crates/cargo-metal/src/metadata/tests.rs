@@ -57,6 +57,7 @@ impl Workspace {
             manifest: self.0.join("Cargo.toml"),
             package: Some("audit-host".into()),
             release: false,
+            math_mode: Default::default(),
             arguments: vec![],
         }
     }

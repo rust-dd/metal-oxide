@@ -31,6 +31,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Portable tests and compile-fail examples
         run: cargo test --workspace --locked
+      - name: Minimum supported Rust
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          cargo +1.89.0 check --workspace --all-targets --locked
       - name: Packaging and benchmark driver
         run: |
           python3 scripts/test_package.py

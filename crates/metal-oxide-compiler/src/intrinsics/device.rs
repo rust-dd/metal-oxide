@@ -11,9 +11,11 @@ use super::Intrinsic;
 pub(crate) enum DeviceType {
     ReadBuffer,
     WriteBuffer,
+    ReadWriteBuffer,
     AtomicBuffer,
     AtomicThreadgroupBuffer,
     ThreadgroupBuffer,
+    DynamicThreadgroupBuffer,
     Dim3,
     F16,
 }
@@ -25,9 +27,11 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
     let (module, kind) = match tcx.item_name(definition).as_str() {
         "ReadBuffer" => ("buffer", DeviceType::ReadBuffer),
         "WriteBuffer" => ("buffer", DeviceType::WriteBuffer),
+        "ReadWriteBuffer" => ("buffer", DeviceType::ReadWriteBuffer),
         "AtomicThreadgroupBuffer" => ("atomic", DeviceType::AtomicThreadgroupBuffer),
         "AtomicBuffer" => ("atomic", DeviceType::AtomicBuffer),
         "ThreadgroupBuffer" => ("threadgroup", DeviceType::ThreadgroupBuffer),
+        "DynamicThreadgroupBuffer" => ("threadgroup", DeviceType::DynamicThreadgroupBuffer),
         "Dim3" => ("thread", DeviceType::Dim3),
         "F16" => ("half", DeviceType::F16),
         _ => return None,
@@ -44,6 +48,14 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             "__metal_grid_dim" => Some(Intrinsic::Coordinates(Builtin::GridDim)),
             "__metal_sqrt_f32" => Some(Intrinsic::Math(MathOp::Sqrt)),
             "__metal_fma_f32" => Some(Intrinsic::Math(MathOp::Fma)),
+            "__metal_ln_f32" => Some(Intrinsic::Math(MathOp::Ln)),
+            "__metal_exp_f32" => Some(Intrinsic::Math(MathOp::Exp)),
+            "__metal_sin_f32" => Some(Intrinsic::Math(MathOp::Sin)),
+            "__metal_cos_f32" => Some(Intrinsic::Math(MathOp::Cos)),
+            "__metal_powf_f32" => Some(Intrinsic::Math(MathOp::Powf)),
+            "__metal_tanh_f32" => Some(Intrinsic::Math(MathOp::Tanh)),
+            "__metal_atan_f32" => Some(Intrinsic::Math(MathOp::Atan)),
+            "__metal_floor_f32" => Some(Intrinsic::Math(MathOp::Floor)),
             "__metal_f16_from_f32" => Some(Intrinsic::FloatConvert(Scalar::F16)),
             "__metal_f16_to_f32" => Some(Intrinsic::FloatConvert(Scalar::F32)),
             "__metal_threadgroup_barrier" => Some(Intrinsic::ThreadgroupBarrier),
@@ -102,12 +114,20 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         device_type(tcx, owner.did())?,
         tcx.item_name(definition).as_str(),
     ) {
-        (DeviceType::ReadBuffer | DeviceType::ThreadgroupBuffer, "load_unchecked") => {
-            Some(Intrinsic::BufferLoad)
-        }
-        (DeviceType::WriteBuffer | DeviceType::ThreadgroupBuffer, "store_unchecked") => {
-            Some(Intrinsic::BufferStore)
-        }
+        (
+            DeviceType::ReadBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer,
+            "load_unchecked",
+        ) => Some(Intrinsic::BufferLoad),
+        (
+            DeviceType::WriteBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer,
+            "store_unchecked",
+        ) => Some(Intrinsic::BufferStore),
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load_relaxed" => AtomicOp::Load,

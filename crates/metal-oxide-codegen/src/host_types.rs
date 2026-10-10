@@ -16,6 +16,7 @@ impl HostTypes {
                 "metal_oxide",
                 "f32",
                 "u32",
+                "u64",
                 "i32",
                 "u8",
                 "u16",
@@ -23,6 +24,9 @@ impl HostTypes {
                 "i16",
                 "usize",
                 "load",
+                "load_bytes",
+                "metal_oxide_kernels",
+                "metal_oxide_pipeline",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -31,7 +35,8 @@ impl HostTypes {
         for parameter in abi.kernels.iter().flat_map(|kernel| &kernel.parameters) {
             types.collect(match &parameter.ty {
                 ParameterType::Value { layout } => layout,
-                ParameterType::Buffer { element, .. } => element,
+                ParameterType::Buffer { element, .. }
+                | ParameterType::Threadgroup { element, .. } => element,
             })?;
         }
         Ok(types)

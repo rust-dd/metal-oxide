@@ -4,6 +4,18 @@ mod support;
 mod collectives;
 #[path = "msl/control_flow.rs"]
 mod control_flow;
+#[path = "msl/dynamic_shared.rs"]
+mod dynamic_shared;
+#[path = "msl/math_mode.rs"]
+mod math_mode;
+#[path = "msl/read_write.rs"]
+mod read_write;
+#[path = "msl/spectral.rs"]
+mod spectral;
+#[path = "msl/transcendentals.rs"]
+mod transcendentals;
+#[path = "msl/u64.rs"]
+mod u64;
 
 #[test]
 fn atomic_operations_compile_with_device_and_threadgroup_memory() {

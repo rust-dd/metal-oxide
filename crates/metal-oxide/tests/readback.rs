@@ -55,6 +55,21 @@ kernel void write_values(device uint* out [[buffer(0)]], uint i [[thread_positio
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn imported_codecs_preserve_readback_reentry_and_panic_guards() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let raw = device.buffer_from_slice(&[10_u32, 11, 12])?.into_native();
+    // SAFETY: Value encodes canonical u32 words; all external accesses completed.
+    let out = Rc::new(unsafe { Buffer::<Value>::from_native(&device, raw, 3)? });
+    REENTER.with(|state| *state.borrow_mut() = Some(Rc::clone(&out)));
+    assert!(catch_unwind(AssertUnwindSafe(|| out.as_slice())).is_err());
+    PANIC_AFTER.with(|state| state.set(Some(1)));
+    assert!(catch_unwind(AssertUnwindSafe(|| out.as_slice())).is_err());
+    assert_eq!(out.as_slice(), [Value(10), Value(11), Value(12)]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn decoder_cannot_reenter_the_same_buffer() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = Module::from_source(&device, SOURCE)?;

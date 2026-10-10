@@ -22,6 +22,10 @@ serde_json.workspace = true
 [dev-dependencies]
 metal-oxide.workspace = true
 
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
+objc2-foundation.workspace = true
+objc2-metal.workspace = true
+
 [[bin]]
 name = "metal-oxide-compiler"
 path = "src/main.rs"

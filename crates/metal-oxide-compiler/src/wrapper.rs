@@ -38,6 +38,9 @@ pub(crate) fn forward(arguments: &mut Vec<String>) -> Option<ExitCode> {
         && let Ok(output) = std::env::var("METAL_OXIDE_CARGO_OUTPUT")
     {
         arguments.extend(["--metal-output".into(), output]);
+        if let Ok(mode) = std::env::var("METAL_OXIDE_CARGO_MATH_MODE") {
+            arguments.extend(["--metal-math-mode".into(), mode]);
+        }
     }
     None
 }

@@ -46,7 +46,7 @@ macro_rules! scalar {
         }
     )*};
 }
-scalar!(f32 => F32, u32 => U32, i32 => I32, u8 => U8, u16 => U16, i8 => I8, i16 => I16);
+scalar!(f32 => F32, u32 => U32, u64 => U64, i32 => I32, u8 => U8, u16 => U16, i8 => I8, i16 => I16);
 
 impl GpuValue for crate::F16 {
     const SIZE: usize = 2;

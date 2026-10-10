@@ -22,10 +22,25 @@ template<class To, class From> To as_type(From value) {
     std::memcpy(&result, &value, sizeof(result));
     return result;
 }
+inline ulong mulhi(ulong a, ulong b) {
+    return ulong((static_cast<unsigned __int128>(a) * b) >> 64);
+}
 using std::fmod;
 using std::isnan;
 using std::fmin;
 using std::fmax;
 using std::fma;
-namespace precise { using std::sqrt; }
+using std::floor;
+using std::copysign;
+namespace precise {
+using std::sqrt;
+using std::log;
+using std::exp;
+using std::sin;
+using std::cos;
+using std::pow;
+using std::tanh;
+using std::atan;
+}
+namespace fast = precise;
 }

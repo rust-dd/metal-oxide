@@ -1,4 +1,5 @@
 use crate::{control::StructuredGraph, expressions::type_name, interface::KernelInterfaces};
+use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
 use std::fmt::Write;
 
@@ -6,6 +7,7 @@ pub(crate) struct ModuleEmitter<'a> {
     module: &'a Module,
     interfaces: &'a KernelInterfaces,
     analyses: &'a [FunctionAnalysis],
+    math_mode: MathMode,
     output: String,
 }
 
@@ -14,11 +16,13 @@ impl<'a> ModuleEmitter<'a> {
         module: &'a Module,
         interfaces: &'a KernelInterfaces,
         analyses: &'a [FunctionAnalysis],
+        math_mode: MathMode,
     ) -> Self {
         Self {
             module,
             interfaces,
             analyses,
+            math_mode,
             output: String::new(),
         }
     }
@@ -26,9 +30,15 @@ impl<'a> ModuleEmitter<'a> {
     pub(crate) fn emit(mut self) -> Result<String, Error> {
         let module = self.module;
         let simd = self.interfaces.simd;
-        self.output = String::from(
-            "#include <metal_stdlib>\nusing namespace metal;\n#pragma STDC FP_CONTRACT OFF\n\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n",
-        );
+        self.output
+            .push_str("#include <metal_stdlib>\nusing namespace metal;\n");
+        self.output.push_str(match self.math_mode {
+            MathMode::Precise => "#pragma METAL fp math_mode(safe)\n#pragma STDC FP_CONTRACT OFF\n",
+            MathMode::Fast => {
+                "#pragma METAL fp math_mode(relaxed)\n#pragma METAL fp contract(fast)\n"
+            }
+        });
+        self.output.push_str("\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n");
         self.output.push_str(&crate::numeric::helpers(module)?);
         self.output.push_str(&crate::atomics::helpers(module)?);
         for (id, aggregate) in module.types.iter() {
@@ -125,7 +135,14 @@ impl<'a> ModuleEmitter<'a> {
                     writeln!(self.output, "    {} v{local};", type_name(ty)).unwrap();
                 }
             }
-            crate::structured::body(module, function, graph, self.analyses, &mut self.output)?;
+            crate::structured::body(
+                module,
+                function,
+                graph,
+                self.analyses,
+                self.math_mode,
+                &mut self.output,
+            )?;
             self.output.push_str("}\n\n");
         }
         Ok(self.output)
@@ -149,12 +166,23 @@ impl<'a> ModuleEmitter<'a> {
             let ty = function.locals[local];
             parameters.push(if let Some(kernel) = kernel {
                 let name = format!("metal_oxide_arg_{local}");
+                let binding_kind = if matches!(
+                    ty,
+                    Type::Buffer {
+                        address_space: AddressSpace::Threadgroup,
+                        ..
+                    }
+                ) {
+                    "threadgroup"
+                } else {
+                    "buffer"
+                };
                 let ty = match ty {
                     Type::Scalar(_) | Type::Aggregate(_) => format!("constant {} &", type_name(ty)),
                     _ => type_name(ty),
                 };
                 format!(
-                    "{ty} {name} [[buffer({})]]",
+                    "{ty} {name} [[{binding_kind}({})]]",
                     kernel.parameters[local - 1].binding
                 )
             } else {

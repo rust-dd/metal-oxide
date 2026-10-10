@@ -1,3 +1,4 @@
+use metal_oxide_artifact::MathMode;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,6 +15,7 @@ pub(crate) struct Options {
     pub(crate) manifest: PathBuf,
     pub(crate) package: Option<String>,
     pub(crate) release: bool,
+    pub(crate) math_mode: MathMode,
     pub(crate) arguments: Vec<String>,
 }
 
@@ -45,15 +47,17 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         manifest: "Cargo.toml".into(),
         package: None,
         release: false,
+        math_mode: MathMode::default(),
         arguments: vec![],
     };
     let mut index = 1;
     let mut emit = false;
     let mut manifest = false;
+    let mut math_mode = false;
     while index < arguments.len() {
         match arguments[index] {
             "--release" if !options.release => options.release = true,
-            "--manifest-path" | "--package" | "-p" | "--emit" => {
+            "--manifest-path" | "--package" | "-p" | "--emit" | "--math-mode" => {
                 let option = arguments[index];
                 index += 1;
                 let value = arguments
@@ -61,6 +65,10 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
                     .filter(|v| !v.is_empty() && !v.starts_with('-'))
                     .ok_or_else(|| format!("{option} requires a value"))?;
                 match option {
+                    "--math-mode" if !math_mode => {
+                        options.math_mode = value.parse::<MathMode>().map_err(|e| e.to_string())?;
+                        math_mode = true;
+                    }
                     "--manifest-path" if !manifest => {
                         options.manifest = PathBuf::from(value);
                         manifest = true;
@@ -106,6 +114,24 @@ mod tests {
         assert_eq!(options.package.as_deref(), Some("host"));
         assert_eq!(options.arguments, ["--n", "10"]);
         assert!(options.release);
+        assert_eq!(options.math_mode, MathMode::Precise);
+    }
+
+    #[test]
+    fn accepts_explicit_numerical_modes() {
+        for mode in ["precise", "fast"] {
+            let Ok(Command::Build(options)) = parse(&["build", "--math-mode", mode]) else {
+                panic!()
+            };
+            assert_eq!(options.math_mode.as_str(), mode);
+        }
+        for arguments in [
+            vec!["build", "--math-mode"],
+            vec!["build", "--math-mode", "relaxed"],
+            vec!["build", "--math-mode", "fast", "--math-mode", "precise"],
+        ] {
+            assert!(parse(&arguments).is_err(), "{arguments:?}");
+        }
     }
 
     #[test]

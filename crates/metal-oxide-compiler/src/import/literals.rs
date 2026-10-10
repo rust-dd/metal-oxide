@@ -72,6 +72,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ir::Scalar::F16 => ir::Constant::F16(value as u16),
                 ir::Scalar::U32 => ir::Constant::U32(value as u32),
                 ir::Scalar::Usize => ir::Constant::Usize(value),
+                ir::Scalar::U64 => ir::Constant::U64(value),
                 ir::Scalar::I32 => ir::Constant::I32(value as i32),
                 ir::Scalar::U8 => ir::Constant::U8(value as u8),
                 ir::Scalar::U16 => ir::Constant::U16(value as u16),

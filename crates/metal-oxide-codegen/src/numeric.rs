@@ -10,6 +10,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
         Scalar::U16,
         Scalar::I8,
         Scalar::I16,
+        Scalar::U64,
         Scalar::Usize,
     ] {
         let name = scalar.name();
@@ -74,14 +75,12 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 .unwrap();
                 continue;
             }
-            let (value, overflow) = if matches!(scalar, Scalar::U32 | Scalar::Usize) {
+            let (value, overflow) = if matches!(scalar, Scalar::U32 | Scalar::U64 | Scalar::Usize) {
                 writeln!(output, "    {ty} value = a {symbol} b;").unwrap();
                 let overflow = match operation {
                     BinaryOp::AddWithOverflow => "value < a",
                     BinaryOp::SubWithOverflow => "a < b",
-                    BinaryOp::MulWithOverflow if scalar == Scalar::Usize => {
-                        "b != 0ul && a > 0xfffffffffffffffful / b"
-                    }
+                    BinaryOp::MulWithOverflow if scalar.bits() == 64 => "mulhi(a, b) != 0ul",
                     _ => "b != 0u && a > 0xffffffffu / b",
                 };
                 ("value", overflow)

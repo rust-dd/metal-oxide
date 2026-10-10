@@ -3,7 +3,7 @@ use crate::{
     metadata::Project,
     process::{self, Result},
 };
-use metal_oxide_artifact::{COMPILER_OUTPUTS, sha256};
+use metal_oxide_artifact::{COMPILER_OUTPUTS, MathMode, sha256};
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -18,6 +18,7 @@ pub(crate) struct Rust {
     pub(crate) version: String,
     pub(crate) target: PathBuf,
     pub(crate) directory: PathBuf,
+    math_mode: MathMode,
 }
 
 pub(crate) struct KernelBuild {
@@ -32,7 +33,7 @@ fn cargo() -> Command {
 }
 
 impl Rust {
-    pub(crate) fn prepare(project: &Project) -> Result<Self> {
+    pub(crate) fn prepare(project: &Project, math_mode: MathMode) -> Result<Self> {
         let root = project.metadata.target_directory.join("metal");
         std::fs::create_dir_all(&root)?;
         let target = root.join("metal64-unknown-none.json");
@@ -47,7 +48,7 @@ impl Rust {
             &version,
         )?;
         let identity = crate::compiler::verify(&compiler, &version)?.binary;
-        let configuration = serde_json::to_vec(&(&identity, &version, TARGET))?;
+        let configuration = serde_json::to_vec(&(&identity, &version, TARGET, math_mode))?;
         let directory = root.join("rust").join(sha256(&configuration));
         Ok(Self {
             compiler,
@@ -55,6 +56,7 @@ impl Rust {
             version,
             target,
             directory,
+            math_mode,
         })
     }
 
@@ -70,7 +72,8 @@ impl Rust {
                 "METAL_OXIDE_CARGO_KERNEL",
                 project.kernel_crate().replace('-', "_"),
             )
-            .env("METAL_OXIDE_CARGO_OUTPUT", output);
+            .env("METAL_OXIDE_CARGO_OUTPUT", output)
+            .env("METAL_OXIDE_CARGO_MATH_MODE", self.math_mode.as_str());
         command
     }
 

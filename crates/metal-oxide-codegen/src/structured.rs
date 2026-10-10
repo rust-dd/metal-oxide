@@ -2,6 +2,7 @@ use crate::{
     control::StructuredGraph,
     expressions::{expression, operand},
 };
+use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
 use std::{collections::HashMap, fmt::Write};
 
@@ -10,6 +11,7 @@ pub(crate) fn body(
     function: &Function,
     graph: StructuredGraph<'_>,
     analyses: &[FunctionAnalysis],
+    math_mode: MathMode,
     output: &mut String,
 ) -> Result<(), Error> {
     Emitter {
@@ -17,6 +19,7 @@ pub(crate) fn body(
         function,
         graph,
         analyses,
+        math_mode,
         output,
         visits: HashMap::new(),
         indent: 1,
@@ -29,6 +32,7 @@ struct Emitter<'a> {
     function: &'a Function,
     graph: StructuredGraph<'a>,
     analyses: &'a [FunctionAnalysis],
+    math_mode: MathMode,
     output: &'a mut String,
     visits: HashMap<usize, usize>,
     indent: usize,
@@ -94,6 +98,7 @@ impl Emitter<'_> {
                     self.function,
                     &statement.value,
                     &statement.source,
+                    self.math_mode,
                 )?;
                 if self.function.locals[statement.destination.local] == Type::Unit {
                     if !value.is_empty() {

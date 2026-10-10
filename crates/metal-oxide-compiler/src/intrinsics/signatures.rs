@@ -116,8 +116,10 @@ fn buffer_element<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(DeviceType, 
     match kind {
         DeviceType::ReadBuffer
         | DeviceType::WriteBuffer
+        | DeviceType::ReadWriteBuffer
         | DeviceType::AtomicBuffer
         | DeviceType::AtomicThreadgroupBuffer
+        | DeviceType::DynamicThreadgroupBuffer
         | DeviceType::ThreadgroupBuffer => Some((kind, arguments.first()?.as_type()?)),
         _ => None,
     }
@@ -164,8 +166,10 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                     return false;
                 }
                 match kind {
-                    DeviceType::ReadBuffer => "__metal_buffer_load",
-                    DeviceType::ThreadgroupBuffer => "__metal_threadgroup_load",
+                    DeviceType::ReadBuffer | DeviceType::ReadWriteBuffer => "__metal_buffer_load",
+                    DeviceType::ThreadgroupBuffer | DeviceType::DynamicThreadgroupBuffer => {
+                        "__metal_threadgroup_load"
+                    }
                     _ => return false,
                 }
             }
@@ -179,8 +183,10 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                     return false;
                 }
                 match kind {
-                    DeviceType::WriteBuffer => "__metal_buffer_store",
-                    DeviceType::ThreadgroupBuffer => "__metal_threadgroup_store",
+                    DeviceType::WriteBuffer | DeviceType::ReadWriteBuffer => "__metal_buffer_store",
+                    DeviceType::ThreadgroupBuffer | DeviceType::DynamicThreadgroupBuffer => {
+                        "__metal_threadgroup_store"
+                    }
                     _ => return false,
                 }
             }

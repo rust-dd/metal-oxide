@@ -1,25 +1,45 @@
+use metal_oxide_artifact::MathMode;
 use rustc_session::{EarlyDiagCtxt, config};
 use std::path::PathBuf;
 
-pub(crate) fn take_directory(arguments: &mut Vec<String>) -> Result<Option<PathBuf>, String> {
+pub(crate) struct Options {
+    pub(crate) directory: Option<PathBuf>,
+    pub(crate) math_mode: MathMode,
+}
+
+pub(crate) fn take_options(arguments: &mut Vec<String>) -> Result<Options, String> {
     let mut directory = None;
+    let mut math_mode = None;
     let mut index = 1;
     while index < arguments.len() {
-        if arguments[index] != "--metal-output" {
+        let option = arguments[index].as_str();
+        if option == "--" {
+            break;
+        }
+        if !matches!(option, "--metal-output" | "--metal-math-mode") {
             index += 1;
             continue;
-        }
-        if directory.is_some() {
-            return Err("--metal-output must be specified once".into());
         }
         let value = arguments
             .get(index + 1)
             .filter(|v| !v.starts_with('-') && !v.is_empty())
-            .ok_or("--metal-output requires a directory")?;
-        directory = Some(PathBuf::from(value));
+            .ok_or_else(|| match option {
+                "--metal-output" => "--metal-output requires a directory".to_owned(),
+                _ => "--metal-math-mode requires precise or fast".to_owned(),
+            })?;
+        match option {
+            "--metal-output" if directory.is_none() => directory = Some(PathBuf::from(value)),
+            "--metal-math-mode" if math_mode.is_none() => {
+                math_mode = Some(value.parse::<MathMode>().map_err(|e| e.to_string())?);
+            }
+            _ => return Err(format!("{option} must be specified once")),
+        }
         arguments.drain(index..index + 2);
     }
-    Ok(directory)
+    Ok(Options {
+        directory,
+        math_mode: math_mode.unwrap_or_default(),
+    })
 }
 
 pub(crate) fn help(arguments: &[String]) -> bool {

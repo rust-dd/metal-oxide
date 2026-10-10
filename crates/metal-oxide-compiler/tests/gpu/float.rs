@@ -3,11 +3,22 @@ use super::*;
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn float_casts_match_rust_at_boundaries_and_for_arbitrary_bits() -> metal_oxide::Result<()> {
+    float_casts(metal_oxide_artifact::MathMode::Precise)
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn fast_math_preserves_saturating_casts_including_nan_and_infinity() -> metal_oxide::Result<()> {
+    float_casts(metal_oxide_artifact::MathMode::Fast)
+}
+
+fn float_casts(math_mode: metal_oxide_artifact::MathMode) -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let pipeline = pipeline(
+    let pipeline = pipeline_with_math_mode(
         &device,
         "crates/metal-oxide-compiler/tests/fixtures/float_casts.rs",
         "float_casts",
+        math_mode,
     )?;
     let mut values = vec![
         f32::NAN,

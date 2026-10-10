@@ -3,12 +3,14 @@
 mod compiler;
 mod files;
 mod layout;
+mod math;
 mod model;
 mod validate;
 
 pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
 pub use files::{ArtifactFile, COMPILER_OUTPUTS};
 pub use layout::{FieldLayout, Layout, LayoutKind};
+pub use math::MathMode;
 pub use model::*;
 
 use sha2::{Digest, Sha256};

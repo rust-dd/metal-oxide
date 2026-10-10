@@ -209,6 +209,8 @@ dependencies = [
  "metal-oxide-artifact",
  "metal-oxide-codegen",
  "metal-oxide-ir",
+ "objc2-foundation",
+ "objc2-metal",
  "serde_json",
 ]
 
@@ -399,6 +401,26 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "spectral"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide",
+ "metal-oxide-artifact",
+ "objc2",
+ "objc2-foundation",
+ "objc2-metal",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "spectral-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-device",
 ]
 
 [[package]]

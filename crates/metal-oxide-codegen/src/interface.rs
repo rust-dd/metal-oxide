@@ -1,11 +1,12 @@
 use metal_oxide_artifact::{self as artifact, ParameterType};
-use metal_oxide_ir::{Access, Error, Function, Module, Scalar, Type};
+use metal_oxide_ir::{Access, AddressSpace, Error, Function, Module, Scalar, Type};
 
 #[derive(Debug)]
 pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
     pub(crate) simd: bool,
     atomics: bool,
+    dynamic_shared: bool,
 }
 
 impl KernelInterfaces {
@@ -18,12 +19,7 @@ impl KernelInterfaces {
                     return Ok(None);
                 }
                 crate::names::validate_name(function)?;
-                if function.parameters > 31 {
-                    return Err(Error::new(
-                        &function.source,
-                        "Metal supports at most 31 kernel parameters",
-                    ));
-                }
+                let mut slots = [0; 2];
                 let parameters = function.locals[1..1 + function.parameters]
                     .iter()
                     .enumerate()
@@ -32,6 +28,17 @@ impl KernelInterfaces {
                             Type::Scalar(_) | Type::Aggregate(_) => ParameterType::Value {
                                 layout: layout(module, *ty, function)?,
                             },
+                            Type::Buffer {
+                                element,
+                                address_space: AddressSpace::Threadgroup,
+                                ..
+                            } => {
+                                let element = layout(module, element.ty(), function)?;
+                                ParameterType::Threadgroup {
+                                    stride: element.size,
+                                    element,
+                                }
+                            }
                             Type::Buffer {
                                 element, access, ..
                             } => {
@@ -43,12 +50,7 @@ impl KernelInterfaces {
                                         Access::Read => artifact::Access::Read,
                                         Access::Write => artifact::Access::Write,
                                         Access::Atomic => artifact::Access::Atomic,
-                                        Access::ReadWrite => {
-                                            return Err(Error::new(
-                                                &function.source,
-                                                "threadgroup buffers cannot be kernel arguments",
-                                            ));
-                                        }
+                                        Access::ReadWrite => artifact::Access::ReadWrite,
                                     },
                                 }
                             }
@@ -59,9 +61,19 @@ impl KernelInterfaces {
                                 ));
                             }
                         };
+                        let namespace =
+                            usize::from(matches!(ty, ParameterType::Threadgroup { .. }));
+                        let binding = slots[namespace];
+                        slots[namespace] += 1;
+                        if slots[namespace] > 31 {
+                            return Err(Error::new(
+                                &function.source,
+                                "Metal supports at most 31 bindings per argument table",
+                            ));
+                        }
                         Ok(artifact::Parameter {
                             name: format!("arg_{index}"),
-                            binding: index as u32,
+                            binding,
                             ty,
                         })
                     })
@@ -74,6 +86,12 @@ impl KernelInterfaces {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(Self {
+            dynamic_shared: kernels.iter().flatten().any(|kernel| {
+                kernel
+                    .parameters
+                    .iter()
+                    .any(|p| matches!(p.ty, ParameterType::Threadgroup { .. }))
+            }),
             kernels,
             simd: uses_simd(module),
             atomics: module
@@ -92,14 +110,22 @@ impl KernelInterfaces {
         })
     }
 
-    pub(crate) fn abi(&self) -> Result<artifact::Abi, artifact::Error> {
+    pub(crate) fn abi(
+        &self,
+        math_mode: artifact::MathMode,
+    ) -> Result<artifact::Abi, artifact::Error> {
         let abi = artifact::Abi {
             version: artifact::ABI_VERSION,
-            required_features: [(self.atomics, "int32_atomics"), (self.simd, "simd_groups")]
-                .into_iter()
-                .filter(|(required, _)| *required)
-                .map(|(_, name)| name.to_owned())
-                .collect(),
+            math_mode,
+            required_features: [
+                (self.atomics, "int32_atomics"),
+                (self.simd, "simd_groups"),
+                (self.dynamic_shared, "dynamic_threadgroup_memory"),
+            ]
+            .into_iter()
+            .filter(|(required, _)| *required)
+            .map(|(_, name)| name.to_owned())
+            .collect(),
             kernels: self.kernels.iter().flatten().cloned().collect(),
         };
         abi.validate()?;
@@ -127,6 +153,7 @@ fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error>
         Scalar::F32 => Ok(artifact::Scalar::F32),
         Scalar::F16 => Ok(artifact::Scalar::F16),
         Scalar::U32 => Ok(artifact::Scalar::U32),
+        Scalar::U64 => Ok(artifact::Scalar::U64),
         Scalar::I32 => Ok(artifact::Scalar::I32),
         Scalar::U8 => Ok(artifact::Scalar::U8),
         Scalar::U16 => Ok(artifact::Scalar::U16),

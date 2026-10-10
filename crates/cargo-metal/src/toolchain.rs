@@ -1,19 +1,19 @@
 use crate::process::{self, Result};
-use metal_oxide_artifact::ArtifactFile;
+use metal_oxide_artifact::{ArtifactFile, MathMode};
 use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
 
-pub(crate) const METAL_FLAGS: &[&str] = &[
-    "-std=metal3.1",
-    "-mmacosx-version-min=15.0",
-    "-fmetal-math-mode=safe",
-    "-fmetal-math-fp32-functions=precise",
-    "-ffp-contract=off",
-    "-O2",
-];
+pub(crate) fn metal_flags(math_mode: MathMode) -> Vec<String> {
+    ["-std=metal3.1", "-mmacosx-version-min=15.0"]
+        .into_iter()
+        .chain(math_mode.metal_flags())
+        .chain(["-O2"])
+        .map(str::to_owned)
+        .collect()
+}
 
 pub(crate) struct Metal {
     program: PathBuf,
@@ -84,10 +84,10 @@ impl Metal {
         command
     }
 
-    pub(crate) fn compile(&self, directory: &Path) -> Result<()> {
+    pub(crate) fn compile(&self, directory: &Path, math_mode: MathMode) -> Result<()> {
         let mut compile = self.command();
         compile
-            .args(METAL_FLAGS)
+            .args(metal_flags(math_mode))
             .arg("-c")
             .arg(directory.join(ArtifactFile::Msl.name()))
             .arg("-o")

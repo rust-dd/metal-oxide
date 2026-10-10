@@ -19,12 +19,13 @@ pub(crate) fn write<'tcx>(
     tcx: rustc_middle::ty::TyCtxt<'tcx>,
     entries: &[rustc_middle::ty::Instance<'tcx>],
     arguments: &[String],
+    math_mode: metal_oxide_artifact::MathMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         directory.join(ArtifactFile::OxideIr.name()),
         format!("{module:#?}\n"),
     )?;
-    let codegen = metal_oxide_codegen::Codegen::new(module)?;
+    let codegen = metal_oxide_codegen::Codegen::new(module)?.with_math_mode(math_mode);
     let msl = codegen.emit()?;
     let mut abi = codegen.abi()?;
     for kernel in &mut abi.kernels {

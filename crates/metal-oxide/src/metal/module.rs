@@ -21,7 +21,10 @@ pub struct Module {
 }
 
 impl Module {
-    /// Compiles MSL with fast math disabled.
+    /// Compiles MSL with safe math and precise functions by default.
+    ///
+    /// Source pragmas and explicit math namespaces override these defaults.
+    /// Generated MSL carries its selected numerical mode in the source.
     pub fn from_source(device: &Device, source: &str) -> Result<Self> {
         let options = MTLCompileOptions::new();
         options.setMathMode(MTLMathMode::Safe);
@@ -60,6 +63,17 @@ impl Module {
         let manifest = Manifest::from_json(&std::fs::read_to_string(
             directory.join(ArtifactFile::Manifest.name()),
         )?)?;
+        let bytes = std::fs::read(directory.join(ArtifactFile::Metallib.name()))?;
+        Self::load_artifact(device, manifest, &bytes)
+    }
+
+    /// Loads embedded manifest JSON and metallib bytes after validating their ABI,
+    /// capabilities and content hash. Neither input must outlive the module.
+    pub fn from_bytes(device: &Device, manifest: &str, metallib: &[u8]) -> Result<Self> {
+        Self::load_artifact(device, Manifest::from_json(manifest)?, metallib)
+    }
+
+    fn load_artifact(device: &Device, manifest: Manifest, bytes: &[u8]) -> Result<Self> {
         for feature in &manifest.abi.required_features {
             let (family, reason) = match feature.as_str() {
                 "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
@@ -67,15 +81,18 @@ impl Module {
                     MTLGPUFamily::Apple1,
                     "artifact requires 32-bit integer atomics",
                 ),
+                "dynamic_threadgroup_memory" => (
+                    MTLGPUFamily::Apple1,
+                    "artifact requires dynamic threadgroup memory",
+                ),
                 _ => unreachable!("validated artifact capabilities"),
             };
             if !device.raw.supportsFamily(family) {
                 return Err(Error::UnsupportedDevice(reason.into()));
             }
         }
-        let bytes = std::fs::read(directory.join(ArtifactFile::Metallib.name()))?;
-        manifest.verify_library(&bytes)?;
-        let data = dispatch2::DispatchData::from_bytes(&bytes);
+        manifest.verify_library(bytes)?;
+        let data = dispatch2::DispatchData::from_bytes(bytes);
         let raw = device
             .raw
             .newLibraryWithData_error(&data)

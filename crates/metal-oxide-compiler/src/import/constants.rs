@@ -12,6 +12,7 @@ pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Op
     Some(match constant.ty().kind() {
         ty::Bool => ir::Constant::Bool(bits != 0),
         ty::Uint(ty::UintTy::U32) => ir::Constant::U32(bits as u32),
+        ty::Uint(ty::UintTy::U64) => ir::Constant::U64(u64::try_from(bits).ok()?),
         ty::Uint(ty::UintTy::Usize) => ir::Constant::Usize(u64::try_from(bits).ok()?),
         ty::Int(ty::IntTy::I32) => ir::Constant::I32(bits as i32),
         ty::Uint(ty::UintTy::U8) => ir::Constant::U8(bits as u8),
@@ -53,7 +54,7 @@ fn integer(value: ir::Constant) -> Option<i128> {
         ir::Constant::U16(n) => i128::from(n),
         ir::Constant::I8(n) => i128::from(n),
         ir::Constant::I16(n) => i128::from(n),
-        ir::Constant::Usize(n) => i128::from(n),
+        ir::Constant::U64(n) | ir::Constant::Usize(n) => i128::from(n),
         ir::Constant::Bool(n) => i128::from(n),
         _ => return None,
     })

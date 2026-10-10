@@ -6,6 +6,7 @@ pub enum Scalar {
     F32,
     F16,
     U32,
+    U64,
     I32,
     U8,
     U16,
@@ -22,14 +23,21 @@ impl Scalar {
             Self::U16 | Self::I16 | Self::F16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
-            Self::Usize => 64,
+            Self::U64 | Self::Usize => 64,
         }
     }
 
     pub const fn is_integer(self) -> bool {
         matches!(
             self,
-            Self::U8 | Self::U16 | Self::U32 | Self::I32 | Self::I8 | Self::I16 | Self::Usize
+            Self::U8
+                | Self::U16
+                | Self::U32
+                | Self::U64
+                | Self::I32
+                | Self::I8
+                | Self::I16
+                | Self::Usize
         )
     }
 
@@ -43,6 +51,7 @@ impl Scalar {
             Self::F32 => "f32",
             Self::F16 => "f16",
             Self::U32 => "u32",
+            Self::U64 => "u64",
             Self::I32 => "i32",
             Self::U8 => "u8",
             Self::U16 => "u16",
@@ -159,7 +168,7 @@ impl Aggregate {
         } else {
             self.len()
         };
-        (0..count).map(|index| match self {
+        (0..count).map(move |index| match self {
             Self::Array { element, .. } => *element,
             _ => self.field(index as u32).unwrap(),
         })

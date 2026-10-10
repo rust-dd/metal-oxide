@@ -102,31 +102,40 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
 }
 
 fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
-    use metal_oxide_ir::{Access, Element, Type};
-    let (scalar, element, prefix) = match crate::types::parameter(tcx, ty)? {
-        Type::Scalar(scalar) => (scalar, ty, "scalar"),
+    use metal_oxide_ir::{Access, AddressSpace, Element, Type};
+    let (scalar, element, prefix, space) = match crate::types::parameter(tcx, ty)? {
+        Type::Scalar(scalar) => (scalar, ty, "scalar", "constant"),
         Type::Buffer {
-            element, access, ..
+            element,
+            access,
+            address_space,
         } => {
             let rustc_middle::ty::Adt(_, arguments) = ty.kind() else {
                 return None;
             };
-            let prefix = match access {
-                Access::Read => "read_buffer",
-                Access::Write => "write_buffer",
-                Access::Atomic => "atomic_buffer",
-                Access::ReadWrite => return None,
+            let (prefix, space) = if address_space == AddressSpace::Threadgroup {
+                ("dynamic_threadgroup_buffer", "threadgroup")
+            } else {
+                (
+                    match access {
+                        Access::Read => "read_buffer",
+                        Access::Write => "write_buffer",
+                        Access::Atomic => "atomic_buffer",
+                        Access::ReadWrite => "read_write_buffer",
+                    },
+                    "device",
+                )
             };
             let scalar = match element {
                 Element::Scalar(scalar) => scalar,
                 Element::Aggregate(_) => {
                     return Some(format!(
-                        "{prefix}<{}> address_space=device",
+                        "{prefix}<{}> address_space={space}",
                         arguments.type_at(0)
                     ));
                 }
             };
-            (scalar, arguments.type_at(0), prefix)
+            (scalar, arguments.type_at(0), prefix, space)
         }
         Type::Aggregate(_) => return Some(format!("value<{ty}>")),
         _ => return None,
@@ -143,7 +152,7 @@ fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<String> {
         )
     } else {
         format!(
-            "{prefix}<{name}> address_space=device element_size={} element_align={}",
+            "{prefix}<{name}> address_space={space} element_size={} element_align={}",
             layout.size.bytes(),
             layout.align.abi.bytes()
         )

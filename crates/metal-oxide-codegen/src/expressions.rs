@@ -38,7 +38,7 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
         Scalar::U16 => "ushort",
         Scalar::I8 => "char",
         Scalar::I16 => "short",
-        Scalar::Usize => "ulong",
+        Scalar::U64 | Scalar::Usize => "ulong",
     }
 }
 
@@ -112,7 +112,7 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::U16(v) => format!("ushort({v}u)"),
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
-            Constant::Usize(v) => format!("{v}ul"),
+            Constant::U64(v) | Constant::Usize(v) => format!("{v}ul"),
         },
     }
 }
@@ -122,6 +122,7 @@ pub(crate) fn expression(
     function: &Function,
     value: &Expression,
     source: &SourceLocation,
+    math_mode: metal_oxide_artifact::MathMode,
 ) -> Result<String, Error> {
     let op = |v| operand(module, function, v);
     let ty = |v| operand_type(module, function, v, source);
@@ -131,7 +132,7 @@ pub(crate) fn expression(
         Expression::Math {
             op: operation,
             arguments,
-        } => crate::floating::math(*operation, arguments.iter().map(op).collect()),
+        } => crate::floating::math(*operation, arguments.iter().map(op).collect(), math_mode),
         Expression::Checked {
             scalar,
             value,

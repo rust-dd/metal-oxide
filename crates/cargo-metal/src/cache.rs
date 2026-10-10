@@ -89,6 +89,7 @@ mod tests {
         let hash = sha256(b"file");
         let abi = Abi {
             version: ABI_VERSION,
+            math_mode: metal_oxide_artifact::MathMode::Precise,
             required_features: vec![],
             kernels: vec![Kernel {
                 name: "empty".into(),
@@ -114,7 +115,7 @@ mod tests {
                 metal: "metal".into(),
                 sdk: "macosx".into(),
                 rustc_args: vec![],
-                metal_flags: vec![],
+                metal_flags: abi.math_mode.metal_flags().map(str::to_owned).to_vec(),
             },
         };
         std::fs::write(

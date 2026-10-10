@@ -86,7 +86,7 @@ pub(super) fn integer(value: Constant) -> Option<i128> {
         Constant::U8(v) => i128::from(v),
         Constant::U16(v) => i128::from(v),
         Constant::U32(v) => i128::from(v),
-        Constant::Usize(v) => i128::from(v),
+        Constant::U64(v) | Constant::Usize(v) => i128::from(v),
         Constant::I8(v) => i128::from(v),
         Constant::I16(v) => i128::from(v),
         Constant::I32(v) => i128::from(v),

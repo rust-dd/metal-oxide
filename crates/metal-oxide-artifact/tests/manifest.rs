@@ -4,6 +4,7 @@ fn manifest() -> Manifest {
     Manifest {
         abi: Abi {
             version: ABI_VERSION,
+            math_mode: MathMode::Precise,
             required_features: vec![],
             kernels: vec![Kernel {
                 name: "vec_add".into(),
@@ -35,7 +36,7 @@ fn manifest() -> Manifest {
             metal: "metal".into(),
             sdk: "macosx".into(),
             rustc_args: vec![],
-            metal_flags: vec![],
+            metal_flags: MathMode::Precise.metal_flags().map(str::to_owned).to_vec(),
         },
     }
 }
@@ -54,6 +55,51 @@ fn manifest_round_trip_and_library_identity() {
     for scalar in [Scalar::F32, Scalar::U32, Scalar::I32] {
         assert_eq!((scalar.size(), scalar.alignment()), (4, 4));
     }
+}
+
+#[test]
+fn numerical_contract_requires_a_known_mode_and_matching_flags() {
+    let mut fast = manifest();
+    fast.abi.math_mode = MathMode::Fast;
+    assert!(fast.validate().is_err());
+    fast.build.metal_flags = MathMode::Fast.metal_flags().map(str::to_owned).to_vec();
+    assert_eq!(Manifest::from_json(&fast.to_json().unwrap()).unwrap(), fast);
+    assert_ne!(
+        fast.abi.to_json().unwrap(),
+        manifest().abi.to_json().unwrap()
+    );
+    for flags in [
+        vec![],
+        vec![
+            "-fmetal-math-mode=fast",
+            "-fmetal-math-fp32-functions=fast",
+            "-ffp-contract=fast",
+        ],
+        vec![
+            "-fmetal-math-mode=relaxed",
+            "-fmetal-math-mode=safe",
+            "-fmetal-math-fp32-functions=fast",
+            "-ffp-contract=fast",
+        ],
+    ] {
+        let mut invalid = fast.clone();
+        invalid.build.metal_flags = flags.into_iter().map(str::to_owned).collect();
+        assert!(invalid.validate().is_err());
+    }
+    for value in [
+        serde_json::Value::Null,
+        serde_json::json!("relaxed"),
+        serde_json::json!(true),
+    ] {
+        let mut invalid = serde_json::to_value(&fast).unwrap();
+        invalid["abi"]["math_mode"] = value;
+        assert!(Manifest::from_json(&invalid.to_string()).is_err());
+    }
+    let mut legacy = serde_json::to_value(&fast).unwrap();
+    legacy["abi"].as_object_mut().unwrap().remove("math_mode");
+    assert!(Manifest::from_json(&legacy.to_string()).is_err());
+    fast.build.metal_flags.push("-ffast-math".into());
+    assert!(fast.validate().is_err());
 }
 
 #[test]

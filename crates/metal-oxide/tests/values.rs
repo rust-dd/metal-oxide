@@ -42,3 +42,17 @@ fn scalar_encoding_preserves_all_bits() {
     }
     assert_eq!(u16::layout().unwrap(), Layout::scalar(Scalar::U16));
 }
+
+#[test]
+fn wide_fields_have_eight_byte_alignment_and_preserve_high_bits() {
+    type Value = (u8, u64, u32);
+    let layout = Value::layout().unwrap();
+    assert_eq!((layout.size, layout.alignment), (24, 8));
+    let value: Value = (7, 0xfedc_ba98_7654_3210, 9);
+    let mut bytes = [0xff; 24];
+    value.encode(&mut bytes);
+    assert_eq!(&bytes[1..8], &[0; 7]);
+    assert_eq!(&bytes[8..16], &value.1.to_le_bytes());
+    assert_eq!(&bytes[20..24], &[0; 4]);
+    assert_eq!(Value::decode(&bytes), value);
+}

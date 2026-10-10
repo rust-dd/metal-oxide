@@ -5,6 +5,48 @@ pub struct ThreadgroupBuffer<T, const N: usize> {
     ptr: *mut T,
 }
 
+/// Uninitialized block-local storage whose element count is supplied at launch.
+/// Each kernel parameter names a distinct allocation shared by all threads in a block.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct DynamicThreadgroupBuffer<T> {
+    ptr: *mut T,
+}
+
+impl<T: Copy> DynamicThreadgroupBuffer<T> {
+    /// # Safety
+    /// The index must be within the supplied element count, initialized, and
+    /// synchronized with other accesses by threads in the block.
+    pub unsafe fn load_unchecked(self, index: u32) -> T {
+        let mut out = core::mem::MaybeUninit::<T>::uninit();
+        // SAFETY: the caller guarantees bounds, initialization, and synchronization.
+        unsafe {
+            crate::intrinsics::__metal_threadgroup_load(
+                self.ptr.cast(),
+                index,
+                out.as_mut_ptr().cast(),
+                core::mem::size_of::<T>(),
+            );
+            out.assume_init()
+        }
+    }
+
+    /// # Safety
+    /// The index must be within the supplied element count and this write must
+    /// not race with other accesses by threads in the block.
+    pub unsafe fn store_unchecked(self, index: u32, value: T) {
+        // SAFETY: the caller guarantees bounds and synchronization.
+        unsafe {
+            crate::intrinsics::__metal_threadgroup_store(
+                self.ptr.cast(),
+                index,
+                (&raw const value).cast(),
+                core::mem::size_of::<T>(),
+            );
+        }
+    }
+}
+
 /// Creates uninitialized storage shared by threads in the current block.
 /// Each call site has distinct storage; allocation inside loops is unsupported.
 pub fn shared<T: Copy, const N: usize>() -> ThreadgroupBuffer<T, N> {

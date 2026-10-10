@@ -338,7 +338,7 @@ fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
             Err(error) => {
                 assert!(!valid);
                 assert_eq!(error.source, support::source());
-                assert!(error.message.contains("31 kernel parameters"));
+                assert!(error.message.contains("31 bindings per argument table"));
             }
         }
     }

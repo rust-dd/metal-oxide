@@ -12,6 +12,10 @@ mod control_flow;
 mod cooperation;
 #[path = "gpu/cooperative.rs"]
 mod cooperative;
+#[path = "gpu/dynamic_shared.rs"]
+mod dynamic_shared;
+#[path = "gpu/fast_math.rs"]
+mod fast_math;
 #[path = "gpu/float.rs"]
 mod float;
 #[path = "gpu/half.rs"]
@@ -20,18 +24,48 @@ mod half;
 mod ir_aggregates;
 #[path = "gpu/narrow.rs"]
 mod narrow;
+#[path = "gpu/native.rs"]
+mod native;
 #[path = "gpu/numerics.rs"]
 mod numerics;
 #[path = "gpu/proofs.rs"]
 mod proofs;
+#[path = "gpu/read_write.rs"]
+mod read_write;
 #[path = "gpu/records.rs"]
 mod records;
 mod support;
+#[path = "gpu/transcendentals.rs"]
+mod transcendentals;
+#[path = "gpu/u64.rs"]
+mod u64;
 
 use metal_oxide::{Argument, Device, Dim3, DynamicLaunchConfig, LaunchConfig, Module, Pipeline};
 
 fn pipeline(device: &Device, source: &str, entry: &str) -> metal_oxide::Result<Pipeline> {
-    let (output, directory) = support::emit(source, &["-C", "overflow-checks=off"]);
+    pipeline_with_math_mode(
+        device,
+        source,
+        entry,
+        metal_oxide_artifact::MathMode::Precise,
+    )
+}
+
+fn pipeline_with_math_mode(
+    device: &Device,
+    source: &str,
+    entry: &str,
+    math_mode: metal_oxide_artifact::MathMode,
+) -> metal_oxide::Result<Pipeline> {
+    let (output, directory) = support::emit(
+        source,
+        &[
+            "-C",
+            "overflow-checks=off",
+            "--metal-math-mode",
+            math_mode.as_str(),
+        ],
+    );
     support::checked(output);
     let msl = std::fs::read_to_string(directory.join("kernels.metal"))?;
     let module = Module::from_source(device, &msl)?;

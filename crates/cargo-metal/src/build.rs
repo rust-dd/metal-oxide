@@ -4,7 +4,7 @@ use crate::{
     metadata,
     process::{self, Result},
     rust::Rust,
-    toolchain::{METAL_FLAGS, Metal},
+    toolchain::{Metal, metal_flags},
 };
 use metal_oxide_artifact::{
     Abi, ArtifactFile, BuildInfo, COMPILER_OUTPUTS, DEVICE_TARGET, Files, MSL_VERSION, Manifest,
@@ -36,7 +36,7 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         Err(TryLockError::Error(error)) => return Err(error.into()),
     }
     cache::discard_abandoned(&root)?;
-    let rust = Rust::prepare(&project)?;
+    let rust = Rust::prepare(&project, options.math_mode)?;
     let kernels = rust.kernels(&project)?;
     let output = &kernels.output;
     if options.action == Action::Inspect {
@@ -63,7 +63,7 @@ pub(crate) fn execute(options: &Options) -> Result<()> {
         std::fs::read(&rust.target)?,
         &metal.version,
         &metal.sdk,
-        METAL_FLAGS,
+        metal_flags(options.math_mode),
         profile,
     ))?;
     let fingerprint = sha256(&identity);
@@ -142,7 +142,8 @@ fn create(
     let abi = Abi::from_json(&std::fs::read_to_string(
         stage.join(ArtifactFile::Abi.name()),
     )?)?;
-    metal.compile(stage)?;
+    metal.compile(stage, abi.math_mode)?;
+    let flags = metal_flags(abi.math_mode);
     let manifest = Manifest {
         abi,
         target: DEVICE_TARGET.into(),
@@ -157,7 +158,7 @@ fn create(
             rustc_args: serde_json::from_slice(&std::fs::read(
                 stage.join(ArtifactFile::RustcArgs.name()),
             )?)?,
-            metal_flags: METAL_FLAGS.iter().map(|v| (*v).to_owned()).collect(),
+            metal_flags: flags,
         },
     };
     std::fs::write(

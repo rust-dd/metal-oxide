@@ -45,7 +45,7 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
         }
         (UnaryOp::Neg, _) => format!("(-{value})"),
         (UnaryOp::Not, Type::Scalar(Scalar::Bool)) => format!("(!{value})"),
-        (UnaryOp::Not, Type::Scalar(Scalar::Usize)) => format!("(~{value})"),
+        (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::Usize)) => format!("(~{value})"),
         (UnaryOp::Not, Type::Scalar(scalar)) => integer_value(scalar, &format!("~uint({value})")),
         _ => unreachable!("validated unary type"),
     }
@@ -98,11 +98,7 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
                 "(uint(int({a})) >> {count}) | (((0u - uint({a} < 0)) << ((32u - {count}) & 31u)) & (0u - uint({count} != 0u)))"
             )
         } else {
-            let width = if scalar == Scalar::Usize {
-                "ulong"
-            } else {
-                "uint"
-            };
+            let width = if scalar.bits() == 64 { "ulong" } else { "uint" };
             format!("{width}({a}) {symbol} {count}")
         };
         return integer_value(scalar, &value);

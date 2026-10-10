@@ -21,6 +21,8 @@ members = [
     "examples/pipeline/kernels",
     "examples/reduction/host",
     "examples/reduction/kernels",
+    "examples/spectral/host",
+    "examples/spectral/kernels",
     "examples/vec-add/host",
     "examples/vec-add/kernels",
 ]
@@ -30,7 +32,7 @@ resolver = "3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/rust-dd/metal-oxide"
-rust-version = "1.99"
+rust-version = "1.89"
 version = "0.1.0-alpha.1"
 
 [workspace.dependencies]
@@ -59,6 +61,7 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
     "MTL4LibraryFunctionDescriptor",
     "MTL4PipelineState",
     "MTLAllocation",
+    "MTLBlitCommandEncoder",
     "MTLBuffer",
     "MTLCommandBuffer",
     "MTLCommandEncoder",

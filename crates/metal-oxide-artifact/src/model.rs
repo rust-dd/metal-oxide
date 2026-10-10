@@ -6,6 +6,7 @@ pub enum Scalar {
     F32,
     F16,
     U32,
+    U64,
     I32,
     U8,
     U16,
@@ -19,6 +20,7 @@ impl Scalar {
             Self::U8 | Self::I8 => 1,
             Self::U16 | Self::I16 | Self::F16 => 2,
             Self::F32 | Self::U32 | Self::I32 => 4,
+            Self::U64 => 8,
         }
     }
 
@@ -31,6 +33,7 @@ impl Scalar {
             Self::F32 => "f32",
             Self::F16 => "metal_oxide::F16",
             Self::U32 => "u32",
+            Self::U64 => "u64",
             Self::I32 => "i32",
             Self::U8 => "u8",
             Self::U16 => "u16",
@@ -45,6 +48,7 @@ impl Scalar {
 pub enum Access {
     Read,
     Write,
+    ReadWrite,
     Atomic,
 }
 
@@ -58,6 +62,10 @@ pub enum ParameterType {
         element: crate::Layout,
         stride: u64,
         access: Access,
+    },
+    Threadgroup {
+        element: crate::Layout,
+        stride: u64,
     },
 }
 
@@ -81,6 +89,7 @@ pub struct Kernel {
 #[serde(deny_unknown_fields)]
 pub struct Abi {
     pub version: u32,
+    pub math_mode: crate::MathMode,
     pub required_features: Vec<String>,
     pub kernels: Vec<Kernel>,
 }

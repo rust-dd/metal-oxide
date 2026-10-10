@@ -14,6 +14,7 @@ use super::{
     Argument, Pipeline,
     batch::metal_size,
     completion::{Completion, SubmissionReport},
+    failure::CommandFailure,
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -22,6 +23,7 @@ pub(super) struct ClassicBatch {
     encoder: Option<Retained<ProtocolObject<dyn MTLComputeCommandEncoder>>>,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    threadgroup_slots: usize,
 }
 
 impl ClassicBatch {
@@ -37,6 +39,7 @@ impl ClassicBatch {
             encoder: Some(encoder),
             queue: queue.clone(),
             bindings: Vec::new(),
+            threadgroup_slots: 0,
         })
     }
 
@@ -53,12 +56,38 @@ impl ClassicBatch {
             encoder.memoryBarrierWithScope(MTLBarrierScope::Buffers);
         }
         encoder.setComputePipelineState(&pipeline.raw);
-        for (index, argument) in arguments.iter().enumerate() {
-            let buffer = argument.metal_buffer(device)?;
-            // SAFETY: Batch validated bindings; native buffers are retained through completion.
-            unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, index) };
-            self.bindings.push(buffer);
+        let mut buffer_slot = 0;
+        let mut threadgroup_slot = 0;
+        for argument in arguments {
+            if let Some(bytes) = argument.threadgroup_bytes() {
+                // SAFETY: Batch validated the slot and combined per-block storage size.
+                unsafe { encoder.setThreadgroupMemoryLength_atIndex(bytes, threadgroup_slot) };
+                threadgroup_slot += 1;
+                continue;
+            }
+            if let Some(bytes) = argument.value_bytes().filter(|bytes| bytes.len() <= 4096) {
+                // SAFETY: canonical value bytes are initialized and nonempty. Metal
+                // copies at most 4 KiB before returning; later dispatches cannot mutate them.
+                unsafe {
+                    encoder.setBytes_length_atIndex(
+                        NonNull::new(bytes.as_ptr().cast_mut()).unwrap().cast(),
+                        bytes.len(),
+                        buffer_slot,
+                    )
+                };
+            } else {
+                let buffer = argument.metal_buffer(device)?;
+                // SAFETY: Batch validated bindings; buffers stay retained through completion.
+                unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, buffer_slot) };
+                self.bindings.push(buffer);
+            }
+            buffer_slot += 1;
         }
+        for slot in threadgroup_slot..self.threadgroup_slots {
+            // SAFETY: a previously validated slot is unused by the next dispatch.
+            unsafe { encoder.setThreadgroupMemoryLength_atIndex(0, slot) };
+        }
+        self.threadgroup_slots = threadgroup_slot;
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
             metal_size(config.grid),
             metal_size(config.block),
@@ -88,9 +117,12 @@ impl ClassicBatch {
                     } else {
                         Err(command
                             .error()
-                            .map(|e| e.localizedDescription().to_string())
+                            .map(|e| CommandFailure::from_native(&e))
                             .unwrap_or_else(|| {
-                                format!("unexpected command status: {:?}", command.status())
+                                CommandFailure::Other(format!(
+                                    "unexpected command status: {:?}",
+                                    command.status()
+                                ))
                             }))
                     }
                 });

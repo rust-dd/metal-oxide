@@ -100,6 +100,7 @@ pub(crate) fn expression_type(
                             | Scalar::U16
                             | Scalar::I8
                             | Scalar::I16
+                            | Scalar::U64
                             | Scalar::Usize
                     )
                 )

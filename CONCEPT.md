@@ -80,15 +80,28 @@ pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f
 `#[kernel]` adds an entrypoint marker that the compiler can find. The macro
 preserves the function body. MSL and host binding generation happen later.
 
-`ReadBuffer` and `WriteBuffer` are device handles with explicit element access.
+`ReadBuffer`, `WriteBuffer`, and `ReadWriteBuffer` are device handles with explicit element access.
 They avoid handing every GPU thread an exclusive Rust reference to the same
-whole buffer.
+whole buffer. Read-write handles support in-place algorithms; their host bindings
+borrow the buffer exclusively, while the caller still ensures race-free GPU access.
+
+Primitive scalar buffers expose shared Metal storage directly through `as_slice`
+and `as_mut_slice`, waiting for pending GPU work first. Owned records, arrays, and
+tuples retain explicit `GpuValue` codecs and a CPU mirror. Scalars include `u64`
+with eight-byte ABI alignment, wrapping arithmetic and saturating f32 casts.
 
 Thread coordinates, math, and cooperative operations use bodyless
 `extern "Rust"` declarations behind the device API. Rustc type-checks the
 wrappers and calls. The importer checks the declaration's crate, module, and
 signature through its resolved `DefId`, then emits the corresponding IR
 operation. A normal CPU linker has no implementation for these GPU symbols.
+
+The device `math` module provides f32 `sqrt`, `fma`, `ln`, `exp`, `sin`,
+`cos`, `powf`, `tanh`, `atan`, and `floor`. Angles are radians; `ln` is natural
+log and `powf` takes a floating exponent. Transcendental results follow Metal's
+precise accuracy bounds by default. Subnormal arithmetic may flush to zero;
+arithmetic NaN payloads are unspecified. Default compilation keeps safe math
+and disables implicit contraction. `fma` requests fusion explicitly.
 
 Generic buffer and threadgroup methods adapt concrete Rust type/const arguments
 to the memory declarations. The importer lowers these device adapters directly
@@ -279,6 +292,7 @@ For `vec_add`, `abi.json` contains:
 ```json
 {
   "version": 4,
+  "math_mode": "precise",
   "required_features": [],
   "kernels": [
     {
@@ -327,70 +341,38 @@ attributes. It does not generate our ABI file or Rust wrappers.
 
 ## Generated Rust bindings
 
-`bindings.rs` is host Rust code. It contains a `Kernels` struct, a `load`
-function, and synchronous and enqueue methods for each entrypoint.
+`bindings.rs` contains a `Kernels` struct, `load` and `load_bytes`, and synchronous
+and enqueue methods for every entrypoint. Loading validates the complete ABI,
+including its embedded digest, and retains the module. Each pipeline is created
+on its first invocation and reused by both invocation methods. A pipeline failure
+is returned to that call; unrelated entrypoints remain usable.
 
-For `vec_add`, the synchronous part is equivalent to the following, with
-generated identifiers and formatting shortened. `ABI_DIGEST` stands for the
-ABI hash embedded in the generated source:
+The ABI determines the signature: read buffers take shared borrows, write,
+read-write and atomic buffers take exclusive borrows, and scalar parameters use
+their canonical Rust types. Parameter order determines Metal binding slots.
+The generated `enqueue_vec_add` takes a `Batch` with the same typed arguments,
+so kernels can share one ordered submission. Required block shapes remain
+encoded in the configuration type and checked by the runtime.
+
+A host can commit the generated bindings, manifest and metallib with its source:
 
 ```rust
-use metal_oxide::{Argument, Buffer, Device, DynamicLaunchConfig, Module, Pipeline, Result};
-
-pub struct Kernels<'a> {
-    device: &'a Device,
-    pipeline_0: Pipeline,
+mod kernels {
+    include!("generated/bindings.rs");
 }
 
-pub fn load(device: &Device, directory: impl AsRef<std::path::Path>) -> Result<Kernels<'_>> {
-    let module = Module::from_artifact(device, directory)?;
-    module.verify_abi(ABI_DIGEST)?;
-    Ok(Kernels {
-        device,
-        pipeline_0: Pipeline::new(device, &module, "vec_add")?,
-    })
-}
-
-impl Kernels<'_> {
-    /// # Safety
-    ///
-    /// Buffers and launch geometry must satisfy vec_add's bounds and race contract.
-    pub unsafe fn vec_add(
-        &self,
-        config: impl Into<DynamicLaunchConfig>,
-        a: &Buffer<f32>,
-        b: &Buffer<f32>,
-        out: &mut Buffer<f32>,
-        n: u32,
-    ) -> Result<()> {
-        // SAFETY: the caller supplies the kernel-specific bounds and race contract.
-        unsafe {
-            self.device.launch(
-                &self.pipeline_0,
-                config,
-                &[
-                    Argument::read(a),
-                    Argument::read(b),
-                    Argument::write(out),
-                    Argument::value(n)?,
-                ],
-            )
-        }
-    }
-}
+// Inside a host function returning metal_oxide::Result:
+let kernels = kernels::load_bytes(
+    &device,
+    include_str!("generated/manifest.json"),
+    include_bytes!("generated/kernels.metallib"),
+)?;
 ```
 
-The ABI determines the signature: read buffers take shared borrows, the write
-buffer takes an exclusive borrow, and `n` is `u32`. It also determines the
-argument order: slice position zero is binding zero, and so on.
-
-The generated `enqueue_vec_add` method takes a `Batch` and calls
-`Batch::launch` with the same arguments. It lets the host encode the kernel
-alongside other kernels in one ordered submission.
-
-These wrappers are compiled into the host executable. Runtime loading reads the
-manifest's ABI, while argument construction executes the already compiled
-wrapper code.
+`Module::from_bytes` and directory loading share version, capability and library
+hash validation. The host's build and execution need no device compiler or Metal
+Toolchain when using these precompiled files. Rebuild the three files together
+when kernels or their ABI change. The numerical mode remains part of ABI identity.
 
 ## Apple compilation and artifact
 
@@ -406,8 +388,31 @@ xcrun -sdk macosx metal kernels.ir -o kernels.metallib
 ```
 
 When `xcrun` cannot locate the compiler, the CLI also resolves the installed
-Metal Toolchain component. The compilation uses safe math, precise floating-point
-functions, and disabled floating-point contraction.
+Metal Toolchain component. The default `--math-mode precise` uses safe math,
+precise floating-point functions, and disabled floating-point contraction.
+
+`cargo metal build|run|test|inspect --math-mode fast` selects Metal's relaxed
+arithmetic mode, fast f32 functions and fast contraction. It permits reciprocal
+approximations and reassociation, including fusion across statements. Arithmetic
+honors NaN and infinity; zero signs are unspecified. Float-to-integer casts still
+saturate and map NaN to zero. Integer checks and synchronization proofs are
+independent of the math mode.
+
+Fast function accuracy follows MSL Table 8.2: sin/cos have absolute error <= 2^-13
+within [-pi, pi], with weaker accuracy outside that interval. Ln requires positive
+inputs (absolute error <= 2^-21 within [0.5, 2], <= 3 ULP elsewhere); exp allows
+3 + floor(abs(2*x)) ULP. Powf uses an exp2/log2 approximation, with no precise-mode
+promise for negative bases or 0^0. Tanh uses an exponential approximation; atan
+allows 5 ULP. Precise-mode edge-case guarantees do not extend to fast functions.
+The [Metal Shading Language specification](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf)
+defines the full function contracts.
+
+Generated MSL carries the numerical pragmas and explicit `precise::`/`fast::`
+calls, so `Module::from_source` uses the same contract as offline compilation.
+The mode is required in the ABI and participates in the Rust build cache,
+artifact fingerprint and generated binding identity. Mismatched Metal flags,
+unknown modes and artifacts missing this field are rejected. Rebuild development
+artifacts after this format change; the pre-release ABI version remains 4.
 
 The artifact is stored under `target/metal/<build-hash>/`:
 
@@ -483,8 +488,8 @@ The runtime performs these steps:
 1. `Device::system_default` creates the GPU context and selects a native backend.
 2. `Module::from_artifact` reads the manifest, validates its format and
    requirements, verifies the library bytes, and loads those bytes into Metal.
-3. `Pipeline::new` selects `vec_add`, creates the native compute pipeline,
-   and retains that entrypoint's ABI.
+3. On the first invocation, `Pipeline::new` selects `vec_add`, creates the native
+   compute pipeline, and retains that entrypoint's ABI. Later calls reuse it.
 4. The generated `vec_add` wrapper constructs the four ordered arguments.
 5. `Device::launch` calls `Device::submit`, which creates a `Batch`.
 6. `Batch::launch` checks resource context, ABI types/access, block requirements,
@@ -502,6 +507,34 @@ responsibility.
 For example, passing `n = 257` with a shorter buffer is not made valid by
 matching the `Buffer<f32>` parameter type.
 
+## Native resource ownership
+
+`Device::all` creates independently validated contexts in native enumeration order;
+select one with `into_iter().nth(index)`. The order is not a persistent identity.
+`recommended_max_working_set_size` returns an advisory byte budget, not currently
+free memory. Buffer allocation failure is `Error::AllocationFailed`; terminal
+command memory exhaustion is `Error::OutOfMemory` on both backends.
+
+`Device::from_native` retains an `objc2-metal` device and creates an ordered queue.
+`as_native` borrows that device for external resource creation. Unsafe
+`Buffer::from_native` consumes retained, initialized, shared, hazard-tracked storage
+on the same physical device. It validates the canonical element layout, extent
+and alignment. External GPU work must already be complete, storage must remain
+non-purgeable and non-aliasable, and external aliases must stay idle until runtime
+CPU views and encoded/pending GPU accesses end. Runtime contexts remain distinct.
+
+Consuming `Buffer::into_native` waits for pending accesses and encodes dirty custom
+values before returning the native buffer. Primitive buffers preserve their storage
+address; records use their existing canonical codec. Dropping or forgetting a
+submission does not bypass export synchronization. Merely dropping the buffer does
+not complete GPU work. Submission errors remain available through wait/await.
+
+All runtime objects stay on one host thread. A worker can own a cached device,
+pipelines and reusable buffers while channels carry owned jobs/results between
+threads. [The worker test](crates/metal-oxide/tests/worker.rs) demonstrates reuse,
+concurrent callers and cancelled requesters. Process CPU views on the worker when
+returning a copied vector would be unnecessary.
+
 ## Classic Metal and Metal 4
 
 The Rust-to-MSL build and artifact format are shared. Native API selection
@@ -514,7 +547,7 @@ The selected variant controls pipeline creation and batch encoding:
 | --- | --- | --- |
 | Pipeline creation | Device compute-pipeline API | `MTL4Compiler` |
 | Command encoding | `MTLComputeCommandEncoder` | `MTL4ComputeCommandEncoder` and command allocator |
-| Arguments | `setBuffer` and copied `setBytes` scalars | GPU addresses in an immutable `MTL4ArgumentTable`; scalars in retained buffers |
+| Arguments | `setBuffer`; scalars in retained buffers | GPU addresses in an immutable `MTL4ArgumentTable`; scalars in retained buffers |
 | Resource residency | Classic resource management | Explicit residency set |
 | Dispatch ordering | Buffer barriers between dispatches | Encoder barriers and a queue barrier |
 | Submission | Command-buffer commit and completion callback | Command-queue commit and feedback callback |

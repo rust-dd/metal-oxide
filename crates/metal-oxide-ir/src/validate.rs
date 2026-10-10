@@ -45,8 +45,13 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                 let valid = match *ty {
                     Type::Buffer {
                         element,
-                        access: Access::Read | Access::Write | Access::Atomic,
+                        access: Access::Read | Access::Write | Access::ReadWrite | Access::Atomic,
                         address_space: AddressSpace::Device,
+                    }
+                    | Type::Buffer {
+                        element,
+                        access: Access::ReadWrite,
+                        address_space: AddressSpace::Threadgroup,
                     } => module.types.is_abi_value(element.ty()),
                     _ => module.types.is_abi_value(*ty),
                 };
@@ -71,10 +76,6 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             if matches!(
                 ty,
                 Type::Buffer {
-                    access: Access::ReadWrite,
-                    address_space: AddressSpace::Device,
-                    ..
-                } | Type::Buffer {
                     access: Access::Read | Access::Write,
                     address_space: AddressSpace::Threadgroup,
                     ..
@@ -93,6 +94,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                 } | Type::Buffer {
                     element: Element::Scalar(
                         Scalar::F32
+                            | Scalar::U64
                             | Scalar::F16
                             | Scalar::U8
                             | Scalar::U16
@@ -100,10 +102,6 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                             | Scalar::I16
                     ) | Element::Aggregate(_),
                     access: Access::Atomic,
-                    ..
-                } | Type::Buffer {
-                    element: Element::Aggregate(_),
-                    address_space: AddressSpace::Threadgroup,
                     ..
                 } | Type::Checked(Scalar::Bool | Scalar::F32 | Scalar::F16)
             ) {

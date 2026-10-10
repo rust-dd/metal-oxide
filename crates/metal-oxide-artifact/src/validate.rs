@@ -32,8 +32,10 @@ impl Abi {
         }
         let mut features = HashSet::new();
         if self.required_features.iter().any(|feature| {
-            !matches!(feature.as_str(), "simd_groups" | "int32_atomics")
-                || !features.insert(feature)
+            !matches!(
+                feature.as_str(),
+                "simd_groups" | "int32_atomics" | "dynamic_threadgroup_memory"
+            ) || !features.insert(feature.as_str())
         }) {
             return Err(Error("unsupported or duplicate artifact feature".into()));
         }
@@ -45,16 +47,24 @@ impl Abi {
                     kernel.name
                 )));
             }
-            if kernel.parameters.len() > 31 {
-                return Err(Error(format!(
-                    "kernel {} exceeds 31 buffer bindings",
-                    kernel.name
-                )));
-            }
             let mut parameters = HashSet::new();
-            for (index, parameter) in kernel.parameters.iter().enumerate() {
+            let mut slots = [0; 2];
+            for parameter in &kernel.parameters {
                 match &parameter.ty {
                     ParameterType::Value { layout } => layout.validate()?,
+                    ParameterType::Threadgroup { element, stride } => {
+                        element.validate()?;
+                        if *stride != element.size {
+                            return Err(Error(
+                                "threadgroup stride does not match its element layout".into(),
+                            ));
+                        }
+                        if !features.contains("dynamic_threadgroup_memory") {
+                            return Err(Error(
+                                "threadgroup argument requires dynamic_threadgroup_memory".into(),
+                            ));
+                        }
+                    }
                     ParameterType::Buffer {
                         element,
                         stride,
@@ -76,9 +86,18 @@ impl Abi {
                         }
                     }
                 }
-                if parameter.binding != index as u32 {
+                let namespace =
+                    usize::from(matches!(parameter.ty, ParameterType::Threadgroup { .. }));
+                if parameter.binding != slots[namespace] {
                     return Err(Error(format!(
                         "kernel {} has a nonsequential binding",
+                        kernel.name
+                    )));
+                }
+                slots[namespace] += 1;
+                if slots[namespace] > 31 {
+                    return Err(Error(format!(
+                        "kernel {} exceeds 31 bindings in one argument table",
                         kernel.name
                     )));
                 }
@@ -109,6 +128,29 @@ impl Abi {
 impl Manifest {
     pub fn validate(&self) -> Result<(), Error> {
         self.abi.validate()?;
+        for expected in self.abi.math_mode.metal_flags() {
+            let prefix = expected.split_once('=').unwrap().0;
+            let actual = self
+                .build
+                .metal_flags
+                .iter()
+                .filter(|flag| flag.split_once('=').is_some_and(|(name, _)| name == prefix))
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            if actual != [expected] {
+                return Err(Error(
+                    "Metal flags do not match the artifact math mode".into(),
+                ));
+            }
+        }
+        if self
+            .build
+            .metal_flags
+            .iter()
+            .any(|flag| matches!(flag.as_str(), "-ffast-math" | "-fno-fast-math"))
+        {
+            return Err(Error("legacy Metal math flags are unsupported".into()));
+        }
         if self.target != DEVICE_TARGET || self.msl_version != MSL_VERSION {
             return Err(Error("unsupported artifact target or MSL version".into()));
         }
