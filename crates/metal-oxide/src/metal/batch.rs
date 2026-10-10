@@ -11,17 +11,17 @@ use super::{
     completion::{Completion, SubmissionReport},
     metal4::Metal4Batch,
 };
-
-enum NativeBatch {
-    Classic(ClassicBatch),
-    Metal4(Metal4Batch),
-}
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
+
+enum NativeBatch<'a> {
+    Classic(ClassicBatch),
+    Metal4(Metal4Batch<'a>),
+}
 
 /// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
 pub struct Batch<'d> {
     device: &'d Device,
-    native: NativeBatch,
+    native: NativeBatch<'d>,
     resources: Vec<Resource>,
     pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     has_dispatches: bool,
@@ -33,9 +33,9 @@ impl<'d> Batch<'d> {
             device,
             native: match &device.backend {
                 Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(queue)?),
-                Backend::Metal4 { queue, .. } => {
-                    NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue)?)
-                }
+                Backend::Metal4 {
+                    queue, allocator, ..
+                } => NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue, allocator)?),
             },
             resources: Vec::new(),
             pipelines: Vec::new(),

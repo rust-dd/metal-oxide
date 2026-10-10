@@ -80,9 +80,10 @@ Keep both size boundaries and cancellation/reuse covered when changing binding.
 Dynamic threadgroup arguments have a separate 31-slot namespace; check rounded
 nonzero byte lengths plus static pipeline storage before encoding, including empty grids.
 Clear stale threadgroup slots when a reused encoder changes kernels.
-Metal 4
-requires dispatch barriers within a batch and queue barriers between batches.
+Metal 4 requires dispatch barriers within a batch and queue barriers between batches.
 Do not reset or release a command allocator before GPU completion.
+The context retains at most one allocator for reuse after commit feedback. Keep
+in-flight eviction and failed encoding safe without waiting in Drop.
 
 Run `bash scripts/test-gpu.sh` from the repository root to test both paths,
 generated artifacts, kernel chains, and cancellation on a Metal 4 capable Mac.

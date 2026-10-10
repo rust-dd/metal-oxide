@@ -4,6 +4,7 @@ use objc2_metal::{
     MTLGPUFamily,
 };
 
+use super::metal4::AllocatorCache;
 use crate::{Error, Result};
 
 pub(super) enum Backend {
@@ -11,6 +12,7 @@ pub(super) enum Backend {
     Metal4 {
         queue: Retained<ProtocolObject<dyn MTL4CommandQueue>>,
         compiler: Retained<ProtocolObject<dyn MTL4Compiler>>,
+        allocator: AllocatorCache,
     },
 }
 
@@ -45,7 +47,11 @@ impl Backend {
             let compiler = device
                 .newCompilerWithDescriptor_error(&MTL4CompilerDescriptor::new())
                 .map_err(|e| Error::Pipeline(e.localizedDescription().to_string()))?;
-            Ok(Self::Metal4 { queue, compiler })
+            Ok(Self::Metal4 {
+                queue,
+                compiler,
+                allocator: AllocatorCache::default(),
+            })
         } else {
             device
                 .newCommandQueue()

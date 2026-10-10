@@ -40,7 +40,7 @@ impl Completion {
         }
     }
 
-    fn is_finished(&self) -> bool {
+    pub(super) fn is_finished(&self) -> bool {
         self.state
             .lock()
             .unwrap_or_else(|e| e.into_inner())

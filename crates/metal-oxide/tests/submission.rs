@@ -230,30 +230,45 @@ fn submission_retains_resources_owned_by_the_encoding_closure() -> metal_oxide::
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn encoding_error_discards_the_whole_batch() -> metal_oxide::Result<()> {
+fn encoding_error_discards_the_batch_and_leaves_the_context_usable() -> metal_oxide::Result<()> {
     let (device, pipeline) = setup()?;
     let input = device.buffer_from_slice(&[1.0_f32; 32])?;
     let mut output = device.buffer_zeroed::<f32>(32)?;
-    // SAFETY: the valid first dispatch has distinct sized resources; the second is rejected before encoding.
-    let result = unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<32>::new(Dim3::x(1)),
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut output),
-                    Argument::value::<f32>(1.0).unwrap(),
-                    Argument::value::<f32>(1.0).unwrap(),
-                    Argument::value::<u32>(32).unwrap(),
-                ],
-            )?;
-            batch.launch(&pipeline, LaunchConfig::<0>::new(Dim3::x(1)), &[])
-        })
-    };
-    assert!(matches!(result, Err(Error::InvalidLaunch(_))));
-    drop(result);
-    assert_eq!(output.as_slice(), [0.0_f32; 32]);
+    for (offset, reject, expected) in [
+        (1.0_f32, true, 0.0),
+        (2.0, false, 3.0),
+        (3.0, true, 3.0),
+        (4.0, false, 5.0),
+    ] {
+        // SAFETY: the valid dispatch has distinct sized resources; the optional
+        // second dispatch is rejected before encoding.
+        let result = unsafe {
+            device.submit(|batch| {
+                batch.launch(
+                    &pipeline,
+                    LaunchConfig::<32>::new(Dim3::x(1)),
+                    &[
+                        Argument::read(&input),
+                        Argument::write(&mut output),
+                        Argument::value(1.0_f32)?,
+                        Argument::value(offset)?,
+                        Argument::value(32_u32)?,
+                    ],
+                )?;
+                if reject {
+                    batch.launch(&pipeline, LaunchConfig::<0>::new(Dim3::x(1)), &[])?;
+                }
+                Ok(())
+            })
+        };
+        if reject {
+            assert!(matches!(result, Err(Error::InvalidLaunch(_))));
+            drop(result);
+        } else {
+            result?.wait()?;
+        }
+        assert_eq!(output.as_slice(), [expected; 32]);
+    }
     Ok(())
 }
 
@@ -265,5 +280,56 @@ fn resources_from_another_queue_context_are_rejected() -> metal_oxide::Result<()
     // SAFETY: no kernel runs because the pipeline belongs to another context.
     let result = unsafe { other.launch(&pipeline, LaunchConfig::<32>::new(Dim3::x(0)), &[]) };
     assert!(matches!(result, Err(Error::DeviceMismatch)));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn overlapping_submissions_survive_cancellation_and_reuse() -> metal_oxide::Result<()> {
+    let (device, pipeline) = setup()?;
+    let n = 65_537_u32;
+    let input = device.buffer_from_slice(&vec![2.0_f32; n as usize])?;
+    let mut outputs = (0..32)
+        .map(|_| device.buffer_zeroed::<f32>(n as usize))
+        .collect::<metal_oxide::Result<Vec<_>>>()?;
+    let input = &input;
+    let pipeline = &pipeline;
+    for round in 0..3 {
+        let mut pending = Vec::new();
+        for (index, output) in outputs.iter_mut().enumerate() {
+            // SAFETY: each submission owns a distinct output; all share read-only input.
+            let submission = unsafe {
+                device.submit(move |batch| {
+                    batch.launch(
+                        pipeline,
+                        LaunchConfig::<256>::for_elements(n)?,
+                        &[
+                            Argument::read(input),
+                            Argument::write(output),
+                            Argument::value(3.0_f32)?,
+                            Argument::value((round * 32 + index) as f32)?,
+                            Argument::value(n)?,
+                        ],
+                    )
+                })?
+            };
+            match index % 3 {
+                0 => pending.push(submission),
+                1 => drop(submission),
+                _ => std::mem::forget(submission),
+            }
+        }
+        for submission in pending.into_iter().rev() {
+            submission.wait()?;
+        }
+        for (index, output) in outputs.iter().enumerate() {
+            assert!(
+                output
+                    .as_slice()
+                    .iter()
+                    .all(|&value| value == (6 + round * 32 + index) as f32)
+            );
+        }
+    }
     Ok(())
 }

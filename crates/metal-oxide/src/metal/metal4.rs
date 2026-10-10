@@ -1,4 +1,4 @@
-use std::{ptr::NonNull, sync::Arc};
+use std::{cell::RefCell, ptr::NonNull, sync::Arc};
 
 use block2::RcBlock;
 use objc2::{
@@ -21,24 +21,44 @@ use super::{
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
-pub(super) struct Metal4Batch {
+type Allocator = Retained<ProtocolObject<dyn MTL4CommandAllocator>>;
+
+#[derive(Default)]
+pub(super) struct AllocatorCache(RefCell<Option<(Allocator, Arc<Completion>)>>);
+
+impl AllocatorCache {
+    fn take(&self) -> Option<Allocator> {
+        let (allocator, completion) = self.0.borrow_mut().take()?;
+        if !completion.is_finished() {
+            return None;
+        }
+        // Commit feedback has confirmed that the GPU no longer reads these commands.
+        allocator.reset();
+        Some(allocator)
+    }
+}
+
+pub(super) struct Metal4Batch<'a> {
     command: Retained<ProtocolObject<dyn MTL4CommandBuffer>>,
-    allocator: Retained<ProtocolObject<dyn MTL4CommandAllocator>>,
+    allocator: Allocator,
     encoder: Option<Retained<ProtocolObject<dyn MTL4ComputeCommandEncoder>>>,
     queue: Retained<ProtocolObject<dyn MTL4CommandQueue>>,
     residency: Retained<ProtocolObject<dyn MTLResidencySet>>,
     tables: Vec<Retained<ProtocolObject<dyn MTL4ArgumentTable>>>,
     bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     threadgroup_slots: usize,
+    cache: &'a AllocatorCache,
 }
 
-impl Metal4Batch {
+impl<'a> Metal4Batch<'a> {
     pub(super) fn new(
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
+        cache: &'a AllocatorCache,
     ) -> Result<Self> {
-        let allocator = device
-            .newCommandAllocator()
+        let allocator = cache
+            .take()
+            .or_else(|| device.newCommandAllocator())
             .ok_or_else(|| Error::Command("could not create Metal 4 command allocator".into()))?;
         let residency = device
             .newResidencySetWithDescriptor_error(&MTLResidencySetDescriptor::new())
@@ -67,6 +87,7 @@ impl Metal4Batch {
             tables: Vec::new(),
             bindings: Vec::new(),
             threadgroup_slots: 0,
+            cache,
         })
     }
 
@@ -153,6 +174,9 @@ impl Metal4Batch {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
+        self.cache
+            .0
+            .replace(Some((self.allocator.clone(), Arc::clone(&completion))));
         let keepalive = (
             self.command.clone(),
             self.allocator.clone(),
@@ -191,11 +215,37 @@ impl Metal4Batch {
     }
 }
 
-impl Drop for Metal4Batch {
+impl Drop for Metal4Batch<'_> {
     fn drop(&mut self) {
         if let Some(encoder) = self.encoder.take() {
             encoder.endEncoding();
             self.command.endCommandBuffer();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires a Metal 4 device on Apple Silicon"]
+    fn allocator_reuse_requires_completed_gpu_work() {
+        let device = crate::Device::system_default().unwrap();
+        if !super::super::backend::Backend::supports_metal4(&device.raw) {
+            return;
+        }
+        let allocator = device.raw.newCommandAllocator().unwrap();
+        let completion = Arc::new(Completion::default());
+        let cache = AllocatorCache::default();
+        cache
+            .0
+            .replace(Some((allocator.clone(), Arc::clone(&completion))));
+        assert!(cache.take().is_none());
+        completion.finish(Ok(SubmissionReport::default()));
+        cache.0.replace(Some((allocator.clone(), completion)));
+        let reused = cache.take().unwrap();
+        assert!(std::ptr::eq(&*allocator, &*reused));
+        assert!(cache.take().is_none());
     }
 }
