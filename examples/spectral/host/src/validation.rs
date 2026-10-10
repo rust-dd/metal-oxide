@@ -67,7 +67,7 @@ pub fn run() -> Result<()> {
     chunking(&device, &generated, max_threads)?;
     law(&device, &generated, max_threads)?;
     interop(&device, &reference, max_threads, directory)?;
-    crate::sheet::run(&device, directory)?;
+    crate::sheet::run(&device, directory, manifest.abi.math_mode)?;
     crate::euler::run(&device, directory, manifest.abi.math_mode)?;
     Ok(())
 }

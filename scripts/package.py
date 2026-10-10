@@ -104,6 +104,8 @@ def install(archive, prefix):
             members = tar.getmembers()
             if any(not (m.isfile() or m.isdir()) or Path(m.name).is_absolute() or ".." in Path(m.name).parts for m in members):
                 raise ValueError("bundle contains unsupported archive entries")
+            if hasattr(tarfile, "data_filter"):
+                tar.extraction_filter = tarfile.data_filter
             # Links and paths escaping stage were rejected before extraction.
             tar.extractall(stage, members=members)
         roots = list(stage.iterdir())

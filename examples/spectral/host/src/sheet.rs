@@ -1,14 +1,26 @@
 use metal_oxide::{Argument, Device, DynamicLaunchConfig, Module, Pipeline};
+use metal_oxide_artifact::MathMode;
 
 use crate::{Result, cpu, kernels::SheetReadout, validation::compare};
 
-pub fn run(device: &Device, directory: &str) -> Result<()> {
+pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
     let generated = Module::from_artifact(device, directory)?;
     let source = format!(
         "{}\n{}",
         include_str!("../common.metal"),
         include_str!("../sheet.metal")
     );
+    let source = if mode == MathMode::Fast {
+        let mut source = format!(
+            "#pragma METAL fp math_mode(relaxed)\n#pragma METAL fp contract(fast)\n{source}"
+        );
+        for function in ["sin", "cos", "sqrt", "log"] {
+            source = source.replace(&format!("{function}("), &format!("fast::{function}("));
+        }
+        source
+    } else {
+        format!("#pragma STDC FP_CONTRACT OFF\n{source}")
+    };
     let native = Module::from_source(device, &source)?;
     for (rows, cols, sheets) in [(2, 2, 1), (8, 16, 3), (32, 8, 2)] {
         let cells = rows * cols;

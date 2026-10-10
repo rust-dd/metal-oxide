@@ -92,7 +92,7 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
                 "generated": rust_samples, "native": native_samples,
                 "total_ratio_p10": quantile(ratios.clone(), 0.1),
                 "total_ratio_median": ratio, "total_ratio_p90": quantile(ratios, 0.9),
-                "within_five_percent": ratio <= 1.05,
+                "speedup": 1.0 / ratio,
             }));
         }
     }

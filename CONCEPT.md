@@ -547,7 +547,7 @@ The selected variant controls pipeline creation and batch encoding:
 | --- | --- | --- |
 | Pipeline creation | Device compute-pipeline API | `MTL4Compiler` |
 | Command encoding | `MTLComputeCommandEncoder` | `MTL4ComputeCommandEncoder` and command allocator |
-| Arguments | `setBuffer`; scalars in retained buffers | GPU addresses in an immutable `MTL4ArgumentTable`; scalars in retained buffers |
+| Arguments | `setBuffer`; values up to 4 KiB copied with `setBytes`, larger values retained in buffers | GPU addresses in an immutable `MTL4ArgumentTable`; values packed into aligned, immutable storage per dispatch |
 | Resource residency | Classic resource management | Explicit residency set |
 | Dispatch ordering | Buffer barriers between dispatches | Encoder barriers and a queue barrier |
 | Submission | Command-buffer commit and completion callback | Command-queue commit and feedback callback |
