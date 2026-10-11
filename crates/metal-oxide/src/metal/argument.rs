@@ -1,6 +1,6 @@
-use std::{marker::PhantomData, rc::Rc};
+use std::{any::TypeId, cell::RefCell, collections::HashSet, marker::PhantomData, rc::Rc};
 
-use metal_oxide_artifact::{Access, ParameterType};
+use metal_oxide_artifact::{Access, Layout, ParameterType};
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLDevice};
 
@@ -17,10 +17,27 @@ enum Value<'a> {
     Threadgroup(usize),
 }
 
+/// The Rust element type and binding kind a pipeline checks once per parameter.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Signature {
+    element: TypeId,
+    kind: Kind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Value,
+    Buffer(Access),
+    Threadgroup,
+}
+
 /// A borrowed buffer, owned value, or block-local allocation in kernel parameter order.
 pub struct Argument<'a> {
     value: Value<'a>,
-    ty: ParameterType,
+    signature: Signature,
+    layout: fn() -> Result<Layout>,
+    size: usize,
+    alignment: usize,
     marker: PhantomData<&'a mut Rc<()>>,
 }
 
@@ -63,19 +80,25 @@ impl<'a> Argument<'a> {
     }
 
     fn buffer<T: GpuValue>(buffer: &'a Buffer<T>, access: Access) -> Self {
+        Self::new::<T>(Value::Buffer(buffer), Kind::Buffer(access))
+    }
+
+    fn new<T: GpuValue>(value: Value<'a>, kind: Kind) -> Self {
         Self {
-            value: Value::Buffer(buffer),
-            ty: ParameterType::Buffer {
-                element: buffer.layout.clone(),
-                stride: buffer.layout.size,
-                access,
+            value,
+            signature: Signature {
+                element: TypeId::of::<T>(),
+                kind,
             },
+            layout: crate::value::layout::<T>,
+            size: T::SIZE,
+            alignment: T::ALIGNMENT,
             marker: PhantomData,
         }
     }
 
     pub fn value<T: GpuValue>(value: T) -> Result<Self> {
-        let layout = crate::value::layout::<T>()?;
+        checked_codec::<T>()?;
         let value = if T::SIZE <= 16 {
             let mut bytes = [0; 16];
             value.encode(&mut bytes[..T::SIZE]);
@@ -89,31 +112,20 @@ impl<'a> Argument<'a> {
             value.encode(&mut bytes);
             Value::Encoded(bytes)
         };
-        Ok(Self {
-            value,
-            ty: ParameterType::Value { layout },
-            marker: PhantomData,
-        })
+        Ok(Self::new::<T>(value, Kind::Value))
     }
 
     /// Reserves uninitialized block-local storage for `elements` canonical values.
     /// The native byte count rounds up to a nonzero multiple of 16. Each argument
     /// uses a separate threadgroup slot, independently of buffer/value slots.
     pub fn threadgroup<T: GpuValue>(elements: usize) -> Result<Self> {
-        let element = crate::value::layout::<T>()?;
+        checked_codec::<T>()?;
         let bytes = elements
             .checked_mul(T::SIZE)
             .and_then(|bytes| bytes.checked_add(15))
             .map(|bytes| (bytes & !15).max(16))
             .ok_or(Error::LengthOverflow)?;
-        Ok(Self {
-            value: Value::Threadgroup(bytes),
-            ty: ParameterType::Threadgroup {
-                stride: element.size,
-                element,
-            },
-            marker: PhantomData,
-        })
+        Ok(Self::new::<T>(Value::Threadgroup(bytes), Kind::Threadgroup))
     }
 
     pub(super) fn threadgroup_bytes(&self) -> Option<usize> {
@@ -125,12 +137,7 @@ impl<'a> Argument<'a> {
 
     pub(super) fn value_bytes(&self) -> Option<&[u8]> {
         match &self.value {
-            Value::Inline(bytes) => {
-                let ParameterType::Value { layout } = &self.ty else {
-                    unreachable!()
-                };
-                Some(&bytes[..layout.size as usize])
-            }
+            Value::Inline(bytes) => Some(&bytes[..self.size]),
             Value::Encoded(bytes) => Some(bytes),
             _ => None,
         }
@@ -147,25 +154,41 @@ impl<'a> Argument<'a> {
             Value::Buffer(buffer) => {
                 let mut resource = buffer.resource();
                 resource.written = matches!(
-                    self.ty,
-                    ParameterType::Buffer {
-                        access: Access::Write | Access::ReadWrite | Access::Atomic,
-                        ..
-                    }
+                    self.signature.kind,
+                    Kind::Buffer(Access::Write | Access::ReadWrite | Access::Atomic)
                 );
                 Some(resource)
             }
             _ => None,
         }
     }
-    pub(super) fn ty(&self) -> &ParameterType {
-        &self.ty
+    pub(super) fn signature(&self) -> Signature {
+        self.signature
     }
+
+    /// Builds the canonical parameter type; launches check it once per pipeline slot.
+    pub(super) fn ty(&self) -> Result<ParameterType> {
+        let layout = (self.layout)()?;
+        Ok(match self.signature.kind {
+            Kind::Value => ParameterType::Value { layout },
+            Kind::Buffer(access) => ParameterType::Buffer {
+                stride: layout.size,
+                element: layout,
+                access,
+            },
+            Kind::Threadgroup => ParameterType::Threadgroup {
+                stride: layout.size,
+                element: layout,
+            },
+        })
+    }
+
+    pub(super) fn value_alignment(&self) -> Option<usize> {
+        (self.signature.kind == Kind::Value).then_some(self.alignment)
+    }
+
     pub(super) fn prepare(&self) {
-        if let Value::Buffer(buffer) = &self.value {
-            let ParameterType::Buffer { access, .. } = self.ty else {
-                unreachable!()
-            };
+        if let (Value::Buffer(buffer), Kind::Buffer(access)) = (&self.value, self.signature.kind) {
             buffer.prepare(access);
         }
     }
@@ -188,4 +211,18 @@ impl<'a> Argument<'a> {
         }
         Ok(buffer)
     }
+}
+
+/// Checks a codec against its canonical layout once per thread and type.
+fn checked_codec<T: GpuValue>() -> Result<()> {
+    thread_local! {
+        static CHECKED: RefCell<HashSet<TypeId>> = RefCell::new(HashSet::new());
+    }
+    let id = TypeId::of::<T>();
+    if CHECKED.with_borrow(|checked| checked.contains(&id)) {
+        return Ok(());
+    }
+    crate::value::layout::<T>()?;
+    CHECKED.with_borrow_mut(|checked| checked.insert(id));
+    Ok(())
 }

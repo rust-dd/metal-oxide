@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, rc::Rc, sync::Mutex};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Mutex};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_foundation::NSString;
@@ -9,7 +9,7 @@ use objc2_metal::{
 
 use crate::{Error, Result};
 
-use super::{Device, Module, backend::Backend};
+use super::{Device, Module, argument::Signature, backend::Backend};
 
 static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
@@ -17,6 +17,7 @@ pub struct Pipeline {
     pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(super) device_id: u64,
     pub(super) abi: Option<metal_oxide_artifact::Kernel>,
+    validated: RefCell<Vec<Option<Signature>>>,
     marker: PhantomData<Rc<()>>,
 }
 
@@ -72,6 +73,10 @@ impl Pipeline {
         Ok(Self {
             raw,
             device_id: device.id(),
+            validated: RefCell::new(vec![
+                None;
+                abi.as_ref().map_or(0, |abi| abi.parameters.len())
+            ]),
             abi,
             marker: PhantomData,
         })
@@ -100,17 +105,24 @@ impl Pipeline {
                 ))
                 .into());
             }
-            for (argument, parameter) in arguments.iter().zip(&kernel.parameters) {
-                if argument.ty() != &parameter.ty {
+            let mut validated = self.validated.borrow_mut();
+            for ((argument, parameter), checked) in arguments
+                .iter()
+                .zip(&kernel.parameters)
+                .zip(validated.iter_mut())
+            {
+                if *checked == Some(argument.signature()) {
+                    continue;
+                }
+                let ty = argument.ty()?;
+                if ty != parameter.ty {
                     return Err(metal_oxide_artifact::Error(format!(
                         "kernel {} argument {} must be {:?}, got {:?}",
-                        kernel.name,
-                        parameter.name,
-                        parameter.ty,
-                        argument.ty()
+                        kernel.name, parameter.name, parameter.ty, ty
                     ))
                     .into());
                 }
+                *checked = Some(argument.signature());
             }
             if kernel
                 .required_block

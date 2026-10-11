@@ -1,4 +1,3 @@
-use metal_oxide_artifact::ParameterType;
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 
@@ -24,10 +23,8 @@ impl Constants {
         let mut length = 0_usize;
         let bindings = arguments.iter().filter(|a| a.threadgroup_bytes().is_none());
         for (slot, argument) in bindings.clone().enumerate() {
-            if let ParameterType::Value { layout } = argument.ty() {
-                let alignment = usize::try_from(layout.alignment)
-                    .map_err(|_| Error::LengthOverflow)?
-                    .max(4);
+            if let Some(alignment) = argument.value_alignment() {
+                let alignment = alignment.max(4);
                 length = length
                     .checked_add(alignment - 1)
                     .ok_or(Error::LengthOverflow)?

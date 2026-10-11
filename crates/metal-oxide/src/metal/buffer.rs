@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use metal_oxide_artifact::{Access, Layout};
+use metal_oxide_artifact::Access;
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 
@@ -60,7 +60,6 @@ pub struct Buffer<T: GpuValue> {
     raw: Retained<ProtocolObject<dyn MTLBuffer>>,
     device_id: u64,
     access: Rc<AccessState>,
-    pub(super) layout: Layout,
     values: Option<UnsafeCell<Vec<T>>>,
     location: Cell<Location>,
     decoding: Cell<bool>,
@@ -70,7 +69,7 @@ pub struct Buffer<T: GpuValue> {
 
 impl<T: GpuValue> Buffer<T> {
     pub(super) fn zeroed(device: &Device, len: usize) -> Result<Self> {
-        let layout = crate::value::layout::<T>()?;
+        crate::value::layout::<T>()?;
         let bytes = Self::byte_len(len)?;
         let allocation_bytes = bytes.max(T::SIZE);
         let maximum = device.raw.maxBufferLength();
@@ -99,7 +98,6 @@ impl<T: GpuValue> Buffer<T> {
             raw,
             device_id: device.id(),
             access: Rc::new(AccessState::default()),
-            layout,
             values,
             location: Cell::new(Location::Cpu),
             decoding: Cell::new(false),

@@ -27,7 +27,7 @@ impl<T: GpuValue> Buffer<T> {
         raw: Retained<ProtocolObject<dyn MTLBuffer>>,
         len: usize,
     ) -> Result<Self> {
-        let layout = crate::value::layout::<T>()?;
+        crate::value::layout::<T>()?;
         let bytes = Self::byte_len(len)?;
         if raw.device().registryID() != device.raw.registryID() {
             return Err(Error::DeviceMismatch);
@@ -59,7 +59,6 @@ impl<T: GpuValue> Buffer<T> {
             raw,
             device_id: device.id(),
             access: Rc::new(AccessState::default()),
-            layout,
             values,
             location: Cell::new(Location::Gpu),
             decoding: Cell::new(false),

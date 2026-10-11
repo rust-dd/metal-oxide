@@ -2,7 +2,7 @@
 
 mod support;
 
-use metal_oxide::{Device, Error, Module, Pipeline};
+use metal_oxide::{Argument, Device, Error, LaunchConfig, Module, Pipeline};
 use metal_oxide_artifact::{Manifest, sha256};
 use std::{path::PathBuf, process::Command};
 use support::{Workspace, checked};
@@ -50,7 +50,8 @@ pub unsafe fn in_place(values: ReadWriteBuffer<u64>, increment: u64, n: u32) {
     let device = Device::system_default()?;
     let module = Module::from_bytes(&device, &manifest_text, &library)?;
     module.verify_abi(&sha256(manifest.abi.to_json()?.as_bytes()))?;
-    Pipeline::new(&device, &module, "in_place")?;
+    let pipeline = Pipeline::new(&device, &module, "in_place")?;
+    verify_argument_types(&device, &pipeline)?;
     verify_rejections(&device, &manifest_text, &library);
 
     std::fs::write(&source, kernels.replace("fn k482()", "fn renamed()"))?;
@@ -126,6 +127,48 @@ metal-oxide = {{ workspace = true }}
     let report = String::from_utf8(output.stdout).unwrap();
     assert!(report.contains("embedded consumer passed"), "{report}");
     eprintln!("{report}");
+    Ok(())
+}
+
+/// A slot checked for one Rust type still rejects another type in a later launch.
+fn verify_argument_types(device: &Device, pipeline: &Pipeline) -> metal_oxide::Result<()> {
+    let mut values = device.buffer_from_slice(&[1_u64, 2, 3])?;
+    let mut narrow = device.buffer_from_slice(&[1_u32, 2, 3])?;
+    let config = LaunchConfig::<8>::for_elements(3)?;
+    for _ in 0..2 {
+        // SAFETY: three guarded threads update their own elements in place.
+        unsafe {
+            device.launch(
+                pipeline,
+                config,
+                &[
+                    Argument::read_write(&mut values),
+                    Argument::value(5_u64)?,
+                    Argument::value(3_u32)?,
+                ],
+            )?;
+        }
+    }
+    assert_eq!(values.as_slice(), [11, 12, 13]);
+    let mismatched = [
+        [
+            Argument::read_write(&mut values),
+            Argument::value(5_u32)?,
+            Argument::value(3_u32)?,
+        ],
+        [
+            Argument::read_write(&mut narrow),
+            Argument::value(5_u64)?,
+            Argument::value(3_u32)?,
+        ],
+    ];
+    for arguments in &mismatched {
+        // SAFETY: validation rejects the arguments before anything is encoded.
+        let result = unsafe { device.launch(pipeline, config, arguments) };
+        assert!(matches!(result, Err(Error::Artifact(_))));
+    }
+    drop(mismatched);
+    assert_eq!(values.as_slice(), [11, 12, 13]);
     Ok(())
 }
 
