@@ -23,7 +23,7 @@ pub(crate) fn write<'tcx>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         directory.join(ArtifactFile::OxideIr.name()),
-        format!("{module:#?}\n"),
+        format!("{module:?}\n"),
     )?;
     let codegen = metal_oxide_codegen::Codegen::new(module)?.with_math_mode(math_mode);
     let msl = codegen.emit()?;
