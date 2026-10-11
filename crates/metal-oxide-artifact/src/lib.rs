@@ -13,6 +13,7 @@ pub use layout::{FieldLayout, Layout, LayoutKind};
 pub use math::MathMode;
 pub use model::*;
 
+use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use std::fmt;
 
@@ -46,8 +47,7 @@ pub fn sha256(bytes: &[u8]) -> String {
 
 impl Abi {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        check_version(json, false)?;
-        let abi: Self = serde_json::from_str(json)?;
+        let abi: Self = parse(json, false)?;
         abi.validate()?;
         Ok(abi)
     }
@@ -60,8 +60,7 @@ impl Abi {
 
 impl Manifest {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        check_version(json, true)?;
-        let manifest: Self = serde_json::from_str(json)?;
+        let manifest: Self = parse(json, true)?;
         manifest.validate()?;
         Ok(manifest)
     }
@@ -78,6 +77,14 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+/// Decodes once; validation checks the version of documents that decode.
+fn parse<T: DeserializeOwned>(json: &str, manifest: bool) -> Result<T, Error> {
+    serde_json::from_str(json).map_err(|error| match check_version(json, manifest) {
+        Err(version) => version,
+        Ok(()) => error.into(),
+    })
 }
 
 fn check_version(json: &str, manifest: bool) -> Result<(), Error> {

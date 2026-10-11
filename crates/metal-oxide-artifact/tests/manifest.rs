@@ -218,4 +218,11 @@ fn structured_layouts_stride_and_old_abi_are_checked() {
         Manifest::from_json("{\"abi\": {\"version\": 2, \"kernels\": [{\"kind\": \"scalar\"}]}}")
             .unwrap_err();
     assert!(error.to_string().contains("ABI version 2"));
+    let newer = json.replacen("\"version\": 4", "\"version\": 5", 1);
+    assert_ne!(newer, json);
+    let error = Manifest::from_json(&newer).unwrap_err();
+    assert!(error.to_string().contains("ABI version 5"));
+    let abi = manifest.abi.to_json().unwrap();
+    let error = Abi::from_json(&abi.replacen("\"version\": 4", "\"version\": 5", 1)).unwrap_err();
+    assert!(error.to_string().contains("ABI version 5"));
 }
