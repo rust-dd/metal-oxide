@@ -22,19 +22,68 @@ use super::{
 use crate::{DynamicLaunchConfig, Error, Result};
 
 type Allocator = Retained<ProtocolObject<dyn MTL4CommandAllocator>>;
+const MAX_CACHED_CONSTANT_BYTES: usize = 4096;
+
+#[derive(Clone)]
+struct Table {
+    raw: Retained<ProtocolObject<dyn MTL4ArgumentTable>>,
+    capacity: usize,
+}
+
+impl Table {
+    fn new(device: &ProtocolObject<dyn MTLDevice>, capacity: usize) -> Result<Self> {
+        let descriptor = MTL4ArgumentTableDescriptor::new();
+        descriptor.setMaxBufferBindCount(capacity);
+        descriptor.setInitializeBindings(true);
+        let raw = device
+            .newArgumentTableWithDescriptor_error(&descriptor)
+            .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
+        Ok(Self { raw, capacity })
+    }
+}
+
+#[derive(Clone)]
+struct CommandStorage {
+    allocator: Allocator,
+    command: Retained<ProtocolObject<dyn MTL4CommandBuffer>>,
+    residency: Retained<ProtocolObject<dyn MTLResidencySet>>,
+    constants: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    tables: Vec<Table>,
+}
+
+impl CommandStorage {
+    fn new(device: &ProtocolObject<dyn MTLDevice>) -> Result<Self> {
+        let allocator = device
+            .newCommandAllocator()
+            .ok_or_else(|| Error::Command("could not create Metal 4 command allocator".into()))?;
+        let residency = device
+            .newResidencySetWithDescriptor_error(&MTLResidencySetDescriptor::new())
+            .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
+        let command = device
+            .newCommandBuffer()
+            .ok_or_else(|| Error::Command("could not create Metal 4 command buffer".into()))?;
+        Ok(Self {
+            allocator,
+            command,
+            residency,
+            constants: Vec::new(),
+            tables: Vec::new(),
+        })
+    }
+}
 
 #[derive(Default)]
-pub(super) struct AllocatorCache(RefCell<Option<(Allocator, Arc<Completion>)>>);
+pub(super) struct BatchCache(RefCell<Option<(CommandStorage, Arc<Completion>)>>);
 
-impl AllocatorCache {
-    fn take(&self) -> Option<Allocator> {
-        let (allocator, completion) = self.0.borrow_mut().take()?;
+impl BatchCache {
+    fn take(&self) -> Option<CommandStorage> {
+        let (storage, completion) = self.0.borrow_mut().take()?;
         if !completion.is_finished() {
             return None;
         }
         // Commit feedback has confirmed that the GPU no longer reads these commands.
-        allocator.reset();
-        Some(allocator)
+        storage.allocator.reset();
+        Some(storage)
     }
 }
 
@@ -44,28 +93,31 @@ pub(super) struct Metal4Batch<'a> {
     encoder: Option<Retained<ProtocolObject<dyn MTL4ComputeCommandEncoder>>>,
     queue: Retained<ProtocolObject<dyn MTL4CommandQueue>>,
     residency: Retained<ProtocolObject<dyn MTLResidencySet>>,
-    tables: Vec<Retained<ProtocolObject<dyn MTL4ArgumentTable>>>,
+    tables: Vec<Table>,
+    reusable_tables: Vec<Table>,
     bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    constants: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
+    reusable_constants: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     threadgroup_slots: usize,
-    cache: &'a AllocatorCache,
+    cache: &'a BatchCache,
 }
 
 impl<'a> Metal4Batch<'a> {
     pub(super) fn new(
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
-        cache: &'a AllocatorCache,
+        cache: &'a BatchCache,
     ) -> Result<Self> {
-        let allocator = cache
-            .take()
-            .or_else(|| device.newCommandAllocator())
-            .ok_or_else(|| Error::Command("could not create Metal 4 command allocator".into()))?;
-        let residency = device
-            .newResidencySetWithDescriptor_error(&MTLResidencySetDescriptor::new())
-            .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
-        let command = device
-            .newCommandBuffer()
-            .ok_or_else(|| Error::Command("could not create Metal 4 command buffer".into()))?;
+        let CommandStorage {
+            allocator,
+            command,
+            residency,
+            constants: reusable_constants,
+            tables: reusable_tables,
+        } = match cache.take() {
+            Some(storage) => storage,
+            None => CommandStorage::new(device)?,
+        };
         command.beginCommandBufferWithAllocator(&allocator);
         let Some(encoder) = command.computeCommandEncoder() else {
             command.endCommandBuffer();
@@ -85,7 +137,10 @@ impl<'a> Metal4Batch<'a> {
             queue: queue.clone(),
             residency,
             tables: Vec::new(),
+            reusable_tables,
             bindings: Vec::new(),
+            constants: Vec::new(),
+            reusable_constants,
             threadgroup_slots: 0,
             cache,
         })
@@ -99,23 +154,34 @@ impl<'a> Metal4Batch<'a> {
         arguments: &[Argument<'_>],
         has_previous_dispatch: bool,
     ) -> Result<()> {
-        let descriptor = MTL4ArgumentTableDescriptor::new();
-        descriptor.setMaxBufferBindCount(
-            arguments
-                .iter()
-                .filter(|a| a.threadgroup_bytes().is_none())
-                .count(),
-        );
-        descriptor.setInitializeBindings(true);
-        let table = device
-            .newArgumentTableWithDescriptor_error(&descriptor)
-            .map_err(|e| Error::Command(e.localizedDescription().to_string()))?;
+        let buffer_count = arguments
+            .iter()
+            .filter(|a| a.threadgroup_bytes().is_none())
+            .count();
+        let table = match self
+            .reusable_tables
+            .pop()
+            .filter(|table| table.capacity >= buffer_count)
+        {
+            Some(table) => table,
+            None => Table::new(device, buffer_count)?,
+        };
+        for slot in buffer_count..table.capacity {
+            // SAFETY: these valid slots are unused by this dispatch.
+            unsafe { table.raw.setAddress_atIndex(0, slot) };
+        }
         let encoder = self.encoder.as_ref().unwrap();
-        let constants = Constants::new(device, arguments)?;
+        // SAFETY: the cache returns storage only after GPU completion; each dispatch takes
+        // a distinct allocation and keeps its bytes unchanged through the next completion.
+        let constants =
+            unsafe { Constants::new(device, arguments, self.reusable_constants.pop())? };
         if let Some(constants) = &constants {
             self.residency
                 .addAllocation(ProtocolObject::from_ref(&*constants.buffer));
             self.bindings.push(constants.buffer.clone());
+            if constants.buffer.length() <= MAX_CACHED_CONSTANT_BYTES {
+                self.constants.push(constants.buffer.clone());
+            }
         }
         let mut buffer_slot = 0;
         let mut threadgroup_slot = 0;
@@ -138,7 +204,7 @@ impl<'a> Metal4Batch<'a> {
             };
             // SAFETY: the table has this slot; the aligned, immutable bytes stay
             // resident and retained through completion, independently of later dispatches.
-            unsafe { table.setAddress_atIndex(address, buffer_slot) };
+            unsafe { table.raw.setAddress_atIndex(address, buffer_slot) };
             buffer_slot += 1;
         }
         for slot in threadgroup_slot..self.threadgroup_slots {
@@ -156,7 +222,7 @@ impl<'a> Metal4Batch<'a> {
             );
         }
         encoder.setComputePipelineState(&pipeline.raw);
-        encoder.setArgumentTable(Some(&table));
+        encoder.setArgumentTable(Some(&table.raw));
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
             metal_size(config.grid),
             metal_size(config.block),
@@ -174,9 +240,16 @@ impl<'a> Metal4Batch<'a> {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
-        self.cache
-            .0
-            .replace(Some((self.allocator.clone(), Arc::clone(&completion))));
+        self.cache.0.replace(Some((
+            CommandStorage {
+                allocator: self.allocator.clone(),
+                command: self.command.clone(),
+                residency: self.residency.clone(),
+                constants: std::mem::take(&mut self.constants),
+                tables: self.tables.clone(),
+            },
+            Arc::clone(&completion),
+        )));
         let keepalive = (
             self.command.clone(),
             self.allocator.clone(),
@@ -200,6 +273,9 @@ impl<'a> Metal4Batch<'a> {
                         )),
                     }
                 });
+                // The cache becomes reusable only after residency releases this batch's resources.
+                keepalive.3.removeAllAllocations();
+                keepalive.3.commit();
                 completion.finish(result);
             },
         );
@@ -225,27 +301,4 @@ impl Drop for Metal4Batch<'_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "requires a Metal 4 device on Apple Silicon"]
-    fn allocator_reuse_requires_completed_gpu_work() {
-        let device = crate::Device::system_default().unwrap();
-        if !super::super::backend::Backend::supports_metal4(&device.raw) {
-            return;
-        }
-        let allocator = device.raw.newCommandAllocator().unwrap();
-        let completion = Arc::new(Completion::default());
-        let cache = AllocatorCache::default();
-        cache
-            .0
-            .replace(Some((allocator.clone(), Arc::clone(&completion))));
-        assert!(cache.take().is_none());
-        completion.finish(Ok(SubmissionReport::default()));
-        cache.0.replace(Some((allocator.clone(), completion)));
-        let reused = cache.take().unwrap();
-        assert!(std::ptr::eq(&*allocator, &*reused));
-        assert!(cache.take().is_none());
-    }
-}
+mod tests;

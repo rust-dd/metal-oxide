@@ -33,9 +33,9 @@ impl<'d> Batch<'d> {
             device,
             native: match &device.backend {
                 Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(queue)?),
-                Backend::Metal4 {
-                    queue, allocator, ..
-                } => NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue, allocator)?),
+                Backend::Metal4 { queue, cache, .. } => {
+                    NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue, cache)?)
+                }
             },
             resources: Vec::new(),
             pipelines: Vec::new(),

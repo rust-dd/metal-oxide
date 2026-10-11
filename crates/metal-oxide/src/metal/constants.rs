@@ -11,9 +11,14 @@ pub(super) struct Constants {
 }
 
 impl Constants {
-    pub fn new(
+    /// # Safety
+    ///
+    /// Reused storage must come from `allocate` on `device`, with no remaining
+    /// CPU accesses or encoded/pending GPU accesses.
+    pub unsafe fn new(
         device: &ProtocolObject<dyn MTLDevice>,
         arguments: &[Argument<'_>],
+        reusable: Option<Retained<ProtocolObject<dyn MTLBuffer>>>,
     ) -> Result<Option<Self>> {
         let mut offsets = [0; 31];
         let mut length = 0_usize;
@@ -36,11 +41,14 @@ impl Constants {
         if length == 0 {
             return Ok(None);
         }
-        let buffer = allocate(device, length)?;
+        let buffer = match reusable.filter(|buffer| buffer.length() >= length) {
+            Some(buffer) => buffer,
+            None => allocate(device, length)?,
+        };
         for (slot, argument) in bindings.enumerate() {
             if let Some(bytes) = argument.value_bytes() {
                 // SAFETY: checked, aligned suballocations are disjoint and within
-                // freshly initialized shared storage, before any GPU submission.
+                // initialized, idle shared storage, before this GPU submission.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         bytes.as_ptr(),

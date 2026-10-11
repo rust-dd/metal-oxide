@@ -82,8 +82,12 @@ nonzero byte lengths plus static pipeline storage before encoding, including emp
 Clear stale threadgroup slots when a reused encoder changes kernels.
 Metal 4 requires dispatch barriers within a batch and queue barriers between batches.
 Do not reset or release a command allocator before GPU completion.
-The context retains at most one allocator for reuse after commit feedback. Keep
-in-flight eviction and failed encoding safe without waiting in Drop.
+The context caches one batch's command buffer, allocator, residency set and binding
+storage. Reuse requires completed feedback and an empty residency set; reset the
+allocator only then. Retain constant allocations only up to 4 KiB each, rewrite
+active bindings and clear unused slots. Each dispatch owns distinct immutable
+binding storage through completion. Pending cache eviction and failed encoding
+must remain safe without waiting in Drop.
 
 Run `bash scripts/test-gpu.sh` from the repository root to test both paths,
 generated artifacts, kernel chains, and cancellation on a Metal 4 capable Mac.
