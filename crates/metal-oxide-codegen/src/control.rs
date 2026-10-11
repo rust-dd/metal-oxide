@@ -22,7 +22,9 @@ enum Reachability {
 impl<'a> StructuredGraph<'a> {
     pub(crate) fn branch_join(&self, targets: &[usize], stop: usize) -> usize {
         let join = self.postdominators.closest_common(targets);
-        if join != self.cfg.exit_block() && !self.cfg.successors(join).is_empty() {
+        if join != self.cfg.exit_block()
+            && (stop == self.cfg.exit_block() || !self.reaches_before(targets, stop, join))
+        {
             return join;
         }
         let mut distance = HashMap::<usize, (usize, usize)>::new();
@@ -60,6 +62,21 @@ impl<'a> StructuredGraph<'a> {
             }
         }
         join
+    }
+
+    fn reaches_before(&self, starts: &[usize], target: usize, boundary: usize) -> bool {
+        let mut pending = starts.to_vec();
+        let mut visited = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if id == boundary || !visited.insert(id) {
+                continue;
+            }
+            if id == target {
+                return true;
+            }
+            pending.extend(self.cfg.successors(id));
+        }
+        false
     }
 
     fn returns_or_reaches(
