@@ -35,11 +35,14 @@ pub(crate) fn prove_numerics(module: &Module) -> Result<(), Error> {
     let kernels = module.functions.iter().any(|function| function.kernel);
     let mut analysis = analysis::Analysis {
         module,
-        remaining: 100_000,
+        remaining: 0,
         results: Default::default(),
     };
     for (index, function) in module.functions.iter().enumerate() {
         if function.kernel || !kernels {
+            // Completed summaries are keyed by function and argument facts;
+            // sharing them is safe, but unrelated roots must not share a budget.
+            analysis.remaining = 100_000;
             analysis.function(index, &vec![state::Value::default(); function.parameters])?;
         }
     }
