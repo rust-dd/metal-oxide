@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::{
     domain::integer,
@@ -29,6 +29,7 @@ impl<'a> Analysis<'a> {
                     .any(|&from| dominators.dominates(id, from))
             })
             .collect::<Vec<_>>();
+        let thresholds = thresholds(function);
         let mut entry = State::new(self.module, function);
         for (index, argument) in arguments.iter().enumerate() {
             entry.assign(&Place::local(index + 1), argument.clone());
@@ -44,7 +45,7 @@ impl<'a> Analysis<'a> {
             if merged[id] {
                 // Widen only at loop headers. Widening after a guard can discard
                 // its bound even when every incoming path satisfies that guard.
-                let joined = inputs[id][0].merge(&state, loop_headers[id]);
+                let joined = inputs[id][0].merge(&state, loop_headers[id].then_some(&thresholds));
                 if joined == inputs[id][0] {
                     continue;
                 }
@@ -52,7 +53,7 @@ impl<'a> Analysis<'a> {
                 state = joined;
             } else if inputs[id].len() >= 64 {
                 for input in &inputs[id] {
-                    state = state.merge(input, false);
+                    state = state.merge(input, None);
                 }
                 inputs[id] = vec![state.clone()];
                 merged[id] = true;
@@ -132,6 +133,36 @@ impl<'a> Analysis<'a> {
         self.results.insert(key, result.clone());
         Ok(result)
     }
+}
+
+/// Integer constants and their neighbours bound loop widening to the program's own limits.
+fn thresholds(function: &Function) -> BTreeSet<i128> {
+    fn constants(operand: &Operand, values: &mut BTreeSet<i128>) {
+        match operand {
+            Operand::Constant(constant) => values.extend(integer(*constant)),
+            Operand::AggregateConstant { fields, .. } => {
+                fields.iter().for_each(|field| constants(field, values));
+            }
+            Operand::Place(_) => {}
+        }
+    }
+    let mut values = BTreeSet::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            statement
+                .value
+                .operands()
+                .into_iter()
+                .for_each(|operand| constants(operand, &mut values));
+        }
+        if let Terminator::Switch { cases, .. } = &block.terminator {
+            values.extend(cases.iter().filter_map(|(constant, _)| integer(*constant)));
+        }
+    }
+    values
+        .iter()
+        .flat_map(|&value| [value - 1, value, value + 1])
+        .collect()
 }
 
 fn select(state: &mut State<'_>, operand: &Operand, value: i128, equal: bool) -> bool {

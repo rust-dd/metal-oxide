@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     domain::{Range, integer},
@@ -87,7 +87,17 @@ impl<'a> State<'a> {
     pub fn range(&self, place: &Place) -> Option<Range> {
         let full = Range::full(self.scalar(place)?);
         if let Some(resolved) = self.resolve(place) {
-            return Some(self.facts.get(&resolved).cloned().unwrap_or(full));
+            let own = self.facts.get(&resolved).cloned().unwrap_or(full);
+            // An alias holds the same value, so a refinement of its target also bounds it.
+            if let Some(Atom::Place(target)) = self.aliases.get(&resolved)
+                && let Some(target) = self.facts.get(target)
+            {
+                let mut both = own.clone();
+                if both.restrict(target.lo, target.hi) {
+                    return Some(both);
+                }
+            }
+            return Some(own);
         }
         let position = place
             .projection
@@ -232,7 +242,7 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn merge(&self, other: &Self, widen: bool) -> Self {
+    pub fn merge(&self, other: &Self, widen: Option<&BTreeSet<i128>>) -> Self {
         let mut result = Self::new(self.module, self.function);
         for p in self.facts.keys().chain(other.facts.keys()) {
             if result.facts.contains_key(p) {
@@ -243,10 +253,9 @@ impl<'a> State<'a> {
             let joined = a.join(&b);
             result.facts.insert(
                 p.clone(),
-                if widen {
-                    a.widen(&joined, self.scalar(p).unwrap())
-                } else {
-                    joined
+                match widen {
+                    Some(thresholds) => a.widen(&joined, self.scalar(p).unwrap(), thresholds),
+                    None => joined,
                 },
             );
         }

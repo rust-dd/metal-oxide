@@ -71,11 +71,28 @@ impl Range {
         result
     }
 
-    pub fn widen(&self, next: &Self, scalar: Scalar) -> Self {
+    /// Moves a growing bound to the nearest threshold beyond it, or to the type limit.
+    pub fn widen(&self, next: &Self, scalar: Scalar, thresholds: &BTreeSet<i128>) -> Self {
         let full = Self::full(scalar);
         Self::new(
-            if next.lo < self.lo { full.lo } else { next.lo },
-            if next.hi > self.hi { full.hi } else { next.hi },
+            if next.lo < self.lo {
+                thresholds
+                    .range(full.lo..=next.lo)
+                    .next_back()
+                    .copied()
+                    .unwrap_or(full.lo)
+            } else {
+                next.lo
+            },
+            if next.hi > self.hi {
+                thresholds
+                    .range(next.hi..=full.hi)
+                    .next()
+                    .copied()
+                    .unwrap_or(full.hi)
+            } else {
+                next.hi
+            },
         )
     }
 }

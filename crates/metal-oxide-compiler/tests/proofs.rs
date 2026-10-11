@@ -36,9 +36,9 @@ fn guarded_arithmetic_and_array_loops_preserve_checked_rust() {
     support::checked(output);
     let actual = support::execute_msl(
         &directory,
-        "int out[3] = {}; guarded_division(out, -123, -7, {}, {}, {}, {}); for (auto value : out) std::cout << value << ','; uint scalar = 0; checked_range(&scalar, 15u, {}, {}, {}, {}); std::cout << scalar << ','; uint array[4] = {}; checked_array_loop(array, {}, {}, {}, {}); for (auto value : array) std::cout << value << ',';",
+        "int out[3] = {}; guarded_division(out, -123, -7, {}, {}, {}, {}); for (auto value : out) std::cout << value << ','; uint scalar = 0; checked_range(&scalar, 15u, {}, {}, {}, {}); std::cout << scalar << ','; uint array[4] = {}; checked_array_loop(array, {}, {}, {}, {}); for (auto value : array) std::cout << value << ','; uint sums[64] = {}; uint count = 5; nested_reverse_sums(sums, count, {}, {}, {}, {}); for (int i = 0; i < 8; ++i) std::cout << sums[i] << ',';",
     );
-    assert_eq!(actual, "17,-4,-29,24,11,21,31,41,");
+    assert_eq!(actual, "17,-4,-29,24,11,21,31,41,1,3,6,10,15,0,0,0,");
 }
 
 #[test]

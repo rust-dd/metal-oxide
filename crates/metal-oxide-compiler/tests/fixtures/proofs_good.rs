@@ -38,6 +38,25 @@ pub unsafe fn checked_array_loop(out: WriteBuffer<u32>) {
 }
 
 #[kernel]
+pub unsafe fn nested_reverse_sums(out: WriteBuffer<u32>, count: u32) {
+    let count = if count < 64 { count } else { 64 };
+    let mut values = [0_u32; 64];
+    let mut step = 0_u32;
+    while step < count {
+        values[step as usize] = step + 1;
+        let mut sum = 0_u32;
+        let mut position = step;
+        loop {
+            sum = sum.wrapping_add(values[position as usize]);
+            if position == 0 { break; }
+            position = position - 1;
+        }
+        unsafe { out.store_unchecked(step, sum); }
+        step = step + 1;
+    }
+}
+
+#[kernel]
 pub unsafe fn guarded_index(out: WriteBuffer<u32>, index: u32) {
     let mut values = [10_u32, 20, 30, 40];
     if index < 4 {
