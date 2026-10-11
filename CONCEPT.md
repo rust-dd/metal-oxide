@@ -294,32 +294,27 @@ For `vec_add`, `abi.json` contains:
   "version": 4,
   "math_mode": "precise",
   "required_features": [],
+  "types": [
+    { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } },
+    { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "u32" } }
+  ],
+  "signatures": [
+    [
+      { "name": "a", "binding": 0, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "read" } },
+      { "name": "b", "binding": 1, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "read" } },
+      { "name": "out", "binding": 2, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "write" } },
+      { "name": "n", "binding": 3, "ty": { "kind": "value", "layout": 1 } }
+    ]
+  ],
   "kernels": [
-    {
-      "name": "vec_add",
-      "parameters": [
-        {
-          "name": "a", "binding": 0,
-          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "read" }
-        },
-        {
-          "name": "b", "binding": 1,
-          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "read" }
-        },
-        {
-          "name": "out", "binding": 2,
-          "ty": { "kind": "buffer", "element": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }, "stride": 4, "access": "write" }
-        },
-        {
-          "name": "n", "binding": 3,
-          "ty": { "kind": "value", "layout": { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "u32" } } }
-        }
-      ],
-      "required_block": null
-    }
+    { "name": "vec_add", "signature": 0, "required_block": null }
   ]
 }
 ```
+
+Kernels share two tables. `types` holds each distinct layout once, and nested
+layouts refer to earlier entries. `signatures` holds each distinct parameter
+list. The in-memory `Abi` keeps every kernel's parameters and layouts inline.
 
 Buffer handles become Metal bindings. Values and buffer elements carry a
 canonical layout with size, alignment, field offsets, array stride, and padding.
@@ -412,7 +407,8 @@ calls, so `Module::from_source` uses the same contract as offline compilation.
 The mode is required in the ABI and participates in the Rust build cache,
 artifact fingerprint and generated binding identity. Mismatched Metal flags,
 unknown modes and artifacts missing this field are rejected. Rebuild development
-artifacts after this format change; the pre-release ABI version remains 4.
+artifacts after format changes, including the shared ABI tables; the pre-release
+ABI version remains 4.
 
 The artifact is stored under `target/metal/<build-hash>/`:
 

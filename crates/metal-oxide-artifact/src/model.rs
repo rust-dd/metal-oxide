@@ -85,8 +85,12 @@ pub struct Kernel {
     pub required_block: Option<[u32; 3]>,
 }
 
+/// Serialized with layouts and parameter lists shared across kernels.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    try_from = "crate::tables::AbiTables",
+    into = "crate::tables::AbiTables"
+)]
 pub struct Abi {
     pub version: u32,
     pub math_mode: crate::MathMode,

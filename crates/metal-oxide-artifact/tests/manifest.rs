@@ -58,6 +58,54 @@ fn manifest_round_trip_and_library_identity() {
 }
 
 #[test]
+fn kernels_share_type_and_signature_tables() {
+    let mut manifest = manifest();
+    let args = Layout::record(
+        "Args",
+        vec![
+            ("count".into(), Layout::scalar(Scalar::U32)),
+            ("scale".into(), Layout::scalar(Scalar::F32)),
+        ],
+    )
+    .unwrap();
+    let parameters = vec![
+        manifest.abi.kernels[0].parameters[0].clone(),
+        Parameter {
+            name: "args".into(),
+            binding: 1,
+            ty: ParameterType::Value { layout: args },
+        },
+    ];
+    manifest.abi.kernels = ["first", "second", "third"]
+        .map(|name| Kernel {
+            name: name.into(),
+            parameters: parameters.clone(),
+            required_block: None,
+        })
+        .into();
+    let json = manifest.to_json().unwrap();
+    assert_eq!(json.matches("\"Args\"").count(), 1);
+    assert_eq!(json.matches("\"count\"").count(), 1);
+    assert_eq!(Manifest::from_json(&json).unwrap(), manifest);
+    let value = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+    assert_eq!(value["abi"]["types"].as_array().unwrap().len(), 3);
+    assert_eq!(value["abi"]["signatures"].as_array().unwrap().len(), 1);
+    for (pointer, reference) in [
+        ("/abi/kernels/2/signature", 1),
+        ("/abi/signatures/0/1/ty/layout", 3),
+        ("/abi/types/2/kind/fields/0/layout", 2),
+        ("/abi/types/2/kind/fields/1/layout", 3),
+    ] {
+        let mut invalid = value.clone();
+        *invalid.pointer_mut(pointer).unwrap() = serde_json::json!(reference);
+        assert!(
+            Manifest::from_json(&invalid.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+}
+
+#[test]
 fn numerical_contract_requires_a_known_mode_and_matching_flags() {
     let mut fast = manifest();
     fast.abi.math_mode = MathMode::Fast;
@@ -107,23 +155,11 @@ fn manifest_mutations_fail_without_panicking() {
     let valid = serde_json::to_value(manifest()).unwrap();
     for (path, replacement) in [
         ("/abi/version", serde_json::json!(999)),
-        ("/abi/kernels/0/parameters/0/binding", serde_json::json!(31)),
-        (
-            "/abi/kernels/0/parameters/0/ty/stride",
-            serde_json::json!(0),
-        ),
-        (
-            "/abi/kernels/0/parameters/0/ty/element/size",
-            serde_json::json!(u64::MAX),
-        ),
-        (
-            "/abi/kernels/0/parameters/0/ty/element/alignment",
-            serde_json::json!(3),
-        ),
-        (
-            "/abi/kernels/0/parameters/0/ty/access",
-            serde_json::json!("atomic"),
-        ),
+        ("/abi/signatures/0/0/binding", serde_json::json!(31)),
+        ("/abi/signatures/0/0/ty/stride", serde_json::json!(0)),
+        ("/abi/types/0/size", serde_json::json!(u64::MAX)),
+        ("/abi/types/0/alignment", serde_json::json!(3)),
+        ("/abi/signatures/0/0/ty/access", serde_json::json!("atomic")),
         (
             "/abi/kernels/0/required_block",
             serde_json::json!([256, 0, 1]),

@@ -5,6 +5,7 @@ mod files;
 mod layout;
 mod math;
 mod model;
+mod tables;
 mod validate;
 
 pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
