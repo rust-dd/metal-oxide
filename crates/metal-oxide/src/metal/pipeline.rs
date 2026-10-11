@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, rc::Rc, sync::Mutex};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_foundation::NSString;
@@ -10,6 +10,8 @@ use objc2_metal::{
 use crate::{Error, Result};
 
 use super::{Device, Module, backend::Backend};
+
+static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
 pub struct Pipeline {
     pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
@@ -34,6 +36,13 @@ impl Pipeline {
                     .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))
             })
             .transpose()?;
+        // Concurrent Metal 4 pipeline creation has crashed inside the driver on
+        // macOS 26.2, even with independent device contexts.
+        let _compilation = matches!(device.backend, Backend::Metal4 { .. }).then(|| {
+            METAL4_COMPILATION
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+        });
         let function = module
             .raw
             .newFunctionWithName(&NSString::from_str(entrypoint))

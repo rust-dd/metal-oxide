@@ -101,6 +101,7 @@ metal-oxide = {{ workspace = true }}
             .current_dir(&standalone)
             .env("RUSTUP_TOOLCHAIN", "1.89.0")
             .env("RUSTC_BOOTSTRAP", "0")
+            .env("CARGO_TARGET_DIR", standalone.join("target"))
             .args(["build", "--release", "--locked", "--offline"])
             .output()
             .unwrap(),
