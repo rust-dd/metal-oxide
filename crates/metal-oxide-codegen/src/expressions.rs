@@ -129,6 +129,7 @@ pub(crate) fn expression(
     Ok(match value {
         Expression::Use(v) => op(v),
         Expression::Bitcast(v, to) => format!("as_type<{}>({})", scalar_name(*to), op(v)),
+        Expression::UncheckedCast(v, to) => format!("{}({})", scalar_name(*to), op(v)),
         Expression::Math {
             op: operation,
             arguments,

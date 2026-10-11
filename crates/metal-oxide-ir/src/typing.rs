@@ -133,6 +133,16 @@ pub(crate) fn expression_type(
             }
         }
         Expression::Coordinates(_) => Ok(Type::Dim3),
+        Expression::UncheckedCast(value, to) => {
+            require(ty(value)?, Type::Scalar(Scalar::F32))?;
+            if !to.is_integer() || matches!(to, Scalar::Bool) {
+                return Err(Error::new(
+                    source,
+                    "unchecked conversion requires an integer target",
+                ));
+            }
+            Ok(Type::Scalar(*to))
+        }
         Expression::Bitcast(value, to) => {
             if matches!(
                 (ty(value)?, to),

@@ -229,6 +229,8 @@ pub enum Expression {
     Binary(BinaryOp, Operand, Operand),
     Unary(UnaryOp, Operand),
     Cast(Operand, Scalar),
+    /// f32 to integer without saturation; the value must be representable after truncation.
+    UncheckedCast(Operand, Scalar),
     Bitcast(Operand, Scalar),
     Math {
         op: MathOp,
@@ -281,7 +283,11 @@ pub enum Expression {
 impl Expression {
     pub fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::Use(v) | Self::Unary(_, v) | Self::Cast(v, _) | Self::Bitcast(v, _) => vec![v],
+            Self::Use(v)
+            | Self::Unary(_, v)
+            | Self::Cast(v, _)
+            | Self::UncheckedCast(v, _)
+            | Self::Bitcast(v, _) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)

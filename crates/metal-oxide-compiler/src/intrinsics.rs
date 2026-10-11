@@ -22,6 +22,7 @@ pub(crate) enum Intrinsic {
     Math(MathOp),
     Bitcast(Scalar),
     FloatConvert(Scalar),
+    UncheckedFloatToInt,
 }
 
 impl Intrinsic {
@@ -49,6 +50,7 @@ impl Intrinsic {
             Self::Math(_) => "float_math",
             Self::Bitcast(_) => "scalar_bitcast",
             Self::FloatConvert(_) => "float_conversion",
+            Self::UncheckedFloatToInt => "unchecked_float_to_int",
         }
     }
 }
@@ -78,6 +80,7 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
             "max" => return Some(Intrinsic::Math(MathOp::Max)),
             "to_bits" => return Some(Intrinsic::Bitcast(Scalar::U32)),
             "from_bits" => return Some(Intrinsic::Bitcast(Scalar::F32)),
+            "to_int_unchecked" => return Some(Intrinsic::UncheckedFloatToInt),
             _ => {}
         }
     }

@@ -75,6 +75,13 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Cast(value, to)
             }
+            Intrinsic::UncheckedFloatToInt => {
+                let [value] = arguments(values, span)?;
+                let ir::Type::Scalar(to) = self.lower_type(types.type_at(0), span)? else {
+                    return Err((span, "unchecked float conversion requires a scalar".into()));
+                };
+                ir::Expression::UncheckedCast(value, to)
+            }
             Intrinsic::WrappingShift(op) => {
                 let [value, count] = arguments(values, span)?;
                 ir::Expression::Binary(op, value, count)

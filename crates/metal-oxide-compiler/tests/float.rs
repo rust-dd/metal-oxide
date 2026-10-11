@@ -20,6 +20,22 @@ fn saturating_casts_execute_with_rust_nan_and_range_rules() {
 }
 
 #[test]
+fn unchecked_float_conversions_skip_saturation() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/unchecked_casts.rs",
+        &[],
+    );
+    support::checked(output);
+    let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    assert!(!msl.contains("isnan"), "{msl}");
+    let result = support::execute_msl(
+        &directory,
+        "float input[1] = {7.75f}; uint u[1] = {}; int s[1] = {}; unchecked_casts(input, u, s, {}, {}, {}, {}); std::cout << u[0] << ',' << s[0];",
+    );
+    assert_eq!(result, "7,-7");
+}
+
+#[test]
 fn precise_math_keeps_explicit_fma_separate_from_ordinary_arithmetic() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/float_math.rs",
