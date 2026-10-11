@@ -205,6 +205,14 @@ pub(crate) fn expression_type(
             })
         }
         Expression::ThreadgroupBarrier => Ok(Type::Unit),
+        Expression::Uninit(ty) => match ty {
+            Type::Aggregate(id)
+                if matches!(module.types.get(*id), Some(Aggregate::Array { .. })) =>
+            {
+                Ok(*ty)
+            }
+            _ => Err(Error::new(source, "uninitialized storage must be an array")),
+        },
         Expression::Dim3(values) => {
             for v in values {
                 require(ty(v)?, Type::Scalar(Scalar::U32))?;

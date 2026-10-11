@@ -2,7 +2,7 @@
 
 use metal_oxide_device::{
     AtomicBuffer, F16, ReadBuffer, WriteBuffer, block_dim, block_idx, grid_dim, kernel, math,
-    simdgroup, thread_idx, threadgroup,
+    simdgroup, thread_idx, threadgroup, uninit_array,
 };
 
 #[kernel]
@@ -14,8 +14,9 @@ pub unsafe fn declarations(input: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32
     let groups = grid_dim().x;
     if i < n {
         unsafe {
-            let x = input.load_unchecked(i);
-            let half = F16::from_f32(math::sqrt(x));
+            let mut pair: [f32; 2] = uninit_array();
+            pair[0] = input.load_unchecked(i);
+            let half = F16::from_f32(math::sqrt(pair[0]));
             out.store_unchecked(i, math::fma(half.to_f32(), 2.0, groups as f32));
         }
     }

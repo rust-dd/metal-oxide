@@ -122,6 +122,15 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 arguments::<0>(values, span)?;
                 ir::Expression::ThreadgroupBarrier
             }
+            Intrinsic::Uninit => {
+                arguments::<0>(values, span)?;
+                let array = ty::Ty::new_array_with_const_len(
+                    self.module.tcx,
+                    types.type_at(0),
+                    types.const_at(1),
+                );
+                ir::Expression::Uninit(self.lower_type(array, span)?)
+            }
             Intrinsic::Atomic(op) => {
                 if values.len() != op.arity() + 2 {
                     return Err((span, "invalid atomic intrinsic arity".into()));

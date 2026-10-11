@@ -102,6 +102,12 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             },
         ));
     }
+    if tcx.def_kind(definition) == DefKind::Fn
+        && in_module(tcx, definition, "thread")
+        && tcx.item_name(definition).as_str() == "uninit_array"
+    {
+        return Some(Intrinsic::Uninit);
+    }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
         ty::TypingEnv::non_body_analysis(tcx, implementation),

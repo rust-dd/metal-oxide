@@ -2,6 +2,45 @@ use super::*;
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn rust_uninitialized_private_arrays_execute() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let pipeline = pipeline(
+        &device,
+        "crates/metal-oxide-compiler/tests/fixtures/uninit_array.rs",
+        "running_sums",
+    )?;
+    let input = device.buffer_from_slice(&(1..=64).map(|v| v as f32).collect::<Vec<_>>())?;
+    for count in [0_u32, 1, 63, 64, 65] {
+        let mut out = device.buffer_from_slice(&[-1.0_f32; 65])?;
+        // SAFETY: one thread reads at most 64 inputs and writes at most 64 of 65 outputs.
+        unsafe {
+            device.launch(
+                &pipeline,
+                LaunchConfig::<1>::new(Dim3::x(1)),
+                &[
+                    Argument::write(&mut out),
+                    Argument::read(&input),
+                    Argument::value::<u32>(count)?,
+                ],
+            )?;
+        }
+        let written = count.min(64) as usize;
+        let expected = (0..65)
+            .map(|i| {
+                if i < written {
+                    ((i + 1) * (i + 2) / 2) as f32
+                } else {
+                    -1.0
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(out.as_slice(), expected, "count={count}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn rust_aggregate_copies_constants_and_generic_helpers_execute() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let samples = pipeline(

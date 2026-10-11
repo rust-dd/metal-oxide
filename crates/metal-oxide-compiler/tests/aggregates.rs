@@ -63,6 +63,24 @@ fn unsupported_dynamic_array_bounds_are_rejected_in_both_overflow_modes() {
 }
 
 #[test]
+fn uninitialized_private_arrays_emit_no_initializer() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/uninit_array.rs",
+        &[],
+    );
+    support::checked(output);
+    let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    assert!(!msl.contains("{{"), "{msl}");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float out[6] = {}; float input[5] = {1, 2, 3, 4, 5}; uint count = 5; running_sums(out, input, count, {}, {}, {}, {}); for (float x : out) std::cout << x << ' ';",
+        ),
+        "1 3 6 10 15 0 ",
+    );
+}
+
+#[test]
 fn zero_length_owned_arrays_have_an_explicit_diagnostic() {
     let (output, _) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/aggregate_empty.rs",

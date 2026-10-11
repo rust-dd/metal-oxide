@@ -158,6 +158,20 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                 }
                 "__metal_threadgroup_alloc"
             }
+            (Intrinsic::Uninit, []) => {
+                let identity = ty::GenericArgs::identity_for_item(tcx, definition);
+                if !element_length_generics(tcx, definition)
+                    || output
+                        != Ty::new_array_with_const_len(
+                            tcx,
+                            identity.type_at(0),
+                            identity.const_at(1),
+                        )
+                {
+                    return false;
+                }
+                "__metal_uninit"
+            }
             (Intrinsic::BufferLoad, &[buffer, index]) if index == tcx.types.u32 => {
                 let Some((kind, element)) = buffer_element(tcx, buffer) else {
                     return false;
@@ -225,6 +239,15 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
 }
 
 fn allocation_shape<'tcx>(tcx: TyCtxt<'tcx>, definition: DefId, output: Ty<'tcx>) -> bool {
+    let ty::Adt(_, arguments) = output.kind() else {
+        return false;
+    };
+    element_length_generics(tcx, definition)
+        && *arguments == ty::GenericArgs::identity_for_item(tcx, definition)
+}
+
+/// Accepts exactly `<T, const N: usize>`.
+fn element_length_generics(tcx: TyCtxt<'_>, definition: DefId) -> bool {
     let generics = tcx.generics_of(definition);
     let [element, length] = generics.own_params.as_slice() else {
         return false;
@@ -239,11 +262,7 @@ fn allocation_shape<'tcx>(tcx: TyCtxt<'tcx>, definition: DefId, output: Ty<'tcx>
         ty::TypingEnv::non_body_analysis(tcx, definition),
         tcx.type_of(length.def_id).instantiate_identity(),
     );
-    let ty::Adt(_, arguments) = output.kind() else {
-        return false;
-    };
     length_type == tcx.types.usize
-        && *arguments == ty::GenericArgs::identity_for_item(tcx, definition)
 }
 
 fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
@@ -251,6 +270,7 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
     let read = Pointer(Mutability::Not);
     let write = Pointer(Mutability::Mut);
     match operation {
+        Intrinsic::Uninit => declaration(tcx, definition, &[write, Usize], Unit, Safety::Unsafe),
         Intrinsic::BufferLoad => declaration(
             tcx,
             definition,

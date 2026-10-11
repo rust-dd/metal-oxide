@@ -161,6 +161,12 @@ pub(crate) fn expression(
         } => crate::simd::expression(*operation, arguments.iter().map(op).collect()),
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
+        Expression::Uninit(_) => {
+            return Err(Error::new(
+                source,
+                "uninitialized storage has no value expression",
+            ));
+        }
         Expression::Atomic {
             op: operation,
             arguments,

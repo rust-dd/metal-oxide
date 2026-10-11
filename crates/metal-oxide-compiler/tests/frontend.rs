@@ -150,6 +150,7 @@ fn device_extern_operations_do_not_require_mir_bodies() {
         "buffer_load",
         "buffer_store",
         "threadgroup_alloc",
+        "uninit_array",
         "atomic_add",
         "simd_sum",
         "simd_shuffle",

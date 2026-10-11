@@ -177,6 +177,7 @@ fn flow(
                                 | Expression::BufferLoad { .. }
                                 | Expression::Atomic { .. }
                                 | Expression::Simd { .. }
+                                | Expression::Uninit(_)
                         );
                         for operand in expression.operands() {
                             value.merge(&dependencies(operand, &values));

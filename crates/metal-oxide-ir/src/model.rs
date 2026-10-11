@@ -257,6 +257,8 @@ pub enum Expression {
         access: Access,
     },
     ThreadgroupBarrier,
+    /// Thread-private array storage with no initial element writes.
+    Uninit(Type),
     BufferLoad {
         buffer: Operand,
         index: Operand,
@@ -284,7 +286,8 @@ impl Expression {
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
             | Self::ThreadgroupAlloc { .. }
-            | Self::ThreadgroupBarrier => {
+            | Self::ThreadgroupBarrier
+            | Self::Uninit(_) => {
                 vec![]
             }
             Self::Dim3(values) => values.iter().collect(),

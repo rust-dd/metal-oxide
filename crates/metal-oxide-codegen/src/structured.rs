@@ -93,6 +93,9 @@ impl Emitter<'_> {
                 ));
             }
             for statement in &block.statements {
+                if matches!(statement.value, Expression::Uninit(_)) {
+                    continue;
+                }
                 let value = expression(
                     self.module,
                     self.function,

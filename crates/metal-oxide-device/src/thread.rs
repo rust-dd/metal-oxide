@@ -26,3 +26,16 @@ pub fn block_dim() -> Dim3 {
 pub fn grid_dim() -> Dim3 {
     crate::intrinsics::__metal_grid_dim()
 }
+
+/// Returns thread-private array storage that is left unwritten.
+///
+/// # Safety
+/// Each element must be written before it is read.
+pub unsafe fn uninit_array<T: Copy, const N: usize>() -> [T; N] {
+    let mut out = core::mem::MaybeUninit::<[T; N]>::uninit();
+    // SAFETY: the caller writes each element before reading it.
+    unsafe {
+        crate::intrinsics::__metal_uninit(out.as_mut_ptr().cast(), core::mem::size_of::<[T; N]>());
+        out.assume_init()
+    }
+}
