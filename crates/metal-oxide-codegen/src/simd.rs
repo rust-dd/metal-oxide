@@ -36,6 +36,6 @@ pub(crate) fn helpers(module: &Module) -> String {
     let ty =
         crate::expressions::type_name(ballot_type(&module.types).expect("validated ballot result"));
     format!(
-        "inline {ty} metal_oxide_ballot(bool predicate, uint width) {{\n    ulong bits = ulong(simd_ballot(predicate));\n    if (width < 64u) bits &= (1ul << width) - 1ul;\n    return {{{{uint(bits), uint(bits >> 32u)}}}};\n}}\n\n"
+        "static inline {ty} metal_oxide_ballot(bool predicate, uint width) {{\n    ulong bits = ulong(simd_ballot(predicate));\n    if (width < 64u) bits &= (1ul << width) - 1ul;\n    return {{{{uint(bits), uint(bits >> 32u)}}}};\n}}\n\n"
     )
 }

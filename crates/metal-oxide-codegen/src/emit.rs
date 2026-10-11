@@ -216,7 +216,7 @@ impl<'a> ModuleEmitter<'a> {
         } else {
             parameters.push("metal_oxide_context metal_oxide_ctx".into());
             Ok(format!(
-                "inline {} metal_oxide_fn_{id}({})",
+                "static inline {} metal_oxide_fn_{id}({})",
                 type_name(function.locals[0]),
                 parameters.join(", ")
             ))

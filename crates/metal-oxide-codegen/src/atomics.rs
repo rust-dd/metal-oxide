@@ -57,7 +57,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
             AddressSpace::Device => "device",
             AddressSpace::Threadgroup => "threadgroup",
         };
-        writeln!(output, "inline metal_oxide_checked_{} metal_oxide_compare_exchange_weak({space} atomic_{ty} *object, {ty} expected, {ty} desired) {{\n    bool success = atomic_compare_exchange_weak_explicit(object, &expected, desired, memory_order_relaxed, memory_order_relaxed);\n    return {{expected, success}};\n}}\n", element.name()).unwrap();
+        writeln!(output, "static inline metal_oxide_checked_{} metal_oxide_compare_exchange_weak({space} atomic_{ty} *object, {ty} expected, {ty} desired) {{\n    bool success = atomic_compare_exchange_weak_explicit(object, &expected, desired, memory_order_relaxed, memory_order_relaxed);\n    return {{expected, success}};\n}}\n", element.name()).unwrap();
     }
     Ok(output)
 }

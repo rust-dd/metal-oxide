@@ -50,7 +50,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
             if !used {
                 continue;
             }
-            writeln!(output, "inline metal_oxide_checked_{name} metal_oxide_{label}_checked_{name}({ty} a, {ty} b) {{").unwrap();
+            writeln!(output, "static inline metal_oxide_checked_{name} metal_oxide_{label}_checked_{name}({ty} a, {ty} b) {{").unwrap();
             if matches!(scalar, Scalar::I8 | Scalar::I16) {
                 let minimum = -(1_i32 << (scalar.bits() - 1));
                 let maximum = -minimum - 1;
