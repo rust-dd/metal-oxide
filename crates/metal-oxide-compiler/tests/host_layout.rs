@@ -2,7 +2,10 @@
 
 mod support;
 
-use std::{path::PathBuf, process::Command};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[test]
 fn generated_record_codecs_work_on_stable_rust() {
@@ -102,10 +105,15 @@ fn run_codecs(fixture: &str, program: &str) {
         .join("../..")
         .canonicalize()
         .unwrap();
-    let project = directory.join("host-codecs");
+    // Parallel tests share the dependency cache below; distinct names keep their binaries apart.
+    let name = format!(
+        "host-codecs-{}",
+        Path::new(fixture).file_stem().unwrap().to_str().unwrap()
+    );
+    let project = directory.join(&name);
     std::fs::create_dir_all(project.join("src")).unwrap();
     std::fs::write(project.join("Cargo.toml"), format!(
-        "[workspace]\n[workspace.dependencies]\nmetal-oxide = {{ path = {:?} }}\n[package]\nname = \"host-codecs\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nmetal-oxide.workspace = true\n",
+        "[workspace]\n[workspace.dependencies]\nmetal-oxide = {{ path = {:?} }}\n[package]\nname = {name:?}\nversion = \"0.0.0\"\nedition = \"2024\"\n[dependencies]\nmetal-oxide.workspace = true\n",
         root.join("crates/metal-oxide").to_str().unwrap()
     )).unwrap();
     std::fs::write(
