@@ -72,9 +72,9 @@ chore: initialize workspace
 docs: define device memory contracts
 ```
 
-Commits and PRs describe the change and relevant verification. Do not append
-co-author trailers, AI attribution, session metadata, tool transcripts, or
-generated-by footers.
+A commit message is one subject line without a body. PRs describe the change
+and relevant verification. Do not append co-author trailers, AI attribution,
+session metadata, tool transcripts, or generated-by footers.
 
 Code comments explain a safety invariant or a non-obvious reason. Retain useful
 rustdoc and `SAFETY` comments. Avoid decorative banners, separator lines,
@@ -86,7 +86,7 @@ narration.
 
 ## Hardware and CI
 
-Verify a private bundle with the independent host/kernel/helper workspace:
+Verify a bundle with the independent host/kernel/helper workspace:
 
 ```sh
 python3 scripts/test-installed.py target/dist/metal-oxide-0.1.0-alpha.1-aarch64-apple-darwin.tar.gz
@@ -97,13 +97,15 @@ only the runtime crates and precompiled bindings/artifact. It retains logs under
 `target/installed-*`. Portable packaging and benchmark-driver checks run with
 `python3 scripts/test_package.py` and `python3 scripts/test_bench.py`.
 
-Keep portable checks separate from explicit GPU checks. Use a hardware runner
-only after verifying its actual Metal device. Do not automatically execute
-untrusted PR code on a personal or self-hosted runner. No hardware runner is
-registered yet. The manual GPU workflow runs only `main` on a verified runner
-labelled `metal-oxide-gpu`; it has no pull-request trigger.
+Hosted CI runs the workspace and compiler checks above on ubuntu-24.04, macos-15
+and macos-26; it does not execute GPU kernels. Keep portable checks separate
+from explicit GPU checks. Use a hardware runner only after verifying its actual
+Metal device. Do not automatically execute untrusted PR code on a personal or
+self-hosted runner. No hardware runner is registered yet. The manual GPU
+workflow runs only `main` on a verified runner labelled `metal-oxide-gpu`; it
+has no pull-request trigger.
 
-## Private installation
+## Installation from a bundle
 
 Package a clean checkout and install into a fresh versioned directory
 (Python 3.11+):

@@ -36,8 +36,9 @@ feat: add synchronous Metal dispatch
 
 Commit messages, PR text, code, and project docs contain no co-author trailers,
 AI attribution, session IDs, tool transcripts, or generated-by footers. A commit
-body is optional and explains only the change, rationale, or material validation.
-Keep the repository private until the user authorizes changing its visibility.
+message is one subject line without a body; rationale and validation belong in
+the PR. The repository is public; publishing crates, tags or releases needs the
+user's explicit authorization.
 
 Keep editor settings local and exclude editor configuration through
 `.git/info/exclude`. Commit the compiler's `rustc_private` rust-analyzer metadata

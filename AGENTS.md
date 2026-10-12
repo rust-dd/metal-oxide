@@ -8,6 +8,7 @@ working features. Add crates and modules when they have an implementation.
 
 - Use Conventional Commit subjects: `feat: ...`, `fix: ...`, `chore: ...`,
   `docs: ...`, `test: ...`, `refactor: ...`, `perf: ...`, or `ci: ...`.
+  A commit message is the subject line alone, without a body.
 - Do not add co-author trailers, AI attribution, session IDs, tool transcripts,
   or generated-by footers to commits, PRs, code, or project documentation.
 - Write concise English code and documentation. Describe actual behavior.

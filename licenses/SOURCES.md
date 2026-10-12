@@ -6,6 +6,6 @@ The registry packages omit this repository-level file. The same notice is presen
 at the revisions recorded by the locked block2, dispatch2, objc2, objc2-encode,
 Foundation, CoreFoundation, and Metal packages.
 
-Private bundles also include license files from the resolved registry packages,
+Bundles also include license files from the resolved registry packages,
 their Cargo license/repository metadata, and the host/compiler Rust copyright
 notices from the installed toolchains.

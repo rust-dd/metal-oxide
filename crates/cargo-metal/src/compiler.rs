@@ -28,7 +28,7 @@ fn installed() -> Result<Option<PathBuf>> {
     {
         return Ok(None);
     }
-    Err("no installed metal-oxide-compiler; install the complete private bundle or set METAL_OXIDE_COMPILER".into())
+    Err("no installed metal-oxide-compiler; install the complete bundle or set METAL_OXIDE_COMPILER".into())
 }
 
 pub(crate) fn resolve(directory: &Path, rustc: &str) -> Result<PathBuf> {

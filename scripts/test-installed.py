@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a private bundle with an independent application and a stable-only deployment."""
+"""Verify a bundle with an independent application and a stable-only deployment."""
 import argparse
 import json
 import os

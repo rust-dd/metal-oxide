@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or install a private macOS alpha bundle."""
+"""Create or install a macOS alpha bundle."""
 import argparse
 import hashlib
 import json
@@ -51,7 +51,7 @@ def licenses(bundle, toolchain):
 
 def build(output):
     if platform.system() != "Darwin" or platform.machine() != "arm64":
-        raise ValueError("private binary bundles require macOS on Apple Silicon")
+        raise ValueError("binary bundles require macOS on Apple Silicon")
     if run(["git", "status", "--porcelain"]):
         raise ValueError("commit source changes before packaging a release")
     cargo = tomllib.loads((ROOT / "Cargo.toml").read_text())
