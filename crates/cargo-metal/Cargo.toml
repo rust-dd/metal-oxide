@@ -1,9 +1,12 @@
 [package]
 name = "cargo-metal"
-description = "Development tooling for metal-oxide"
+categories = ["compilers", "development-tools::cargo-plugins"]
+description = "Cargo subcommand that builds metal-oxide kernel artifacts"
 edition.workspace = true
+keywords = ["cargo", "gpu", "kernel", "metal", "msl"]
 license.workspace = true
 publish = false
+readme = "../../README.md"
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true

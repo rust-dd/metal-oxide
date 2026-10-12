@@ -39,12 +39,12 @@ version = "0.1.0-alpha.1"
 block2 = "0.6.2"
 dispatch2 = "0.3.1"
 half = { version = "2.7.1", default-features = false }
-metal-oxide = { path = "crates/metal-oxide" }
-metal-oxide-artifact = { path = "crates/metal-oxide-artifact" }
-metal-oxide-codegen = { path = "crates/metal-oxide-codegen" }
-metal-oxide-device = { path = "crates/metal-oxide-device" }
-metal-oxide-ir = { path = "crates/metal-oxide-ir" }
-metal-oxide-macros = { path = "crates/metal-oxide-macros" }
+metal-oxide = { path = "crates/metal-oxide", version = "=0.1.0-alpha.1" }
+metal-oxide-artifact = { path = "crates/metal-oxide-artifact", version = "=0.1.0-alpha.1" }
+metal-oxide-codegen = { path = "crates/metal-oxide-codegen", version = "=0.1.0-alpha.1" }
+metal-oxide-device = { path = "crates/metal-oxide-device", version = "=0.1.0-alpha.1" }
+metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha.1" }
+metal-oxide-macros = { path = "crates/metal-oxide-macros", version = "=0.1.0-alpha.1" }
 objc2 = "0.6.4"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }
 objc2-metal = { version = "0.3.2", default-features = false, features = [

@@ -1,7 +1,9 @@
 [package]
 name = "metal-oxide-macros"
+categories = ["development-tools::procedural-macro-helpers"]
 description = "Kernel entrypoint marker for metal-oxide"
 edition.workspace = true
+keywords = ["gpu", "kernel", "metal"]
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true

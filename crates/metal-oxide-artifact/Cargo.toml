@@ -1,7 +1,9 @@
 [package]
 name = "metal-oxide-artifact"
+categories = ["hardware-support"]
 description = "Versioned kernel ABI and Metal artifact validation"
 edition.workspace = true
+keywords = ["abi", "gpu", "metal", "metallib"]
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true

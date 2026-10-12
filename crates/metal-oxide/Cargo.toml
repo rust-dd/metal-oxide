@@ -1,9 +1,12 @@
 [package]
 name = "metal-oxide"
+categories = ["hardware-support", "os::macos-apis"]
 description = "Metal compute runtime for Rust"
 edition.workspace = true
+keywords = ["apple", "compute", "gpgpu", "gpu", "metal"]
 license.workspace = true
 publish = false
+readme = "../../README.md"
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
@@ -18,6 +21,10 @@ objc2-metal = { workspace = true }
 [dependencies]
 half = { workspace = true }
 metal-oxide-artifact = { workspace = true }
+
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin"]
 
 [lints]
 workspace = true
