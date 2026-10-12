@@ -103,6 +103,25 @@ fn layouts_reject_empty_shapes_duplicate_fields_and_overflow() {
 }
 
 #[test]
+fn tuple_field_names_and_record_names_are_canonical() {
+    let pair = Layout::tuple(vec![Layout::scalar(Scalar::F32); 2]).unwrap();
+    pair.validate().unwrap();
+    let mut renamed = pair.clone();
+    let LayoutKind::Tuple { fields } = &mut renamed.kind else {
+        panic!()
+    };
+    fields[1].name = "x".into();
+    assert!(renamed.validate().is_err());
+    let mut record =
+        Layout::record("Pair", vec![("x".into(), Layout::scalar(Scalar::F32))]).unwrap();
+    let LayoutKind::Record { name, .. } = &mut record.kind else {
+        panic!()
+    };
+    *name = "crate".into();
+    assert!(record.validate().is_err());
+}
+
+#[test]
 fn nested_layout_json_rejects_invalid_stride_and_unknown_fields() {
     let value = Layout::array(particle(), 2).unwrap();
     let json = serde_json::to_string(&value).unwrap();

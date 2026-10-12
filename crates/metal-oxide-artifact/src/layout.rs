@@ -92,8 +92,7 @@ impl Layout {
 
     pub fn record(name: impl Into<String>, values: Vec<(String, Self)>) -> Result<Self, Error> {
         let name = name.into();
-        if !identifier(&name) || matches!(name.as_str(), "self" | "Self" | "super" | "crate" | "_")
-        {
+        if !identifier(&name) || reserved(&name) {
             return Err(Error("invalid ABI record name".into()));
         }
         let (size, alignment, fields) = fields(values)?;
@@ -104,30 +103,79 @@ impl Layout {
         })
     }
 
+    /// Checks the canonical size, alignment, offsets, stride and names without rebuilding the layout.
     pub fn validate(&self) -> Result<(), Error> {
         let canonical = match &self.kind {
-            LayoutKind::Scalar { scalar } => Self::scalar(*scalar),
-            LayoutKind::Array {
-                element, length, ..
-            } => Self::array((**element).clone(), *length)?,
-            LayoutKind::Tuple { fields } => {
-                Self::tuple(fields.iter().map(|field| field.layout.clone()).collect())?
+            LayoutKind::Scalar { scalar } => {
+                self.size == scalar.size() as u64 && self.alignment == scalar.alignment() as u64
             }
-            LayoutKind::Record { name, fields } => Self::record(
-                name,
-                fields
-                    .iter()
-                    .map(|field| (field.name.clone(), field.layout.clone()))
-                    .collect(),
-            )?,
+            LayoutKind::Array {
+                element,
+                length,
+                stride,
+            } => {
+                element.validate()?;
+                if *length == 0 {
+                    return Err(Error("zero-length ABI arrays are unsupported".into()));
+                }
+                let size = element
+                    .size
+                    .checked_mul(u64::from(*length))
+                    .ok_or_else(overflow)?;
+                *stride == element.size && self.size == size && self.alignment == element.alignment
+            }
+            LayoutKind::Tuple { fields } => {
+                let placed = placed(self, fields, false)?;
+                placed
+                    && fields
+                        .iter()
+                        .enumerate()
+                        .all(|(index, field)| field.name == format!("f{index}"))
+            }
+            LayoutKind::Record { name, fields } => {
+                if !identifier(name) || reserved(name) {
+                    return Err(Error("invalid ABI record name".into()));
+                }
+                placed(self, fields, true)?
+            }
         };
-        if *self != canonical {
+        if !canonical {
             return Err(Error(
                 "layout differs from its canonical size, alignment, offsets, or stride".into(),
             ));
         }
         Ok(())
     }
+}
+
+fn reserved(name: &str) -> bool {
+    matches!(name, "self" | "Self" | "super" | "crate" | "_")
+}
+
+/// Whether the fields sit at their canonical offsets inside the layout's size and alignment.
+fn placed(layout: &Layout, fields: &[FieldLayout], named: bool) -> Result<bool, Error> {
+    if fields.is_empty() {
+        return Err(Error("empty ABI aggregates are unsupported".into()));
+    }
+    let mut names = HashSet::with_capacity(fields.len());
+    let mut offsets = true;
+    let mut size = 0;
+    let mut alignment = 1;
+    for field in fields {
+        if named
+            && (!identifier(&field.name)
+                || reserved(&field.name)
+                || !names.insert(field.name.as_str()))
+        {
+            return Err(Error("invalid or duplicate ABI field name".into()));
+        }
+        field.layout.validate()?;
+        let offset = aligned(size, field.layout.alignment)?;
+        offsets &= field.offset == offset;
+        size = offset.checked_add(field.layout.size).ok_or_else(overflow)?;
+        alignment = alignment.max(field.layout.alignment);
+    }
+    Ok(offsets && layout.size == aligned(size, alignment)? && layout.alignment == alignment)
 }
 
 fn overflow() -> Error {
@@ -150,10 +198,7 @@ fn fields(values: Vec<(String, Layout)>) -> Result<(u64, u64, Vec<FieldLayout>),
     let mut size = 0;
     let mut alignment = 1;
     for (name, layout) in values {
-        if !identifier(&name)
-            || matches!(name.as_str(), "self" | "Self" | "super" | "crate" | "_")
-            || !names.insert(name.clone())
-        {
+        if !identifier(&name) || reserved(&name) || !names.insert(name.clone()) {
             return Err(Error("invalid or duplicate ABI field name".into()));
         }
         layout.validate()?;
