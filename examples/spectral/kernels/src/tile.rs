@@ -54,8 +54,7 @@ pub unsafe fn gen_tile_fft(
                 let i = group * stride + pos;
                 let j = i + half;
                 let angle = -2.0 * core::f32::consts::PI * pos as f32 / stride as f32;
-                let wr = math::cos(angle);
-                let wi = math::sin(angle);
+                let (wi, wr) = math::sin_cos(angle);
                 let tr = shared_real.load_unchecked(j) * wr - shared_imag.load_unchecked(j) * wi;
                 let ti = shared_real.load_unchecked(j) * wi + shared_imag.load_unchecked(j) * wr;
                 let ar = shared_real.load_unchecked(i);

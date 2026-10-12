@@ -31,10 +31,8 @@ impl Complex {
 
 fn twiddle(pos: u32, stride: u32) -> Complex {
     let angle = -2.0 * core::f32::consts::PI * pos as f32 / stride as f32;
-    Complex {
-        re: math::cos(angle),
-        im: math::sin(angle),
-    }
+    let (im, re) = math::sin_cos(angle);
+    Complex { re, im }
 }
 
 fn radix4(a0: Complex, a1: Complex, a2: Complex, a3: Complex, pos: u32, half: u32) -> [Complex; 4] {
