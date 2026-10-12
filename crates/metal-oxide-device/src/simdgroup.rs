@@ -1,5 +1,5 @@
-//! Collectives over active SIMD lanes. Numeric operations support f32/u32/i32;
-//! bit reductions and shuffle_xor support u32/i32. Integer sums wrap; float reduction order is Metal's.
+//! Collectives over active SIMD lanes. Numeric operations and shuffles support f32/u32/i32;
+//! bit reductions support u32/i32. Integer sums wrap; float reduction order is Metal's.
 //! The compiler currently requires uniform block participation for collectives.
 
 use core::mem::{MaybeUninit, size_of};
