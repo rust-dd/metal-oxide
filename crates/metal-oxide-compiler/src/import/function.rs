@@ -1,7 +1,7 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{mir, ty::Instance};
 
-use super::{ModuleImporter, Result, control, location};
+use super::{ModuleImporter, Result, control, location, ranges};
 
 pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
@@ -9,6 +9,9 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
     pub(super) constants: Vec<Option<ir::Constant>>,
+    pub(super) references: Vec<Option<mir::Local>>,
+    /// Blocks numbered after the MIR blocks, from expanded range iteration.
+    pub(super) appended: Vec<ir::Block>,
 }
 
 impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
@@ -19,6 +22,8 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             locals: Vec::new(),
             allocations: 0,
             constants: Vec::new(),
+            references: Vec::new(),
+            appended: Vec::new(),
         }
     }
 
@@ -28,11 +33,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
         let used = control::used_locals(body);
         self.constants = super::constants::locals(tcx, self.instance, body);
+        self.references = ranges::references(body);
+        let discriminants = ranges::discriminants(body);
         for (index, local) in body.local_decls.iter().enumerate() {
-            let ty = if used[index] {
-                self.lower_type(local.ty, local.source_info.span)?
-            } else {
+            let ty = if !used[index] || self.references[index].is_some() {
                 ir::Type::Unit
+            } else if discriminants[index] {
+                ir::Type::Scalar(ir::Scalar::Bool)
+            } else {
+                self.lower_type(local.ty, local.source_info.span)?
             };
             self.locals.push(ty);
         }
@@ -40,6 +49,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         for block in body.basic_blocks.iter() {
             blocks.push(self.block(block, body)?);
         }
+        blocks.append(&mut self.appended);
         Ok(ir::Function {
             name: if kernel {
                 tcx.item_name(self.instance.def_id()).to_string()
@@ -68,6 +78,11 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         for statement in &block.statements {
             let span = statement.source_info.span;
             match &statement.kind {
+                mir::StatementKind::Assign(assignment)
+                    if assignment
+                        .0
+                        .as_local()
+                        .is_some_and(|local| self.references[local.as_usize()].is_some()) => {}
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
                     statements.push(ir::Statement {
@@ -112,6 +127,20 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 target: target.as_usize(),
                 message: format!("{msg:?}"),
             },
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
+            } if self.is_range_next(func, body) => self.range_next(
+                &mut statements,
+                args,
+                destination,
+                target.as_usize(),
+                body,
+                span,
+            )?,
             mir::TerminatorKind::Call {
                 func,
                 args,

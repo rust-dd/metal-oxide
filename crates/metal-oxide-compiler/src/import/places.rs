@@ -6,11 +6,40 @@ use super::{Result, function::FunctionImporter};
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
     pub(super) fn place(&self, place: &mir::Place<'tcx>, span: Span) -> Result<ir::Place> {
+        Ok(self.typed_place(place, span)?.0)
+    }
+
+    pub(super) fn typed_place(
+        &self,
+        place: &mir::Place<'tcx>,
+        span: Span,
+    ) -> Result<(ir::Place, ir::Type)> {
         let local = place.local.as_usize();
+        if self.references[local].is_some() {
+            return Err((
+                span,
+                "references are supported only as range iterator arguments".into(),
+            ));
+        }
         let mut ty = self.locals[local];
         let mut projection = Vec::new();
+        let mut some = false;
         for element in place.projection.iter() {
             let index = match element {
+                // `Some`'s only field is the record's value; `None` has no fields to project.
+                mir::ProjectionElem::Downcast(_, variant)
+                    if variant.as_u32() == 1 && !some && self.module.types.is_option(ty) =>
+                {
+                    some = true;
+                    continue;
+                }
+                mir::ProjectionElem::Field(field, _) if some => {
+                    if field.as_u32() != 0 {
+                        return Err((span, "invalid Option field projection".into()));
+                    }
+                    some = false;
+                    ir::Projection::Field(1)
+                }
                 mir::ProjectionElem::Field(field, _) => ir::Projection::Field(field.as_u32()),
                 mir::ProjectionElem::Index(index) => match self.constants[index.as_usize()] {
                     Some(ir::Constant::Usize(value)) if u32::try_from(value).is_ok() => {
@@ -54,6 +83,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .ok_or((span, "invalid aggregate field or array index".into()))?;
             projection.push(index);
         }
-        Ok(ir::Place { local, projection })
+        if some {
+            return Err((span, "unsupported MIR place projection".into()));
+        }
+        Ok((ir::Place { local, projection }, ty))
     }
 }

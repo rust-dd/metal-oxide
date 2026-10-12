@@ -36,15 +36,17 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Ok(ir::Terminator::Goto(otherwise));
         }
         let operand = self.operand(discriminant, span)?;
-        let ty = self.lower_type(discriminant.ty(&body.local_decls, self.module.tcx), span)?;
+        // A local's imported type also covers `Option` flags, whose Rust type is `isize`.
+        let ty = match discriminant.place().and_then(|place| place.as_local()) {
+            Some(local) => self.locals[local.as_usize()],
+            None => self.lower_type(discriminant.ty(&body.local_decls, self.module.tcx), span)?,
+        };
         if ty == ir::Type::Scalar(ir::Scalar::Bool) {
-            let [(value, target)] = cases.as_slice() else {
-                return Err((span, "invalid bool switch cases".into()));
-            };
-            let (then_block, else_block) = match value {
-                0 => (otherwise, target.as_usize()),
-                1 => (target.as_usize(), otherwise),
-                _ => return Err((span, "invalid bool switch value".into())),
+            let (then_block, else_block) = match cases.as_slice() {
+                [(0, target)] => (otherwise, target.as_usize()),
+                [(1, target)] => (target.as_usize(), otherwise),
+                [(0, no), (1, yes)] | [(1, yes), (0, no)] => (yes.as_usize(), no.as_usize()),
+                _ => return Err((span, "invalid bool switch cases".into())),
             };
             return Ok(ir::Terminator::Branch {
                 condition: operand,
@@ -52,20 +54,14 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 else_block,
             });
         }
+        let ir::Type::Scalar(scalar) = ty else {
+            return Err((span, "unsupported switch discriminant type".into()));
+        };
         let cases = cases
             .into_iter()
             .map(|(value, target)| {
-                let value = match ty {
-                    ir::Type::Scalar(ir::Scalar::U32) => ir::Constant::U32(value as u32),
-                    ir::Type::Scalar(ir::Scalar::Usize) => ir::Constant::Usize(value as u64),
-                    ir::Type::Scalar(ir::Scalar::U64) => ir::Constant::U64(value as u64),
-                    ir::Type::Scalar(ir::Scalar::I32) => ir::Constant::I32(value as i32),
-                    ir::Type::Scalar(ir::Scalar::U8) => ir::Constant::U8(value as u8),
-                    ir::Type::Scalar(ir::Scalar::U16) => ir::Constant::U16(value as u16),
-                    ir::Type::Scalar(ir::Scalar::I8) => ir::Constant::I8(value as i8),
-                    ir::Type::Scalar(ir::Scalar::I16) => ir::Constant::I16(value as i16),
-                    _ => return Err((span, "unsupported switch discriminant type".into())),
-                };
+                let value = integer(scalar, value)
+                    .ok_or((span, "unsupported switch discriminant type".into()))?;
                 Ok((value, target.as_usize()))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -75,4 +71,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             otherwise,
         })
     }
+}
+
+/// The integer constant of `scalar` holding the low bits of `value`.
+pub(super) fn integer(scalar: ir::Scalar, value: u128) -> Option<ir::Constant> {
+    Some(match scalar {
+        ir::Scalar::U32 => ir::Constant::U32(value as u32),
+        ir::Scalar::Usize => ir::Constant::Usize(value as u64),
+        ir::Scalar::U64 => ir::Constant::U64(value as u64),
+        ir::Scalar::I32 => ir::Constant::I32(value as i32),
+        ir::Scalar::U8 => ir::Constant::U8(value as u8),
+        ir::Scalar::U16 => ir::Constant::U16(value as u16),
+        ir::Scalar::I8 => ir::Constant::I8(value as i8),
+        ir::Scalar::I16 => ir::Constant::I16(value as i16),
+        _ => return None,
+    })
 }

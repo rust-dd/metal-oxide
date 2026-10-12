@@ -5,7 +5,7 @@ mod device;
 mod signatures;
 
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::{self, TyCtxt};
+use rustc_middle::ty::{self, Ty, TyCtxt};
 
 pub(crate) use device::{DeviceType, device_type};
 
@@ -57,6 +57,22 @@ impl Intrinsic {
             Self::UncheckedFloatToInt => "unchecked_float_to_int",
         }
     }
+}
+
+/// The element type of `Iterator::next` on `Range<T>`, which the importer expands inline.
+pub(crate) fn range_next<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    definition: DefId,
+    arguments: ty::GenericArgsRef<'tcx>,
+) -> Option<Ty<'tcx>> {
+    let items = tcx.lang_items();
+    if items.next_fn() != Some(definition) {
+        return None;
+    }
+    let ty::Adt(range, element) = arguments.type_at(0).kind() else {
+        return None;
+    };
+    (items.range_struct() == Some(range.did())).then(|| element.type_at(0))
 }
 
 pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {

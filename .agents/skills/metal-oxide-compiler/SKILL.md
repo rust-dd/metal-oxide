@@ -30,6 +30,10 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   assertions, recursion, layouts, and conversions must produce diagnostics.
   Never remove a bounds/overflow check without a sound proof or silently change semantics.
+- `Iterator::next` on `Range<integer>` expands inline into a bounds branch. Its
+  `Option` result is an internal (`is_some`, `value`) record that kernels may read
+  but not construct; `&mut` borrows are erased only as its argument. Other
+  iterators, enum construction and references are rejected.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
 - Device records contain owned scalar fields; keep their internal shape separate

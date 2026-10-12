@@ -57,6 +57,15 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<ir::Expression> {
         match value {
+            mir::Rvalue::Aggregate(kind, _)
+                if matches!(**kind, mir::AggregateKind::Adt(definition, ..)
+                    if self.module.tcx.adt_def(definition).is_enum()) =>
+            {
+                Err((
+                    span,
+                    "enum values cannot be constructed in Metal kernels".into(),
+                ))
+            }
             mir::Rvalue::Aggregate(_, fields) => {
                 let ty = self.lower_type(destination, span)?;
                 let fields = fields
@@ -94,6 +103,14 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 })
             }
             mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(self.operand(v, span)?)),
+            mir::Rvalue::Discriminant(place) => {
+                let (mut place, ty) = self.typed_place(place, span)?;
+                if !self.module.types.is_option(ty) {
+                    return Err((span, "only Option discriminants are supported".into()));
+                }
+                place.projection.push(ir::Projection::Field(0));
+                Ok(ir::Expression::Use(ir::Operand::Place(place)))
+            }
             mir::Rvalue::BinaryOp(op, values) => Ok(ir::Expression::Binary(
                 binary(*op, span)?,
                 self.operand(&values.0, span)?,

@@ -32,6 +32,8 @@ mod native;
 mod numerics;
 #[path = "gpu/proofs.rs"]
 mod proofs;
+#[path = "gpu/ranges.rs"]
+mod ranges;
 #[path = "gpu/read_write.rs"]
 mod read_write;
 #[path = "gpu/records.rs"]

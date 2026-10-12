@@ -4,6 +4,7 @@ mod control;
 mod function;
 mod literals;
 mod places;
+mod ranges;
 mod values;
 
 use std::collections::HashMap;

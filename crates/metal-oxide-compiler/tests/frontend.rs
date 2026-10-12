@@ -120,8 +120,32 @@ fn unsupported_reachable_calls_are_reported() {
             "destructor",
             "destructors are not supported in Metal kernels",
         ),
+        (
+            "range_inclusive",
+            "iterators other than integer ranges are not supported in Metal kernels",
+        ),
     ] {
         support::rejected(support::fixture(fixture), error);
+    }
+}
+
+#[test]
+fn enum_values_and_other_references_are_rejected_on_import() {
+    for (fixture, error) in [
+        (
+            "option_value",
+            "enum values cannot be constructed in Metal kernels",
+        ),
+        (
+            "reference_use",
+            "references are supported only as range iterator arguments",
+        ),
+    ] {
+        let (output, _) = support::emit(
+            &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
+            &[],
+        );
+        support::rejected(output, error);
     }
 }
 

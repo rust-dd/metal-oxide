@@ -10,6 +10,8 @@ mod dynamic_shared;
 mod integer_bits;
 #[path = "msl/math_mode.rs"]
 mod math_mode;
+#[path = "msl/ranges.rs"]
+mod ranges;
 #[path = "msl/read_write.rs"]
 mod read_write;
 #[path = "msl/spectral.rs"]

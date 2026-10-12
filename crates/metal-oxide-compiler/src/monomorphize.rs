@@ -166,6 +166,15 @@ impl<'tcx> Collector<'tcx> {
             return;
         };
         let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
+        if tcx.lang_items().next_fn() == Some(definition) {
+            if crate::intrinsics::range_next(tcx, definition, arguments).is_none() {
+                tcx.dcx().span_err(
+                    span,
+                    "iterators other than integer ranges are not supported in Metal kernels",
+                );
+            }
+            return;
+        }
         match Instance::try_resolve(tcx, environment, definition, arguments) {
             Ok(Some(instance)) => self.visit(instance, span),
             Ok(None) => {

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::Span;
@@ -7,6 +9,7 @@ use crate::intrinsics::{DeviceType, device_type};
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
     types: ir::TypeTable,
+    options: HashSet<usize>,
 }
 
 impl<'tcx> TypeLowering<'tcx> {
@@ -14,7 +17,13 @@ impl<'tcx> TypeLowering<'tcx> {
         Self {
             tcx,
             types: ir::TypeTable::default(),
+            options: HashSet::new(),
         }
+    }
+
+    /// Whether `ty` is the internal `Option` record of range iteration.
+    pub(crate) fn is_option(&self, ty: ir::Type) -> bool {
+        matches!(ty, ir::Type::Aggregate(id) if self.options.contains(&id))
     }
 
     pub(crate) fn table(&self) -> &ir::TypeTable {
@@ -83,6 +92,11 @@ impl<'tcx> TypeLowering<'tcx> {
             if device_type(self.tcx, definition.did()) == Some(DeviceType::Dim3) {
                 return Ok(ir::Type::Dim3);
             }
+            if self.tcx.lang_items().option_type() == Some(definition.did())
+                && let Some(element) = scalar(args.type_at(0)).filter(|s| s.is_integer())
+            {
+                return Ok(self.option(element));
+            }
             if definition.is_struct() {
                 if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
                     return Err((span, "destructors cannot be imported".into()));
@@ -113,6 +127,28 @@ impl<'tcx> TypeLowering<'tcx> {
         }
         Err((span, format!("unsupported device type: {ty}")))
     }
+
+    /// `Option<T>` as an `is_some` flag and a value that is meaningful only when it is set.
+    fn option(&mut self, element: ir::Scalar) -> ir::Type {
+        let ty = self.types.intern(ir::Aggregate::Record {
+            name: "Option".into(),
+            fields: vec![
+                ir::RecordField {
+                    name: "is_some".into(),
+                    ty: ir::Type::Scalar(ir::Scalar::Bool),
+                },
+                ir::RecordField {
+                    name: "value".into(),
+                    ty: ir::Type::Scalar(element),
+                },
+            ],
+        });
+        if let ir::Type::Aggregate(id) = ty {
+            self.options.insert(id);
+        }
+        ty
+    }
+
     fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
         let ty = self.lower(ty, span)?;
         if matches!(
