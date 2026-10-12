@@ -8,7 +8,7 @@ use crate::{
     metadata::Project,
     process::{self, Result},
 };
-use metal_oxide_artifact::{COMPILER_NIGHTLY, CompilerInfo};
+use metal_oxide_artifact::{COMPILER_NIGHTLY, CompilerInfo, sha256};
 
 /// The metal-oxide compiler that builds kernel crates.
 pub enum Compiler {
@@ -74,7 +74,11 @@ impl Compiler {
     }
 }
 
+/// Builds the compiler below `directory`, in a subdirectory per source location: Cargo
+/// would otherwise reuse a binary built from another checkout of the same workspace.
 fn build(manifest: &Path, directory: &Path, rustc: &str) -> Result<PathBuf> {
+    let source = sha256(manifest.to_string_lossy().as_bytes());
+    let directory = directory.join(&source[..16]);
     let host = rustc
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
@@ -100,7 +104,7 @@ fn build(manifest: &Path, directory: &Path, rustc: &str) -> Result<PathBuf> {
             .arg("--manifest-path")
             .arg(manifest)
             .arg("--target-dir")
-            .arg(directory),
+            .arg(&directory),
     )?;
     let mut binaries = Vec::new();
     for line in messages.lines() {

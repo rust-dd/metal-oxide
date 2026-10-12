@@ -86,8 +86,14 @@ impl Workspace {
             .lines()
             .find_map(|line| line.strip_prefix("host: "))
             .unwrap();
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../metal-oxide-compiler/Cargo.toml")
+            .canonicalize()
+            .unwrap();
+        let source = metal_oxide_artifact::sha256(source.to_string_lossy().as_bytes());
         self.0
             .join("target/compiler")
+            .join(&source[..16])
             .join(host)
             .join("release/metal-oxide-compiler")
     }
