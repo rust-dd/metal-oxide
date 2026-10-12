@@ -120,6 +120,53 @@ fn explicitly_disabled_optional_assertion_follows_success_edge() {
     );
 }
 
+#[test]
+fn values_read_only_by_erased_assertions_are_not_emitted() {
+    let module = module(
+        1,
+        vec![
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::Bool),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U32),
+        ],
+        vec![
+            block(
+                vec![
+                    (2, Expression::Binary(BinaryOp::Lt, local(1), uint(100))),
+                    (3, Expression::Binary(BinaryOp::Add, local(1), uint(7))),
+                    (4, Expression::Binary(BinaryOp::Mul, local(3), uint(2))),
+                    (5, Expression::Binary(BinaryOp::Add, local(1), uint(1))),
+                ],
+                Terminator::Assert {
+                    condition: local(2),
+                    expected: true,
+                    enabled: false,
+                    target: 1,
+                    message: "bound".into(),
+                },
+            ),
+            block(vec![(0, Expression::Use(local(5)))], Terminator::Return),
+        ],
+    );
+    let msl = metal_oxide_codegen::Codegen::new(&module)
+        .and_then(|codegen| codegen.emit())
+        .unwrap();
+    for local in ["v2", "v3", "v4"] {
+        assert!(
+            !msl.contains(&format!(" {local};")) && !msl.contains(&format!("{local} = ")),
+            "{local}: {msl}"
+        );
+    }
+    assert!(msl.contains("v5 = "), "{msl}");
+    assert_eq!(
+        support::execute(&module, "std::cout << metal_oxide_fn_0(41u, ctx);"),
+        "42"
+    );
+}
+
 fn assertion(enabled: bool) -> Module {
     module(
         1,

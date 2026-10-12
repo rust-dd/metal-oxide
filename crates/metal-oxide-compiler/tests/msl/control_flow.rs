@@ -136,6 +136,29 @@ fn repeated_diamonds_after_early_returns_share_their_continuation() {
     assert_eq!(actual, expected.concat());
 }
 
+#[test]
+fn constant_conditions_emit_only_the_taken_arm() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/constant_branches.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    assert!(!msl.contains("if ("), "{msl}");
+    for absent in [1234.5_f32, 3.0, 7.0] {
+        assert!(
+            !msl.contains(&format!("0x{:08x}u", absent.to_bits())),
+            "{absent}: {msl}"
+        );
+    }
+    let actual = support::execute_msl(
+        &directory,
+        "float out[1] = {0.0f}; constant_branches(out, 2.5f, {}, {}, {1,1,1}, {1,1,1}); \
+         std::cout << out[0];",
+    );
+    assert_eq!(actual, "7.5");
+}
+
 fn execute<T: std::fmt::Display>(fixture: &str, entry: &str, values: &[T]) -> Vec<u32> {
     let (output, directory) = support::emit(
         &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),

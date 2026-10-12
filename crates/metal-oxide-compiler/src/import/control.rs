@@ -48,6 +48,14 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 [(0, no), (1, yes)] | [(1, yes), (0, no)] => (yes.as_usize(), no.as_usize()),
                 _ => return Err((span, "invalid bool switch cases".into())),
             };
+            // Constant conditions (often associated consts) leave the untaken arm unreachable.
+            if let ir::Operand::Constant(ir::Constant::Bool(value)) = operand {
+                return Ok(ir::Terminator::Goto(if value {
+                    then_block
+                } else {
+                    else_block
+                }));
+            }
             return Ok(ir::Terminator::Branch {
                 condition: operand,
                 then_block,
@@ -65,6 +73,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 Ok((value, target.as_usize()))
             })
             .collect::<Result<Vec<_>>>()?;
+        if let ir::Operand::Constant(value) = operand {
+            let target = cases.iter().find(|(case, _)| *case == value);
+            return Ok(ir::Terminator::Goto(
+                target.map_or(otherwise, |&(_, target)| target),
+            ));
+        }
         Ok(ir::Terminator::Switch {
             discriminant: operand,
             cases,

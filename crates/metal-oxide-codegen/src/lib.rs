@@ -14,6 +14,7 @@ mod names;
 mod numeric;
 mod simd;
 mod structured;
+mod unused;
 
 use interface::KernelInterfaces;
 use metal_oxide_artifact::MathMode;

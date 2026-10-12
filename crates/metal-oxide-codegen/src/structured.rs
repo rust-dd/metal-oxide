@@ -1,6 +1,7 @@
 use crate::{
     control::StructuredGraph,
     expressions::{expression, operand},
+    unused::Used,
 };
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
@@ -10,6 +11,7 @@ pub(crate) fn body(
     module: &Module,
     function: &Function,
     graph: StructuredGraph<'_>,
+    used: &Used,
     analyses: &[FunctionAnalysis],
     math_mode: MathMode,
     output: &mut String,
@@ -18,6 +20,7 @@ pub(crate) fn body(
         module,
         function,
         graph,
+        used,
         analyses,
         math_mode,
         output,
@@ -31,6 +34,7 @@ struct Emitter<'a> {
     module: &'a Module,
     function: &'a Function,
     graph: StructuredGraph<'a>,
+    used: &'a Used,
     analyses: &'a [FunctionAnalysis],
     math_mode: MathMode,
     output: &'a mut String,
@@ -92,8 +96,10 @@ impl Emitter<'_> {
                     "control flow requires excessive or cooperative block duplication",
                 ));
             }
-            for statement in &block.statements {
-                if matches!(statement.value, Expression::Uninit(_)) {
+            for (index, statement) in block.statements.iter().enumerate() {
+                if matches!(statement.value, Expression::Uninit(_))
+                    || !self.used.statement(current, index)
+                {
                     continue;
                 }
                 let value = expression(

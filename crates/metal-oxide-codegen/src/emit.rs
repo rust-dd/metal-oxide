@@ -120,13 +120,16 @@ impl<'a> ModuleEmitter<'a> {
                     .unwrap();
                 }
             }
+            let used = crate::unused::Used::new(function, graph.cfg);
             for (local, &ty) in function.locals.iter().enumerate() {
+                let parameter = (1..=function.parameters).contains(&local);
                 if matches!(ty, Type::Unit | Type::Never)
-                    || (!function.kernel && (1..=function.parameters).contains(&local))
+                    || (!function.kernel && parameter)
+                    || (!parameter && !used.local(local))
                 {
                     continue;
                 }
-                if function.kernel && (1..=function.parameters).contains(&local) {
+                if function.kernel && parameter {
                     writeln!(
                         self.output,
                         "    {} v{local} = metal_oxide_arg_{local};",
@@ -141,6 +144,7 @@ impl<'a> ModuleEmitter<'a> {
                 module,
                 function,
                 graph,
+                &used,
                 self.analyses,
                 self.math_mode,
                 &mut self.output,
