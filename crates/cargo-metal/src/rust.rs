@@ -10,7 +10,7 @@ use std::{
 };
 
 pub(crate) use metal_oxide_artifact::COMPILER_NIGHTLY as NIGHTLY;
-const TARGET: &str = include_str!("../../../targets/metal64-unknown-none.json");
+const TARGET: &str = include_str!("../targets/metal64-unknown-none.json");
 
 pub(crate) struct Rust {
     pub(crate) compiler: PathBuf,

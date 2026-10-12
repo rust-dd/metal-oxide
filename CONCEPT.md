@@ -121,7 +121,7 @@ instances after analysis. This includes resolving type and const arguments for
 supported generic helpers and device methods.
 
 The kernel and its device dependencies use the custom
-[`metal64-unknown-none` target](targets/metal64-unknown-none.json), with matching
+[`metal64-unknown-none` target](crates/cargo-metal/targets/metal64-unknown-none.json), with matching
 `core` metadata. Proc macros build for the CPU host. Device layout queries use
 the device target rather than assuming the host target is the GPU target.
 
