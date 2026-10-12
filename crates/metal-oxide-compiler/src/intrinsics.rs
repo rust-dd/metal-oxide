@@ -1,4 +1,6 @@
-use metal_oxide_ir::{Access, AtomicOp, BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin, SimdOp};
+use metal_oxide_ir::{
+    Access, AtomicOp, BinaryOp, Builtin, IntegerOp, MathOp, Scalar, SimdBuiltin, SimdOp,
+};
 mod device;
 mod signatures;
 
@@ -20,6 +22,7 @@ pub(crate) enum Intrinsic {
     Atomic(AtomicOp),
     WrappingShift(BinaryOp),
     Math(MathOp),
+    Integer(IntegerOp),
     Bitcast(Scalar),
     FloatConvert(Scalar),
     UncheckedFloatToInt,
@@ -48,6 +51,7 @@ impl Intrinsic {
             Self::Atomic(_) => "atomic",
             Self::WrappingShift(_) => "wrapping_shift",
             Self::Math(_) => "float_math",
+            Self::Integer(_) => "integer_op",
             Self::Bitcast(_) => "scalar_bitcast",
             Self::FloatConvert(_) => "float_conversion",
             Self::UncheckedFloatToInt => "unchecked_float_to_int",
@@ -67,6 +71,19 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     }
     if tcx.crate_name(definition.krate).as_str() != "core" {
         return None;
+    }
+    if let Some(intrinsic) = tcx.intrinsic(definition) {
+        return Some(Intrinsic::Integer(match intrinsic.name.as_str() {
+            "integer_min" => IntegerOp::Min,
+            "integer_max" => IntegerOp::Max,
+            "ctlz" => IntegerOp::LeadingZeros,
+            "cttz" => IntegerOp::TrailingZeros,
+            "ctpop" => IntegerOp::CountOnes,
+            "bitreverse" => IntegerOp::ReverseBits,
+            "rotate_left" => IntegerOp::RotateLeft,
+            "rotate_right" => IntegerOp::RotateRight,
+            _ => return None,
+        }));
     }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(

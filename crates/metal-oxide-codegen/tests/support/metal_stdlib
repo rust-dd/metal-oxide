@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <algorithm>
 #include <cmath>
+#include <type_traits>
 static_assert(char(-1) < 0, "MSL char is signed; compile the shim with -fsigned-char");
 #define kernel
 #define device
@@ -31,7 +33,43 @@ using std::fmin;
 using std::fmax;
 using std::fma;
 using std::floor;
+using std::round;
+using std::ceil;
+using std::trunc;
 using std::copysign;
+using std::min;
+using std::max;
+template<class T> T clz(T value) {
+    auto bits = std::make_unsigned_t<T>(value);
+    T count = 0;
+    for (int i = int(sizeof(T) * 8) - 1; i >= 0 && !((bits >> i) & 1u); --i) ++count;
+    return count;
+}
+template<class T> T ctz(T value) {
+    auto bits = std::make_unsigned_t<T>(value);
+    T count = 0;
+    for (unsigned i = 0; i < sizeof(T) * 8 && !((bits >> i) & 1u); ++i) ++count;
+    return count;
+}
+template<class T> T popcount(T value) {
+    auto bits = std::make_unsigned_t<T>(value);
+    T count = 0;
+    for (unsigned i = 0; i < sizeof(T) * 8; ++i) count += T((bits >> i) & 1u);
+    return count;
+}
+template<class T> T reverse_bits(T value) {
+    using U = std::make_unsigned_t<T>;
+    U bits = U(value), result = 0;
+    for (unsigned i = 0; i < sizeof(T) * 8; ++i) result = U((result << 1) | ((bits >> i) & 1u));
+    return T(result);
+}
+template<class T> T rotate(T value, T shift) {
+    using U = std::make_unsigned_t<T>;
+    constexpr unsigned width = sizeof(T) * 8;
+    unsigned n = unsigned(U(shift)) % width;
+    U bits = U(value);
+    return n == 0 ? value : T(U((bits << n) | (bits >> (width - n))));
+}
 namespace precise {
 using std::sqrt;
 using std::log;

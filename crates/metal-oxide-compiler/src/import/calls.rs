@@ -67,6 +67,15 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     arguments: values,
                 }
             }
+            Intrinsic::Integer(op) => {
+                if values.len() != op.arity() {
+                    return Err((span, "invalid integer intrinsic arity".into()));
+                }
+                ir::Expression::Integer {
+                    op,
+                    arguments: values,
+                }
+            }
             Intrinsic::Bitcast(to) => {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Bitcast(value, to)

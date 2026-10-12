@@ -218,3 +218,73 @@ fn ordered(value: f32) -> u32 {
         !bits
     }
 }
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn rounding_matches_rust_in_precise_and_fast_modes() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let mut x = vec![
+        -2.5_f32,
+        -1.5,
+        -0.5,
+        -0.4,
+        -0.0,
+        0.0,
+        0.4,
+        0.5,
+        1.5,
+        2.5,
+        8_388_607.5,
+        -8_388_607.5,
+        1e30,
+        -1e30,
+        f32::MAX,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        1e-40,
+        -1e-40,
+    ];
+    x.extend((0..4096).map(|i| (i as f32 - 2048.0) * 0.37 + 0.13));
+    let n = x.len() as u32;
+    let input = device.buffer_from_slice(&x)?;
+    for mode in [
+        metal_oxide_artifact::MathMode::Precise,
+        metal_oxide_artifact::MathMode::Fast,
+    ] {
+        let rounding = pipeline_with_math_mode(
+            &device,
+            "crates/metal-oxide-compiler/tests/fixtures/rounding.rs",
+            "rounding",
+            mode,
+        )?;
+        let mut out = device.buffer_from_slice(&vec![SENTINEL; 3 * x.len()])?;
+        // SAFETY: each active lane writes its own three outputs.
+        unsafe {
+            device.launch(
+                &rounding,
+                LaunchConfig::<64>::for_elements(n)?,
+                &[
+                    Argument::read(&input),
+                    Argument::write(&mut out),
+                    Argument::value(n)?,
+                ],
+            )?;
+        }
+        let functions: [fn(f32) -> f32; 3] = [f32::round, f32::ceil, f32::trunc];
+        for (i, &value) in x.iter().enumerate() {
+            for (k, function) in functions.iter().enumerate() {
+                let actual = out.as_slice()[3 * i + k];
+                // Subnormal inputs may be flushed, and fast mode leaves zero signs open.
+                let accepted = [function(value), function(flush(value))]
+                    .iter()
+                    .any(|&want| {
+                        same_bits_or_nan(actual, want)
+                            || (mode == metal_oxide_artifact::MathMode::Fast && actual == want)
+                    });
+                assert!(accepted, "{mode:?} function {k} of {value:e}: {actual:e}");
+            }
+        }
+    }
+    Ok(())
+}

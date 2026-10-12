@@ -59,3 +59,59 @@ fn box_muller_helper_and_exponential_step_execute_from_rust() {
     );
     assert_eq!(result, "ok");
 }
+
+#[test]
+fn rounding_matches_rust_including_halfway_cases_and_signed_zero() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/rounding.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let inputs = [
+        -2.5_f32,
+        -1.5,
+        -0.5,
+        -0.4,
+        -0.0,
+        0.0,
+        0.4,
+        0.5,
+        1.5,
+        2.5,
+        3.7,
+        -3.7,
+        8_388_607.5,
+        1e30,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+    ];
+    let bits = |value: f32| format!("as_type<float>(0x{:08x}u)", value.to_bits());
+    let want = inputs
+        .iter()
+        .flat_map(|x| [x.round(), x.ceil(), x.trunc()])
+        .map(bits)
+        .collect::<Vec<_>>();
+    let n = inputs.len();
+    let result = support::execute_msl(
+        &directory,
+        &format!(
+            r#"
+            float x[{n}] = {{{inputs}}};
+            float want[{m}] = {{{want}}};
+            float out[{m}];
+            uint n = {n};
+            for (uint i = 0; i < n; ++i) rounding(x, out, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}});
+            for (uint i = 0; i < {m}; ++i) {{
+                bool same = as_type<uint>(out[i]) == as_type<uint>(want[i]);
+                if (!same && !(std::isnan(out[i]) && std::isnan(want[i]))) {{ std::cout << i; return 1; }}
+            }}
+            std::cout << "ok";
+            "#,
+            inputs = inputs.map(bits).join(", "),
+            m = 3 * n,
+            want = want.join(", "),
+        ),
+    );
+    assert_eq!(result, "ok");
+}

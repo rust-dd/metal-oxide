@@ -134,6 +134,20 @@ pub(crate) fn expression(
             op: operation,
             arguments,
         } => crate::floating::math(*operation, arguments.iter().map(op).collect(), math_mode),
+        Expression::Integer {
+            op: operation,
+            arguments,
+        } => match ty(&arguments[0])? {
+            Type::Scalar(scalar) => {
+                crate::integer::integer(*operation, scalar, arguments.iter().map(op).collect())
+            }
+            _ => {
+                return Err(Error::new(
+                    source,
+                    "integer operation requires a scalar operand",
+                ));
+            }
+        },
         Expression::Checked {
             scalar,
             value,

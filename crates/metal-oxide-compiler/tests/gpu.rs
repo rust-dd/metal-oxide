@@ -20,6 +20,8 @@ mod fast_math;
 mod float;
 #[path = "gpu/half.rs"]
 mod half;
+#[path = "gpu/integer_bits.rs"]
+mod integer_bits;
 #[path = "gpu/ir_aggregates.rs"]
 mod ir_aggregates;
 #[path = "gpu/narrow.rs"]

@@ -71,3 +71,21 @@ pub fn atan(value: f32) -> f32 {
 pub fn floor(value: f32) -> f32 {
     crate::intrinsics::__metal_floor_f32(value)
 }
+
+/// Nearest integral value, with halfway cases rounded away from zero, returned as f32.
+/// Preserves signed zero and infinities; NaN returns NaN.
+pub fn round(value: f32) -> f32 {
+    crate::intrinsics::__metal_round_f32(value)
+}
+
+/// Least integral value no smaller than the input, returned as f32.
+/// Preserves signed zero and infinities; NaN returns NaN.
+pub fn ceil(value: f32) -> f32 {
+    crate::intrinsics::__metal_ceil_f32(value)
+}
+
+/// Integral part of the input, rounded toward zero, returned as f32.
+/// Preserves signed zero and infinities; NaN returns NaN.
+pub fn trunc(value: f32) -> f32 {
+    crate::intrinsics::__metal_trunc_f32(value)
+}

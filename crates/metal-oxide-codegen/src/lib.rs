@@ -8,6 +8,7 @@ mod emit;
 mod expressions;
 mod floating;
 mod host_types;
+mod integer;
 mod interface;
 mod names;
 mod numeric;

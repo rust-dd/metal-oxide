@@ -25,6 +25,9 @@ unsafe extern "Rust" {
     pub(crate) safe fn __metal_tanh_f32(value: f32) -> f32;
     pub(crate) safe fn __metal_atan_f32(value: f32) -> f32;
     pub(crate) safe fn __metal_floor_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_round_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_ceil_f32(value: f32) -> f32;
+    pub(crate) safe fn __metal_trunc_f32(value: f32) -> f32;
     pub(crate) safe fn __metal_f16_from_f32(value: f32) -> F16;
     pub(crate) safe fn __metal_f16_to_f32(value: F16) -> f32;
     pub(crate) safe fn __metal_simd_lane() -> u32;

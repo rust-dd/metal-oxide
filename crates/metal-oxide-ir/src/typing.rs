@@ -165,6 +165,38 @@ pub(crate) fn expression_type(
             }
             Ok(Type::Scalar(Scalar::F32))
         }
+        Expression::Integer { op, arguments } => {
+            if arguments.len() != op.arity() {
+                return Err(Error::new(
+                    source,
+                    "invalid integer operation argument count",
+                ));
+            }
+            let scalar = match ty(&arguments[0])? {
+                Type::Scalar(scalar) if scalar.is_integer() => scalar,
+                _ => {
+                    return Err(Error::new(
+                        source,
+                        "integer operation requires an integer scalar",
+                    ));
+                }
+            };
+            match op {
+                IntegerOp::Min | IntegerOp::Max => {
+                    require(ty(&arguments[1])?, Type::Scalar(scalar))?
+                }
+                IntegerOp::RotateLeft | IntegerOp::RotateRight => {
+                    require(ty(&arguments[1])?, Type::Scalar(Scalar::U32))?
+                }
+                _ => {}
+            }
+            Ok(Type::Scalar(match op {
+                IntegerOp::LeadingZeros | IntegerOp::TrailingZeros | IntegerOp::CountOnes => {
+                    Scalar::U32
+                }
+                _ => scalar,
+            }))
+        }
         Expression::Checked {
             scalar,
             value,

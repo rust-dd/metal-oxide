@@ -50,9 +50,21 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         MathOp::Tanh => "tanh",
         MathOp::Atan => "atan",
         MathOp::Floor => "floor",
+        MathOp::Round => "round",
+        MathOp::Ceil => "ceil",
+        MathOp::Trunc => "trunc",
         MathOp::Abs => unreachable!(),
     };
-    let namespace = if matches!(op, MathOp::Min | MathOp::Max | MathOp::Fma | MathOp::Floor) {
+    let namespace = if matches!(
+        op,
+        MathOp::Min
+            | MathOp::Max
+            | MathOp::Fma
+            | MathOp::Floor
+            | MathOp::Round
+            | MathOp::Ceil
+            | MathOp::Trunc
+    ) {
         ""
     } else {
         match math_mode {
@@ -61,8 +73,8 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         }
     };
     let result = format!("{namespace}{name}({})", values.join(", "));
-    if op == MathOp::Atan && math_mode == MathMode::Precise {
-        // Metal's precise atan can discard negative zero, including flushed inputs.
+    if matches!(op, MathOp::Atan | MathOp::Round) && math_mode == MathMode::Precise {
+        // Metal's precise atan and round can discard negative zero, including flushed inputs.
         format!("copysign({result}, {})", values[0])
     } else {
         result

@@ -187,6 +187,9 @@ pub enum MathOp {
     Tanh,
     Atan,
     Floor,
+    Round,
+    Ceil,
+    Trunc,
 }
 
 impl MathOp {
@@ -200,9 +203,34 @@ impl MathOp {
             | Self::Cos
             | Self::Tanh
             | Self::Atan
-            | Self::Floor => 1,
+            | Self::Floor
+            | Self::Round
+            | Self::Ceil
+            | Self::Trunc => 1,
             Self::Min | Self::Max | Self::Powf => 2,
             Self::Fma => 3,
+        }
+    }
+}
+
+/// Integer operations with Rust semantics: counts are u32 and rotations wrap at the bit width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntegerOp {
+    Min,
+    Max,
+    LeadingZeros,
+    TrailingZeros,
+    CountOnes,
+    ReverseBits,
+    RotateLeft,
+    RotateRight,
+}
+
+impl IntegerOp {
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::LeadingZeros | Self::TrailingZeros | Self::CountOnes | Self::ReverseBits => 1,
+            Self::Min | Self::Max | Self::RotateLeft | Self::RotateRight => 2,
         }
     }
 }
@@ -234,6 +262,10 @@ pub enum Expression {
     Bitcast(Operand, Scalar),
     Math {
         op: MathOp,
+        arguments: Vec<Operand>,
+    },
+    Integer {
+        op: IntegerOp,
         arguments: Vec<Operand>,
     },
     Coordinates(Builtin),
@@ -309,6 +341,7 @@ impl Expression {
             } => vec![buffer, index, value],
             Self::Call { arguments, .. }
             | Self::Math { arguments, .. }
+            | Self::Integer { arguments, .. }
             | Self::Simd { arguments, .. }
             | Self::Atomic { arguments, .. } => arguments.iter().collect(),
         }

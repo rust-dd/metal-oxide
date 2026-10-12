@@ -48,7 +48,10 @@ impl<'tcx> Collector<'tcx> {
         if !self.seen.insert(instance) {
             return;
         }
-        if !matches!(instance.def, ty::InstanceKind::Item(_)) {
+        if !matches!(instance.def, ty::InstanceKind::Item(_))
+            && !(matches!(instance.def, ty::InstanceKind::Intrinsic(_))
+                && crate::intrinsics::builtin(tcx, instance.def_id()).is_some())
+        {
             tcx.dcx()
                 .span_err(span, format!("unsupported function instance: {instance}"));
             return;
