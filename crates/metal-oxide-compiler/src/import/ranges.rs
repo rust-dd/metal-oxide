@@ -39,6 +39,44 @@ pub(super) fn references(body: &mir::Body<'_>) -> Vec<Option<mir::Local>> {
     references
 }
 
+/// The discriminant local and the `Some` and `None` targets when `target` only reads the
+/// discriminant of `option` and switches on it.
+fn matched<'tcx>(
+    body: &mir::Body<'tcx>,
+    target: usize,
+    option: &mir::Place<'tcx>,
+) -> Option<(mir::Local, mir::BasicBlock, mir::BasicBlock)> {
+    let block = &body.basic_blocks[mir::BasicBlock::from_usize(target)];
+    let mut discriminant = None;
+    for statement in &block.statements {
+        match &statement.kind {
+            mir::StatementKind::StorageLive(_)
+            | mir::StatementKind::StorageDead(_)
+            | mir::StatementKind::Nop => {}
+            mir::StatementKind::Assign(assignment)
+                if discriminant.is_none() && assignment.1 == mir::Rvalue::Discriminant(*option) =>
+            {
+                discriminant = Some(assignment.0.as_local()?);
+            }
+            _ => return None,
+        }
+    }
+    let discriminant = discriminant?;
+    let mir::TerminatorKind::SwitchInt { discr, targets } = &block.terminator().kind else {
+        return None;
+    };
+    if discr.place()?.as_local()? != discriminant {
+        return None;
+    }
+    let arm = |value| {
+        targets
+            .iter()
+            .find(|&(case, _)| case == value)
+            .map_or(targets.otherwise(), |(_, target)| target)
+    };
+    Some((discriminant, arm(1), arm(0)))
+}
+
 /// Locals assigned an enum discriminant, which only `Option` flags provide.
 pub(super) fn discriminants(body: &mir::Body<'_>) -> Vec<bool> {
     let mut discriminants = vec![false; body.local_decls.len()];
@@ -151,11 +189,29 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ),
             ),
         ];
-        let none = vec![yielded(false, ir::Operand::Constant(zero))];
+        let mut some = some;
+        let mut none = vec![yielded(false, ir::Operand::Constant(zero))];
+        // A `for` or `while let` then switches on the discriminant; branching to its arms
+        // directly keeps the loop as lean as a counted `while`.
+        let (some_target, none_target) = match matched(body, target, destination) {
+            Some((discriminant, some_target, none_target)) => {
+                let flag = ir::Place::local(discriminant.as_usize());
+                some.push(statement(
+                    &flag,
+                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(true))),
+                ));
+                none.push(statement(
+                    &flag,
+                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(false))),
+                ));
+                (some_target.as_usize(), none_target.as_usize())
+            }
+            None => (target, target),
+        };
         Ok(ir::Terminator::Branch {
             condition: ir::Operand::Place(condition),
-            then_block: self.append_block(body, some, target, &source),
-            else_block: self.append_block(body, none, target, &source),
+            then_block: self.append_block(body, some, some_target, &source),
+            else_block: self.append_block(body, none, none_target, &source),
         })
     }
 
