@@ -9,10 +9,14 @@ use std::{
 #[cfg(test)]
 mod tests;
 
+/// Increments when recording changes, which makes older records stale.
+const FORMAT: u32 = 1;
+
 /// The inputs a committed artifact was built from. Paths are relative to the kernel package.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Recorded {
+    pub(crate) format: u32,
     /// The fingerprint in the artifact's manifest.
     pub(crate) artifact: String,
     pub(crate) math_mode: MathMode,
@@ -118,6 +122,7 @@ impl Recorded {
         packages.sort();
         packages.dedup();
         Ok(Self {
+            format: FORMAT,
             artifact: artifact.into(),
             math_mode,
             lock: relative(&lock, base).to_string_lossy().into_owned(),
@@ -128,6 +133,9 @@ impl Recorded {
 
     /// Whether every recorded file and package is unchanged, with `base` as the kernel package.
     pub(crate) fn current(&self, base: &Path) -> bool {
+        if self.format != FORMAT {
+            return false;
+        }
         let files = self.files.iter().all(|(path, hash)| {
             std::fs::read(base.join(path)).is_ok_and(|bytes| sha256(&bytes) == *hash)
         });

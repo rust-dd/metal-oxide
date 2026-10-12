@@ -88,6 +88,7 @@ fn changed_files_and_lock_entries_are_not_current() {
     std::fs::write(kernels.join("src/lib.rs"), "#![no_std]\n").unwrap();
     std::fs::write(directory.0.join("Cargo.lock"), LOCK).unwrap();
     let recorded = Recorded {
+        format: FORMAT,
         artifact: "0".repeat(64),
         math_mode: MathMode::Fast,
         lock: "../Cargo.lock".into(),
@@ -95,6 +96,11 @@ fn changed_files_and_lock_entries_are_not_current() {
         files: BTreeMap::from([("src/lib.rs".into(), sha256(b"#![no_std]\n"))]),
     };
     assert!(recorded.current(&kernels));
+    let older = Recorded {
+        format: FORMAT - 1,
+        ..recorded.clone()
+    };
+    assert!(!older.current(&kernels));
     assert_eq!(
         recorded.paths(&kernels),
         [kernels.join("src/lib.rs"), directory.0.join("Cargo.lock")]
