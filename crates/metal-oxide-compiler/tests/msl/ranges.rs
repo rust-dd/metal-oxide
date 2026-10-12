@@ -81,6 +81,43 @@ fn nested_range_loops_index_a_proved_local_array() {
 }
 
 #[test]
+fn nested_runtime_ranges_prove_guarded_array_indices() {
+    let counts = [0_u32, 1, 2, 5, 16, 17, 100];
+    let want = counts.iter().flat_map(|&count| {
+        let mut values = [0_u32; 16];
+        if (2..=16).contains(&count) {
+            for attempt in 0..3 {
+                values[0] = attempt;
+                for node in 1..count {
+                    values[node as usize] = values[(node - 1) as usize] + node * 3;
+                }
+                if values[(count - 1) as usize] >= 40 {
+                    break;
+                }
+            }
+        }
+        values
+    });
+    let result = execute(&format!(
+        r#"
+        uint counts[{n}] = {{{counts}}};
+        uint want[{cells}] = {{{want}}};
+        for (uint c = 0; c < {n}; ++c) {{
+            uint output[16] = {{}};
+            guarded_ranges(counts[c], 3u, output, {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}});
+            for (uint k = 0; k < 16; ++k) if (output[k] != want[16 * c + k]) {{ std::cout << c << ',' << k; return 1; }}
+        }}
+        std::cout << "ok";
+        "#,
+        n = counts.len(),
+        cells = 16 * counts.len(),
+        counts = list(counts),
+        want = list(want),
+    ));
+    assert_eq!(result, "ok");
+}
+
+#[test]
 fn byte_ranges_stop_below_the_type_maximum() {
     let n = LIMITS.len();
     let want = LIMITS.iter().flat_map(|&limit| {

@@ -36,6 +36,35 @@ pub unsafe fn nested_ranges(output: WriteBuffer<u32>, offset: u32) {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct Table {
+    count: u32,
+    scale: u32,
+}
+
+/// # Safety
+/// `output` holds 16 values per thread.
+#[kernel]
+pub unsafe fn guarded_ranges(count: u32, scale: u32, output: WriteBuffer<u32>) {
+    let i = thread_idx().x;
+    let table = Table { count, scale };
+    let mut values = [0_u32; 16];
+    if table.count >= 2 && table.count <= 16 {
+        for attempt in 0_u32..3 {
+            values[0] = attempt;
+            for node in 1..table.count {
+                values[node as usize] = values[(node - 1) as usize] + node * table.scale;
+            }
+            if values[(table.count - 1) as usize] >= 40 {
+                break;
+            }
+        }
+    }
+    for k in 0..16 {
+        unsafe { output.store_unchecked(16 * i + k as u32, values[k]) };
+    }
+}
+
 /// # Safety
 /// `limits` holds one value and `output` three values per thread.
 #[kernel]

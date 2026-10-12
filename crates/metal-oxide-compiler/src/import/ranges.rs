@@ -154,6 +154,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let (Some(zero), Some(one)) = (integer(element, 0), integer(element, 1)) else {
             return Err((span, "range iteration requires an integer element".into()));
         };
+        // The bound check reads a scalar copy, so numeric proofs refine the yielded value.
+        let current = ir::Place::local(self.temporary(ir::Type::Scalar(element)));
         let condition = ir::Place::local(self.temporary(ir::Type::Scalar(ir::Scalar::Bool)));
         let source = location(self.module.tcx, span);
         let statement = |destination: &ir::Place, value| ir::Statement {
@@ -171,25 +173,28 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             )
         };
         statements.push(statement(
+            &current,
+            ir::Expression::Use(ir::Operand::Place(start.clone())),
+        ));
+        statements.push(statement(
             &condition,
             ir::Expression::Binary(
                 ir::BinaryOp::Lt,
-                ir::Operand::Place(start.clone()),
+                ir::Operand::Place(current.clone()),
                 ir::Operand::Place(end),
             ),
         ));
-        let some = vec![
-            yielded(true, ir::Operand::Place(start.clone())),
+        let mut some = vec![
+            yielded(true, ir::Operand::Place(current.clone())),
             statement(
                 &start,
                 ir::Expression::Binary(
                     ir::BinaryOp::Add,
-                    ir::Operand::Place(start.clone()),
+                    ir::Operand::Place(current),
                     ir::Operand::Constant(one),
                 ),
             ),
         ];
-        let mut some = some;
         let mut none = vec![yielded(false, ir::Operand::Constant(zero))];
         // A `for` or `while let` then switches on the discriminant; branching to its arms
         // directly keeps the loop as lean as a counted `while`.
