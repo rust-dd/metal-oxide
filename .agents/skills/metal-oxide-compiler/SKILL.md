@@ -69,5 +69,8 @@ offline artifacts. The `pipeline` example covers external struct helpers,
 const specializations, async binding calls, and ordered kernel chains.
 
 Include sources/dependencies, compiler/Rust/Metal/SDK versions, target
-settings, and numerical options in artifact cache identity. Report the milestone
+settings, and numerical options in artifact cache identity. `metal-oxide-build`
+drives kernel builds for `cargo-metal` and host build scripts; a committed artifact
+records its source files and locked packages in `inputs.json` and is rebuilt only
+when they change. Report the milestone
 actually completed and keep planned APIs clearly marked.

@@ -1,4 +1,5 @@
 use crate::{
+    Compiler,
     inputs::Inputs,
     metadata::Project,
     process::{self, Result},
@@ -19,11 +20,14 @@ pub(crate) struct Rust {
     pub(crate) target: PathBuf,
     pub(crate) directory: PathBuf,
     math_mode: MathMode,
+    isolated: bool,
 }
 
 pub(crate) struct KernelBuild {
     pub(crate) output: PathBuf,
     pub(crate) inputs: Inputs,
+    /// Cargo's JSON messages from checking the kernel package.
+    pub(crate) messages: String,
 }
 
 fn cargo() -> Command {
@@ -33,7 +37,13 @@ fn cargo() -> Command {
 }
 
 impl Rust {
-    pub(crate) fn prepare(project: &Project, math_mode: MathMode) -> Result<Self> {
+    /// `isolated` drops the host build's Rust flags that Cargo passes to build scripts.
+    pub(crate) fn prepare(
+        project: &Project,
+        math_mode: MathMode,
+        compiler: &Compiler,
+        isolated: bool,
+    ) -> Result<Self> {
         let root = project.metadata.target_directory.join("metal");
         std::fs::create_dir_all(&root)?;
         let target = root.join("metal64-unknown-none.json");
@@ -43,7 +53,7 @@ impl Rust {
         let target = target.canonicalize()?;
         let version =
             process::capture(Command::new("rustup").args(["run", NIGHTLY, "rustc", "-vV"]))?;
-        let compiler = crate::compiler::resolve(
+        let compiler = compiler.executable(
             &project.metadata.target_directory.join("compiler"),
             &version,
         )?;
@@ -57,11 +67,15 @@ impl Rust {
             target,
             directory,
             math_mode,
+            isolated,
         })
     }
 
     fn command(&self, project: &Project, output: &Path) -> Command {
         let mut command = cargo();
+        if self.isolated {
+            process::isolate(&mut command);
+        }
         command
             .current_dir(&project.metadata.workspace_root)
             .env("RUSTC_WRAPPER", &self.compiler)
@@ -87,7 +101,7 @@ impl Rust {
                 .args(["--unit-graph", "-Zunstable-options"]),
         )?;
         project.metadata.validate_units(&units)?;
-        let mut inputs = self.check(project, &output)?;
+        let (mut inputs, mut messages) = self.check(project, &output)?;
         if COMPILER_OUTPUTS
             .iter()
             .any(|file| !output.join(file.name()).is_file())
@@ -109,9 +123,13 @@ impl Rust {
                     .arg("--target-dir")
                     .arg(&self.directory),
             )?;
-            inputs = self.check(project, &output)?;
+            (inputs, messages) = self.check(project, &output)?;
         }
-        Ok(KernelBuild { output, inputs })
+        Ok(KernelBuild {
+            output,
+            inputs,
+            messages,
+        })
     }
 
     fn check_command(&self, project: &Project, output: &Path) -> Command {
@@ -137,9 +155,9 @@ impl Rust {
         command
     }
 
-    fn check(&self, project: &Project, output: &Path) -> Result<Inputs> {
+    fn check(&self, project: &Project, output: &Path) -> Result<(Inputs, String)> {
         let messages =
             process::capture(self.check_command(project, output).stderr(Stdio::inherit()))?;
-        Inputs::from_cargo(&messages, project)
+        Ok((Inputs::from_cargo(&messages, project)?, messages))
     }
 }

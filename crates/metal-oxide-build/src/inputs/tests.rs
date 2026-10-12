@@ -1,8 +1,5 @@
 use super::Inputs;
-use crate::{
-    cli::{Action, Options},
-    metadata, process,
-};
+use crate::{metadata, process};
 use std::{
     path::PathBuf,
     process::Command,
@@ -85,15 +82,7 @@ impl Workspace {
                 ]),
         )
         .unwrap();
-        let project = metadata::load(&Options {
-            action: Action::Inspect,
-            manifest: self.0.join("Cargo.toml"),
-            package: Some("input-host".into()),
-            release: false,
-            math_mode: Default::default(),
-            arguments: vec![],
-        })
-        .unwrap();
+        let project = metadata::load(&self.0.join("kernels/Cargo.toml")).unwrap();
         Inputs::from_cargo(&output, &project).unwrap()
     }
 }

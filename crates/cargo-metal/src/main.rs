@@ -1,13 +1,8 @@
 mod build;
-mod cache;
 mod cli;
 mod compiler;
 mod doctor;
-mod inputs;
 mod metadata;
-mod process;
-mod rust;
-mod toolchain;
 
 use cli::Command;
 use std::process::ExitCode;

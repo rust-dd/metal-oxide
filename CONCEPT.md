@@ -122,7 +122,7 @@ instances after analysis. This includes resolving type and const arguments for
 supported generic helpers and device methods.
 
 The kernel and its device dependencies use the custom
-[`metal64-unknown-none` target](crates/cargo-metal/targets/metal64-unknown-none.json), with matching
+[`metal64-unknown-none` target](crates/metal-oxide-build/targets/metal64-unknown-none.json), with matching
 `core` metadata. Proc macros build for the CPU host. Device layout queries use
 the device target rather than assuming the host target is the GPU target.
 
@@ -328,7 +328,7 @@ Build-time and runtime consumers use this description:
 | When | Consumer | Use |
 | --- | --- | --- |
 | Kernel build | Binding generator | Produce typed host parameters and ordered `Argument` values |
-| Artifact build | `cargo-metal` | Embed the ABI in `manifest.json` |
+| Artifact build | `metal-oxide-build` | Embed the ABI in `manifest.json` |
 | Artifact loading | Runtime | Validate the manifest and bindings ABI hash; retain each kernel's ABI |
 | Kernel launch | Runtime | Check argument count, scalar/element types, access modes, and any required block shape |
 
@@ -372,7 +372,8 @@ when kernels or their ABI change. The numerical mode remains part of ABI identit
 
 ## Apple compilation and artifact
 
-`cargo-metal` invokes the Apple compiler in two steps:
+`metal-oxide-build`, the library behind `cargo-metal` and build scripts, invokes the
+Apple compiler in two steps:
 
 ```sh
 xcrun -sdk macosx metal \
@@ -383,7 +384,7 @@ xcrun -sdk macosx metal \
 xcrun -sdk macosx metal kernels.ir -o kernels.metallib
 ```
 
-When `xcrun` cannot locate the compiler, the CLI also resolves the installed
+When `xcrun` cannot locate the compiler, it also resolves the installed
 Metal Toolchain component. The default `--math-mode precise` uses safe math,
 precise floating-point functions, and disabled floating-point contraction.
 
@@ -422,7 +423,7 @@ The artifact is stored under `target/metal/<build-hash>/`:
 | `bindings.rs` | Binding codegen | Compiled into the host |
 | `kernels.ir` | Apple compiler | Apple's intermediate code used to build the library |
 | `kernels.metallib` | Apple compiler | Loaded by the runtime |
-| `manifest.json` | `cargo-metal` | ABI, requirements, file hashes, and build identity |
+| `manifest.json` | `metal-oxide-build` | ABI, requirements, file hashes, and build identity |
 
 `kernels.oxide-ir` and `kernels.ir` are different representations produced
 by different compilers. The runtime consumes `manifest.json` and
@@ -566,7 +567,9 @@ forcing Metal 4 on an unsupported device returns an error.
 | MSL, ABI, and bindings | [`codegen/src/emit.rs`](crates/metal-oxide-codegen/src/emit.rs), [`abi.rs`](crates/metal-oxide-codegen/src/abi.rs), [`bindings.rs`](crates/metal-oxide-codegen/src/bindings.rs) |
 | Compiler output files | [`compiler/src/output.rs`](crates/metal-oxide-compiler/src/output.rs) |
 | Artifact model and validation | [`artifact/src/model.rs`](crates/metal-oxide-artifact/src/model.rs), [`validate.rs`](crates/metal-oxide-artifact/src/validate.rs) |
-| Kernel build and Apple compiler | [`cargo-metal/src/rust.rs`](crates/cargo-metal/src/rust.rs), [`toolchain.rs`](crates/cargo-metal/src/toolchain.rs) |
-| Manifest, cache, and host build | [`cargo-metal/src/build.rs`](crates/cargo-metal/src/build.rs), [`cache.rs`](crates/cargo-metal/src/cache.rs) |
+| Kernel build and Apple compiler | [`build/src/rust.rs`](crates/metal-oxide-build/src/rust.rs), [`toolchain.rs`](crates/metal-oxide-build/src/toolchain.rs) |
+| Manifest and cache | [`build/src/compile.rs`](crates/metal-oxide-build/src/compile.rs), [`cache.rs`](crates/metal-oxide-build/src/cache.rs) |
+| Committed artifacts in build scripts | [`build/src/artifact.rs`](crates/metal-oxide-build/src/artifact.rs), [`recorded.rs`](crates/metal-oxide-build/src/recorded.rs) |
+| CLI and host build | [`cargo-metal/src/build.rs`](crates/cargo-metal/src/build.rs) |
 | Library loading and launch validation | [`runtime/metal/module.rs`](crates/metal-oxide/src/metal/module.rs), [`pipeline.rs`](crates/metal-oxide/src/metal/pipeline.rs) |
 | Submission and native paths | [`runtime/metal/device.rs`](crates/metal-oxide/src/metal/device.rs), [`batch.rs`](crates/metal-oxide/src/metal/batch.rs), [`backend.rs`](crates/metal-oxide/src/metal/backend.rs) |

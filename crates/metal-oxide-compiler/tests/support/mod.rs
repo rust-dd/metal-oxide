@@ -39,7 +39,7 @@ fn compiler_in(source: &Path, name: &str, emit: &str, output: &Path) -> Command 
         ])
         .args(["--emit", emit])
         .arg("--target")
-        .arg(root().join("crates/cargo-metal/targets/metal64-unknown-none.json"))
+        .arg(root().join("crates/metal-oxide-build/targets/metal64-unknown-none.json"))
         .arg("-L")
         .arg(format!("dependency={}", directory().display()))
         .arg("-o")

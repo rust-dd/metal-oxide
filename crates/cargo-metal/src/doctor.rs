@@ -1,6 +1,6 @@
 use std::process::{Command, ExitCode};
 
-use crate::{rust::NIGHTLY, toolchain::Metal};
+use metal_oxide_artifact::COMPILER_NIGHTLY as NIGHTLY;
 
 struct Check {
     name: &'static str,
@@ -53,7 +53,9 @@ pub(super) fn run() -> ExitCode {
         components(),
         Check {
             name: "metal-oxide compiler",
-            result: crate::compiler::doctor().map_err(|e| e.to_string()),
+            result: crate::compiler::find()
+                .map_err(|e| e.to_string())
+                .and_then(|compiler| compiler.describe().map_err(|e| e.to_string())),
         },
         probe("Xcode", "xcodebuild", &["-version"]),
         probe(
@@ -63,9 +65,7 @@ pub(super) fn run() -> ExitCode {
         ),
         Check {
             name: "Metal compiler",
-            result: Metal::find()
-                .map(|metal| metal.version)
-                .map_err(|e| e.to_string()),
+            result: metal_oxide_build::metal_compiler().map_err(|e| e.to_string()),
         },
         gpu(),
     ];
@@ -95,14 +95,12 @@ pub(super) fn run() -> ExitCode {
 }
 
 fn components() -> Check {
-    let result = crate::process::capture(Command::new("rustup").args([
-        "component",
-        "list",
-        "--installed",
-        "--toolchain",
-        NIGHTLY,
-    ]))
-    .map_err(|e| e.to_string())
+    let result = probe(
+        "Compiler components",
+        "rustup",
+        &["component", "list", "--installed", "--toolchain", NIGHTLY],
+    )
+    .result
     .and_then(|installed| {
         for name in ["rustc-dev", "rust-src", "llvm-tools"] {
             if !installed

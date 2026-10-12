@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 cargo test -p cargo-metal --locked -- --ignored --test-threads=1 --skip numerical_modes_isolate_artifacts_and_match_source_compilation --skip embedded_artifacts_load_lazily_in_a_relocated_stable_host
+cargo test -p metal-oxide-build --locked -- --ignored --test-threads=1
 
 for backend in classic metal4; do
     export METAL_OXIDE_BACKEND="$backend"

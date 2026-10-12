@@ -4,6 +4,7 @@ members = [
     "crates/cargo-metal",
     "crates/metal-oxide",
     "crates/metal-oxide-artifact",
+    "crates/metal-oxide-build",
     "crates/metal-oxide-codegen",
     "crates/metal-oxide-compiler",
     "crates/metal-oxide-device",
@@ -41,6 +42,7 @@ dispatch2 = "0.3.1"
 half = { version = "2.7.1", default-features = false }
 metal-oxide = { path = "crates/metal-oxide", version = "=0.1.0-alpha.1" }
 metal-oxide-artifact = { path = "crates/metal-oxide-artifact", version = "=0.1.0-alpha.1" }
+metal-oxide-build = { path = "crates/metal-oxide-build", version = "=0.1.0-alpha.1" }
 metal-oxide-codegen = { path = "crates/metal-oxide-codegen", version = "=0.1.0-alpha.1" }
 metal-oxide-device = { path = "crates/metal-oxide-device", version = "=0.1.0-alpha.1" }
 metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha.1" }

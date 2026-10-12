@@ -26,7 +26,7 @@ fn cargo_kernel(package: &str, crate_name: &str) -> (PathBuf, Command) {
             package,
         ])
         .arg("--target")
-        .arg(root.join("crates/cargo-metal/targets/metal64-unknown-none.json"))
+        .arg(root.join("crates/metal-oxide-build/targets/metal64-unknown-none.json"))
         .arg("--target-dir")
         .arg(&directory)
         .env("RUSTC_WRAPPER", env!("CARGO_BIN_EXE_metal-oxide-compiler"))
@@ -35,7 +35,7 @@ fn cargo_kernel(package: &str, crate_name: &str) -> (PathBuf, Command) {
         .env("RUSTFLAGS", "-Zunstable-options")
         .env(
             "METAL_OXIDE_CARGO_TARGET",
-            root.join("crates/cargo-metal/targets/metal64-unknown-none.json"),
+            root.join("crates/metal-oxide-build/targets/metal64-unknown-none.json"),
         )
         .env("METAL_OXIDE_CARGO_KERNEL", crate_name)
         .env("METAL_OXIDE_CARGO_OUTPUT", &output);

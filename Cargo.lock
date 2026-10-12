@@ -32,6 +32,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
+ "metal-oxide-build",
  "serde",
  "serde_json",
 ]
@@ -188,6 +189,15 @@ name = "metal-oxide-bench"
 version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
+ "metal-oxide-artifact",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "metal-oxide-build"
+version = "0.1.0-alpha.1"
+dependencies = [
  "metal-oxide-artifact",
  "serde",
  "serde_json",

@@ -1,0 +1,19 @@
+[package]
+name = "metal-oxide-build"
+categories = ["development-tools::build-utils", "hardware-support"]
+description = "Builds metal-oxide kernel artifacts from Cargo build scripts and tools"
+edition.workspace = true
+keywords = ["build", "gpu", "kernel", "metal", "msl"]
+license.workspace = true
+readme = "../../README.md"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-artifact = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

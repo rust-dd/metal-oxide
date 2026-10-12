@@ -1,5 +1,4 @@
 use super::*;
-use crate::cli::Action;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Workspace(PathBuf);
@@ -51,19 +50,8 @@ impl Workspace {
         Self(path)
     }
 
-    fn options(&self) -> Options {
-        Options {
-            action: Action::Inspect,
-            manifest: self.0.join("Cargo.toml"),
-            package: Some("audit-host".into()),
-            release: false,
-            math_mode: Default::default(),
-            arguments: vec![],
-        }
-    }
-
     fn validate(&self) -> Result<()> {
-        let project = load(&self.options())?;
+        let project = load(&self.0.join("kernels/Cargo.toml"))?;
         let json = process::capture(
             Command::new("rustup")
                 .args([

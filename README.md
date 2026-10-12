@@ -53,11 +53,24 @@ fn main() -> metal_oxide::Result<()> {
 `cargo-metal` generates the bindings and supplies the build paths.
 Complete Cargo setup: [examples/vec-add](https://github.com/rust-dd/metal-oxide/tree/main/examples/vec-add).
 
-Precompiled hosts can commit the generated bindings, manifest and metallib, then
-use `kernels::load_bytes(&device, include_str!("manifest.json"),
-include_bytes!("kernels.metallib"))`. Pipelines are created on first use. These
-hosts need stable Rust and the runtime; kernel compilation tools stay on the
-build machine. See [generated bindings](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#generated-rust-bindings).
+Hosts that publish their kernels keep the artifact in their sources and let a
+build script with the `metal-oxide-build` build dependency maintain it:
+
+```rust
+// build.rs
+fn main() -> Result<(), metal_oxide_build::Error> {
+    metal_oxide_build::Artifact::new("../kernels/Cargo.toml", "src/kernels").update()
+}
+```
+
+`cargo build` rebuilds `src/kernels` when the kernel sources or the metal-oxide
+revision change, and records its inputs in `inputs.json`. Otherwise, and in a
+published package without the kernel crate, it uses the committed files and needs
+neither the nightly nor the Metal toolchain. `METAL_OXIDE_ARTIFACTS=locked` turns a
+stale artifact into an error for CI. The host embeds the files with
+`kernels::load_bytes(&device, include_str!("kernels/manifest.json"),
+include_bytes!("kernels/kernels.metallib"))`; pipelines are created on first use.
+See [generated bindings](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#generated-rust-bindings).
 
 Use `Device::all()?.into_iter().nth(index)` to select a device explicitly.
 `recommended_max_working_set_size()` reports its advisory memory budget.
