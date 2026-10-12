@@ -75,21 +75,7 @@ impl Module {
 
     fn load_artifact(device: &Device, manifest: Manifest, bytes: &[u8]) -> Result<Self> {
         for feature in &manifest.abi.required_features {
-            let (family, reason) = match feature.as_str() {
-                "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
-                "int32_atomics" => (
-                    MTLGPUFamily::Apple1,
-                    "artifact requires 32-bit integer atomics",
-                ),
-                "dynamic_threadgroup_memory" => (
-                    MTLGPUFamily::Apple1,
-                    "artifact requires dynamic threadgroup memory",
-                ),
-                _ => unreachable!("validated artifact capabilities"),
-            };
-            if !device.raw.supportsFamily(family) {
-                return Err(Error::UnsupportedDevice(reason.into()));
-            }
+            require(feature, |family| device.raw.supportsFamily(family))?;
         }
         manifest.verify_library(bytes)?;
         let data = dispatch2::DispatchData::from_bytes(bytes);
@@ -117,5 +103,52 @@ impl Module {
             )));
         }
         Ok(())
+    }
+}
+
+/// Checks a validated artifact feature against the GPU families a device supports.
+fn require(feature: &str, supports: impl Fn(MTLGPUFamily) -> bool) -> Result<()> {
+    let (family, reason) = match feature {
+        "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
+        "int32_atomics" => (
+            MTLGPUFamily::Apple1,
+            "artifact requires 32-bit integer atomics",
+        ),
+        "dynamic_threadgroup_memory" => (
+            MTLGPUFamily::Apple1,
+            "artifact requires dynamic threadgroup memory",
+        ),
+        _ => unreachable!("validated artifact capabilities"),
+    };
+    // Mac2 includes all three; the paravirtual GPU of a macOS VM reports only Mac2.
+    if supports(family) || supports(MTLGPUFamily::Mac2) {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedDevice(reason.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn apple(newest: MTLGPUFamily) -> impl Fn(MTLGPUFamily) -> bool {
+        move |family| (MTLGPUFamily::Apple1.0..=newest.0).contains(&family.0)
+    }
+
+    #[test]
+    fn apple_or_mac2_families_satisfy_artifact_features() {
+        for feature in ["simd_groups", "int32_atomics", "dynamic_threadgroup_memory"] {
+            assert!(require(feature, apple(MTLGPUFamily::Apple7)).is_ok());
+            assert!(require(feature, |family| family == MTLGPUFamily::Mac2).is_ok());
+            assert!(matches!(
+                require(feature, |_| false),
+                Err(Error::UnsupportedDevice(_))
+            ));
+        }
+        assert!(matches!(
+            require("simd_groups", apple(MTLGPUFamily::Apple6)),
+            Err(Error::UnsupportedDevice(_))
+        ));
     }
 }
