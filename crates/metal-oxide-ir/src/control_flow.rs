@@ -92,15 +92,15 @@ impl ControlFlowGraph {
     }
 
     pub fn dominators(&self) -> Dominators {
-        let all = self.reachable_blocks().collect::<BTreeSet<_>>();
+        let all = self.reachable_set(self.successors.len());
         let mut sets = vec![all.clone(); self.successors.len()];
-        sets[0] = BTreeSet::from([0]);
+        sets[0] = Blocks::single(self.successors.len(), 0);
         loop {
             let mut changed = false;
             for id in self.reachable_blocks().filter(|&id| id != 0) {
                 let mut next = all.clone();
                 for &pred in &self.predecessors[id] {
-                    next.retain(|v| sets[pred].contains(v));
+                    next.intersect(&sets[pred]);
                 }
                 next.insert(id);
                 changed |= next != sets[id];
@@ -110,16 +110,16 @@ impl ControlFlowGraph {
                 break;
             }
         }
-        Dominators { sets, root: 0 }
+        Dominators::new(sets, 0)
     }
 
     /// Return blocks lead to a synthetic exit numbered after the last real block.
     pub fn postdominators(&self) -> Dominators {
         let exit = self.exit_block();
-        let mut all = self.reachable_blocks().collect::<BTreeSet<_>>();
+        let mut all = self.reachable_set(exit + 1);
         all.insert(exit);
         let mut sets = vec![all.clone(); exit + 1];
-        sets[exit] = BTreeSet::from([exit]);
+        sets[exit] = Blocks::single(exit + 1, exit);
         loop {
             let mut changed = false;
             for id in (0..exit).rev().filter(|&id| self.reachable[id]) {
@@ -130,7 +130,7 @@ impl ControlFlowGraph {
                     &self.successors[id]
                 };
                 for &target in targets {
-                    next.retain(|v| sets[target].contains(v));
+                    next.intersect(&sets[target]);
                 }
                 next.insert(id);
                 changed |= next != sets[id];
@@ -140,28 +140,89 @@ impl ControlFlowGraph {
                 break;
             }
         }
-        Dominators { sets, root: exit }
+        Dominators::new(sets, exit)
+    }
+
+    fn reachable_set(&self, capacity: usize) -> Blocks {
+        let mut set = Blocks::empty(capacity);
+        self.reachable_blocks().for_each(|id| set.insert(id));
+        set
+    }
+}
+
+/// A fixed-capacity block set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Blocks(Vec<u64>);
+
+impl Blocks {
+    fn empty(capacity: usize) -> Self {
+        Self(vec![0; capacity.div_ceil(64)])
+    }
+
+    fn single(capacity: usize, id: usize) -> Self {
+        let mut set = Self::empty(capacity);
+        set.insert(id);
+        set
+    }
+
+    fn insert(&mut self, id: usize) {
+        self.0[id / 64] |= 1 << (id % 64);
+    }
+
+    fn contains(&self, id: usize) -> bool {
+        self.0
+            .get(id / 64)
+            .is_some_and(|word| word >> (id % 64) & 1 == 1)
+    }
+
+    fn intersect(&mut self, other: &Self) {
+        self.0.iter_mut().zip(&other.0).for_each(|(a, b)| *a &= b);
+    }
+
+    fn len(&self) -> usize {
+        self.0.iter().map(|word| word.count_ones() as usize).sum()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        self.0.iter().enumerate().flat_map(|(index, &word)| {
+            let mut rest = word;
+            std::iter::from_fn(move || {
+                (rest != 0).then(|| {
+                    let bit = rest.trailing_zeros() as usize;
+                    rest &= rest - 1;
+                    index * 64 + bit
+                })
+            })
+        })
     }
 }
 
 /// Dominance sets rooted at the entry or synthetic exit block.
 #[derive(Debug)]
 pub struct Dominators {
-    sets: Vec<BTreeSet<usize>>,
+    sets: Vec<Blocks>,
+    sizes: Vec<usize>,
     root: usize,
 }
 
 impl Dominators {
+    fn new(sets: Vec<Blocks>, root: usize) -> Self {
+        Self {
+            sizes: sets.iter().map(Blocks::len).collect(),
+            sets,
+            root,
+        }
+    }
+
     pub fn dominates(&self, dominator: usize, block: usize) -> bool {
-        self.sets[block].contains(&dominator)
+        self.sets[block].contains(dominator)
     }
 
     pub fn immediate(&self, block: usize) -> usize {
         self.sets[block]
             .iter()
-            .copied()
             .filter(|&id| id != block)
-            .max_by_key(|&id| self.sets[id].len())
+            .max_by_key(|&id| self.sizes[id])
             .unwrap_or(self.root)
     }
 
@@ -171,11 +232,11 @@ impl Dominators {
         };
         let mut common = self.sets[first].clone();
         for &block in rest {
-            common.retain(|id| self.sets[block].contains(id));
+            common.intersect(&self.sets[block]);
         }
         common
-            .into_iter()
-            .max_by_key(|&id| self.sets[id].len())
+            .iter()
+            .max_by_key(|&id| self.sizes[id])
             .unwrap_or(self.root)
     }
 }

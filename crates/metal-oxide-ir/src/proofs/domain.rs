@@ -6,7 +6,8 @@ use crate::{BinaryOp, Constant, Scalar};
 pub(super) struct Range {
     pub lo: i128,
     pub hi: i128,
-    pub excluded: BTreeSet<i128>,
+    /// Sorted, without duplicates.
+    pub excluded: Vec<i128>,
 }
 
 impl Range {
@@ -14,7 +15,7 @@ impl Range {
         Self {
             lo,
             hi,
-            excluded: BTreeSet::new(),
+            excluded: Vec::new(),
         }
     }
 
@@ -53,8 +54,10 @@ impl Range {
     }
 
     pub fn exclude(&mut self, value: i128) -> bool {
-        if self.excluded.len() < 8 || value == self.lo || value == self.hi {
-            self.excluded.insert(value);
+        if (self.excluded.len() < 8 || value == self.lo || value == self.hi)
+            && let Err(position) = self.excluded.binary_search(&value)
+        {
+            self.excluded.insert(position, value);
         }
         self.restrict(self.lo, self.hi)
     }
@@ -63,11 +66,14 @@ impl Range {
         let mut result = Self::new(self.lo.min(other.lo), self.hi.max(other.hi));
         result.excluded = self
             .excluded
-            .union(&other.excluded)
+            .iter()
+            .chain(&other.excluded)
             .copied()
             .filter(|v| !self.contains(*v) && !other.contains(*v))
-            .take(8)
             .collect();
+        result.excluded.sort_unstable();
+        result.excluded.dedup();
+        result.excluded.truncate(8);
         result
     }
 

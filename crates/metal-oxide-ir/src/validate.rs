@@ -174,7 +174,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
     }
     let order = acyclic_calls(module)?;
     crate::uniform::validate(module, &mut graphs, &order)?;
-    crate::proofs::prove_numerics(module)?;
+    crate::proofs::prove_numerics(module, &graphs)?;
     Ok(graphs)
 }
 

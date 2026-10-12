@@ -7,32 +7,38 @@ use super::{
 use crate::*;
 
 pub(super) struct Analysis<'a> {
-    pub module: &'a Module,
+    module: &'a Module,
     pub remaining: usize,
-    pub results: BTreeMap<(usize, Vec<Value>), Value>,
+    results: BTreeMap<(usize, Vec<Value>), Value>,
+    loop_headers: Vec<Vec<bool>>,
+    thresholds: Vec<BTreeSet<i128>>,
 }
 
 impl<'a> Analysis<'a> {
+    pub fn new(module: &'a Module, graphs: &[FunctionAnalysis]) -> Self {
+        Self {
+            module,
+            remaining: 0,
+            results: BTreeMap::new(),
+            loop_headers: module
+                .functions
+                .iter()
+                .zip(graphs)
+                .map(|(function, graph)| loop_headers(function, graph))
+                .collect(),
+            thresholds: module.functions.iter().map(thresholds).collect(),
+        }
+    }
+
     pub fn function(&mut self, index: usize, arguments: &[Value]) -> Result<Value, Error> {
         let key = (index, arguments.to_vec());
         if let Some(result) = self.results.get(&key) {
             return Ok(result.clone());
         }
         let function = &self.module.functions[index];
-        let graph = ControlFlowGraph::new(function)?;
-        let dominators = graph.dominators();
-        let loop_headers = (0..function.blocks.len())
-            .map(|id| {
-                graph
-                    .predecessors(id)
-                    .iter()
-                    .any(|&from| dominators.dominates(id, from))
-            })
-            .collect::<Vec<_>>();
-        let thresholds = thresholds(function);
         let mut entry = State::new(self.module, function);
-        for (index, argument) in arguments.iter().enumerate() {
-            entry.assign(&Place::local(index + 1), argument.clone());
+        for (position, argument) in arguments.iter().enumerate() {
+            entry.assign(&Place::local(position + 1), argument.clone());
         }
         let mut inputs = vec![Vec::<State<'a>>::new(); function.blocks.len()];
         let mut merged = vec![false; inputs.len()];
@@ -45,15 +51,14 @@ impl<'a> Analysis<'a> {
             if merged[id] {
                 // Widen only at loop headers. Widening after a guard can discard
                 // its bound even when every incoming path satisfies that guard.
-                let joined = inputs[id][0].merge(&state, loop_headers[id].then_some(&thresholds));
-                if joined == inputs[id][0] {
+                let widen = self.loop_headers[index][id].then_some(&self.thresholds[index]);
+                if !inputs[id][0].merge(&state, widen) {
                     continue;
                 }
-                inputs[id][0] = joined.clone();
-                state = joined;
+                state = inputs[id][0].clone();
             } else if inputs[id].len() >= 64 {
                 for input in &inputs[id] {
-                    state = state.merge(input, None);
+                    state.merge(input, None);
                 }
                 inputs[id] = vec![state.clone()];
                 merged[id] = true;
@@ -133,6 +138,18 @@ impl<'a> Analysis<'a> {
         self.results.insert(key, result.clone());
         Ok(result)
     }
+}
+
+fn loop_headers(function: &Function, graph: &FunctionAnalysis) -> Vec<bool> {
+    (0..function.blocks.len())
+        .map(|id| {
+            graph
+                .cfg
+                .predecessors(id)
+                .iter()
+                .any(|&from| graph.dominators.dominates(id, from))
+        })
+        .collect()
 }
 
 /// Integer constants and their neighbours bound loop widening to the program's own limits.

@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet, btree_map},
+    iter::Peekable,
+};
 
 use super::{
     domain::{Range, integer},
@@ -242,38 +246,100 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn merge(&self, other: &Self, widen: Option<&BTreeSet<i128>>) -> Self {
-        let mut result = Self::new(self.module, self.function);
-        for p in self.facts.keys().chain(other.facts.keys()) {
-            if result.facts.contains_key(p) {
-                continue;
-            }
-            let a = self.range(p).unwrap();
-            let b = other.range(p).unwrap();
-            let joined = a.join(&b);
-            result.facts.insert(
-                p.clone(),
-                match widen {
-                    Some(thresholds) => a.widen(&joined, self.scalar(p).unwrap(), thresholds),
-                    None => joined,
-                },
-            );
-        }
-        for (p, a) in &self.aliases {
-            if other.aliases.get(p) == Some(a) {
-                result.aliases.insert(p.clone(), a.clone());
+    /// Joins `other` into this state, widening with `widen`; returns whether the state changed.
+    pub fn merge(&mut self, other: &Self, widen: Option<&BTreeSet<i128>>) -> bool {
+        let mut own_aliases = self.aliases.iter().peekable();
+        let mut other_aliases = other.aliases.iter().peekable();
+        let mut updated = Vec::with_capacity(self.facts.len());
+        let mut added = Vec::new();
+        for (p, own_fact, other_fact) in union(&self.facts, &other.facts) {
+            let own = self.fact(p, own_fact, &mut own_aliases);
+            let joined = own.join(&other.fact(p, other_fact, &mut other_aliases));
+            let range = match widen {
+                Some(thresholds) => own.widen(&joined, self.scalar(p).unwrap(), thresholds),
+                None => joined,
+            };
+            if own_fact.is_some() {
+                updated.push(range);
+            } else {
+                added.push((p.clone(), range));
             }
         }
-        for (p, v) in &self.predicates {
-            if other.predicates.get(p) == Some(v) {
-                result.predicates.insert(p.clone(), v.clone());
+        let mut changed = !added.is_empty();
+        for (old, new) in self.facts.values_mut().zip(updated) {
+            if *old != new {
+                *old = new;
+                changed = true;
             }
         }
-        for (p, v) in &self.truths {
-            if other.truths.get(p) == Some(v) {
-                result.truths.insert(p.clone(), *v);
-            }
-        }
-        result
+        self.facts.extend(added);
+        changed |= retain_common(&mut self.aliases, &other.aliases);
+        changed |= retain_common(&mut self.predicates, &other.predicates);
+        changed | retain_common(&mut self.truths, &other.truths)
     }
+
+    /// `range(place)` for a fact key; callers visit keys in ascending order with one `aliases`.
+    fn fact(&self, place: &Place, own: Option<&Range>, aliases: &mut Aliases<'_>) -> Range {
+        while aliases.next_if(|(key, _)| *key < place).is_some() {}
+        if place
+            .projection
+            .iter()
+            .any(|p| matches!(p, Projection::Index(_)))
+        {
+            return self.range(place).unwrap();
+        }
+        let own = own
+            .cloned()
+            .unwrap_or_else(|| Range::full(self.scalar(place).unwrap()));
+        let alias = aliases.peek().filter(|(key, _)| *key == place);
+        if let Some((_, Atom::Place(target))) = alias
+            && let Some(target) = self.facts.get(target)
+        {
+            let mut both = own.clone();
+            if both.restrict(target.lo, target.hi) {
+                return both;
+            }
+        }
+        own
+    }
+}
+
+type Aliases<'m> = Peekable<btree_map::Iter<'m, Place, Atom>>;
+
+/// Visits each key of either map once, in ascending order, with its value in each map.
+fn union<'m, K: Ord, V>(
+    left: &'m BTreeMap<K, V>,
+    right: &'m BTreeMap<K, V>,
+) -> impl Iterator<Item = (&'m K, Option<&'m V>, Option<&'m V>)> {
+    let mut left = left.iter().peekable();
+    let mut right = right.iter().peekable();
+    std::iter::from_fn(move || {
+        let order = match (left.peek(), right.peek()) {
+            (Some((a, _)), Some((b, _))) => a.cmp(b),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => return None,
+        };
+        Some(match order {
+            Ordering::Less => left.next().map(|(k, v)| (k, Some(v), None))?,
+            Ordering::Greater => right.next().map(|(k, v)| (k, None, Some(v)))?,
+            Ordering::Equal => {
+                let (k, v) = left.next()?;
+                (k, Some(v), right.next().map(|(_, w)| w))
+            }
+        })
+    })
+}
+
+/// Keeps the entries `other` holds with an equal value; returns whether any was removed.
+fn retain_common<K: Ord, V: PartialEq>(map: &mut BTreeMap<K, V>, other: &BTreeMap<K, V>) -> bool {
+    let before = map.len();
+    let mut cursor = other.iter().peekable();
+    map.retain(|key, value| {
+        while cursor.next_if(|(k, _)| *k < key).is_some() {}
+        cursor
+            .peek()
+            .is_some_and(|(k, v)| *k == key && **v == *value)
+    });
+    map.len() != before
 }

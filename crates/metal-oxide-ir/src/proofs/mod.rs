@@ -8,7 +8,7 @@ mod transfer;
 
 use crate::*;
 
-pub(crate) fn prove_numerics(module: &Module) -> Result<(), Error> {
+pub(crate) fn prove_numerics(module: &Module, graphs: &[FunctionAnalysis]) -> Result<(), Error> {
     let needed = module.functions.iter().any(|function| {
         function.blocks.iter().any(|block| {
             matches!(block.terminator, Terminator::Assert { enabled: true, .. })
@@ -33,11 +33,7 @@ pub(crate) fn prove_numerics(module: &Module) -> Result<(), Error> {
         return Ok(());
     }
     let kernels = module.functions.iter().any(|function| function.kernel);
-    let mut analysis = analysis::Analysis {
-        module,
-        remaining: 0,
-        results: Default::default(),
-    };
+    let mut analysis = analysis::Analysis::new(module, graphs);
     for (index, function) in module.functions.iter().enumerate() {
         if function.kernel || !kernels {
             // Completed summaries are keyed by function and argument facts;
