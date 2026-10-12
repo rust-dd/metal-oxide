@@ -67,3 +67,23 @@ jobs:
           for package in vec-add reduction matmul pipeline; do
             cargo run --package cargo-metal --manifest-path ../../Cargo.toml --locked -- inspect -p "$package" --emit msl
           done
+
+  gpu:
+    name: GPU suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install compiler and workspace toolchains
+        run: |
+          rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Report the Metal device
+        run: cargo run -p cargo-metal --locked -- doctor
+      - name: Classic Metal kernels and artifacts
+        # The hosted Apple Paravirtual device lacks the Metal 4 family.
+        run: bash scripts/test-gpu.sh classic

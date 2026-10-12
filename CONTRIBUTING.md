@@ -98,12 +98,14 @@ only the runtime crates and precompiled bindings/artifact. It retains logs under
 `python3 scripts/test_package.py` and `python3 scripts/test_bench.py`.
 
 Hosted CI runs the workspace and compiler checks above on ubuntu-24.04, macos-15
-and macos-26; it does not execute GPU kernels. Keep portable checks separate
-from explicit GPU checks. Use a hardware runner only after verifying its actual
-Metal device. Do not automatically execute untrusted PR code on a personal or
-self-hosted runner. No hardware runner is registered yet. The manual GPU
-workflow runs only `main` on a verified runner labelled `metal-oxide-gpu`; it
-has no pull-request trigger.
+and macos-26. The macOS runners are M1 virtual machines whose Apple Paravirtual
+device lacks the Metal 4 family, so CI runs `bash scripts/test-gpu.sh classic`
+there; verify Metal 4 on a Mac. Keep portable checks separate from explicit GPU
+checks. Use a hardware runner only after verifying its actual Metal device. Do
+not automatically execute untrusted PR code on a personal or self-hosted runner.
+No self-hosted runner is registered yet. The manual GPU workflow runs only
+`main` on a verified runner labelled `metal-oxide-gpu`; it has no pull-request
+trigger.
 
 ## Installation from a bundle
 

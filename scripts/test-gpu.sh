@@ -6,10 +6,14 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 cargo test -p cargo-metal --locked -- --ignored --test-threads=1 --skip numerical_modes_isolate_artifacts_and_match_source_compilation --skip embedded_artifacts_load_lazily_in_a_relocated_stable_host
 cargo test -p metal-oxide-build --locked -- --ignored --test-threads=1
 
-# Metal 4 needs macOS 26; earlier systems run the classic path only.
-backends="classic"
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then
-    backends="classic metal4"
+# Arguments name the native APIs to test. By default Metal 4 runs from macOS 26 on;
+# virtual GPUs without the Metal 4 family pass `classic`.
+backends="$*"
+if [ -z "$backends" ]; then
+    backends="classic"
+    if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then
+        backends="classic metal4"
+    fi
 fi
 for backend in $backends; do
     export METAL_OXIDE_BACKEND="$backend"
