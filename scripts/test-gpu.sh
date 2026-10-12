@@ -6,7 +6,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 cargo test -p cargo-metal --locked -- --ignored --test-threads=1 --skip numerical_modes_isolate_artifacts_and_match_source_compilation --skip embedded_artifacts_load_lazily_in_a_relocated_stable_host
 cargo test -p metal-oxide-build --locked -- --ignored --test-threads=1
 
-for backend in classic metal4; do
+# Metal 4 needs macOS 26; earlier systems run the classic path only.
+backends="classic"
+if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then
+    backends="classic metal4"
+fi
+for backend in $backends; do
     export METAL_OXIDE_BACKEND="$backend"
     printf 'Testing %s on %s\n' "$backend" "$(uname -m)"
     cargo test -p cargo-metal --locked --test math_mode -- --ignored --test-threads=1

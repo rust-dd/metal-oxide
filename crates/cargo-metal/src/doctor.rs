@@ -29,9 +29,7 @@ fn probe(name: &'static str, program: &str, arguments: &[&str]) -> Check {
 
 fn gpu() -> Check {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let result = metal_oxide::Device::system_default()
-        .map(|device| device.name())
-        .map_err(|error| error.to_string());
+    let result = limits().map_err(|error| error.to_string());
 
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     let result = Err("GPU execution requires macOS on Apple Silicon".into());
@@ -42,8 +40,28 @@ fn gpu() -> Check {
     }
 }
 
+/// The device limits that kernels and launch planning rely on.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn limits() -> metal_oxide::Result<String> {
+    use metal_oxide::{Device, Module, Pipeline};
+    let device = Device::system_default()?;
+    let module = Module::from_source(
+        &device,
+        "kernel void probe(device uint* out [[buffer(0)]]) { out[0] = 1u; }",
+    )?;
+    let pipeline = Pipeline::new(&device, &module, "probe")?;
+    Ok(format!(
+        "{}; SIMD width {}, {} threads per block, {} B threadgroup memory",
+        device.name(),
+        pipeline.thread_execution_width(),
+        pipeline.max_threads_per_block(),
+        device.max_threadgroup_memory_per_block()
+    ))
+}
+
 pub(super) fn run() -> ExitCode {
     let checks = [
+        probe("macOS", "sw_vers", &["-productVersion"]),
         probe("Rust", "rustc", &["--version"]),
         probe(
             "Compiler Rust",
