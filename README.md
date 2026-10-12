@@ -112,7 +112,12 @@ cargo run -p cargo-metal -- doctor
 cargo run -p cargo-metal -- run -p vec-add
 ```
 
-Verified on M4 Max, macOS 26.2, Xcode 26.6.
+`scripts/test-gpu.sh` passes on:
+
+| GPU | macOS | Xcode | Native APIs |
+| --- | --- | --- | --- |
+| M4 Max | 26.2 | 26.6 | classic Metal, Metal 4 |
+| Apple Paravirtual device, GitHub-hosted M1 VM (CI) | 15.7, 26.6 | 16.4, 26.6 | classic Metal |
 
 Math defaults to precise functions without implicit floating-point contraction.
 Use `cargo metal build -p HOST --math-mode fast` to opt into fast functions,
