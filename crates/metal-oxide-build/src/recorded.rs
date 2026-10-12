@@ -10,14 +10,14 @@ use std::{
 mod tests;
 
 /// The inputs a committed artifact was built from. Paths are relative to the kernel package.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Recorded {
     /// The fingerprint in the artifact's manifest.
     pub(crate) artifact: String,
     pub(crate) math_mode: MathMode,
     pub(crate) lock: String,
-    /// Registry and git packages as `name version source` from the lock file.
+    /// The kernels' dependencies as `name version source` from the lock file.
     pub(crate) packages: Vec<String>,
     /// SHA-256 of each manifest and source file that the kernel build read.
     pub(crate) files: BTreeMap<String, String>,
@@ -63,22 +63,38 @@ impl Recorded {
             if manifest_path.starts_with(sysroot) {
                 continue;
             }
-            if !package_id.starts_with("path+") {
-                let (source, package) = package_id
-                    .rsplit_once('#')
-                    .ok_or_else(|| format!("unexpected Cargo package id {package_id}"))?;
-                let (name, version) = package
-                    .split_once('@')
-                    .ok_or_else(|| format!("unexpected Cargo package id {package_id}"))?;
+            let local = package_id.starts_with("path+");
+            // A path dependency that becomes a git or registry package changes its lock entry.
+            if package_id != project.kernel().id {
+                let package = project
+                    .metadata
+                    .packages
+                    .iter()
+                    .find(|package| package.id == package_id)
+                    .ok_or_else(|| format!("missing Cargo package for {package_id}"))?;
+                let prefix = if local {
+                    format!("{} {} ", package.name, package.version)
+                } else {
+                    let source = package_id.rsplit_once('#').map_or("", |(source, _)| source);
+                    format!("{} {} {source}", package.name, package.version)
+                };
                 let found = entries
                     .iter()
-                    .filter(|entry| entry.starts_with(&format!("{name} {version} {source}")))
+                    .filter(|entry| {
+                        if local {
+                            **entry == prefix
+                        } else {
+                            entry.starts_with(&prefix)
+                        }
+                    })
                     .cloned()
                     .collect::<Vec<_>>();
                 if found.is_empty() {
                     return Err(format!("{package_id} is missing from {}", lock.display()).into());
                 }
                 packages.extend(found);
+            }
+            if !local {
                 continue;
             }
             let mut sources = vec![manifest_path];

@@ -105,7 +105,18 @@ fn changed_files_and_lock_entries_are_not_current() {
     )
     .unwrap();
     assert!(!recorded.current(&kernels));
+    let local = LOCK.replace(
+        "source = \"git+https://github.com/rust-dd/metal-oxide?rev=abc#abcdef\"\n",
+        "",
+    );
+    std::fs::write(directory.0.join("Cargo.lock"), &local).unwrap();
+    let path = Recorded {
+        packages: vec![lock_entries(&local)[1].clone()],
+        ..recorded.clone()
+    };
+    assert!(path.current(&kernels));
     std::fs::write(directory.0.join("Cargo.lock"), LOCK).unwrap();
+    assert!(!path.current(&kernels), "a path dependency switched to git");
     std::fs::write(kernels.join("src/lib.rs"), "#![no_std]\n// changed\n").unwrap();
     assert!(!recorded.current(&kernels));
     std::fs::remove_file(kernels.join("src/lib.rs")).unwrap();

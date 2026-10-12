@@ -19,6 +19,7 @@ pub(crate) struct Metadata {
 pub(crate) struct Package {
     pub(crate) id: String,
     pub(crate) name: String,
+    pub(crate) version: String,
     pub(crate) manifest_path: PathBuf,
     pub(crate) targets: Vec<Target>,
 }
