@@ -42,6 +42,12 @@ impl Device {
     /// Retains a native device and creates a new independent ordered queue context.
     /// Existing native queues and their pending work are not imported.
     pub fn from_native(raw: Retained<ProtocolObject<dyn MTLDevice>>) -> Result<Self> {
+        // Artifacts target macOS 15, and source compilation sets its math options.
+        if !objc2::available!(macos = 15.0) {
+            return Err(Error::UnsupportedDevice(
+                "metal-oxide requires macOS 15 or later".into(),
+            ));
+        }
         if !raw.hasUnifiedMemory() {
             return Err(Error::UnsupportedDevice(format!(
                 "{} does not have unified memory",

@@ -483,7 +483,8 @@ configuration. Host const generics alone do not specialize the shader.
 
 The runtime performs these steps:
 
-1. `Device::system_default` creates the GPU context and selects a native backend.
+1. `Device::system_default` requires macOS 15, creates the GPU context and
+   selects a native backend.
 2. `Module::from_artifact` reads the manifest, validates its format and
    requirements, verifies the library bytes, and loads those bytes into Metal.
 3. On the first invocation, `Pipeline::new` selects `vec_add`, creates the native
