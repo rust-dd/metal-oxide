@@ -57,14 +57,20 @@ pub unsafe fn vote(out: WriteBuffer<u32>) {
     }
 }
 
-#[kernel]
-pub unsafe fn full_permute(out: WriteBuffer<i32>) {
-    let lane = simdgroup::lane_id();
-    let offset = thread_idx().x * 3;
-    let value = -(lane as i32) - 1;
-    unsafe {
-        out.store_unchecked(offset, simdgroup::shuffle(value, 0));
-        out.store_unchecked(offset + 1, simdgroup::shuffle_down(value, 1));
-        out.store_unchecked(offset + 2, simdgroup::shuffle_xor(value, 1));
-    }
+macro_rules! permute {
+    ($name:ident, $ty:ty) => {
+        #[kernel]
+        pub unsafe fn $name(out: WriteBuffer<$ty>) {
+            let lane = simdgroup::lane_id();
+            let offset = thread_idx().x * 3;
+            let value = -(lane as $ty) - 1 as $ty;
+            unsafe {
+                out.store_unchecked(offset, simdgroup::shuffle(value, 0));
+                out.store_unchecked(offset + 1, simdgroup::shuffle_down(value, 1));
+                out.store_unchecked(offset + 2, simdgroup::shuffle_xor(value, 1));
+            }
+        }
+    };
 }
+permute!(full_permute, i32);
+permute!(full_permute_f32, f32);

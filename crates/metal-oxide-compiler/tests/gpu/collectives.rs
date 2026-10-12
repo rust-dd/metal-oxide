@@ -155,30 +155,27 @@ fn votes_clear_unused_bits_and_bit_reductions_preserve_all_lanes() -> metal_oxid
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn integer_permutations_match_full_group_sources() -> metal_oxide::Result<()> {
+fn permutations_match_full_group_sources() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let pipeline = pipeline(
-        &device,
-        "crates/metal-oxide-compiler/tests/fixtures/simd_ops.rs",
-        "full_permute",
-    )?;
-    let width = pipeline.thread_execution_width() as u32;
-    let mut out = device.buffer_zeroed::<i32>((width * 2 * 3) as usize)?;
+    let source = "crates/metal-oxide-compiler/tests/fixtures/simd_ops.rs";
+    let signed = pipeline(&device, source, "full_permute")?;
+    let float = pipeline(&device, source, "full_permute_f32")?;
+    let width = signed.thread_execution_width() as u32;
+    let config = DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(width * 2));
+    let mut i = device.buffer_zeroed::<i32>((width * 2 * 3) as usize)?;
+    let mut f = device.buffer_zeroed::<f32>(i.len())?;
     // SAFETY: two full groups participate; down retains the last lane and XOR 1 selects active lanes.
     unsafe {
-        device.launch(
-            &pipeline,
-            DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(width * 2)),
-            &[Argument::write(&mut out)],
-        )?;
+        device.launch(&signed, config, &[Argument::write(&mut i)])?;
+        device.launch(&float, config, &[Argument::write(&mut f)])?;
     }
     for thread in 0..width * 2 {
         let lane = thread % width;
         let next = (lane + 1).min(width - 1);
-        assert_eq!(
-            &out.as_slice()[thread as usize * 3..(thread as usize + 1) * 3],
-            &[-1, -(next as i32) - 1, -((lane ^ 1) as i32) - 1]
-        );
+        let expected = [-1, -(next as i32) - 1, -((lane ^ 1) as i32) - 1];
+        let range = thread as usize * 3..(thread as usize + 1) * 3;
+        assert_eq!(&i.as_slice()[range.clone()], &expected);
+        assert_eq!(&f.as_slice()[range], &expected.map(|value| value as f32));
     }
     Ok(())
 }

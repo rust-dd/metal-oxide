@@ -94,11 +94,7 @@ pub(crate) fn simd_type(
             "SIMD numeric operations require f32/u32/i32",
         ));
     }
-    if matches!(
-        op,
-        SimdOp::And | SimdOp::Or | SimdOp::Xor | SimdOp::ShuffleXor
-    ) && ty == Type::Scalar(Scalar::F32)
-    {
+    if matches!(op, SimdOp::And | SimdOp::Or | SimdOp::Xor) && ty == Type::Scalar(Scalar::F32) {
         return Err(Error::new(
             source,
             "integer SIMD operation requires u32/i32",
