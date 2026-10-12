@@ -49,6 +49,7 @@ pub(crate) fn resolve(directory: &Path, rustc: &str) -> Result<PathBuf> {
                 COMPILER_NIGHTLY,
                 "cargo",
                 "build",
+                "--release",
                 "--features",
                 "rustc-private",
                 "--bin",

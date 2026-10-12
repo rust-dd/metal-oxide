@@ -89,7 +89,7 @@ impl Workspace {
         self.0
             .join("target/compiler")
             .join(host)
-            .join("debug/metal-oxide-compiler")
+            .join("release/metal-oxide-compiler")
     }
 }
 
