@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Access, AtomicOp, Scalar, SimdOp, Type, TypeTable};
+use crate::{Access, Aggregate, AtomicOp, Scalar, SimdOp, Type, TypeTable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
@@ -190,6 +190,8 @@ pub enum MathOp {
     Round,
     Ceil,
     Trunc,
+    /// Returns the `(sin, cos)` tuple of one argument.
+    SinCos,
 }
 
 impl MathOp {
@@ -201,6 +203,7 @@ impl MathOp {
             | Self::Exp
             | Self::Sin
             | Self::Cos
+            | Self::SinCos
             | Self::Tanh
             | Self::Atan
             | Self::Floor
@@ -211,6 +214,14 @@ impl MathOp {
             Self::Fma => 3,
         }
     }
+}
+
+/// The interned `(f32, f32)` tuple that `MathOp::SinCos` produces.
+pub fn sin_cos_type(types: &TypeTable) -> Option<Type> {
+    let pair = Aggregate::Tuple(vec![Type::Scalar(Scalar::F32); 2]);
+    types
+        .iter()
+        .find_map(|(id, shape)| (*shape == pair).then_some(Type::Aggregate(id)))
 }
 
 /// Integer operations with Rust semantics: counts are u32 and rotations wrap at the bit width.

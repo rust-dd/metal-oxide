@@ -163,6 +163,10 @@ pub(crate) fn expression_type(
             for argument in arguments {
                 require(ty(argument)?, Type::Scalar(Scalar::F32))?;
             }
+            if *op == MathOp::SinCos {
+                return crate::sin_cos_type(&module.types)
+                    .ok_or_else(|| Error::new(source, "sin_cos requires an (f32, f32) result"));
+            }
             Ok(Type::Scalar(Scalar::F32))
         }
         Expression::Integer { op, arguments } => {

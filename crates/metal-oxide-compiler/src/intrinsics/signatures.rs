@@ -14,6 +14,7 @@ enum Slot {
     Ballot,
     Bool,
     F32,
+    FloatPair,
     U32,
     Usize,
     Dim3,
@@ -30,6 +31,9 @@ pub(super) fn valid(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) ->
     match operation {
         Intrinsic::Coordinates(_) => declaration(tcx, definition, &[], Dim3, Safety::Safe),
         Intrinsic::SimdCoordinate(_) => declaration(tcx, definition, &[], U32, Safety::Safe),
+        Intrinsic::Math(metal_oxide_ir::MathOp::SinCos) => {
+            declaration(tcx, definition, &[F32], FloatPair, Safety::Safe)
+        }
         Intrinsic::Math(op) => {
             let signature = tcx.fn_sig(definition).instantiate_identity().skip_binder();
             foreign_header(tcx, definition, Safety::Safe)
@@ -88,6 +92,9 @@ fn slot_matches<'tcx>(tcx: TyCtxt<'tcx>, slot: Slot, ty: Ty<'tcx>) -> bool {
         }
         Slot::Bool => ty.is_bool(),
         Slot::F32 => matches!(ty.kind(), ty::Float(ty::FloatTy::F32)),
+        Slot::FloatPair => {
+            matches!(ty.kind(), ty::Tuple(fields) if fields.iter().all(|field| field == tcx.types.f32) && fields.len() == 2)
+        }
         Slot::U32 => matches!(ty.kind(), ty::Uint(ty::UintTy::U32)),
         Slot::Usize => matches!(ty.kind(), ty::Uint(ty::UintTy::Usize)),
         Slot::Unit => ty.is_unit(),

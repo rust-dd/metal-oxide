@@ -1,5 +1,5 @@
 use metal_oxide_artifact::MathMode;
-use metal_oxide_ir::{MathOp, Scalar};
+use metal_oxide_ir::{Expression, MathOp, Module, Scalar, sin_cos_type};
 
 use crate::expressions::scalar_name;
 
@@ -34,8 +34,12 @@ pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
 }
 
 pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> String {
-    if op == MathOp::Abs {
-        return format!("as_type<float>(as_type<uint>({}) & 0x7fffffffu)", values[0]);
+    match op {
+        MathOp::Abs => {
+            return format!("as_type<float>(as_type<uint>({}) & 0x7fffffffu)", values[0]);
+        }
+        MathOp::SinCos => return format!("metal_oxide_sin_cos({})", values[0]),
+        _ => {}
     }
     let name = match op {
         MathOp::Min => "fmin",
@@ -53,7 +57,7 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         MathOp::Round => "round",
         MathOp::Ceil => "ceil",
         MathOp::Trunc => "trunc",
-        MathOp::Abs => unreachable!(),
+        MathOp::Abs | MathOp::SinCos => unreachable!(),
     };
     let namespace = if matches!(
         op,
@@ -79,4 +83,33 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
     } else {
         result
     }
+}
+
+/// Defines `metal_oxide_sin_cos` when a function uses `MathOp::SinCos`.
+pub(crate) fn helpers(module: &Module, math_mode: MathMode) -> String {
+    let used = module
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.statements)
+        .any(|statement| {
+            matches!(
+                statement.value,
+                Expression::Math {
+                    op: MathOp::SinCos,
+                    ..
+                }
+            )
+        });
+    if !used {
+        return String::new();
+    }
+    let ty = crate::expressions::type_name(sin_cos_type(&module.types).expect("validated sin_cos"));
+    let namespace = match math_mode {
+        MathMode::Precise => "precise",
+        MathMode::Fast => "fast",
+    };
+    format!(
+        "static inline {ty} metal_oxide_sin_cos(float value) {{\n    float cosine;\n    float sine = {namespace}::sincos(value, cosine);\n    return {{sine, cosine}};\n}}\n\n"
+    )
 }

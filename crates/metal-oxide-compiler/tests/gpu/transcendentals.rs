@@ -79,6 +79,54 @@ fn precise_transcendentals_match_cpu_bounds_and_reference_msl() -> metal_oxide::
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn sin_cos_matches_separate_sin_and_cos_in_both_modes() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let mut x = cases().into_iter().map(|(x, _)| x).collect::<Vec<_>>();
+    // Strided bit patterns cover every exponent, both signs, NaNs and subnormals.
+    x.extend((0..1 << 16).map(|k: u32| f32::from_bits(k.wrapping_mul(65_537) ^ 0x5a5a)));
+    let n = x.len() as u32;
+    let input = device.buffer_from_slice(&x)?;
+    for mode in [
+        metal_oxide_artifact::MathMode::Precise,
+        metal_oxide_artifact::MathMode::Fast,
+    ] {
+        let pairs = pipeline_with_math_mode(
+            &device,
+            "crates/metal-oxide-compiler/tests/fixtures/sin_cos.rs",
+            "sin_cos_pairs",
+            mode,
+        )?;
+        let mut out = device.buffer_from_slice(&vec![SENTINEL; 4 * x.len() + 4])?;
+        // SAFETY: each active lane writes its own four outputs; the last four stay untouched.
+        unsafe {
+            device.launch(
+                &pairs,
+                LaunchConfig::<64>::for_elements(n)?,
+                &[
+                    Argument::read(&input),
+                    Argument::write(&mut out),
+                    Argument::value(n)?,
+                ],
+            )?;
+        }
+        let (values, padding) = out.as_slice().split_at(4 * x.len());
+        assert!(padding.iter().all(|&v| v == SENTINEL));
+        for (value, out) in x.iter().zip(values.as_chunks::<4>().0) {
+            assert!(
+                same_bits_or_nan(out[0], out[2]) && same_bits_or_nan(out[1], out[3]),
+                "{mode:?} sin_cos({value:e}) = ({:e}, {:e}), separately ({:e}, {:e})",
+                out[0],
+                out[1],
+                out[2],
+                out[3]
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn box_muller_euler_step_matches_cpu_and_reference_msl() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let generated = pipeline(&device, FIXTURE, "box_muller_step")?;

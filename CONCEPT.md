@@ -97,8 +97,9 @@ signature through its resolved `DefId`, then emits the corresponding IR
 operation. A normal CPU linker has no implementation for these GPU symbols.
 
 The device `math` module provides f32 `sqrt`, `fma`, `ln`, `exp`, `sin`,
-`cos`, `powf`, `tanh`, `atan`, and `floor`. Angles are radians; `ln` is natural
-log and `powf` takes a floating exponent. Transcendental results follow Metal's
+`cos`, `sin_cos`, `powf`, `tanh`, `atan`, `floor`, `round`, `ceil`, and `trunc`.
+Angles are radians; `ln` is natural log and `powf` takes a floating exponent.
+`sin_cos` returns both values from one Metal `sincos` call. Transcendental results follow Metal's
 precise accuracy bounds by default. Subnormal arithmetic may flush to zero;
 arithmetic NaN payloads are unspecified. Default compilation keeps safe math
 and disables implicit contraction. `fma` requests fusion explicitly.

@@ -52,6 +52,7 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             "__metal_exp_f32" => Some(Intrinsic::Math(MathOp::Exp)),
             "__metal_sin_f32" => Some(Intrinsic::Math(MathOp::Sin)),
             "__metal_cos_f32" => Some(Intrinsic::Math(MathOp::Cos)),
+            "__metal_sin_cos_f32" => Some(Intrinsic::Math(MathOp::SinCos)),
             "__metal_powf_f32" => Some(Intrinsic::Math(MathOp::Powf)),
             "__metal_tanh_f32" => Some(Intrinsic::Math(MathOp::Tanh)),
             "__metal_atan_f32" => Some(Intrinsic::Math(MathOp::Atan)),

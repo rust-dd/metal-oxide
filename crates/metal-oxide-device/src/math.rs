@@ -49,6 +49,12 @@ pub fn cos(value: f32) -> f32 {
     crate::intrinsics::__metal_cos_f32(value)
 }
 
+/// Returns `(sin(value), cos(value))` from one Metal `sincos` call, with the same edge
+/// cases as the separate functions; it is faster in the precise mode.
+pub fn sin_cos(value: f32) -> (f32, f32) {
+    crate::intrinsics::__metal_sin_cos_f32(value)
+}
+
 /// Raises `base` to a floating-point exponent. Negative finite bases with a
 /// finite noninteger exponent return NaN. Any base to zero and one to any
 /// exponent return one, including when the other argument is NaN.
