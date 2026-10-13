@@ -163,6 +163,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 arguments::<0>(values, span)?;
                 ir::Expression::SimdCoordinate(builtin)
             }
+            Intrinsic::ThreadIndex => {
+                arguments::<0>(values, span)?;
+                ir::Expression::ThreadIndex
+            }
             Intrinsic::Simd(op) => {
                 if values.len() != op.arity() {
                     return Err((span, "invalid SIMD intrinsic arity".into()));

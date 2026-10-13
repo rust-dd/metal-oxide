@@ -13,6 +13,7 @@ pub(crate) use device::{DeviceType, device_type};
 pub(crate) enum Intrinsic {
     Coordinates(Builtin),
     SimdCoordinate(SimdBuiltin),
+    ThreadIndex,
     BufferLoad,
     BufferStore,
     ThreadgroupAlloc(Access),
@@ -89,6 +90,7 @@ impl Intrinsic {
             Self::SimdCoordinate(SimdBuiltin::Size) => "simd_size",
             Self::SimdCoordinate(SimdBuiltin::Group) => "simd_group",
             Self::SimdCoordinate(SimdBuiltin::Count) => "simd_count",
+            Self::ThreadIndex => "thread_index",
             Self::BufferLoad => "buffer_load",
             Self::BufferStore => "buffer_store",
             Self::ThreadgroupAlloc(_) => "threadgroup_alloc",

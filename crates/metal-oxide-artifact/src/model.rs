@@ -92,6 +92,8 @@ pub struct Kernel {
     /// The kernel reads buffer lengths; it then takes the element count of each parameter, as
     /// a `ulong` table, in the slot after its gate and failure words.
     pub lengths: bool,
+    /// The kernel reads its thread index, so it accepts only one-dimensional launches.
+    pub one_dimensional: bool,
 }
 
 /// Serialized with layouts and parameter lists shared across kernels.

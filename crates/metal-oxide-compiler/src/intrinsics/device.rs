@@ -48,6 +48,7 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             "__metal_block_idx" => Some(Intrinsic::Coordinates(Builtin::BlockIdx)),
             "__metal_block_dim" => Some(Intrinsic::Coordinates(Builtin::BlockDim)),
             "__metal_grid_dim" => Some(Intrinsic::Coordinates(Builtin::GridDim)),
+            "__metal_thread_index" => Some(Intrinsic::ThreadIndex),
             "__metal_sqrt_f32" => Some(Intrinsic::Math(MathOp::Sqrt)),
             "__metal_fma_f32" => Some(Intrinsic::Math(MathOp::Fma)),
             "__metal_ln_f32" => Some(Intrinsic::Math(MathOp::Ln)),

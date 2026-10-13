@@ -209,6 +209,7 @@ pub(crate) fn expression(
                 SimdBuiltin::Count => "count",
             }
         ),
+        Expression::ThreadIndex => "ulong(metal_oxide_ctx.thread_index)".into(),
         Expression::Simd {
             op: operation,
             arguments,

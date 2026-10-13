@@ -33,6 +33,42 @@ fn threads_past_the_end_get_no_element() -> metal_oxide::Result<()> {
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn thread_index_kernels_reject_multidimensional_launches() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/disjoint.rs",
+        &[],
+    );
+    support::checked(output);
+    let module = support::artifact::module(&device, &directory)?;
+    let pipeline = Pipeline::new(&device, &module, "add")?;
+    let input = device.buffer_zeroed::<f32>(64)?;
+    let mut out = device.buffer_zeroed::<f32>(64)?;
+    for config in [
+        DynamicLaunchConfig::new(Dim3::new(1, 2, 1), Dim3::x(32)),
+        DynamicLaunchConfig::new(Dim3::x(2), Dim3::new(16, 1, 2)),
+    ] {
+        // SAFETY: validation rejects the launch before it dispatches.
+        let launched = unsafe {
+            Launch::new(Ok(&pipeline), config, (&input, &mut out), |(input, out)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::read(input),
+                    Argument::write(out),
+                ])
+            })
+            .wait()
+        };
+        assert!(
+            matches!(launched, Err(metal_oxide::Error::InvalidLaunch(_))),
+            "{config:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn threads_iterate_their_own_chunks_of_a_buffer_slice() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let (output, directory) = support::emit(

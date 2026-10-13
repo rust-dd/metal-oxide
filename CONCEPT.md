@@ -87,7 +87,9 @@ borrow the buffer exclusively, while the caller still ensures race-free GPU acce
 Inside the kernel entrypoint, a buffer parameter's `len()` is the element count the host
 bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`. A `DisjointBuffer`
 hands each thread `&mut` to only its own element: `get_mut(&thread_index())` returns it,
-or `None` past the end, and the index cannot be forged, copied or cloned.
+or `None` past the end, and the index cannot be forged, copied or cloned. `thread_index()` is
+`block_idx().x * block_dim().x + thread_idx().x`, so a kernel that calls it accepts only
+one-dimensional launches.
 
 Primitive scalar buffers expose shared Metal storage directly through `read` and
 `write`, which wait for pending GPU work first: awaiting them never blocks the thread,

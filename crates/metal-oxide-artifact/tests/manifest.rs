@@ -21,6 +21,7 @@ fn manifest() -> Manifest {
                 gate_binding: 1,
                 fallible: true,
                 lengths: true,
+                one_dimensional: true,
             }],
         },
         checks: vec![Check {
@@ -95,6 +96,7 @@ fn kernels_share_type_and_signature_tables() {
             gate_binding: 2,
             fallible: false,
             lengths: false,
+            one_dimensional: false,
         })
         .into();
     let json = manifest.to_json().unwrap();

@@ -12,6 +12,7 @@ unsafe extern "Rust" {
         size: usize,
     ) -> bool;
     pub(crate) safe fn __metal_thread_idx() -> Dim3;
+    pub(crate) safe fn __metal_thread_index() -> usize;
     pub(crate) safe fn __metal_block_idx() -> Dim3;
     pub(crate) safe fn __metal_block_dim() -> Dim3;
     pub(crate) safe fn __metal_grid_dim() -> Dim3;

@@ -292,6 +292,9 @@ pub enum Expression {
     },
     Coordinates(Builtin),
     SimdCoordinate(SimdBuiltin),
+    /// `block_idx.x * block_dim.x + thread_idx.x` as `usize`; a kernel that reads it accepts
+    /// only one-dimensional launches.
+    ThreadIndex,
     Simd {
         op: SimdOp,
         arguments: Vec<Operand>,
@@ -368,6 +371,7 @@ impl Expression {
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
+            | Self::ThreadIndex
             | Self::ThreadgroupAlloc { .. }
             | Self::ThreadgroupBarrier
             | Self::Uninit(_) => {

@@ -188,6 +188,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             checks: Default::default(),
             fallible: false,
             effects: false,
+            one_dimensional: false,
         });
     }
     let order = acyclic_calls(module)?;
@@ -206,8 +207,14 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
         let fallible = !graphs[id].checks.is_empty()
             || statements().any(|statement| statement.value.is_fallible(&graphs));
         let effects = statements().any(|statement| statement.has_effect(module, function, &graphs));
+        let one_dimensional = statements().any(|statement| match statement.value {
+            Expression::ThreadIndex => true,
+            Expression::Call { function, .. } => graphs[function].one_dimensional,
+            _ => false,
+        });
         graphs[id].fallible = fallible;
         graphs[id].effects = effects;
+        graphs[id].one_dimensional = one_dimensional;
     }
     crate::uniform::validate(module, &mut graphs, &order)?;
     Ok(graphs)

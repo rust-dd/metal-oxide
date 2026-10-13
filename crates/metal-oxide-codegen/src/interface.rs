@@ -96,6 +96,7 @@ impl KernelInterfaces {
                     gate_binding: slots[0],
                     fallible: analysis.fallible,
                     lengths: reads_lengths(module, function, analysis),
+                    one_dimensional: analysis.one_dimensional,
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;

@@ -31,6 +31,7 @@ pub(super) fn valid(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) ->
     match operation {
         Intrinsic::Coordinates(_) => declaration(tcx, definition, &[], Dim3, Safety::Safe),
         Intrinsic::SimdCoordinate(_) => declaration(tcx, definition, &[], U32, Safety::Safe),
+        Intrinsic::ThreadIndex => declaration(tcx, definition, &[], Usize, Safety::Safe),
         Intrinsic::Math(metal_oxide_ir::MathOp::SinCos) => {
             declaration(tcx, definition, &[F32], FloatPair, Safety::Safe)
         }

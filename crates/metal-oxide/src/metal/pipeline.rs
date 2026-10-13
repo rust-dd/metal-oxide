@@ -91,9 +91,9 @@ impl Pipeline {
         self.0.checks.as_ref()
     }
 
-    pub(super) fn validate_arguments(
+    pub(super) fn validate_launch(
         &self,
-        block: crate::Dim3,
+        config: crate::DynamicLaunchConfig,
         arguments: &[super::Argument<'_>],
     ) -> Result<()> {
         if let Some(kernel) = &self.0.abi {
@@ -124,12 +124,18 @@ impl Pipeline {
                 }
                 let _ = checked.set(argument.signature());
             }
+            let (grid, block) = (config.grid, config.block);
             if kernel
                 .required_block
                 .is_some_and(|expected| expected != [block.x, block.y, block.z])
             {
                 return Err(crate::Error::InvalidLaunch(
                     "block does not match the kernel specialization",
+                ));
+            }
+            if kernel.one_dimensional && [grid.y, grid.z, block.y, block.z] != [1; 4] {
+                return Err(crate::Error::InvalidLaunch(
+                    "a kernel that reads its thread index requires a one-dimensional launch",
                 ));
             }
         }

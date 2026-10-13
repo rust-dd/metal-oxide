@@ -277,6 +277,7 @@ pub fn expression_type(
             Ok(Type::Aggregate(*id))
         }
         Expression::SimdCoordinate(_) => Ok(Type::Scalar(Scalar::U32)),
+        Expression::ThreadIndex => Ok(Type::Scalar(Scalar::Usize)),
         Expression::Simd { op, arguments } => {
             crate::simd::simd_type(module, function, *op, arguments, source)
         }

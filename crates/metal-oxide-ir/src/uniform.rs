@@ -280,6 +280,7 @@ fn flow(
                         value.varying |= matches!(
                             expression,
                             Expression::Coordinates(Builtin::ThreadIdx)
+                                | Expression::ThreadIndex
                                 | Expression::SimdCoordinate(
                                     SimdBuiltin::Lane | SimdBuiltin::Group
                                 )

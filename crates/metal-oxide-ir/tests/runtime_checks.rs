@@ -409,3 +409,59 @@ fn a_required_block_bounds_the_constant_block_index() {
     assert_eq!(constant_block_index(Some([32, 1, 1])), [0, 1]);
     assert_eq!(constant_block_index(None), [0, 1]);
 }
+
+/// `thread_index * factor` with rustc's overflow assertion; a helper reads the index.
+fn scaled_thread_index(factor: u64) -> (Vec<usize>, Vec<bool>) {
+    let index = function(
+        false,
+        0,
+        vec![Type::Scalar(Scalar::Usize)],
+        vec![block(
+            vec![assign(0, Expression::ThreadIndex)],
+            Terminator::Return,
+        )],
+    );
+    let kernel = function(
+        true,
+        0,
+        vec![
+            Type::Unit,
+            Type::Scalar(Scalar::Usize),
+            Type::Checked(Scalar::Usize),
+        ],
+        vec![
+            block(
+                vec![
+                    assign(
+                        1,
+                        Expression::Call {
+                            function: 0,
+                            arguments: vec![],
+                        },
+                    ),
+                    assign(
+                        2,
+                        Expression::Binary(
+                            BinaryOp::MulWithOverflow,
+                            Operand::local(1),
+                            Operand::Constant(Constant::Usize(factor)),
+                        ),
+                    ),
+                ],
+                overflow(2, OverflowOp::Mul, 1),
+            ),
+            block(vec![], Terminator::Return),
+        ],
+    );
+    let analyses = validate(&module(vec![index, kernel])).unwrap();
+    (
+        analyses[1].checks.iter().copied().collect(),
+        analyses.iter().map(|a| a.one_dimensional).collect(),
+    )
+}
+
+#[test]
+fn the_thread_index_stays_below_u32_max_in_a_one_dimensional_launch() {
+    assert_eq!(scaled_thread_index(1 << 32), (vec![], vec![true, true]));
+    assert_eq!(scaled_thread_index(1 << 33).0, [0]);
+}

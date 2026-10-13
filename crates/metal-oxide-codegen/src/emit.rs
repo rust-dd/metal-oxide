@@ -50,7 +50,7 @@ impl<'a> ModuleEmitter<'a> {
             }
         });
         self.output.push('\n');
-        self.output.push_str("struct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n    const device uint* gate;\n    device atomic_uint* failure;\n    thread bool* failed;\n};\n\n");
+        self.output.push_str("struct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint thread_index;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n    const device uint* gate;\n    device atomic_uint* failure;\n    thread bool* failed;\n};\n\n");
         self.output.push_str(&crate::numeric::helpers(module)?);
         self.output.push_str(&crate::atomics::helpers(module)?);
         if module.types.pointers().next().is_some() {
@@ -137,9 +137,14 @@ impl<'a> ModuleEmitter<'a> {
                 } else {
                     "nullptr"
                 };
+                let thread_index = if self.analyses[id].one_dimensional {
+                    "metal_oxide_thread_position.x"
+                } else {
+                    "0"
+                };
                 self.output
                     .push_str("    bool metal_oxide_failed = false;\n");
-                self.output.push_str(&format!("    metal_oxide_context metal_oxide_ctx = {{metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim{simd_values}, metal_oxide_gate, {failure}, &metal_oxide_failed}};\n"));
+                self.output.push_str(&format!("    metal_oxide_context metal_oxide_ctx = {{metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim, {thread_index}{simd_values}, metal_oxide_gate, {failure}, &metal_oxide_failed}};\n"));
             }
             for statement in function
                 .blocks
@@ -242,6 +247,10 @@ impl<'a> ModuleEmitter<'a> {
                 ("grid_dim", "threadgroups_per_grid"),
             ] {
                 parameters.push(format!("uint3 metal_oxide_{name} [[{builtin}]]"));
+            }
+            if kernel.one_dimensional {
+                parameters
+                    .push("uint3 metal_oxide_thread_position [[thread_position_in_grid]]".into());
             }
             if simd {
                 for (name, builtin) in [

@@ -63,20 +63,8 @@ impl ThreadIndex {
     }
 }
 
-/// The calling thread's index: `x + y * width + z * width * height` over the dispatch's threads.
+/// The calling thread's index, `block_idx().x * block_dim().x + thread_idx().x`. A kernel that
+/// calls it accepts only one-dimensional launches, where no two threads share the index.
 pub fn thread_index() -> ThreadIndex {
-    let (block, size, thread, grid) = (block_idx(), block_dim(), thread_idx(), grid_dim());
-    let x = position(block.x, size.x, thread.x);
-    let y = position(block.y, size.y, thread.y);
-    let z = position(block.z, size.z, thread.z);
-    let width = (grid.x as usize).wrapping_mul(size.x as usize);
-    let height = (grid.y as usize).wrapping_mul(size.y as usize);
-    // The runtime caps a dispatch at `u64::MAX` threads, so the index never wraps.
-    ThreadIndex(x.wrapping_add(width.wrapping_mul(y.wrapping_add(height.wrapping_mul(z)))))
-}
-
-fn position(block: u32, size: u32, thread: u32) -> usize {
-    (block as usize)
-        .wrapping_mul(size as usize)
-        .wrapping_add(thread as usize)
+    ThreadIndex(crate::intrinsics::__metal_thread_index())
 }

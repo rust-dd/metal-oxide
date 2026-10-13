@@ -122,6 +122,7 @@ fn threadgroup_kernels_emit_shape_and_typed_bindings() {
 fn divergent_threadgroup_participation_is_rejected() {
     for fixture in [
         "divergent_barrier",
+        "divergent_index_barrier",
         "early_barrier",
         "loop_barrier",
         "divergent_simd",

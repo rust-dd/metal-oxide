@@ -68,7 +68,7 @@ pub fn execute(module: &Module, main: &str) -> String {
         .and_then(|codegen| codegen.emit())
         .unwrap();
     let program = format!(
-        "#include <iostream>\n{msl}\nint main() {{ uint gate = 0; atomic_uint failure{{0}}; bool failed = false; metal_oxide_context ctx = {{ {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}}, 0, 0, 0, 0, &gate, &failure, &failed }}; {main} }}\n"
+        "#include <iostream>\n{msl}\nint main() {{ uint gate = 0; atomic_uint failure{{0}}; bool failed = false; metal_oxide_context ctx = {{ {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}}, 0, 0, 0, 0, 0, &gate, &failure, &failed }}; {main} }}\n"
     );
     std::fs::write(directory.join("main.cpp"), program).unwrap();
     let output = Command::new("clang++")

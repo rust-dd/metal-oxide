@@ -156,6 +156,8 @@ impl Analysis<'_> {
                 }
                 result
             }
+            // The runtime caps each launch axis at `u32::MAX` threads.
+            Expression::ThreadIndex => Value::scalar(Range::new(0, i128::from(u32::MAX) - 1)),
             Expression::Cast(operand, to) if to.is_integer() || *to == Scalar::Bool => {
                 if let Some(from) = range(operand) {
                     let full = Range::full(*to);

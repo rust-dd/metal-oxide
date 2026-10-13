@@ -143,7 +143,7 @@ fn validate(
             "kernel exceeds threadgroup memory capacity",
         ));
     }
-    pipeline.validate_arguments(config.block, arguments)?;
+    pipeline.validate_launch(config, arguments)?;
     config.validate(
         pipeline.max_threads_per_block(),
         device.max_block_dimensions(),

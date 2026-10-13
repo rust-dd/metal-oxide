@@ -18,6 +18,9 @@ pub struct FunctionAnalysis {
     pub fallible: bool,
     /// The function or a callee accesses buffers, synchronizes, or logs.
     pub effects: bool,
+    /// The function or a callee reads the thread index, so its kernel requires a
+    /// one-dimensional launch.
+    pub one_dimensional: bool,
 }
 
 impl Expression {

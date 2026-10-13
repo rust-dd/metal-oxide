@@ -98,6 +98,7 @@ mod tests {
                 gate_binding: 0,
                 fallible: false,
                 lengths: false,
+                one_dimensional: false,
             }],
         };
         let manifest = Manifest {
