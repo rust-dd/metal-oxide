@@ -1,4 +1,7 @@
-use std::sync::{Arc, atomic::Ordering};
+use std::{
+    sync::{Arc, atomic::Ordering},
+    task::{Context, Poll},
+};
 
 use super::{
     completion::Completion,
@@ -28,7 +31,7 @@ impl AccessState {
         pending.push(Arc::clone(completion));
     }
 
-    /// Waits for every GPU access registered before this call.
+    /// Blocks until every GPU access registered before this call has finished.
     pub(super) fn synchronize(&self) {
         let snapshot = {
             let mut pending = lock(&self.pending);
@@ -45,6 +48,22 @@ impl AccessState {
         lock(&self.pending).retain(|completion| !completion.is_finished());
     }
 
+    /// Whether every registered GPU access has finished; otherwise wakes `cx` when the
+    /// earliest unfinished one does.
+    pub(super) fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let mut pending = lock(&self.pending);
+        loop {
+            pending.retain(|completion| !completion.is_finished());
+            match pending.first() {
+                None => return Poll::Ready(()),
+                Some(completion) if completion.poll_finished(cx).is_pending() => {
+                    return Poll::Pending;
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn is_idle(&self) -> bool {
         lock(&self.pending).is_empty()
@@ -53,8 +72,9 @@ impl AccessState {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
+    use std::task::Waker;
+
     use super::*;
-    use crate::SubmissionReport;
 
     #[test]
     fn buffer_access_waits_for_every_pending_submission() {
@@ -64,11 +84,27 @@ mod tests {
         access.register(&first);
         access.register(&second);
         let worker = std::thread::spawn(move || {
-            first.finish(Ok(SubmissionReport::default()));
-            second.finish(Ok(SubmissionReport::default()));
+            first.finish(Ok(None));
+            second.finish(Ok(None));
         });
         access.synchronize();
         worker.join().unwrap();
+        assert!(access.is_idle());
+    }
+
+    #[test]
+    fn polled_access_is_ready_only_after_every_registered_completion() {
+        let access = AccessState::default();
+        let first = Arc::new(Completion::default());
+        let second = Arc::new(Completion::default());
+        access.register(&first);
+        access.register(&second);
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(access.poll(&mut cx).is_pending());
+        first.finish(Ok(None));
+        assert!(access.poll(&mut cx).is_pending());
+        second.finish(Ok(None));
+        assert!(access.poll(&mut cx).is_ready());
         assert!(access.is_idle());
     }
 }

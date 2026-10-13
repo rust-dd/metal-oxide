@@ -16,12 +16,16 @@ use super::{Device, Module, argument::Signature, backend::Backend, failures::Ker
 
 static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
-pub struct Pipeline {
-    pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
-    pub(super) device_id: u64,
-    pub(super) abi: Option<metal_oxide_artifact::Kernel>,
+/// A compiled kernel of one device. Clones are cheap handles to the same native pipeline.
+#[derive(Clone)]
+pub struct Pipeline(Arc<Compiled>);
+
+struct Compiled {
+    raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+    device: Device,
+    abi: Option<metal_oxide_artifact::Kernel>,
     /// Present for generated kernels, which bind gate and failure words.
-    pub(super) checks: Option<Arc<KernelChecks>>,
+    checks: Option<Arc<KernelChecks>>,
     /// The first argument signature validated for each parameter; others are checked per launch.
     validated: Box<[OnceLock<Signature>]>,
 }
@@ -42,15 +46,15 @@ impl Pipeline {
                     .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))
             })
             .transpose()?;
-        let raw = autoreleasepool(|_| Self::native(device, module, entrypoint))?;
+        let raw = compile(device, module, entrypoint)?;
         if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
             return Err(Error::InvalidLaunch(
                 "kernel exceeds threadgroup memory capacity",
             ));
         }
-        Ok(Self {
+        Ok(Self(Arc::new(Compiled {
             raw,
-            device_id: device.id(),
+            device: device.clone(),
             validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
                 .map(|_| OnceLock::new())
                 .collect(),
@@ -63,14 +67,82 @@ impl Pipeline {
                 })
             }),
             abi,
-        })
+        })))
     }
 
-    fn native(
-        device: &Device,
-        module: &Module,
-        entrypoint: &str,
-    ) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
+    pub fn thread_execution_width(&self) -> usize {
+        self.0.raw.threadExecutionWidth()
+    }
+
+    pub fn max_threads_per_block(&self) -> usize {
+        self.0.raw.maxTotalThreadsPerThreadgroup()
+    }
+
+    pub(super) fn raw(&self) -> &Retained<ProtocolObject<dyn MTLComputePipelineState>> {
+        &self.0.raw
+    }
+
+    pub(super) fn device(&self) -> &Device {
+        &self.0.device
+    }
+
+    pub(super) fn checks(&self) -> Option<&Arc<KernelChecks>> {
+        self.0.checks.as_ref()
+    }
+
+    pub(super) fn validate_arguments(
+        &self,
+        block: crate::Dim3,
+        arguments: &[super::Argument<'_>],
+    ) -> Result<()> {
+        if let Some(kernel) = &self.0.abi {
+            if arguments.len() != kernel.parameters.len() {
+                return Err(metal_oxide_artifact::Error(format!(
+                    "kernel {} requires {} arguments, got {}",
+                    kernel.name,
+                    kernel.parameters.len(),
+                    arguments.len()
+                ))
+                .into());
+            }
+            for ((argument, parameter), checked) in arguments
+                .iter()
+                .zip(&kernel.parameters)
+                .zip(&self.0.validated)
+            {
+                if checked.get() == Some(&argument.signature()) {
+                    continue;
+                }
+                let ty = argument.ty()?;
+                if ty != parameter.ty {
+                    return Err(metal_oxide_artifact::Error(format!(
+                        "kernel {} argument {} must be {:?}, got {:?}",
+                        kernel.name, parameter.name, parameter.ty, ty
+                    ))
+                    .into());
+                }
+                let _ = checked.set(argument.signature());
+            }
+            if kernel
+                .required_block
+                .is_some_and(|expected| expected != [block.x, block.y, block.z])
+            {
+                return Err(crate::Error::InvalidLaunch(
+                    "block does not match the kernel specialization",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Compiles a module function for the device's native command path.
+pub(super) fn compile(
+    device: &Device,
+    module: &Module,
+    entrypoint: &str,
+) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
+    autoreleasepool(|_| {
         // Concurrent Metal 4 pipeline creation has crashed inside the driver on
         // macOS 26.2, even with independent device contexts.
         let _compilation = matches!(device.backend(), Backend::Metal4 { .. }).then(|| {
@@ -99,58 +171,5 @@ impl Pipeline {
             }
         }
         .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))
-    }
-
-    pub fn thread_execution_width(&self) -> usize {
-        self.raw.threadExecutionWidth()
-    }
-
-    pub fn max_threads_per_block(&self) -> usize {
-        self.raw.maxTotalThreadsPerThreadgroup()
-    }
-
-    pub(super) fn validate_arguments(
-        &self,
-        block: crate::Dim3,
-        arguments: &[super::Argument<'_>],
-    ) -> Result<()> {
-        if let Some(kernel) = &self.abi {
-            if arguments.len() != kernel.parameters.len() {
-                return Err(metal_oxide_artifact::Error(format!(
-                    "kernel {} requires {} arguments, got {}",
-                    kernel.name,
-                    kernel.parameters.len(),
-                    arguments.len()
-                ))
-                .into());
-            }
-            for ((argument, parameter), checked) in arguments
-                .iter()
-                .zip(&kernel.parameters)
-                .zip(&self.validated)
-            {
-                if checked.get() == Some(&argument.signature()) {
-                    continue;
-                }
-                let ty = argument.ty()?;
-                if ty != parameter.ty {
-                    return Err(metal_oxide_artifact::Error(format!(
-                        "kernel {} argument {} must be {:?}, got {:?}",
-                        kernel.name, parameter.name, parameter.ty, ty
-                    ))
-                    .into());
-                }
-                let _ = checked.set(argument.signature());
-            }
-            if kernel
-                .required_block
-                .is_some_and(|expected| expected != [block.x, block.y, block.z])
-            {
-                return Err(crate::Error::InvalidLaunch(
-                    "block does not match the kernel specialization",
-                ));
-            }
-        }
-        Ok(())
-    }
+    })
 }

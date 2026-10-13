@@ -12,9 +12,9 @@ use objc2_metal::{
 };
 
 use super::{
-    Argument, Pipeline,
+    Argument,
     batch::{Word, metal_size},
-    completion::{Completion, SubmissionReport},
+    completion::{Completion, gpu_time},
     failure::CommandFailure,
     failures::Failures,
 };
@@ -53,7 +53,7 @@ impl ClassicBatch {
     pub(super) unsafe fn launch(
         &mut self,
         device: &ProtocolObject<dyn MTLDevice>,
-        pipeline: &Pipeline,
+        pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
         words: &[Word<'_>],
@@ -63,7 +63,7 @@ impl ClassicBatch {
         if has_previous_dispatch {
             encoder.memoryBarrierWithScope(MTLBarrierScope::Buffers);
         }
-        encoder.setComputePipelineState(&pipeline.raw);
+        encoder.setComputePipelineState(pipeline);
         let mut buffer_slot = 0;
         let mut threadgroup_slot = 0;
         for argument in arguments {
@@ -125,10 +125,7 @@ impl ClassicBatch {
                     if command.status() == MTLCommandBufferStatus::Completed {
                         match failures.failure() {
                             Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
-                            None => Ok(SubmissionReport::from_gpu_times(
-                                command.GPUStartTime(),
-                                command.GPUEndTime(),
-                            )),
+                            None => Ok(gpu_time(command.GPUStartTime(), command.GPUEndTime())),
                         }
                     } else {
                         Err(command

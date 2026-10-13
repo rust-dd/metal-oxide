@@ -1,6 +1,6 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Device, Error, LaunchConfig, Module, Pipeline};
+use metal_oxide::{Argument, Device, Error, Launch, LaunchConfig, Module, Operation, Pipeline};
 use objc2_metal::{MTLCopyAllDevices, MTLDevice};
 
 #[test]
@@ -32,12 +32,14 @@ fn enumerated_devices_have_native_budgets_and_independent_contexts() -> metal_ox
     let mut output = selected.buffer_zeroed::<u32>(32)?;
     // SAFETY: one block writes 32 distinct initialized elements.
     unsafe {
-        selected.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<32>::for_elements(32)?,
-            &[Argument::write(&mut output)],
-        )?
+            (&mut output,),
+            |(output,)| Ok([Argument::write(output)]),
+        )
+        .wait()?
     };
-    assert_eq!(output.as_slice(), (0..32).collect::<Vec<_>>());
+    assert_eq!(output.read().wait(), (0..32).collect::<Vec<_>>());
     Ok(())
 }

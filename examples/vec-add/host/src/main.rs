@@ -5,7 +5,7 @@ mod kernels {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use metal_oxide::{Device, LaunchConfig};
+    use metal_oxide::{Device, LaunchConfig, Operation};
 
     let device = Device::system_default()?;
     let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
@@ -20,11 +20,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let config = LaunchConfig::<256>::for_elements(n)?;
 
         // SAFETY: the vec_add ABI uses distinct n-element buffers and one writer per index.
-        unsafe {
-            kernels.vec_add(config, &input_a, &input_b, &mut output, n)?;
-        }
+        unsafe { kernels.vec_add(config, &input_a, &input_b, &mut output, n) }.wait()?;
 
-        for (i, actual) in output.as_slice().iter().enumerate() {
+        for (i, actual) in output.read().wait().iter().enumerate() {
             if *actual != a[i] + b[i] {
                 return Err(format!("vec_add mismatch at n={n}, index={i}").into());
             }
@@ -51,7 +49,7 @@ fn main() -> std::process::ExitCode {
     metal_oxide_artifact
 ))]
 mod tests {
-    use metal_oxide::{Argument, Device, Error, LaunchConfig, Module, Pipeline};
+    use metal_oxide::{Argument, Device, Error, Launch, LaunchConfig, Module, Operation, Pipeline};
 
     #[test]
     #[ignore = "requires a Metal device and generated artifact"]
@@ -75,58 +73,68 @@ mod tests {
         // SAFETY: every launch has an empty grid and executes no shader invocation.
         unsafe {
             assert!(matches!(
-                device.launch(&pipeline, config, &[]),
+                Launch::new(Ok(&pipeline), config, (), |()| Ok([])).wait(),
                 Err(Error::Artifact(_))
             ));
             assert!(matches!(
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     config,
-                    &[
-                        Argument::read(&wrong),
-                        Argument::read(&b),
-                        Argument::write(&mut out),
-                        Argument::value::<u32>(0)?,
-                    ]
-                ),
+                    (&wrong, &b, &mut out, 0),
+                    |(wrong, b, out, v3)| Ok([
+                        Argument::read(wrong),
+                        Argument::read(b),
+                        Argument::write(out),
+                        Argument::value::<u32>(*v3)?
+                    ])
+                )
+                .wait(),
                 Err(Error::Artifact(_))
             ));
             assert!(matches!(
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     config,
-                    &[
-                        Argument::read(&a),
-                        Argument::read(&b),
-                        Argument::read(&out),
-                        Argument::value::<u32>(0)?,
-                    ]
-                ),
+                    (&a, &b, &out, 0),
+                    |(a, b, out, v3)| Ok([
+                        Argument::read(a),
+                        Argument::read(b),
+                        Argument::read(out),
+                        Argument::value::<u32>(*v3)?
+                    ])
+                )
+                .wait(),
                 Err(Error::Artifact(_))
             ));
             assert!(matches!(
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     config,
-                    &[
-                        Argument::read(&a),
-                        Argument::read(&b),
-                        Argument::write(&mut out),
-                        Argument::value::<f32>(0.0)?,
-                    ]
-                ),
+                    (&a, &b, &mut out, 0.0),
+                    |(a, b, out, v3)| Ok([
+                        Argument::read(a),
+                        Argument::read(b),
+                        Argument::write(out),
+                        Argument::value::<f32>(*v3)?
+                    ])
+                )
+                .wait(),
                 Err(Error::Artifact(_))
             ));
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 config,
-                &[
-                    Argument::read(&a),
-                    Argument::read(&b),
-                    Argument::write(&mut out),
-                    Argument::value::<u32>(0)?,
-                ],
-            )?;
+                (&a, &b, &mut out, 0),
+                |(a, b, out, v3)| {
+                    Ok([
+                        Argument::read(a),
+                        Argument::read(b),
+                        Argument::write(out),
+                        Argument::value::<u32>(*v3)?,
+                    ])
+                },
+            )
+            .wait()?;
         }
         Ok(())
     }
@@ -180,16 +188,20 @@ mod tests {
         let mut out = device.buffer_zeroed::<f32>(0)?;
         // SAFETY: the empty grid executes no shader invocation.
         let result = unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<256>::for_elements(0)?,
-                &[
-                    Argument::read(&a),
-                    Argument::read(&b),
-                    Argument::write(&mut out),
-                    Argument::value::<u32>(0)?,
-                ],
+                (&a, &b, &mut out, 0),
+                |(a, b, out, v3)| {
+                    Ok([
+                        Argument::read(a),
+                        Argument::read(b),
+                        Argument::write(out),
+                        Argument::value::<u32>(*v3)?,
+                    ])
+                },
             )
+            .wait()
         };
         assert!(matches!(result, Err(Error::InvalidLaunch(_))));
         Ok(())

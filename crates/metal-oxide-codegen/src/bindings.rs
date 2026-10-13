@@ -4,16 +4,6 @@ use std::{collections::HashSet, fmt::Write};
 
 pub fn bindings(abi: &Abi) -> Result<String, Error> {
     abi.validate()?;
-    let mut methods = HashSet::new();
-    for kernel in &abi.kernels {
-        for name in [kernel.name.clone(), format!("enqueue_{}", kernel.name)] {
-            if !methods.insert(name.clone()) {
-                return Err(Error(format!(
-                    "kernel names collide in Rust bindings: {name}"
-                )));
-            }
-        }
-    }
     let types = HostTypes::new(abi)?;
     let mut output = String::new();
     types.emit(&mut output);
@@ -63,50 +53,34 @@ impl Kernels {
 "#,
     );
     for (index, kernel) in abi.kernels.iter().enumerate() {
-        for enqueue in [false, true] {
-            emit_method(&mut output, &types, index, kernel, enqueue)?;
-        }
+        emit_method(&mut output, &types, index, kernel)?;
     }
     output.push_str("}\n");
     Ok(output)
 }
 
+/// The generic type of a buffer parameter; host types reserve these names.
+pub(crate) fn buffer_type(binding: u32) -> String {
+    format!("MetalOxideBuffer{binding}")
+}
+
+/// One method per kernel that returns its launch operation; buffers are generic over the
+/// borrowed, owned and shared argument forms.
 fn emit_method(
     output: &mut String,
     types: &HostTypes,
     index: usize,
     kernel: &Kernel,
-    enqueue: bool,
 ) -> Result<(), Error> {
     if ["self", "Self", "crate", "super", "_"].contains(&kernel.name.as_str()) {
         return Err(Error(
             "kernel name cannot be represented in Rust bindings".into(),
         ));
     }
-    output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n    #[allow(clippy::too_many_arguments)]\n");
-    let config = match kernel.required_block {
-        Some([x, y, z]) => format!("metal_oxide::LaunchConfig<{x}, {y}, {z}>"),
-        None => "impl std::convert::Into<metal_oxide::DynamicLaunchConfig>".into(),
-    };
-    let name = if enqueue {
-        format!("enqueue_{}", kernel.name)
-    } else {
-        kernel.name.clone()
-    };
-    write!(output, "    pub unsafe fn r#{name}(&self").unwrap();
-    if enqueue {
-        output.push_str(", batch: &mut metal_oxide::Batch<'_>");
-    }
-    write!(output, ", config: {config}").unwrap();
-    let mut names = HashSet::from([
-        "self".to_owned(),
-        "Self".to_owned(),
-        "crate".to_owned(),
-        "super".to_owned(),
-        "config".to_owned(),
-        "batch".to_owned(),
-        "_".to_owned(),
-    ]);
+    let mut names =
+        HashSet::from(["self", "Self", "crate", "super", "config", "_"].map(str::to_owned));
+    let mut parameters = Vec::new();
+    let mut generics = Vec::new();
     let mut arguments = Vec::new();
     for parameter in &kernel.parameters {
         let mut name = parameter.name.clone();
@@ -116,39 +90,90 @@ fn emit_method(
         let (ty, argument) = match &parameter.ty {
             ParameterType::Value { layout } => (
                 types.name(layout),
-                format!("metal_oxide::Argument::value(r#{name})?"),
+                format!("metal_oxide::Argument::value(*r#{name})?"),
             ),
             ParameterType::Threadgroup { element, .. } => (
                 "usize".into(),
                 format!(
-                    "metal_oxide::Argument::threadgroup::<{}>(r#{name})?",
+                    "metal_oxide::Argument::threadgroup::<{}>(*r#{name})?",
                     types.name(element)
                 ),
             ),
             ParameterType::Buffer {
                 element, access, ..
             } => {
-                let (borrow, method) = match access {
-                    Access::Read => ("&", "read"),
-                    Access::Write => ("&mut ", "write"),
-                    Access::ReadWrite => ("&mut ", "read_write"),
-                    Access::Atomic => ("&mut ", "atomic"),
+                let generic = buffer_type(parameter.binding);
+                let (form, view, method) = match access {
+                    Access::Read => ("ReadArgument", "buffer", "read"),
+                    Access::Write => ("WriteArgument", "buffer_mut", "write"),
+                    Access::ReadWrite => ("WriteArgument", "buffer_mut", "read_write"),
+                    Access::Atomic => ("WriteArgument", "buffer_mut", "atomic"),
                 };
+                generics.push(format!(
+                    "{generic}: metal_oxide::{form}<{}>",
+                    types.name(element)
+                ));
                 (
-                    format!("{borrow}metal_oxide::Buffer<{}>", types.name(element)),
-                    format!("metal_oxide::Argument::{method}(r#{name})"),
+                    generic,
+                    format!(
+                        "metal_oxide::Argument::{method}(metal_oxide::{form}::{view}(r#{name}))"
+                    ),
                 )
             }
         };
-        write!(output, ", r#{name}: {ty}").unwrap();
+        parameters.push((name, ty));
         arguments.push(argument);
     }
-    output.push_str(") -> metal_oxide::Result<()> {\n        // SAFETY: kernel-specific preconditions are delegated to this function's caller.\n        unsafe {\n");
-    let receiver = if enqueue { "batch" } else { "self.device" };
+    let config = match kernel.required_block {
+        Some([x, y, z]) => format!("metal_oxide::LaunchConfig<{x}, {y}, {z}>"),
+        None => "impl std::convert::Into<metal_oxide::DynamicLaunchConfig>".into(),
+    };
+    let tuple = |items: Vec<String>| match items.len() {
+        1 => format!("({},)", items[0]),
+        _ => format!("({})", items.join(", ")),
+    };
+    let values = tuple(
+        parameters
+            .iter()
+            .map(|(name, _)| format!("r#{name}"))
+            .collect(),
+    );
+    let output_type = tuple(parameters.iter().map(|(_, ty)| ty.clone()).collect());
+    output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n    #[allow(clippy::too_many_arguments, clippy::type_complexity)]\n");
+    write!(output, "    pub unsafe fn r#{}", kernel.name).unwrap();
+    if !generics.is_empty() {
+        let names = kernel
+            .parameters
+            .iter()
+            .filter(|parameter| matches!(parameter.ty, ParameterType::Buffer { .. }))
+            .map(|parameter| buffer_type(parameter.binding))
+            .collect::<Vec<_>>();
+        write!(output, "<{}>", names.join(", ")).unwrap();
+    }
+    write!(output, "(&self, config: {config}").unwrap();
+    for (name, ty) in &parameters {
+        write!(output, ", r#{name}: {ty}").unwrap();
+    }
+    write!(
+        output,
+        ") -> metal_oxide::Launch<{output_type}, {}>",
+        arguments.len()
+    )
+    .unwrap();
+    if !generics.is_empty() {
+        write!(
+            output,
+            "\n    where\n        {},",
+            generics.join(",\n        ")
+        )
+        .unwrap();
+    }
+    output.push_str("\n    {\n        // SAFETY: kernel-specific preconditions are delegated to this function's caller.\n        unsafe {\n");
     writeln!(
         output,
-        "            {receiver}.launch(self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_{index}, {:?})?, config, &[{}])",
-        kernel.name, arguments.join(", ")
+        "            metal_oxide::Launch::new(\n                self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_{index}, {:?}),\n                config,\n                {values},\n                |{values}| Ok([{}]),\n            )",
+        kernel.name,
+        arguments.join(", ")
     )
     .unwrap();
     output.push_str("        }\n    }\n\n");

@@ -1,5 +1,7 @@
 use super::{kernels, run};
-use metal_oxide::{Argument, Device, Error, GpuValue, LaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Device, Error, GpuValue, Launch, LaunchConfig, Module, Operation, Pipeline,
+};
 
 #[test]
 #[ignore = "requires a Metal device and generated artifact"]
@@ -15,8 +17,8 @@ fn generated_particle_chain_preserves_nested_fields() -> metal_oxide::Result<()>
 
 #[test]
 #[ignore = "requires a Metal device and generated artifact"]
-fn dropped_and_forgotten_generated_particle_submissions_wait_for_readback()
--> metal_oxide::Result<()> {
+fn dropped_and_forgotten_generated_particle_operations_wait_for_readback() -> metal_oxide::Result<()>
+{
     run::verify_cancelled()
 }
 
@@ -38,42 +40,48 @@ fn record_and_config_layouts_are_checked_before_dispatch() -> metal_oxide::Resul
     // SAFETY: empty launches exercise metadata validation without running shader code.
     unsafe {
         assert!(matches!(
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(0)?,
-                &[
-                    Argument::read(&wrong),
-                    Argument::write(&mut output),
-                    Argument::value(run::config())?,
-                    Argument::value(0_u32)?
-                ]
-            ),
+                (&wrong, &mut output, run::config(), 0_u32),
+                |(wrong, output, v2, v3)| Ok([
+                    Argument::read(wrong),
+                    Argument::write(output),
+                    Argument::value(*v2)?,
+                    Argument::value(*v3)?
+                ])
+            )
+            .wait(),
             Err(Error::Artifact(_))
         ));
         assert!(matches!(
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(0)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut output),
-                    Argument::value(0_u32)?,
-                    Argument::value(0_u32)?
-                ]
-            ),
+                (&input, &mut output, 0_u32, 0_u32),
+                |(input, output, v2, v3)| Ok([
+                    Argument::read(input),
+                    Argument::write(output),
+                    Argument::value(*v2)?,
+                    Argument::value(*v3)?
+                ])
+            )
+            .wait(),
             Err(Error::Artifact(_))
         ));
         assert!(matches!(
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<32>::for_elements(0)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut output),
-                    Argument::value(run::config())?,
-                    Argument::value(0_u32)?
-                ]
-            ),
+                (&input, &mut output, run::config(), 0_u32),
+                |(input, output, v2, v3)| Ok([
+                    Argument::read(input),
+                    Argument::write(output),
+                    Argument::value(*v2)?,
+                    Argument::value(*v3)?
+                ])
+            )
+            .wait(),
             Err(Error::InvalidLaunch(_))
         ));
     }

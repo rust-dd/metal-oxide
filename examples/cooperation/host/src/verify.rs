@@ -1,5 +1,18 @@
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    task::{Context, Waker},
+};
+
 use super::{program::Program, workloads::Scan};
-use metal_oxide::{Device, Result};
+use metal_oxide::{Device, Result, sequence};
+
+/// Polls an operation once, which encodes and commits it, and returns its future.
+pub(super) fn started<O: IntoFuture<IntoFuture: Unpin>>(operation: O) -> O::IntoFuture {
+    let mut future = operation.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    future
+}
 
 pub(super) fn prefix(values: &[u32]) -> (Vec<u32>, u32) {
     let mut sum = 0_u32;
@@ -18,10 +31,11 @@ pub(super) fn scan(device: &Device, program: &Program, values: &[u32]) -> Result
     let input = device.buffer_from_slice(values)?;
     let mut scan = Scan::new(device, values.len() as u32)?;
     // SAFETY: complete blocks use neutral padding, and every global dependency follows its producer.
-    let submission = unsafe { device.submit(|batch| scan.enqueue(batch, program, &input)) }?;
-    drop(submission);
+    drop(started(sequence(|batch| unsafe {
+        scan.encode(batch, program, &input)
+    })));
     let (expected, total) = prefix(values);
-    assert_eq!(scan.output().as_slice(), expected);
+    assert_eq!(scan.output().read().wait(), expected);
     assert_eq!(scan.total(), total);
     Ok(())
 }
@@ -29,16 +43,15 @@ pub(super) fn scan(device: &Device, program: &Program, values: &[u32]) -> Result
 pub(super) fn histogram(device: &Device, program: &Program, values: &[u32]) -> Result<()> {
     let input = device.buffer_from_slice(values)?;
     let mut bins = device.buffer_zeroed::<u32>(16)?;
-    // SAFETY: initialized bins are exclusively atomic during the submitted 1D launch.
-    let submission = unsafe {
-        device.submit(|batch| program.histogram(batch, &input, &mut bins, values.len() as u32))
-    }?;
-    drop(submission);
+    // SAFETY: initialized bins are exclusively atomic during the 1D launch.
+    drop(started(sequence(|batch| unsafe {
+        program.histogram(batch, &input, &mut bins, values.len() as u32)
+    })));
     let mut expected = [0_u32; 16];
     for &value in values {
         expected[(value & 15) as usize] += 1;
     }
-    assert_eq!(bins.as_slice(), expected);
+    assert_eq!(bins.read().wait(), expected);
     Ok(())
 }
 
@@ -50,22 +63,19 @@ pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Res
     let mut output = device.buffer_from_slice(&vec![u32::MAX; values.len()])?;
     let mut count = device.buffer_zeroed::<u32>(1)?;
     // SAFETY: ordered flag/scan/scatter passes give every selected input a distinct output position.
-    let submission = unsafe {
-        device.submit(|batch| {
-            program.mark(batch, &input, &mut flags, n)?;
-            scan.enqueue(batch, program, &flags)?;
-            program.scatter(
-                batch,
-                &input,
-                &flags,
-                scan.output(),
-                &mut output,
-                &mut count,
-                n,
-            )
-        })
-    }?;
-    drop(submission);
+    drop(started(sequence(|batch| unsafe {
+        program.mark(batch, &input, &mut flags, n)?;
+        scan.encode(batch, program, &flags)?;
+        program.scatter(
+            batch,
+            &input,
+            &flags,
+            scan.output(),
+            &mut output,
+            &mut count,
+            n,
+        )
+    })));
     drop(input);
     drop(flags);
     drop(scan);
@@ -74,10 +84,10 @@ pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Res
         .copied()
         .filter(|value| value & 1 == 1)
         .collect::<Vec<_>>();
-    assert_eq!(count.as_slice()[0] as usize, expected.len());
-    assert_eq!(&output.as_slice()[..expected.len()], expected);
+    assert_eq!(count.read().wait()[0] as usize, expected.len());
+    assert_eq!(&output.read().wait()[..expected.len()], expected);
     assert!(
-        output.as_slice()[expected.len()..]
+        output.read().wait()[expected.len()..]
             .iter()
             .all(|&value| value == u32::MAX)
     );

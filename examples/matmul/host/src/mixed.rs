@@ -1,5 +1,7 @@
 use crate::kernels::Kernels;
-use metal_oxide::{Argument, Device, Dim3, F16, LaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Device, Dim3, F16, Launch, LaunchConfig, Module, Operation, Pipeline, sequence,
+};
 
 pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<()> {
     let module = Module::from_source(
@@ -34,43 +36,50 @@ pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<
         let launch = LaunchConfig::<16, 16>::new(Dim3::xy(columns.div_ceil(16), rows.div_ceil(16)));
         // SAFETY: distinct buffers cover the matrix sizes; the 16x16 blocks guard padded cells.
         unsafe {
-            kernels.matmul_half(
+            kernels
+                .matmul_half(
+                    launch,
+                    &input_a,
+                    &input_b,
+                    &mut output,
+                    rows,
+                    columns,
+                    inner,
+                )
+                .wait()?;
+            Launch::new(
+                Ok(&reference),
                 launch,
-                &input_a,
-                &input_b,
-                &mut output,
-                rows,
-                columns,
-                inner,
-            )?;
-            device.launch(
-                &reference,
-                launch,
-                &[
-                    Argument::read(&input_a),
-                    Argument::read(&input_b),
-                    Argument::write(&mut handwritten),
-                    Argument::value(rows)?,
-                    Argument::value(columns)?,
-                    Argument::value(inner)?,
-                ],
-            )?;
+                (&input_a, &input_b, &mut handwritten, rows, columns, inner),
+                |(input_a, input_b, handwritten, rows, columns, inner)| {
+                    Ok([
+                        Argument::read(input_a),
+                        Argument::read(input_b),
+                        Argument::write(handwritten),
+                        Argument::value(*rows)?,
+                        Argument::value(*columns)?,
+                        Argument::value(*inner)?,
+                    ])
+                },
+            )
+            .wait()?;
         }
-        let actual = output.as_slice();
+        let actual = output.read().wait();
         assert_eq!(
             actual
                 .iter()
                 .map(|value| value.to_bits())
                 .collect::<Vec<_>>(),
             handwritten
-                .as_slice()
+                .read()
+                .wait()
                 .iter()
                 .map(|value| value.to_bits())
                 .collect::<Vec<_>>()
         );
         assert_eq!(&actual[count..], [SENTINEL; 8]);
-        assert_eq!(input_a.as_slice(), a);
-        assert_eq!(input_b.as_slice(), b);
+        assert_eq!(input_a.read().wait(), a);
+        assert_eq!(input_b.read().wait(), b);
         let mut max_error = 0.0_f64;
         let operations = f64::from(inner.div_ceil(16) * 16) * 2.0;
         let rounding = operations * f64::from(f32::EPSILON) * 0.5;
@@ -102,22 +111,20 @@ pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<
         if rows == 17 {
             let mut queued = device.buffer_from_slice(&vec![SENTINEL; count + 8])?;
             // SAFETY: the same checked sizes and block shape apply; wait retains all arguments.
-            unsafe {
-                device.submit(|batch| {
-                    kernels.enqueue_matmul_half(
-                        batch,
-                        launch,
-                        &input_a,
-                        &input_b,
-                        &mut queued,
-                        rows,
-                        columns,
-                        inner,
-                    )
-                })?
-            }
+            sequence(|batch| unsafe {
+                batch.push(kernels.matmul_half(
+                    launch,
+                    &input_a,
+                    &input_b,
+                    &mut queued,
+                    rows,
+                    columns,
+                    inner,
+                ))?;
+                Ok(())
+            })
             .wait()?;
-            assert_eq!(queued.as_slice(), actual);
+            assert_eq!(queued.read().wait(), actual);
         }
         println!(
             "matmul-half {rows}x{inner} x {inner}x{columns}: CPU/MSL agree, max error {max_error:.3e}"

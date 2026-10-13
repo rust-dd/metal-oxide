@@ -20,26 +20,30 @@ fn splitmix64_matches_exact_cpu_streams_across_counter_boundaries() -> metal_oxi
             let mut output = device.buffer_from_slice(&vec![123_u64; n as usize + 32])?;
             // SAFETY: active lanes write distinct initialized u64 elements within n.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     LaunchConfig::<128>::for_elements(n)?,
-                    &[
-                        Argument::write(&mut output),
-                        Argument::value(base)?,
-                        Argument::value(seed)?,
-                        Argument::value(n)?,
-                    ],
-                )?;
+                    (&mut output, base, seed, n),
+                    |(output, base, seed, n)| {
+                        Ok([
+                            Argument::write(output),
+                            Argument::value(*base)?,
+                            Argument::value(*seed)?,
+                            Argument::value(*n)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             let key = (seed as u64).wrapping_mul(0x9e3779b97f4a7c15);
-            for (index, &actual) in output.as_slice()[..n as usize].iter().enumerate() {
+            for (index, &actual) in output.read().wait()[..n as usize].iter().enumerate() {
                 assert_eq!(
                     actual,
                     sm64(base.wrapping_add(index as u64) ^ key),
                     "base={base}, seed={seed}, index={index}"
                 );
             }
-            assert!(output.as_slice()[n as usize..].iter().all(|&x| x == 123));
+            assert!(output.read().wait()[n as usize..].iter().all(|&x| x == 123));
         }
     }
     Ok(())
@@ -56,23 +60,27 @@ fn u64_operations_and_saturating_casts_match_rust() -> metal_oxide::Result<()> {
             for shift in [0_u32, 31, 32, 63, 64, 65, u32::MAX] {
                 // SAFETY: a single lane owns all fifteen output elements.
                 unsafe {
-                    device.launch(
-                        &pipeline,
+                    Launch::new(
+                        Ok(&pipeline),
                         LaunchConfig::<1>::new(Dim3::x(1)),
-                        &[
-                            Argument::write(&mut output),
-                            Argument::value(a)?,
-                            Argument::value(b)?,
-                            Argument::value(shift)?,
-                            Argument::value(-123_i32)?,
-                        ],
-                    )?;
+                        (&mut output, a, b, shift, -123_i32),
+                        |(output, a, b, shift, v4)| {
+                            Ok([
+                                Argument::write(output),
+                                Argument::value(*a)?,
+                                Argument::value(*b)?,
+                                Argument::value(*shift)?,
+                                Argument::value(*v4)?,
+                            ])
+                        },
+                    )
                 }
+                .wait()?;
                 let (sum, add) = a.overflowing_add(b);
                 let (product, mul) = a.overflowing_mul(b);
                 let (difference, sub) = a.overflowing_sub(b);
                 assert_eq!(
-                    output.as_slice(),
+                    output.read().wait(),
                     [
                         sum,
                         product,
@@ -121,17 +129,21 @@ fn u64_operations_and_saturating_casts_match_rust() -> metal_oxide::Result<()> {
         let mut output = device.buffer_zeroed::<u64>(input.len())?;
         // SAFETY: input/output have n initialized elements; each lane owns one output.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<128>::for_elements(n)?,
-                &[
-                    Argument::read(&buffer),
-                    Argument::write(&mut output),
-                    Argument::value(n)?,
-                ],
-            )?;
+                (&buffer, &mut output, n),
+                |(buffer, output, n)| {
+                    Ok([
+                        Argument::read(buffer),
+                        Argument::write(output),
+                        Argument::value(*n)?,
+                    ])
+                },
+            )
         }
-        for (&actual, &input) in output.as_slice().iter().zip(&input) {
+        .wait()?;
+        for (&actual, &input) in output.read().wait().iter().zip(&input) {
             assert_eq!(
                 actual,
                 input as u64,

@@ -61,7 +61,8 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
         ["a", "b", "out", "n"]
     );
     let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("r#out: &mut metal_oxide::Buffer<f32>"));
+    assert!(bindings.contains("r#out: MetalOxideBuffer2"));
+    assert!(bindings.contains("MetalOxideBuffer2: metal_oxide::WriteArgument<f32>"));
     assert!(bindings.contains("r#n: u32"));
     assert!(
         std::fs::read_to_string(output.join("kernels.metal"))
@@ -165,7 +166,7 @@ fn cargo_imports_external_struct_helpers_and_const_specializations() {
     assert!(msl.contains("kernel void scale_128"));
     assert!(msl.contains("kernel void scale_256"));
     let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("fn r#enqueue_scale_128"));
+    assert!(bindings.contains("fn r#scale_128<"));
     assert!(bindings.contains("config: metal_oxide::LaunchConfig<128, 1, 1>"));
     assert!(bindings.contains("config: metal_oxide::LaunchConfig<256, 1, 1>"));
 }

@@ -1,6 +1,8 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Device, Dim3, DynamicLaunchConfig, LaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Device, Dim3, DynamicLaunchConfig, Launch, LaunchConfig, Module, Operation, Pipeline,
+};
 
 const SOURCE: &str = include_str!("../../../examples/vec-add/kernels/vec_add.metal");
 const GEOMETRY_SOURCE: &str = include_str!("kernels/launch_geometry.metal");
@@ -46,23 +48,27 @@ fn verify_vec_add(
 
     // SAFETY: distinct allocations cover all launched threads; vec_add guards writes at n.
     unsafe {
-        device.launch(
-            pipeline,
+        Launch::new(
+            Ok(pipeline),
             config,
-            &[
-                Argument::read(&input_a),
-                Argument::read(&input_b),
-                Argument::write(&mut output),
-                Argument::value::<u32>(n)?,
-            ],
-        )?;
+            (&input_a, &input_b, &mut output, n),
+            |(input_a, input_b, output, n)| {
+                Ok([
+                    Argument::read(input_a),
+                    Argument::read(input_b),
+                    Argument::write(output),
+                    Argument::value::<u32>(*n)?,
+                ])
+            },
+        )
     }
+    .wait()?;
 
-    for (i, actual) in output.as_slice()[..n as usize].iter().enumerate() {
+    for (i, actual) in output.read().wait()[..n as usize].iter().enumerate() {
         assert_eq!(*actual, a[i] + b[i], "n={n}, block={block_size}, index={i}");
     }
     assert!(
-        output.as_slice()[n as usize..]
+        output.read().wait()[n as usize..]
             .iter()
             .all(|value| *value == sentinel),
         "padding was written at n={n}, block={block_size}"
@@ -108,11 +114,16 @@ fn verify_geometry(
     let mut output = device.buffer_zeroed::<u32>(geometry.total_threads()? as usize * 15)?;
 
     // SAFETY: each global index owns one 15-word record in the fully sized output allocation.
-    unsafe { device.launch(pipeline, config, &[Argument::write(&mut output)])? };
+    unsafe {
+        Launch::new(Ok(pipeline), config, (&mut output,), |(output,)| {
+            Ok([Argument::write(output)])
+        })
+        .wait()?
+    };
 
     let width = geometry.grid.x * geometry.block.x;
     let height = geometry.grid.y * geometry.block.y;
-    for (index, record) in output.as_slice().as_chunks::<15>().0.iter().enumerate() {
+    for (index, record) in output.read().wait().as_chunks::<15>().0.iter().enumerate() {
         let x = index as u32 % width;
         let y = index as u32 / width % height;
         let z = index as u32 / (width * height);
@@ -150,8 +161,13 @@ fn empty_grid_leaves_output_untouched_on_every_axis() -> metal_oxide::Result<()>
         let mut output = device.buffer_from_slice(&sentinel)?;
         let config = LaunchConfig::<2, 2, 2>::new(grid);
         // SAFETY: an empty grid executes no shader invocation.
-        unsafe { device.launch(&pipeline, config, &[Argument::write(&mut output)])? };
-        assert_eq!(output.as_slice(), sentinel);
+        unsafe {
+            Launch::new(Ok(&pipeline), config, (&mut output,), |(output,)| {
+                Ok([Argument::write(output)])
+            })
+            .wait()?
+        };
+        assert_eq!(output.read().wait(), sentinel);
     }
     Ok(())
 }
@@ -161,9 +177,9 @@ fn empty_grid_leaves_output_untouched_on_every_axis() -> metal_oxide::Result<()>
 fn typed_buffers_are_initialized_and_mutable_on_cpu() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let mut buffer = device.buffer_zeroed::<u32>(3)?;
-    assert_eq!(buffer.as_slice(), [0, 0, 0]);
-    buffer.as_mut_slice().copy_from_slice(&[1, 2, 3]);
-    assert_eq!(buffer.as_slice(), [1, 2, 3]);
+    assert_eq!(buffer.read().wait(), [0, 0, 0]);
+    buffer.write().wait().copy_from_slice(&[1, 2, 3]);
+    assert_eq!(buffer.read().wait(), [1, 2, 3]);
     assert!(device.buffer_zeroed::<i32>(0)?.is_empty());
     assert!(device.buffer_zeroed::<u32>(usize::MAX).is_err());
     Ok(())

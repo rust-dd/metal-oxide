@@ -50,7 +50,7 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
             .collect::<Vec<_>>();
         let cpu = elapsed(start);
         let start = Instant::now();
-        input.as_mut_slice().copy_from_slice(&values);
+        input.write().wait().copy_from_slice(&values);
         let copy = elapsed(start);
         let start = Instant::now();
         input.upload();
@@ -61,9 +61,9 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
             level.totals.upload();
         }
         let upload = elapsed(start);
-        // SAFETY: each level owns separate buffers covering its padded blocks; ordered passes consume completed writes.
-        let mut sample = unsafe {
-            dispatch(device, |batch| {
+        let mut sample = dispatch(|batch| {
+            // SAFETY: each level owns separate buffers covering its padded blocks; ordered passes consume completed writes.
+            unsafe {
                 for index in 0..levels.len() {
                     let (previous, current) = levels.split_at_mut(index);
                     let source = if index == 0 {
@@ -72,38 +72,44 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
                         &previous[index - 1].totals
                     };
                     let level = &mut current[0];
-                    batch.launch(
-                        &pipelines[0],
+                    batch.push(Launch::new(
+                        Ok(&pipelines[0]),
                         LaunchConfig::<256>::for_elements(level.n)?,
-                        &[
-                            Argument::read(source),
-                            Argument::write(&mut level.local),
-                            Argument::write(&mut level.totals),
-                            Argument::value(level.n)?,
-                        ],
-                    )?;
+                        (source, &mut level.local, &mut level.totals, level.n),
+                        |(source, a1, a2, v3)| {
+                            Ok([
+                                Argument::read(source),
+                                Argument::write(a1),
+                                Argument::write(a2),
+                                Argument::value(*v3)?,
+                            ])
+                        },
+                    ))?;
                 }
                 for index in (0..levels.len()).rev() {
                     let (children, parents) = levels.split_at_mut(index + 1);
                     let source = parents.first().map_or(&zero, |parent| &parent.output);
                     let level = &mut children[index];
-                    batch.launch(
-                        &pipelines[1],
+                    batch.push(Launch::new(
+                        Ok(&pipelines[1]),
                         LaunchConfig::<256>::for_elements(level.n)?,
-                        &[
-                            Argument::read(&level.local),
-                            Argument::read(source),
-                            Argument::write(&mut level.output),
-                            Argument::value(level.n)?,
-                        ],
-                    )?;
+                        (&level.local, source, &mut level.output, level.n),
+                        |(a0, source, a2, v3)| {
+                            Ok([
+                                Argument::read(a0),
+                                Argument::read(source),
+                                Argument::write(a2),
+                                Argument::value(*v3)?,
+                            ])
+                        },
+                    ))?;
                 }
                 Ok(())
-            })?
-        };
+            }
+        })?;
         let start = Instant::now();
-        let result = levels[0].output.as_slice();
-        let total = levels.last().unwrap().totals.as_slice()[0];
+        let result = levels[0].output.read().wait();
+        let total = levels.last().unwrap().totals.read().wait()[0];
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "scan {variant}");
         assert_eq!(total, sum);

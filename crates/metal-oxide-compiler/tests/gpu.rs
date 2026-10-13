@@ -82,7 +82,23 @@ mod transcendentals;
 #[path = "gpu/u64.rs"]
 mod u64;
 
-use metal_oxide::{Argument, Device, Dim3, DynamicLaunchConfig, LaunchConfig, Module, Pipeline};
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    task::{Context, Waker},
+};
+
+use metal_oxide::{
+    Argument, Device, Dim3, DynamicLaunchConfig, Launch, LaunchConfig, Module, Operation, Pipeline,
+    sequence,
+};
+
+/// Polls an operation once, which encodes and commits it, and returns its future.
+fn started<O: IntoFuture<IntoFuture: Unpin>>(operation: O) -> O::IntoFuture {
+    let mut future = operation.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    future
+}
 
 fn pipeline(device: &Device, source: &str, entry: &str) -> metal_oxide::Result<Pipeline> {
     pipeline_with_math_mode(
@@ -152,22 +168,26 @@ fn verify_vec_add(
     let mut output = device.buffer_from_slice(&vec![sentinel; len])?;
     // SAFETY: separate allocations cover n elements; each active thread writes its own index.
     unsafe {
-        device.launch(
-            pipeline,
+        Launch::new(
+            Ok(pipeline),
             config,
-            &[
-                Argument::read(&a_buffer),
-                Argument::read(&b_buffer),
-                Argument::write(&mut output),
-                Argument::value::<u32>(n)?,
-            ],
-        )?;
+            (&a_buffer, &b_buffer, &mut output, n),
+            |(a_buffer, b_buffer, output, n)| {
+                Ok([
+                    Argument::read(a_buffer),
+                    Argument::read(b_buffer),
+                    Argument::write(output),
+                    Argument::value::<u32>(*n)?,
+                ])
+            },
+        )
     }
-    for (i, actual) in output.as_slice()[..n as usize].iter().enumerate() {
+    .wait()?;
+    for (i, actual) in output.read().wait()[..n as usize].iter().enumerate() {
         assert_eq!(*actual, a[i] + b[i], "n={n}, block={block_size}, i={i}");
     }
     assert!(
-        output.as_slice()[n as usize..]
+        output.read().wait()[n as usize..]
             .iter()
             .all(|v| *v == sentinel)
     );
@@ -188,13 +208,15 @@ fn rust_nested_branches_loop_and_early_return_match_cpu() -> metal_oxide::Result
     let mut output = device.buffer_from_slice(&vec![sentinel; n as usize + 32])?;
     // SAFETY: the kernel guards n and each active thread writes a separate output element.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<32>::for_elements(n)?,
-            &[Argument::write(&mut output), Argument::value::<u32>(n)?],
-        )?;
+            (&mut output, n),
+            |(output, n)| Ok([Argument::write(output), Argument::value::<u32>(*n)?]),
+        )
     }
-    for (i, &actual) in output.as_slice()[..n as usize].iter().enumerate() {
+    .wait()?;
+    for (i, &actual) in output.read().wait()[..n as usize].iter().enumerate() {
         let sum = (i as u32 / 2) * 10 + (i as u32 % 2) * 3;
         let expected = if i == 0 {
             99
@@ -208,7 +230,7 @@ fn rust_nested_branches_loop_and_early_return_match_cpu() -> metal_oxide::Result
         assert_eq!(actual, expected, "i={i}");
     }
     assert!(
-        output.as_slice()[n as usize..]
+        output.read().wait()[n as usize..]
             .iter()
             .all(|v| *v == sentinel)
     );
@@ -228,14 +250,16 @@ fn rust_concrete_trait_and_const_generic_helpers_execute() -> metal_oxide::Resul
     let mut integer = device.buffer_zeroed::<u32>(1)?;
     // SAFETY: one thread writes float[grid_dim.x = 1] and integer[0] in separate allocations.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
-            &[Argument::write(&mut float), Argument::write(&mut integer)],
-        )?;
+            (&mut float, &mut integer),
+            |(float, integer)| Ok([Argument::write(float), Argument::write(integer)]),
+        )
     }
-    assert_eq!(float.as_slice(), [-1.0, 3.0]);
-    assert_eq!(integer.as_slice(), [6]);
+    .wait()?;
+    assert_eq!(float.read().wait(), [-1.0, 3.0]);
+    assert_eq!(integer.read().wait(), [6]);
     Ok(())
 }
 
@@ -258,19 +282,23 @@ fn rust_signed_integer_math_wraps_and_masks_shifts() -> metal_oxide::Result<()> 
         let mut output = device.buffer_zeroed::<i32>(6)?;
         // SAFETY: one thread writes six output elements; scalar arguments match the generated slots.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut output),
-                    Argument::value::<i32>(a)?,
-                    Argument::value::<i32>(b)?,
-                    Argument::value::<u32>(shift)?,
-                ],
-            )?;
+                (&mut output, a, b, shift),
+                |(output, a, b, shift)| {
+                    Ok([
+                        Argument::write(output),
+                        Argument::value::<i32>(*a)?,
+                        Argument::value::<i32>(*b)?,
+                        Argument::value::<u32>(*shift)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         assert_eq!(
-            output.as_slice(),
+            output.read().wait(),
             [
                 a.wrapping_add(b),
                 a.wrapping_sub(b),
@@ -300,18 +328,22 @@ fn rust_float_operations_are_not_contracted_into_fma() -> metal_oxide::Result<()
     let mut output = device.buffer_zeroed::<f32>(1)?;
     // SAFETY: one thread writes one element and receives three f32 scalar bindings.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
-            &[
-                Argument::write(&mut output),
-                Argument::value::<f32>(a)?,
-                Argument::value::<f32>(b)?,
-                Argument::value::<f32>(c)?,
-            ],
-        )?;
+            (&mut output, a, b, c),
+            |(output, a, b, c)| {
+                Ok([
+                    Argument::write(output),
+                    Argument::value::<f32>(*a)?,
+                    Argument::value::<f32>(*b)?,
+                    Argument::value::<f32>(*c)?,
+                ])
+            },
+        )
     }
-    assert_eq!(output.as_slice()[0].to_bits(), ((a * b) + c).to_bits());
+    .wait()?;
+    assert_eq!(output.read().wait()[0].to_bits(), ((a * b) + c).to_bits());
     Ok(())
 }
 
@@ -336,11 +368,14 @@ fn rust_cuda_coordinates_match_cpu_in_1d_2d_and_3d() -> metal_oxide::Result<()> 
         let mut output = device.buffer_zeroed::<u32>(config.total_threads()? as usize * 15)?;
         // SAFETY: each global thread owns one 15-element record in the fully sized buffer.
         unsafe {
-            device.launch(&pipeline, config, &[Argument::write(&mut output)])?;
+            Launch::new(Ok(&pipeline), config, (&mut output,), |(output,)| {
+                Ok([Argument::write(output)])
+            })
         }
+        .wait()?;
         let width = config.grid.x * config.block.x;
         let height = config.grid.y * config.block.y;
-        for (i, actual) in output.as_slice().as_chunks::<15>().0.iter().enumerate() {
+        for (i, actual) in output.read().wait().as_chunks::<15>().0.iter().enumerate() {
             let x = i as u32 % width;
             let y = i as u32 / width % height;
             let z = i as u32 / (width * height);

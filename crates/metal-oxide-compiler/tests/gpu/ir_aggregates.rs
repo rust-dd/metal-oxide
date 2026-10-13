@@ -1,4 +1,4 @@
-use super::{Argument, Device, Dim3, LaunchConfig, Pipeline, support};
+use super::{Argument, Device, Dim3, Launch, LaunchConfig, Operation, Pipeline, support};
 use metal_oxide_ir::{
     self as ir, Access, AddressSpace, Aggregate, Block, Constant, Expression, Function, Operand,
     Place, Scalar, SourceLocation, Statement, Terminator, Type, TypeTable,
@@ -16,18 +16,22 @@ fn ir_owned_aggregate_values_and_copies_execute_on_metal() -> metal_oxide::Resul
         let mut floats = device.buffer_zeroed::<f32>(1)?;
         // SAFETY: one thread writes five u32 values and one f32 in distinct initialized buffers.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut integers),
-                    Argument::write(&mut floats),
-                    Argument::value::<u32>(seed)?,
-                ],
-            )?;
+                (&mut integers, &mut floats, seed),
+                |(integers, floats, seed)| {
+                    Ok([
+                        Argument::write(integers),
+                        Argument::write(floats),
+                        Argument::value::<u32>(*seed)?,
+                    ])
+                },
+            )
         }
-        assert_eq!(integers.as_slice(), [20, seed, seed, 30, seed]);
-        assert_eq!(floats.as_slice(), [2.5]);
+        .wait()?;
+        assert_eq!(integers.read().wait(), [20, seed, seed, 30, seed]);
+        assert_eq!(floats.read().wait(), [2.5]);
     }
     Ok(())
 }

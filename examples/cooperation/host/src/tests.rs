@@ -1,5 +1,5 @@
 use super::{program::Program, verify};
-use metal_oxide::Device;
+use metal_oxide::{Device, sequence};
 
 #[test]
 #[ignore = "requires a Metal device and generated artifact"]
@@ -20,7 +20,7 @@ fn scan_propagates_offsets_across_three_levels() -> metal_oxide::Result<()> {
 
 #[test]
 #[ignore = "requires a Metal device and generated artifact"]
-fn compaction_retains_resources_after_submission_is_forgotten() -> metal_oxide::Result<()> {
+fn compaction_retains_resources_after_its_operation_is_forgotten() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let program = Program::generated(&device)?;
     let n = 1_000_003;
@@ -31,22 +31,19 @@ fn compaction_retains_resources_after_submission_is_forgotten() -> metal_oxide::
     let mut output = device.buffer_zeroed::<u32>(values.len())?;
     let mut count = device.buffer_zeroed::<u32>(1)?;
     // SAFETY: ordered passes use disjoint full-sized buffers and unique prefix positions.
-    let submission = unsafe {
-        device.submit(|batch| {
-            program.mark(batch, &input, &mut flags, n)?;
-            scan.enqueue(batch, &program, &flags)?;
-            program.scatter(
-                batch,
-                &input,
-                &flags,
-                scan.output(),
-                &mut output,
-                &mut count,
-                n,
-            )
-        })
-    }?;
-    std::mem::forget(submission);
+    std::mem::forget(verify::started(sequence(|batch| unsafe {
+        program.mark(batch, &input, &mut flags, n)?;
+        scan.encode(batch, &program, &flags)?;
+        program.scatter(
+            batch,
+            &input,
+            &flags,
+            scan.output(),
+            &mut output,
+            &mut count,
+            n,
+        )
+    })));
     drop(input);
     drop(flags);
     drop(scan);
@@ -55,7 +52,7 @@ fn compaction_retains_resources_after_submission_is_forgotten() -> metal_oxide::
         .into_iter()
         .filter(|value| value & 1 == 1)
         .collect::<Vec<_>>();
-    assert_eq!(count.as_slice()[0] as usize, expected.len());
-    assert_eq!(&output.as_slice()[..expected.len()], expected);
+    assert_eq!(count.read().wait()[0] as usize, expected.len());
+    assert_eq!(&output.read().wait()[..expected.len()], expected);
     Ok(())
 }

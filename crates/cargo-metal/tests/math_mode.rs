@@ -2,7 +2,9 @@
 
 mod support;
 
-use metal_oxide::{Argument, Buffer, Device, Dim3, LaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Buffer, Device, Dim3, Launch, LaunchConfig, Module, Operation, Pipeline,
+};
 use metal_oxide_artifact::{Manifest, MathMode, sha256};
 use std::path::{Path, PathBuf};
 use support::{Workspace, checked};
@@ -105,21 +107,25 @@ fn verify_fusion(device: &Device, module: &Module, mode: MathMode) -> metal_oxid
     let b = 1.0_f32 - f32::EPSILON;
     // SAFETY: one thread owns all seven elements; the remaining parameters are f32.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
-            &[
-                Argument::write(&mut output),
-                Argument::value(a)?,
-                Argument::value(b)?,
-                Argument::value(-1.0_f32)?,
-            ],
-        )?;
+            (&mut output, a, b, -1.0_f32),
+            |(output, a, b, v3)| {
+                Ok([
+                    Argument::write(output),
+                    Argument::value(*a)?,
+                    Argument::value(*b)?,
+                    Argument::value(*v3)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     let fused = a.mul_add(b, -1.0);
-    assert_eq!(output.as_slice()[4], fused);
+    assert_eq!(output.read().wait()[4], fused);
     assert_eq!(
-        output.as_slice()[5],
+        output.read().wait()[5],
         if mode == MathMode::Fast { fused } else { 0.0 }
     );
     Ok(())
@@ -152,8 +158,8 @@ fn box_muller(
     let mut output = device.buffer_from_slice(&vec![-8192.0_f32; n as usize + 128])?;
     let mut results = Vec::new();
     for pipeline in pipelines {
-        launch(device, pipeline, &input, &angles, &mut output, n)?;
-        let actual = output.as_slice();
+        launch(pipeline, &input, &angles, &mut output, n)?;
+        let actual = output.read().wait();
         assert!(actual[n as usize..].iter().all(|&x| x == -8192.0));
         let tolerance = if mode == MathMode::Fast { 2e-4 } else { 2e-5 };
         for (index, (&actual, &expected)) in actual.iter().zip(&expected).enumerate() {
@@ -178,7 +184,7 @@ fn box_muller(
         for iteration in 0..25 {
             for offset in 0..pipelines.len() {
                 let index = (iteration + offset) % pipelines.len();
-                let time = launch(device, &pipelines[index], &input, &angles, &mut output, n)?;
+                let time = launch(&pipelines[index], &input, &angles, &mut output, n)?;
                 if iteration >= 5 {
                     samples[index].push(time);
                 }
@@ -189,30 +195,29 @@ fn box_muller(
 }
 
 fn launch(
-    device: &Device,
     pipeline: &Pipeline,
     input: &Buffer<f32>,
     angles: &Buffer<f32>,
     output: &mut Buffer<f32>,
     n: u32,
 ) -> metal_oxide::Result<Option<u64>> {
+    let config = LaunchConfig::<128>::for_elements(n)?;
     // SAFETY: disjoint buffers cover n; each guarded 1D thread owns one output element.
-    let submission = unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                pipeline,
-                LaunchConfig::<128>::for_elements(n)?,
-                &[
+    let operation = unsafe {
+        Launch::new(
+            Ok(pipeline),
+            config,
+            (input, angles, output, n),
+            |(input, angles, output, n)| {
+                Ok([
                     Argument::read(input),
                     Argument::read(angles),
                     Argument::write(output),
-                    Argument::value(n)?,
-                ],
-            )
-        })?
+                    Argument::value(*n)?,
+                ])
+            },
+        )
     };
-    Ok(submission
-        .wait()?
-        .gpu_duration
-        .map(|duration| duration.as_nanos().try_into().unwrap()))
+    let (_, time) = operation.timed().wait()?;
+    Ok(time.map(|duration| duration.as_nanos().try_into().unwrap()))
 }

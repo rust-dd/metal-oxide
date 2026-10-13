@@ -8,7 +8,9 @@ const KERNEL: &str = "use metal_oxide_device::{WriteBuffer, kernel, thread_idx};
 
 const BUILD: &str = "fn main() -> Result<(), metal_oxide_build::Error> {\n    metal_oxide_build::Artifact::new(\"../kernels/Cargo.toml\", \"artifact\").update()\n}\n";
 
-const HOST: &str = r#"mod kernels {
+const HOST: &str = r#"use metal_oxide::Operation;
+
+mod kernels {
     include!("../artifact/bindings.rs");
 }
 
@@ -20,9 +22,10 @@ fn main() -> metal_oxide::Result<()> {
         include_bytes!("../artifact/kernels.metallib"),
     )?;
     let mut out = device.buffer_zeroed::<u32>(4)?;
+    let config = metal_oxide::LaunchConfig::<4>::new(metal_oxide::Dim3::x(1));
     // SAFETY: one block of four threads writes the four elements of `out`.
-    unsafe { kernels.fill(metal_oxide::LaunchConfig::<4>::new(metal_oxide::Dim3::x(1)), &mut out, 7)? };
-    println!("{:?}", out.as_slice());
+    unsafe { kernels.fill(config, &mut out, 7) }.wait()?;
+    println!("{:?}", out.read().wait());
     Ok(())
 }
 "#;

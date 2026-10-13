@@ -1,8 +1,4 @@
 use std::{
-    future::Future,
-    marker::PhantomData,
-    pin::Pin,
-    sync::Arc,
     task::{Context, Poll, Waker},
     time::Duration,
 };
@@ -13,13 +9,16 @@ use super::{
 };
 use crate::{Error, Result};
 
+/// The GPU execution time of a command buffer, when its timestamps are available.
+pub(super) type GpuTime = Option<Duration>;
+
 #[derive(Default)]
 struct State {
-    result: Option<std::result::Result<SubmissionReport, CommandFailure>>,
-    waker: Option<Waker>,
+    result: Option<std::result::Result<GpuTime, CommandFailure>>,
+    wakers: Vec<Waker>,
 }
 
-/// The single result of a committed batch, written once by its native callback.
+/// The single result of a committed command buffer, written once by its native callback.
 #[derive(Default)]
 pub(super) struct Completion {
     state: Mutex<State>,
@@ -27,17 +26,17 @@ pub(super) struct Completion {
 }
 
 impl Completion {
-    pub(super) fn finish(&self, result: std::result::Result<SubmissionReport, CommandFailure>) {
-        let waker = {
+    pub(super) fn finish(&self, result: std::result::Result<GpuTime, CommandFailure>) {
+        let wakers = {
             let mut state = lock(&self.state);
             if state.result.is_some() {
                 return;
             }
             state.result = Some(result);
-            state.waker.take()
+            std::mem::take(&mut state.wakers)
         };
         self.ready.notify_all();
-        if let Some(waker) = waker {
+        for waker in wakers {
             // A user waker must not unwind through the native completion callback.
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| waker.wake()));
         }
@@ -63,76 +62,55 @@ impl Completion {
         state
     }
 
-    pub(super) fn wait(&self) -> Result<SubmissionReport> {
+    pub(super) fn wait(&self) -> Result<GpuTime> {
         self.finished().result.clone().unwrap().map_err(Error::from)
     }
 
-    pub(super) fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<SubmissionReport>> {
+    pub(super) fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<GpuTime>> {
         let mut state = lock(&self.state);
         match &state.result {
             Some(result) => Poll::Ready(result.clone().map_err(Error::from)),
             None => {
-                if !state
-                    .waker
-                    .as_ref()
-                    .is_some_and(|w| w.will_wake(cx.waker()))
-                {
-                    state.waker = Some(cx.waker().clone());
-                }
+                register(&mut state.wakers, cx.waker());
                 Poll::Pending
             }
         }
     }
-}
 
-/// Measurements supplied by native command completion feedback.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SubmissionReport {
-    /// GPU execution time for the entire batch; None for empty batches or unavailable timestamps.
-    pub gpu_duration: Option<Duration>,
-}
-
-impl SubmissionReport {
-    pub(super) fn from_gpu_times(start: f64, end: f64) -> Self {
-        let gpu_duration = (start.is_finite() && start > 0.0 && end.is_finite() && end >= start)
-            .then(|| Duration::try_from_secs_f64(end - start).ok())
-            .flatten();
-        Self { gpu_duration }
+    /// Whether the command buffer has finished; otherwise wakes `cx` when it does.
+    pub(super) fn poll_finished(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let mut state = lock(&self.state);
+        if state.result.is_some() {
+            return Poll::Ready(());
+        }
+        register(&mut state.wakers, cx.waker());
+        Poll::Pending
     }
 }
 
-/// A committed GPU batch. Dropping it leaves execution and resource retention active.
-///
-/// Await it or call `wait` to receive the command's completion status. CPU buffer
-/// access synchronizes pending GPU work even if the submission was dropped or forgotten.
-#[must_use = "await the submission or call wait to check GPU completion"]
-pub struct Submission<'a> {
-    pub(super) completion: Arc<Completion>,
-    pub(super) marker: PhantomData<&'a ()>,
-}
-
-impl Submission<'_> {
-    pub fn wait(self) -> Result<SubmissionReport> {
-        self.completion.wait()
+/// Keeps one entry per distinct waker; a re-polled future replaces none of the others.
+fn register(wakers: &mut Vec<Waker>, waker: &Waker) {
+    if !wakers.iter().any(|existing| existing.will_wake(waker)) {
+        wakers.push(waker.clone());
     }
 }
 
-impl Future for Submission<'_> {
-    type Output = Result<SubmissionReport>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.completion.poll(cx)
-    }
+/// Converts native GPU timestamps in seconds into a duration, rejecting missing or invalid ones.
+pub(super) fn gpu_time(start: f64, end: f64) -> GpuTime {
+    (start.is_finite() && start > 0.0 && end.is_finite() && end >= start)
+        .then(|| Duration::try_from_secs_f64(end - start).ok())
+        .flatten()
 }
 
 #[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
     use objc2_foundation::{NSError, NSString};
-    use std::{
-        sync::atomic::{AtomicUsize, Ordering},
-        task::Wake,
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
+    use std::task::Wake;
 
     struct Counter(AtomicUsize);
     impl Wake for Counter {
@@ -174,10 +152,7 @@ mod tests {
 
     #[test]
     fn native_timestamps_reject_unavailable_and_invalid_measurements() {
-        assert_eq!(
-            SubmissionReport::from_gpu_times(12.0, 12.25).gpu_duration,
-            Some(std::time::Duration::from_millis(250))
-        );
+        assert_eq!(gpu_time(12.0, 12.25), Some(Duration::from_millis(250)));
         for (start, end) in [
             (0.0, 0.0),
             (2.0, 1.0),
@@ -185,19 +160,16 @@ mod tests {
             (f64::NAN, 1.0),
             (1.0, f64::INFINITY),
         ] {
-            assert_eq!(
-                SubmissionReport::from_gpu_times(start, end).gpu_duration,
-                None
-            );
+            assert_eq!(gpu_time(start, end), None);
         }
     }
 
     #[test]
-    fn completion_wakes_the_latest_waiter_and_preserves_errors() {
+    fn completion_wakes_every_distinct_waiter_once_and_preserves_errors() {
         let completion = Completion::default();
         let first = Arc::new(Counter(AtomicUsize::new(0)));
         let second = Arc::new(Counter(AtomicUsize::new(0)));
-        for counter in [&first, &second] {
+        for counter in [&first, &second, &first] {
             let waker = Waker::from(Arc::clone(counter));
             assert!(
                 completion
@@ -205,9 +177,17 @@ mod tests {
                     .is_pending()
             );
         }
+        let third = Arc::new(Counter(AtomicUsize::new(0)));
+        let waker = Waker::from(Arc::clone(&third));
+        assert!(
+            completion
+                .poll_finished(&mut Context::from_waker(&waker))
+                .is_pending()
+        );
         completion.finish(Err(CommandFailure::Other("test command failure".into())));
-        assert_eq!(first.0.load(Ordering::Relaxed), 0);
-        assert_eq!(second.0.load(Ordering::Relaxed), 1);
+        for counter in [&first, &second, &third] {
+            assert_eq!(counter.0.load(Ordering::Relaxed), 1);
+        }
         assert_eq!(
             completion.wait().unwrap_err().to_string(),
             "Metal command failed: test command failure"
@@ -215,6 +195,11 @@ mod tests {
         assert!(
             completion
                 .poll(&mut Context::from_waker(Waker::noop()))
+                .is_ready()
+        );
+        assert!(
+            completion
+                .poll_finished(&mut Context::from_waker(Waker::noop()))
                 .is_ready()
         );
     }

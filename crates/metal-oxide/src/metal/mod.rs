@@ -14,15 +14,16 @@ mod logging;
 mod loom;
 mod metal4;
 mod module;
+mod operation;
 mod pipeline;
 mod sync;
 
-pub use argument::Argument;
+pub use argument::{Argument, ReadArgument, WriteArgument};
 pub use batch::Batch;
-pub use buffer::Buffer;
-pub use completion::{Submission, SubmissionReport};
+pub use buffer::{Buffer, Read, Write};
 pub use device::Device;
 pub use module::Module;
+pub use operation::{Launch, Operation, Pending, Sequence, Timed, TimedPending, sequence};
 pub use pipeline::Pipeline;
 
 #[link(name = "CoreGraphics", kind = "framework")]

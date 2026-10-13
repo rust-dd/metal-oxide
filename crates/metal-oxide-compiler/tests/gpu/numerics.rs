@@ -13,13 +13,15 @@ fn simd_shuffle_broadcasts_each_group_source_lane() -> metal_oxide::Result<()> {
     let mut output = device.buffer_zeroed::<f32>(3 * 256)?;
     // SAFETY: full blocks participate, lane zero is active, and output covers every dispatched thread.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<256>::new(Dim3::x(3)),
-            &[Argument::write(&mut output)],
-        )?;
+            (&mut output,),
+            |(output,)| Ok([Argument::write(output)]),
+        )
     }
-    for (i, &value) in output.as_slice().iter().enumerate() {
+    .wait()?;
+    for (i, &value) in output.read().wait().iter().enumerate() {
         assert_eq!(value, (i / width * width) as f32);
     }
     Ok(())
@@ -55,18 +57,22 @@ fn simd_dot_matches_cpu_and_reference_msl() -> metal_oxide::Result<()> {
             let mut output = device.buffer_zeroed::<f32>(config.grid.x as usize * groups)?;
             // SAFETY: buffers cover n; full 256-thread blocks participate and one lane writes each partial.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     config,
-                    &[
-                        Argument::read(&input_a),
-                        Argument::read(&input_b),
-                        Argument::write(&mut output),
-                        Argument::value::<u32>(n)?,
-                    ],
-                )?;
+                    (&input_a, &input_b, &mut output, n),
+                    |(input_a, input_b, output, n)| {
+                        Ok([
+                            Argument::read(input_a),
+                            Argument::read(input_b),
+                            Argument::write(output),
+                            Argument::value::<u32>(*n)?,
+                        ])
+                    },
+                )
             }
-            results.push(output.as_slice().to_vec());
+            .wait()?;
+            results.push(output.read().wait().to_vec());
         }
         assert_eq!(results[0], results[1]);
         assert_eq!(
@@ -112,20 +118,24 @@ fn tiled_matmul_matches_cpu_and_reference_msl() -> metal_oxide::Result<()> {
             let mut output = device.buffer_zeroed::<f32>((rows * columns) as usize)?;
             // SAFETY: buffers have the declared matrix dimensions, with uniform tile barriers and one output owner.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     config,
-                    &[
-                        Argument::read(&input_a),
-                        Argument::read(&input_b),
-                        Argument::write(&mut output),
-                        Argument::value::<u32>(rows)?,
-                        Argument::value::<u32>(columns)?,
-                        Argument::value::<u32>(inner)?,
-                    ],
-                )?;
+                    (&input_a, &input_b, &mut output, rows, columns, inner),
+                    |(input_a, input_b, output, rows, columns, inner)| {
+                        Ok([
+                            Argument::read(input_a),
+                            Argument::read(input_b),
+                            Argument::write(output),
+                            Argument::value::<u32>(*rows)?,
+                            Argument::value::<u32>(*columns)?,
+                            Argument::value::<u32>(*inner)?,
+                        ])
+                    },
+                )
             }
-            assert_eq!(output.as_slice(), expected);
+            .wait()?;
+            assert_eq!(output.read().wait(), expected);
         }
     }
     Ok(())

@@ -4,7 +4,7 @@ mod kernels {
 mod scan;
 
 use kernels::{Config, Particle};
-use metal_oxide::{Device, LaunchConfig};
+use metal_oxide::{Device, LaunchConfig, Operation, sequence};
 use std::path::Path;
 
 fn verify(artifact: &Path, n: u32) -> metal_oxide::Result<()> {
@@ -57,28 +57,26 @@ fn verify(artifact: &Path, n: u32) -> metal_oxide::Result<()> {
     let launch = LaunchConfig::<64>::for_elements(n)?;
     // SAFETY: distinct buffers cover n; ordered passes establish flags and their prefix before
     // scatter. Complete 64-thread blocks participate in every cooperative scan operation.
-    unsafe {
-        device.submit(|batch| {
-            kernels.enqueue_update(batch, launch, &input, &mut updated, Config { dt: 1.0 }, n)?;
-            kernels.enqueue_select(batch, launch, &updated, &mut gpu_flags, n)?;
-            scan.enqueue(batch, &kernels, &gpu_flags)?;
-            kernels.enqueue_scatter(
-                batch,
-                launch,
-                &updated,
-                &gpu_flags,
-                scan.output(),
-                &mut compact,
-                n,
-            )
-        })?
-    }
+    sequence(|batch| unsafe {
+        batch.push(kernels.update(launch, &input, &mut updated, Config { dt: 1.0 }, n))?;
+        batch.push(kernels.select(launch, &updated, &mut gpu_flags, n))?;
+        scan.encode(batch, &kernels, &gpu_flags)?;
+        batch.push(kernels.scatter(
+            launch,
+            &updated,
+            &gpu_flags,
+            scan.output(),
+            &mut compact,
+            n,
+        ))?;
+        Ok(())
+    })
     .wait()?;
-    assert_eq!(input.as_slice(), initial);
-    assert_eq!(updated.as_slice(), expected);
-    assert_eq!(gpu_flags.as_slice(), flags);
-    assert_eq!(scan.output().as_slice(), prefix);
-    assert_eq!(&compact.as_slice()[..selected.len()], selected);
+    assert_eq!(input.read().wait(), initial);
+    assert_eq!(updated.read().wait(), expected);
+    assert_eq!(gpu_flags.read().wait(), flags);
+    assert_eq!(scan.output().read().wait(), prefix);
+    assert_eq!(&compact.read().wait()[..selected.len()], selected);
     println!(
         "{}: n={n}, selected={sum}, all passes match CPU",
         device.name()

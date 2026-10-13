@@ -1,4 +1,4 @@
-use std::{any::TypeId, cell::RefCell, collections::HashSet};
+use std::{any::TypeId, cell::RefCell, collections::HashSet, sync::Arc};
 
 use metal_oxide_artifact::{Access, Layout, ParameterType};
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -58,7 +58,7 @@ impl<'a> Argument<'a> {
     /// let device = Device::system_default().unwrap();
     /// let mut output = device.buffer_zeroed::<f32>(4).unwrap();
     /// let arguments = [Argument::write(&mut output)];
-    /// let values = output.as_slice();
+    /// let values = output.read().wait();
     /// println!("{} {}", arguments.len(), values.len());
     /// ```
     pub fn write<T: GpuValue>(buffer: &'a mut Buffer<T>) -> Self {
@@ -208,6 +208,62 @@ impl<'a> Argument<'a> {
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
         }
         Ok(buffer)
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+impl<T: GpuValue> sealed::Sealed for &Buffer<T> {}
+impl<T: GpuValue> sealed::Sealed for &mut Buffer<T> {}
+impl<T: GpuValue> sealed::Sealed for Buffer<T> {}
+impl<T: GpuValue> sealed::Sealed for Arc<Buffer<T>> {}
+
+/// A buffer a kernel only reads: borrowed, owned, or shared through an `Arc`.
+pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
+    fn buffer(&self) -> &Buffer<T>;
+}
+
+/// A buffer a kernel writes: exclusively borrowed or owned. An `Arc` buffer is read-only
+/// because a GPU write must exclude every CPU view of it.
+pub trait WriteArgument<T: GpuValue>: sealed::Sealed {
+    fn buffer_mut(&mut self) -> &mut Buffer<T>;
+}
+
+impl<T: GpuValue> ReadArgument<T> for &Buffer<T> {
+    fn buffer(&self) -> &Buffer<T> {
+        self
+    }
+}
+
+impl<T: GpuValue> ReadArgument<T> for &mut Buffer<T> {
+    fn buffer(&self) -> &Buffer<T> {
+        self
+    }
+}
+
+impl<T: GpuValue> ReadArgument<T> for Buffer<T> {
+    fn buffer(&self) -> &Buffer<T> {
+        self
+    }
+}
+
+impl<T: GpuValue> ReadArgument<T> for Arc<Buffer<T>> {
+    fn buffer(&self) -> &Buffer<T> {
+        self
+    }
+}
+
+impl<T: GpuValue> WriteArgument<T> for &mut Buffer<T> {
+    fn buffer_mut(&mut self) -> &mut Buffer<T> {
+        self
+    }
+}
+
+impl<T: GpuValue> WriteArgument<T> for Buffer<T> {
+    fn buffer_mut(&mut self) -> &mut Buffer<T> {
+        self
     }
 }
 

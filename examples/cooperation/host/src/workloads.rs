@@ -40,14 +40,15 @@ impl Scan {
             .last()
             .unwrap()
             .totals
-            .as_slice()
+            .read()
+            .wait()
             .first()
             .copied()
             .unwrap_or(0)
     }
-    pub(super) unsafe fn enqueue(
+    pub(super) unsafe fn encode(
         &mut self,
-        batch: &mut Batch<'_>,
+        batch: &mut Batch,
         program: &Program,
         input: &Buffer<u32>,
     ) -> Result<()> {

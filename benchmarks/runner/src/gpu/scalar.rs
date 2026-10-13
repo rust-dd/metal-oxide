@@ -39,9 +39,9 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
         };
         let cpu = elapsed(start);
         let start = Instant::now();
-        a.as_mut_slice().copy_from_slice(&values);
+        a.write().wait().copy_from_slice(&values);
         if !reduction {
-            b.as_mut_slice().copy_from_slice(&values);
+            b.write().wait().copy_from_slice(&values);
         }
         let copy = elapsed(start);
         let start = Instant::now();
@@ -49,35 +49,45 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
         b.upload();
         out.upload();
         let upload = elapsed(start);
-        // SAFETY: distinct buffers cover n inputs and the exact output shape; all 256 lanes participate.
-        let mut sample = unsafe {
-            dispatch(device, |batch| {
+        let mut sample = dispatch(|batch| {
+            // SAFETY: distinct buffers cover n inputs and the exact output shape; all 256 lanes participate.
+            unsafe {
                 if reduction {
-                    batch.launch(
-                        &pipelines[0],
-                        launch,
-                        &[
-                            Argument::read(&a),
-                            Argument::write(&mut out),
-                            Argument::value(n)?,
-                        ],
-                    )
+                    batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&a, &mut out, n),
+                            |(a, out, n)| {
+                                Ok([
+                                    Argument::read(a),
+                                    Argument::write(out),
+                                    Argument::value(*n)?,
+                                ])
+                            },
+                        ))
+                        .map(drop)
                 } else {
-                    batch.launch(
-                        &pipelines[0],
-                        launch,
-                        &[
-                            Argument::read(&a),
-                            Argument::read(&b),
-                            Argument::write(&mut out),
-                            Argument::value(n)?,
-                        ],
-                    )
+                    batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&a, &b, &mut out, n),
+                            |(a, b, out, n)| {
+                                Ok([
+                                    Argument::read(a),
+                                    Argument::read(b),
+                                    Argument::write(out),
+                                    Argument::value(*n)?,
+                                ])
+                            },
+                        ))
+                        .map(drop)
                 }
-            })?
-        };
+            }
+        })?;
         let start = Instant::now();
-        let result = out.as_slice();
+        let result = out.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "{name} {variant}");
         sample.cpu_reference_ns = cpu;
@@ -108,29 +118,34 @@ fn histogram(device: &Device, config: &Config, variant: &str) -> Result<Case> {
         }
         let cpu = elapsed(start);
         let start = Instant::now();
-        input.as_mut_slice().copy_from_slice(&values);
-        bins.as_mut_slice().fill(0);
+        input.write().wait().copy_from_slice(&values);
+        bins.write().wait().fill(0);
         let copy = elapsed(start);
         let start = Instant::now();
         input.upload();
         bins.upload();
         let upload = elapsed(start);
-        // SAFETY: input covers n, all writes are relaxed atomics into 16 initialized bins.
-        let mut sample = unsafe {
-            dispatch(device, |batch| {
-                batch.launch(
-                    &pipelines[0],
-                    launch,
-                    &[
-                        Argument::read(&input),
-                        Argument::atomic(&mut bins),
-                        Argument::value(n)?,
-                    ],
-                )
-            })?
-        };
+        let mut sample = dispatch(|batch| {
+            // SAFETY: input covers n, all writes are relaxed atomics into 16 initialized bins.
+            unsafe {
+                batch
+                    .push(Launch::new(
+                        Ok(&pipelines[0]),
+                        launch,
+                        (&input, &mut bins, n),
+                        |(input, bins, n)| {
+                            Ok([
+                                Argument::read(input),
+                                Argument::atomic(bins),
+                                Argument::value(*n)?,
+                            ])
+                        },
+                    ))
+                    .map(drop)
+            }
+        })?;
         let start = Instant::now();
-        let result = bins.as_slice();
+        let result = bins.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "histogram {variant}");
         sample.cpu_reference_ns = cpu;

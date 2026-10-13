@@ -15,20 +15,24 @@ fn narrow_integer_math_preserves_rust_wrapping_and_shifts() -> metal_oxide::Resu
             let mut out16 = device.buffer_zeroed::<u16>(6)?;
             // SAFETY: one thread owns both six-element outputs; copied scalar arguments match their ABI.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     LaunchConfig::<1>::new(Dim3::x(1)),
-                    &[
-                        Argument::write(&mut out8),
-                        Argument::write(&mut out16),
-                        Argument::value::<u8>(a)?,
-                        Argument::value::<u16>(b)?,
-                        Argument::value::<u32>(shift)?,
-                    ],
-                )?;
+                    (&mut out8, &mut out16, a, b, shift),
+                    |(out8, out16, a, b, shift)| {
+                        Ok([
+                            Argument::write(out8),
+                            Argument::write(out16),
+                            Argument::value::<u8>(*a)?,
+                            Argument::value::<u16>(*b)?,
+                            Argument::value::<u32>(*shift)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             assert_eq!(
-                out8.as_slice(),
+                out8.read().wait(),
                 [
                     a.wrapping_add(255),
                     a.wrapping_sub(255),
@@ -39,7 +43,7 @@ fn narrow_integer_math_preserves_rust_wrapping_and_shifts() -> metal_oxide::Resu
                 ]
             );
             assert_eq!(
-                out16.as_slice(),
+                out16.read().wait(),
                 [
                     b.wrapping_add(65535),
                     b.wrapping_sub(65535),
@@ -68,19 +72,23 @@ fn byte_buffers_widen_and_scale_without_changing_stride() -> metal_oxide::Result
     let mut output = device.buffer_zeroed::<u16>(256)?;
     // SAFETY: one 256-thread block owns the distinct full-sized output, and input covers every index.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<256>::new(Dim3::x(1)),
-            &[
-                Argument::read(&input),
-                Argument::write(&mut output),
-                Argument::value::<u16>(300)?,
-                Argument::value::<u32>(256)?,
-            ],
-        )?;
+            (&input, &mut output, 300, 256),
+            |(input, output, v2, v3)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::write(output),
+                    Argument::value::<u16>(*v2)?,
+                    Argument::value::<u32>(*v3)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     assert_eq!(
-        output.as_slice(),
+        output.read().wait(),
         values
             .iter()
             .map(|&v| (v as u16).wrapping_mul(300))
@@ -111,20 +119,24 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
             let mut out16 = device.buffer_zeroed::<i16>(8)?;
             // SAFETY: one thread owns each eight-element output; argument types match the artifact.
             unsafe {
-                device.launch(
-                    &arithmetic,
+                Launch::new(
+                    Ok(&arithmetic),
                     LaunchConfig::<1>::new(Dim3::x(1)),
-                    &[
-                        Argument::write(&mut out8),
-                        Argument::write(&mut out16),
-                        Argument::value(a)?,
-                        Argument::value(b)?,
-                        Argument::value(shift)?,
-                    ],
-                )?;
+                    (&mut out8, &mut out16, a, b, shift),
+                    |(out8, out16, a, b, shift)| {
+                        Ok([
+                            Argument::write(out8),
+                            Argument::write(out16),
+                            Argument::value(*a)?,
+                            Argument::value(*b)?,
+                            Argument::value(*shift)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             assert_eq!(
-                out8.as_slice(),
+                out8.read().wait(),
                 [
                     a.wrapping_add(127),
                     a.wrapping_sub(127),
@@ -137,7 +149,7 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
                 ]
             );
             assert_eq!(
-                out16.as_slice(),
+                out16.read().wait(),
                 [
                     b.wrapping_add(32767),
                     b.wrapping_sub(32767),
@@ -155,38 +167,50 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
         let mut overflow = device.buffer_zeroed::<u32>(2)?;
         // SAFETY: one thread writes initialized values and flags in disjoint outputs.
         unsafe {
-            device.launch(
-                &flags,
+            Launch::new(
+                Ok(&flags),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut out8),
-                    Argument::write(&mut out16),
-                    Argument::write(&mut overflow),
-                    Argument::value(a)?,
-                    Argument::value(b)?,
-                ],
-            )?;
+                (&mut out8, &mut out16, &mut overflow, a, b),
+                |(out8, out16, overflow, a, b)| {
+                    Ok([
+                        Argument::write(out8),
+                        Argument::write(out16),
+                        Argument::write(overflow),
+                        Argument::value(*a)?,
+                        Argument::value(*b)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let (x, ox) = a.overflowing_mul(-127);
         let (y, oy) = b.overflowing_mul(-32767);
-        assert_eq!(out8.as_slice(), [x]);
-        assert_eq!(out16.as_slice(), [y]);
-        assert_eq!(overflow.as_slice(), [ox as u32, oy as u32]);
+        assert_eq!(out8.read().wait(), [x]);
+        assert_eq!(out16.read().wait(), [y]);
+        assert_eq!(overflow.read().wait(), [ox as u32, oy as u32]);
         let mut record8 = device.buffer_zeroed::<i8>(2)?;
         let mut record16 = device.buffer_zeroed::<i16>(2)?;
         record!(SignedRecord((i8, i16, (i8, u16))) { small, wide, pair });
         // SAFETY: the value has the kernel's record layout; one thread owns both outputs.
         unsafe {
-            device.launch(
-                &records,
+            Launch::new(
+                Ok(&records),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut record8),
-                    Argument::write(&mut record16),
-                    Argument::value(SignedRecord((a, b, (-1_i8, 7_u16))))?,
-                ],
-            )?;
+                (
+                    &mut record8,
+                    &mut record16,
+                    SignedRecord((a, b, (-1_i8, 7_u16))),
+                ),
+                |(record8, record16, v2)| {
+                    Ok([
+                        Argument::write(record8),
+                        Argument::write(record16),
+                        Argument::value(*v2)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let small = if b < 0 {
             a.wrapping_add(1)
         } else {
@@ -198,8 +222,8 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
             0 => 0,
             _ => a as u8 as i16,
         };
-        assert_eq!(record8.as_slice(), [small, wide as i8]);
-        assert_eq!(record16.as_slice(), [wide, 7]);
+        assert_eq!(record8.read().wait(), [small, wide as i8]);
+        assert_eq!(record16.read().wait(), [wide, 7]);
     }
     Ok(())
 }

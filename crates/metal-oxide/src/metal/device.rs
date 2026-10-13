@@ -7,12 +7,15 @@ use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_metal::{MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice, MTLLogState};
+use objc2_metal::{
+    MTLComputePipelineState, MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice,
+    MTLLogState,
+};
 
-use crate::{Dim3, DynamicLaunchConfig, Error, GpuValue, Result};
+use crate::{Dim3, Error, GpuValue, Result};
 
 use super::{
-    Argument, Batch, Buffer, Module, Pipeline, Submission,
+    Buffer, Module,
     backend::Backend,
     failures::{FailurePool, SNAPSHOT_KERNEL, SNAPSHOT_SOURCE},
 };
@@ -22,7 +25,8 @@ static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 /// A Metal device and its ordered command queue.
 ///
 /// Clones are cheap handles to the same queue context, and every method may be
-/// called from any thread. Batches committed from several threads execute in commit order.
+/// called from any thread. Operations started from several threads execute in the order
+/// they commit.
 #[derive(Clone)]
 pub struct Device(Arc<Context>);
 
@@ -31,7 +35,7 @@ struct Context {
     backend: Backend,
     id: u64,
     failures: Arc<FailurePool>,
-    snapshot: OnceLock<Pipeline>,
+    snapshot: OnceLock<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     log: OnceLock<Retained<ProtocolObject<dyn MTLLogState>>>,
 }
 
@@ -98,9 +102,7 @@ impl Device {
     }
 
     pub fn buffer_from_slice<T: GpuValue>(&self, values: &[T]) -> Result<Buffer<T>> {
-        let mut buffer = Buffer::zeroed(self, values.len())?;
-        buffer.as_mut_slice().copy_from_slice(values);
-        Ok(buffer)
+        Buffer::from_slice(self, values)
     }
 
     pub fn buffer_zeroed<T: GpuValue>(&self, len: usize) -> Result<Buffer<T>> {
@@ -134,13 +136,15 @@ impl Device {
         &self.0.failures
     }
 
-    /// The built-in kernel that copies a submission's failure word into a later gate.
-    pub(super) fn snapshot(&self) -> Result<&Pipeline> {
+    /// The built-in kernel that copies a command buffer's failure word into a later gate.
+    pub(super) fn snapshot(
+        &self,
+    ) -> Result<&Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
         if let Some(pipeline) = self.0.snapshot.get() {
             return Ok(pipeline);
         }
         let module = Module::from_source(self, SNAPSHOT_SOURCE)?;
-        let pipeline = Pipeline::new(self, &module, SNAPSHOT_KERNEL)?;
+        let pipeline = super::pipeline::compile(self, &module, SNAPSHOT_KERNEL)?;
         Ok(self.0.snapshot.get_or_init(|| pipeline))
     }
 
@@ -156,63 +160,5 @@ impl Device {
             let _ = self.0.log.set(state);
         }
         Ok(())
-    }
-
-    /// Encodes and commits an ordered batch without waiting for the GPU.
-    ///
-    /// Returning an encoding error discards the entire batch. Captured borrows
-    /// remain attached to the submission; dropping it does not cancel GPU work.
-    ///
-    /// ```compile_fail
-    /// use metal_oxide::{Argument, Device, Dim3, LaunchConfig, Pipeline};
-    /// fn check(device: &Device, pipeline: &Pipeline) {
-    ///     let mut output = device.buffer_zeroed::<u32>(32).unwrap();
-    ///     let submission = unsafe { device.submit(|batch| {
-    ///         batch.launch(pipeline, LaunchConfig::<32>::new(Dim3::x(1)),
-    ///             &[Argument::write(&mut output)])
-    ///     }) }.unwrap();
-    ///     let values = output.as_slice();
-    ///     submission.wait().unwrap();
-    ///     println!("{}", values.len());
-    /// }
-    /// ```
-    ///
-    /// # Safety
-    ///
-    /// Every encoded kernel must satisfy `Device::launch`'s safety contract.
-    /// Accesses to resources across kernels must respect the encoded order.
-    /// CPU views acquired during encoding must end before committing GPU writes to them.
-    pub unsafe fn submit<'a>(
-        &'a self,
-        encode: impl FnOnce(&mut Batch<'_>) -> Result<()> + 'a,
-    ) -> Result<Submission<'a>> {
-        autoreleasepool(|_| {
-            let mut batch = Batch::new(self)?;
-            encode(&mut batch)?;
-            Ok(batch.commit())
-        })
-    }
-
-    /// Encodes the kernel, waits for completion, then checks command status.
-    ///
-    /// Accepts const-generic or dynamically sized launch configurations.
-    ///
-    /// # Safety
-    ///
-    /// Arguments must match the kernel's types, slots, lengths, and access modes.
-    /// The kernel must stay in bounds, respect read-only resources, have no data
-    /// races, and leave valid values in every written element. Its grid and block
-    /// must satisfy all participation and synchronization requirements. The caller
-    /// must ensure no external GPU or CPU access conflicts with this submission.
-    pub unsafe fn launch(
-        &self,
-        pipeline: &Pipeline,
-        config: impl Into<DynamicLaunchConfig>,
-        arguments: &[Argument<'_>],
-    ) -> Result<()> {
-        // SAFETY: this method forwards the caller's kernel contract to the batch.
-        unsafe { self.submit(|batch| batch.launch(pipeline, config, arguments))? }
-            .wait()
-            .map(|_| ())
     }
 }

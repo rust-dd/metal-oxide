@@ -1,6 +1,8 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Device, Dim3, Error, LaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Device, Dim3, Error, Launch, LaunchConfig, Module, Operation, Pipeline, sequence,
+};
 
 #[test]
 fn threadgroup_lengths_check_multiplication_and_native_rounding() {
@@ -49,77 +51,78 @@ fn threadgroup_memory_limits_include_static_storage_and_empty_grids() -> metal_o
     for grid in [0, 1] {
         // SAFETY: validation must reject combined static/dynamic capacity before any dispatch.
         let result = unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<32>::new(Dim3::x(grid)),
-                &[
-                    Argument::threadgroup::<u32>(maximum / 4)?,
-                    Argument::write(&mut output),
-                ],
+                (maximum / 4, &mut output),
+                |(v0, output)| Ok([Argument::threadgroup::<u32>(*v0)?, Argument::write(output)]),
             )
+            .wait()
         };
         assert!(matches!(result, Err(Error::InvalidLaunch(_))));
     }
     // SAFETY: every thread owns one initialized scratch element in each 32-element array.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<32>::new(Dim3::x(1)),
-            &[
-                Argument::threadgroup::<u32>(32)?,
-                Argument::write(&mut output),
-            ],
-        )?;
+            (32, &mut output),
+            |(v0, output)| Ok([Argument::threadgroup::<u32>(*v0)?, Argument::write(output)]),
+        )
     }
-    assert_eq!(output.as_slice(), &[33; 32]);
+    .wait()?;
+    assert_eq!(output.read().wait(), &[33; 32]);
 
     let two = Pipeline::new(&device, &module, "two")?;
     let guarded = Pipeline::new(&device, &module, "guarded")?;
+    let block = LaunchConfig::<32>::new(Dim3::x(1));
     // SAFETY: every accessed cell is initialized within its allocation; each
     // dispatch completes before the next uses output. Scratch is block-local.
-    unsafe {
-        device
-            .submit(|batch| {
-                batch.launch(
-                    &two,
-                    LaunchConfig::<32>::new(Dim3::x(1)),
-                    &[
-                        Argument::threadgroup::<u32>(maximum / 8)?,
-                        Argument::threadgroup::<u32>(maximum / 8)?,
-                        Argument::write(&mut output),
-                    ],
-                )?;
-                batch.launch(
-                    &pipeline,
-                    LaunchConfig::<32>::new(Dim3::x(1)),
-                    &[
-                        Argument::threadgroup::<u32>((maximum - 128) / 4)?,
-                        Argument::write(&mut output),
-                    ],
+    sequence(|batch| unsafe {
+        let (_, _, output) = batch.push(Launch::new(
+            Ok(&two),
+            block,
+            (maximum / 8, maximum / 8, &mut output),
+            |(a, b, output)| {
+                Ok([
+                    Argument::threadgroup::<u32>(*a)?,
+                    Argument::threadgroup::<u32>(*b)?,
+                    Argument::write(output),
+                ])
+            },
+        ))?;
+        batch.push(Launch::new(
+            Ok(&pipeline),
+            block,
+            ((maximum - 128) / 4, output),
+            |(a, output)| Ok([Argument::threadgroup::<u32>(*a)?, Argument::write(output)]),
+        ))?;
+        Ok(())
+    })
+    .wait()?;
+    assert_eq!(output.read().wait(), &[33; 32]);
+    sequence(|batch| {
+        let mut output = &mut output;
+        for n in [32_u32, 1, 17, 0] {
+            // SAFETY: n is at most one block and the zero case accesses no scratch elements.
+            (_, output, _) = batch.push(unsafe {
+                Launch::new(
+                    Ok(&guarded),
+                    block,
+                    (n as usize, output, n),
+                    |(scratch, output, n)| {
+                        Ok([
+                            Argument::threadgroup::<u8>(*scratch)?,
+                            Argument::write(output),
+                            Argument::value(*n)?,
+                        ])
+                    },
                 )
-            })?
-            .wait()?;
-    }
-    assert_eq!(output.as_slice(), &[33; 32]);
-    // SAFETY: n is at most one block and the zero case accesses no scratch elements.
-    unsafe {
-        device
-            .submit(|batch| {
-                for n in [32_u32, 1, 17, 0] {
-                    batch.launch(
-                        &guarded,
-                        LaunchConfig::<32>::new(Dim3::x(1)),
-                        &[
-                            Argument::threadgroup::<u8>(n as usize)?,
-                            Argument::write(&mut output),
-                            Argument::value(n)?,
-                        ],
-                    )?;
-                }
-                Ok(())
-            })?
-            .wait()?;
-    }
-    assert_eq!(output.as_slice()[0], 42);
+            })?;
+        }
+        Ok(())
+    })
+    .wait()?;
+    assert_eq!(output.read().wait()[0], 42);
     Ok(())
 }

@@ -10,7 +10,7 @@ fn read_write_buffer_runs_in_place_and_has_exclusive_bindings() {
     let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
     assert!(abi.contains("read_write"), "{abi}");
     let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("&mut metal_oxide::Buffer<f32>"));
+    assert!(bindings.contains("metal_oxide::WriteArgument<f32>"));
     assert!(bindings.contains("Argument::read_write"));
     assert_eq!(
         support::execute_msl(

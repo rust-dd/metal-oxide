@@ -18,28 +18,32 @@ fn block_scan_handles_padded_threads_and_wrapping_values() -> metal_oxide::Resul
         let mut totals = device.buffer_zeroed::<u32>(n.div_ceil(256) as usize)?;
         // SAFETY: complete 256-thread blocks participate; guarded reads use neutral zero padding.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<256>::for_elements(n)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut prefix),
-                    Argument::write(&mut totals),
-                    Argument::value(n)?,
-                ],
-            )?;
+                (&input, &mut prefix, &mut totals, n),
+                |(input, prefix, totals, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(prefix),
+                        Argument::write(totals),
+                        Argument::value(*n)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         for (block, chunk) in values.chunks(256).enumerate() {
             let mut sum = 0_u32;
             for (lane, &value) in chunk.iter().enumerate() {
                 assert_eq!(
-                    prefix.as_slice()[block * 256 + lane],
+                    prefix.read().wait()[block * 256 + lane],
                     sum,
                     "n={n}, block={block}, lane={lane}"
                 );
                 sum = sum.wrapping_add(value);
             }
-            assert_eq!(totals.as_slice()[block], sum);
+            assert_eq!(totals.read().wait()[block], sum);
         }
     }
     Ok(())

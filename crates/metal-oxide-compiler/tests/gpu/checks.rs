@@ -16,10 +16,11 @@ fn line(text: &str) -> u32 {
     source.lines().position(|line| line.contains(text)).unwrap() as u32 + 1
 }
 
-fn failure(result: metal_oxide::Result<()>) -> KernelFailure {
+fn failure<T>(result: metal_oxide::Result<T>) -> KernelFailure {
     match result {
         Err(Error::KernelFailed(failure)) => *failure,
-        other => panic!("expected a kernel failure, got {other:?}"),
+        Err(other) => panic!("expected a kernel failure, got {other:?}"),
+        Ok(_) => panic!("expected a kernel failure"),
     }
 }
 
@@ -32,15 +33,19 @@ fn failed_bounds_check_reports_its_rust_location() -> metal_oxide::Result<()> {
     let mut out = device.buffer_from_slice(&[0_u32; 10])?;
     // SAFETY: both buffers have ten elements and each thread writes its own element.
     let result = unsafe {
-        device.launch(
-            &lookup,
+        Launch::new(
+            Ok(&lookup),
             LaunchConfig::<4>::for_elements(10)?,
-            &[
-                Argument::read(&indices),
-                Argument::write(&mut out),
-                Argument::value(10_u32)?,
-            ],
+            (&indices, &mut out, 10_u32),
+            |(indices, out, v2)| {
+                Ok([
+                    Argument::read(indices),
+                    Argument::write(out),
+                    Argument::value(*v2)?,
+                ])
+            },
         )
+        .wait()
     };
     let failure = failure(result);
     assert_eq!(failure.kernel, "lookup");
@@ -52,7 +57,7 @@ fn failed_bounds_check_reports_its_rust_location() -> metal_oxide::Result<()> {
     );
     assert_eq!(failure.line, line("values[indices"));
     // Threads that pass their checks finish; the failing thread stops before its store.
-    assert_eq!(out.as_slice(), [10, 20, 30, 40, 30, 20, 10, 40, 0, 20]);
+    assert_eq!(out.read().wait(), [10, 20, 30, 40, 30, 20, 10, 40, 0, 20]);
     assert!(
         failure
             .to_string()
@@ -79,38 +84,42 @@ fn lookups_and_fills(
     let config = LaunchConfig::<4>::for_elements(4)?;
     let [early, late] = &mut looked_up;
     // SAFETY: every buffer covers four elements with one writer per element.
-    let submission = unsafe {
-        device.submit(|batch| {
-            for (indices, out, value) in [(first, early, 1_u32), (second, late, 2)] {
-                batch.launch(
-                    &lookup,
-                    config,
-                    &[
+    let result = sequence(|batch| unsafe {
+        for (indices, out, value) in [(first, early, 1_u32), (second, late, 2)] {
+            batch.push(Launch::new(
+                Ok(&lookup),
+                config,
+                (indices, out, 4_u32),
+                |(indices, out, v2)| {
+                    Ok([
                         Argument::read(indices),
                         Argument::write(out),
-                        Argument::value(4_u32)?,
-                    ],
-                )?;
-                batch.launch(
-                    &fill,
-                    config,
-                    &[
-                        Argument::write(&mut filled),
-                        Argument::value(value)?,
-                        Argument::value(4_u32)?,
-                    ],
-                )?;
-            }
-            Ok(())
-        })?
-    };
-    let result = submission.wait().map(|_| ());
+                        Argument::value(*v2)?,
+                    ])
+                },
+            ))?;
+            batch.push(Launch::new(
+                Ok(&fill),
+                config,
+                (&mut filled, value, 4_u32),
+                |(filled, value, v2)| {
+                    Ok([
+                        Argument::write(filled),
+                        Argument::value(*value)?,
+                        Argument::value(*v2)?,
+                    ])
+                },
+            ))?;
+        }
+        Ok(())
+    })
+    .wait();
     Ok((
         result,
         [
-            looked_up[0].as_slice().to_vec(),
-            looked_up[1].as_slice().to_vec(),
-            filled.as_slice().to_vec(),
+            looked_up[0].read().wait().to_vec(),
+            looked_up[1].read().wait().to_vec(),
+            filled.read().wait().to_vec(),
         ],
     ))
 }
@@ -155,18 +164,22 @@ fn overflow_division_and_assertion_messages_match_rust() -> metal_oxide::Result<
         let mut out = device.buffer_zeroed::<u32>(values.len())?;
         // SAFETY: both buffers cover n elements and each thread writes its own element.
         unsafe {
-            device.launch(
-                &arithmetic,
+            Launch::new(
+                Ok(&arithmetic),
                 LaunchConfig::<32>::for_elements(values.len() as u32)?,
-                &[
-                    Argument::read(&values),
-                    Argument::write(&mut out),
-                    Argument::value(divisor)?,
-                    Argument::value(values.len() as u32)?,
-                ],
-            )?;
+                (&values, &mut out, divisor, values.len() as u32),
+                |(values, out, divisor, v3)| {
+                    Ok([
+                        Argument::read(values),
+                        Argument::write(out),
+                        Argument::value(*divisor)?,
+                        Argument::value(*v3)?,
+                    ])
+                },
+            )
         }
-        Ok(out.as_slice().to_vec())
+        .wait()?;
+        Ok(out.read().wait().to_vec())
     };
     assert_eq!(run(&[1, 5, 9], 2)?, [1, 3, 5]);
     for (values, divisor, message, text) in [
@@ -195,18 +208,20 @@ fn a_uniform_check_before_a_barrier_stops_every_thread() -> metal_oxide::Result<
     for divisor in [2_u32, 0] {
         // SAFETY: two 64-thread blocks write their own 64 elements after the barrier.
         let result = unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<64>::new(Dim3::x(2)),
-                &[Argument::write(&mut out), Argument::value(divisor)?],
+                (&mut out, divisor),
+                |(out, divisor)| Ok([Argument::write(out), Argument::value(*divisor)?]),
             )
+            .wait()
         };
         if divisor == 0 {
             assert_eq!(failure(result).message, "attempt to divide by zero");
         } else {
             result?;
             let expected = (0..128).map(|i| (63 - i % 64) * 32).collect::<Vec<_>>();
-            assert_eq!(out.as_slice(), expected);
+            assert_eq!(out.read().wait(), expected);
         }
     }
     Ok(())
@@ -225,34 +240,35 @@ fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxi
     let dispatches = 1100;
     for failing in [true, false, true] {
         // SAFETY: one thread writes the single element in dispatch order.
-        let submission = unsafe {
-            device.submit(|batch| {
-                for dispatch in 0..dispatches {
-                    let indices = if failing && dispatch == dispatches - 1 {
-                        &invalid
-                    } else {
-                        &valid
-                    };
-                    batch.launch(
-                        &lookup,
-                        config,
-                        &[
+        let result = sequence(|batch| unsafe {
+            for dispatch in 0..dispatches {
+                let indices = if failing && dispatch == dispatches - 1 {
+                    &invalid
+                } else {
+                    &valid
+                };
+                batch.push(Launch::new(
+                    Ok(&lookup),
+                    config,
+                    (indices, &mut out, 1_u32),
+                    |(indices, out, v2)| {
+                        Ok([
                             Argument::read(indices),
-                            Argument::write(&mut out),
-                            Argument::value(1_u32)?,
-                        ],
-                    )?;
-                }
-                Ok(())
-            })?
-        };
-        let result = submission.wait().map(|_| ());
+                            Argument::write(out),
+                            Argument::value(*v2)?,
+                        ])
+                    },
+                ))?;
+            }
+            Ok(())
+        })
+        .wait();
         if failing {
             assert_eq!(failure(result).dispatch, dispatches - 1);
         } else {
             result?;
         }
-        assert_eq!(out.as_slice(), [40]);
+        assert_eq!(out.read().wait(), [40]);
     }
     Ok(())
 }
@@ -281,17 +297,20 @@ fn device_log_messages_reach_standard_error() {
         let mut out = device.buffer_zeroed::<u32>(3).unwrap();
         // SAFETY: three threads write their own elements.
         unsafe {
-            device
-                .launch(
-                    &pipeline,
-                    LaunchConfig::<3>::new(Dim3::x(1)),
-                    &[
-                        Argument::write(&mut out),
-                        Argument::value(0.1_f32).unwrap(),
-                        Argument::value(metal_oxide::F16::from_f32(0.5)).unwrap(),
-                    ],
-                )
-                .unwrap();
+            Launch::new(
+                Ok(&pipeline),
+                LaunchConfig::<3>::new(Dim3::x(1)),
+                (&mut out, 0.1_f32, metal_oxide::F16::from_f32(0.5)),
+                |(out, v1, v2)| {
+                    Ok([
+                        Argument::write(out),
+                        Argument::value(*v1)?,
+                        Argument::value(*v2)?,
+                    ])
+                },
+            )
+            .wait()
+            .unwrap();
         }
         // Metal delivers shader logs asynchronously around completion.
         std::thread::sleep(std::time::Duration::from_millis(500));

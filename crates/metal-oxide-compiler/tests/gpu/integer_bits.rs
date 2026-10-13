@@ -41,27 +41,31 @@ macro_rules! bits {
             let mut values = device.buffer_zeroed::<$ty>(5 * n)?;
             // SAFETY: each active lane writes its own three counts and five values.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     LaunchConfig::<64>::for_elements(n as u32)?,
-                    &[
-                        Argument::read(&input),
-                        Argument::read(&shift_buffer),
-                        Argument::write(&mut counts),
-                        Argument::write(&mut values),
-                        Argument::value(n as u32)?,
-                    ],
-                )?;
+                    (&input, &shift_buffer, &mut counts, &mut values, n as u32),
+                    |(input, shift_buffer, counts, values, v4)| {
+                        Ok([
+                            Argument::read(input),
+                            Argument::read(shift_buffer),
+                            Argument::write(counts),
+                            Argument::write(values),
+                            Argument::value(*v4)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             for i in 0..n {
                 let (a, b, shift) = (inputs[2 * i], inputs[2 * i + 1], shifts[i]);
                 assert_eq!(
-                    &counts.as_slice()[3 * i..3 * i + 3],
+                    &counts.read().wait()[3 * i..3 * i + 3],
                     &[a.leading_zeros(), a.trailing_zeros(), a.count_ones()],
                     "{a:#x}"
                 );
                 assert_eq!(
-                    &values.as_slice()[5 * i..5 * i + 5],
+                    &values.read().wait()[5 * i..5 * i + 5],
                     &[
                         a.reverse_bits(),
                         a.rotate_left(shift),

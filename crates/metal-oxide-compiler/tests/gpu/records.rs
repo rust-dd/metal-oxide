@@ -22,22 +22,26 @@ fn owned_struct_helpers_and_field_updates_match_cpu() -> metal_oxide::Result<()>
         let mut product = device.buffer_zeroed::<f32>(n as usize)?;
         // SAFETY: distinct buffers cover n, and each active thread owns one element in each output.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<256>::for_elements(n)?,
-                &[
-                    Argument::read(&input_a),
-                    Argument::read(&input_b),
-                    Argument::write(&mut sum),
-                    Argument::write(&mut product),
-                    Argument::value::<u32>(n)?,
-                ],
-            )?;
+                (&input_a, &input_b, &mut sum, &mut product, n),
+                |(input_a, input_b, sum, product, n)| {
+                    Ok([
+                        Argument::read(input_a),
+                        Argument::read(input_b),
+                        Argument::write(sum),
+                        Argument::write(product),
+                        Argument::value::<u32>(*n)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         for i in 0..n as usize {
             let expected = (a[i] + b[i]) * 3.0;
-            assert_eq!(sum.as_slice()[i], expected);
-            assert_eq!(product.as_slice()[i], a[i] * b[i] + expected);
+            assert_eq!(sum.read().wait()[i], expected);
+            assert_eq!(product.read().wait()[i], a[i] * b[i] + expected);
         }
     }
     Ok(())

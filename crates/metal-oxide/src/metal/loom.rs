@@ -19,7 +19,7 @@ use super::{
     buffer::{Location, Mirror},
     completion::Completion,
 };
-use crate::{GpuValue, SubmissionReport};
+use crate::GpuValue;
 
 /// Decode counts per model; tests run concurrently, so each model owns one counter.
 static DECODES: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
@@ -76,7 +76,7 @@ impl Wake for Flag {
 
 fn finish(completion: &Arc<Completion>) -> thread::JoinHandle<()> {
     let completion = Arc::clone(completion);
-    thread::spawn(move || completion.finish(Ok(SubmissionReport::default())))
+    thread::spawn(move || completion.finish(Ok(None)))
 }
 
 #[test]
@@ -90,6 +90,55 @@ fn loom_completion_wakes_a_pending_poll_and_releases_waiters() {
         assert!(completion.wait().is_ok());
         finisher.join().unwrap();
         assert!(polled.is_ready() || flag.0.load(Ordering::SeqCst));
+    });
+}
+
+#[test]
+fn loom_completion_wakes_every_task_polling_it() {
+    loom::model(|| {
+        let completion = Arc::new(Completion::default());
+        let finisher = finish(&completion);
+        let polls = [0, 1].map(|_| {
+            let flag = Arc::new(Flag(AtomicBool::new(false)));
+            let waker = Waker::from(Arc::clone(&flag));
+            let polled = completion.poll(&mut Context::from_waker(&waker));
+            (polled.is_ready(), flag)
+        });
+        let reader = {
+            let completion = Arc::clone(&completion);
+            thread::spawn(move || {
+                let flag = Arc::new(Flag(AtomicBool::new(false)));
+                let waker = Waker::from(Arc::clone(&flag));
+                let polled = completion.poll_finished(&mut Context::from_waker(&waker));
+                (polled.is_ready(), flag)
+            })
+        };
+        let reader = reader.join().unwrap();
+        // Wakers run after the result is published, so they are checked once `finish` returns.
+        finisher.join().unwrap();
+        for (ready, flag) in polls.into_iter().chain([reader]) {
+            assert!(ready || flag.0.load(Ordering::SeqCst));
+        }
+    });
+}
+
+#[test]
+fn loom_polled_readback_is_ready_only_after_a_registered_write() {
+    loom::model(|| {
+        let access = Arc::new(AccessState::default());
+        let write = Arc::new(Completion::default());
+        access.register(&write);
+        let finisher = finish(&write);
+        let flag = Arc::new(Flag(AtomicBool::new(false)));
+        let waker = Waker::from(Arc::clone(&flag));
+        let mut cx = Context::from_waker(&waker);
+        if access.poll(&mut cx).is_ready() {
+            assert!(write.is_finished());
+        }
+        finisher.join().unwrap();
+        assert!(flag.0.load(Ordering::SeqCst) || access.poll(&mut cx).is_ready());
+        assert!(access.poll(&mut cx).is_ready());
+        assert!(access.is_idle());
     });
 }
 

@@ -1,5 +1,5 @@
 use crate::kernels::{self, Config, Motion, Particle};
-use metal_oxide::{Argument, Device, LaunchConfig, Module, Pipeline};
+use metal_oxide::{Argument, Device, Launch, LaunchConfig, Module, Operation, Pipeline, sequence};
 
 pub(super) fn config() -> Config {
     Config {
@@ -68,23 +68,29 @@ pub(super) fn verify() -> metal_oxide::Result<()> {
         let launch = LaunchConfig::<64>::for_elements(n)?;
         // SAFETY: disjoint initialized buffers cover n; padded threads take the guard branch.
         unsafe {
-            kernels.particle_update(launch, &input, &mut output, config(), n)?;
-            device.launch(
-                &reference,
+            kernels
+                .particle_update(launch, &input, &mut output, config(), n)
+                .wait()?;
+            Launch::new(
+                Ok(&reference),
                 launch,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut handwritten),
-                    Argument::value(config())?,
-                    Argument::value(n)?,
-                ],
-            )?;
+                (&input, &mut handwritten, config(), n),
+                |(input, handwritten, v2, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(handwritten),
+                        Argument::value(*v2)?,
+                        Argument::value(*n)?,
+                    ])
+                },
+            )
+            .wait()?;
         }
         let cpu = expected(&initial[..n as usize], config(), 2);
-        assert_eq!(&output.as_slice()[..n as usize], cpu);
-        assert_eq!(output.as_slice(), handwritten.as_slice());
-        assert_eq!(&output.as_slice()[n as usize..], vec![sentinel; 64]);
-        assert_eq!(input.as_slice(), initial);
+        assert_eq!(&output.read().wait()[..n as usize], cpu);
+        assert_eq!(output.read().wait(), handwritten.read().wait());
+        assert_eq!(&output.read().wait()[n as usize..], vec![sentinel; 64]);
+        assert_eq!(input.read().wait(), initial);
         println!("particle-update n={n}: Rust, MSL, and CPU agree");
     }
     Ok(())
@@ -99,20 +105,24 @@ pub(super) fn verify_chain() -> metal_oxide::Result<()> {
     let mut output = device.buffer_zeroed::<Particle>(initial.len())?;
     let launch = LaunchConfig::<64>::for_elements(initial.len() as u32)?;
     // SAFETY: the second kernel reads the first kernel's completed writes in the same batch.
-    unsafe {
-        device.submit(|batch| {
-            kernels.enqueue_particle_update(batch, launch, &input, &mut middle, config(), 257)?;
-            kernels.enqueue_particle_step(batch, launch, &middle, &mut output, config(), 257)
-        })?
-    }
+    sequence(|batch| unsafe {
+        batch.push(kernels.particle_update(launch, &input, &mut middle, config(), 257))?;
+        batch.push(kernels.particle_step(launch, &middle, &mut output, config(), 257))?;
+        Ok(())
+    })
     .wait()?;
-    assert_eq!(middle.as_slice(), expected(&initial, config(), 2));
-    assert_eq!(output.as_slice(), expected(&initial, config(), 3));
+    assert_eq!(middle.read().wait(), expected(&initial, config(), 2));
+    assert_eq!(output.read().wait(), expected(&initial, config(), 3));
     Ok(())
 }
 
 #[cfg(test)]
 pub(super) fn verify_cancelled() -> metal_oxide::Result<()> {
+    use std::{
+        future::{Future, IntoFuture},
+        pin::Pin,
+        task::{Context, Waker},
+    };
     let device = Device::system_default()?;
     let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
     let initial = particles(257);
@@ -121,17 +131,16 @@ pub(super) fn verify_cancelled() -> metal_oxide::Result<()> {
     for forget in [false, true] {
         let mut output = device.buffer_zeroed::<Particle>(257)?;
         // SAFETY: output has one writer per element; completion retains library/buffer/constant state.
-        let submission = unsafe {
-            device.submit(|batch| {
-                kernels.enqueue_particle_update(batch, launch, &input, &mut output, config(), 257)
-            })?
-        };
+        let operation =
+            unsafe { kernels.particle_update(launch, &input, &mut output, config(), 257) };
+        let mut future = operation.into_future();
+        let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
         if forget {
-            std::mem::forget(submission);
+            std::mem::forget(future);
         } else {
-            drop(submission);
+            drop(future);
         }
-        assert_eq!(output.as_slice(), expected(&initial, config(), 2));
+        assert_eq!(output.read().wait(), expected(&initial, config(), 2));
     }
     Ok(())
 }

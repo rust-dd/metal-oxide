@@ -17,9 +17,9 @@ use objc2_metal::{
 };
 
 use super::{
-    Argument, Pipeline,
+    Argument,
     batch::{Word, metal_size},
-    completion::{Completion, SubmissionReport},
+    completion::{Completion, gpu_time},
     constants::Constants,
     failure::CommandFailure,
     failures::Failures,
@@ -116,7 +116,7 @@ impl BatchCache {
     }
 }
 
-pub(super) struct Metal4Batch<'a> {
+pub(super) struct Metal4Batch {
     command: Retained<ProtocolObject<dyn MTL4CommandBuffer>>,
     allocator: Allocator,
     encoder: Option<Retained<ProtocolObject<dyn MTL4ComputeCommandEncoder>>>,
@@ -128,14 +128,13 @@ pub(super) struct Metal4Batch<'a> {
     constants: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     reusable_constants: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     threadgroup_slots: usize,
-    cache: &'a BatchCache,
 }
 
-impl<'a> Metal4Batch<'a> {
+impl Metal4Batch {
     pub(super) fn new(
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
-        cache: &'a BatchCache,
+        cache: &BatchCache,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
     ) -> Result<Self> {
         let CommandStorage {
@@ -174,14 +173,13 @@ impl<'a> Metal4Batch<'a> {
             constants: Vec::new(),
             reusable_constants,
             threadgroup_slots: 0,
-            cache,
         })
     }
 
     pub(super) unsafe fn launch(
         &mut self,
         device: &ProtocolObject<dyn MTLDevice>,
-        pipeline: &Pipeline,
+        pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
         words: &[Word<'_>],
@@ -258,7 +256,7 @@ impl<'a> Metal4Batch<'a> {
             };
         }
         self.residency
-            .addAllocation(ProtocolObject::from_ref(&*pipeline.raw));
+            .addAllocation(ProtocolObject::from_ref(pipeline));
         if has_previous_dispatch {
             encoder.barrierAfterEncoderStages_beforeEncoderStages_visibilityOptions(
                 MTLStages::Dispatch,
@@ -266,7 +264,7 @@ impl<'a> Metal4Batch<'a> {
                 MTL4VisibilityOptions::Device,
             );
         }
-        encoder.setComputePipelineState(&pipeline.raw);
+        encoder.setComputePipelineState(pipeline);
         encoder.setArgumentTable(Some(&table.raw));
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
             metal_size(config.grid),
@@ -278,6 +276,7 @@ impl<'a> Metal4Batch<'a> {
 
     pub(super) fn commit(
         mut self,
+        cache: &BatchCache,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
         failures: Failures,
@@ -286,7 +285,7 @@ impl<'a> Metal4Batch<'a> {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
-        self.cache.put(
+        cache.put(
             CommandStorage {
                 allocator: self.allocator.clone(),
                 command: self.command.clone(),
@@ -315,10 +314,7 @@ impl<'a> Metal4Batch<'a> {
                         Some(error) => Err(CommandFailure::from_native(&error)),
                         None => match failures.failure() {
                             Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
-                            None => Ok(SubmissionReport::from_gpu_times(
-                                feedback.GPUStartTime(),
-                                feedback.GPUEndTime(),
-                            )),
+                            None => Ok(gpu_time(feedback.GPUStartTime(), feedback.GPUEndTime())),
                         },
                     }
                 });
@@ -340,7 +336,7 @@ impl<'a> Metal4Batch<'a> {
     }
 }
 
-impl Drop for Metal4Batch<'_> {
+impl Drop for Metal4Batch {
     fn drop(&mut self) {
         if let Some(encoder) = self.encoder.take() {
             encoder.endEncoding();

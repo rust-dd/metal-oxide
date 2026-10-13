@@ -3,9 +3,17 @@ mod particle;
 mod scalar;
 mod scan;
 
-use std::{collections::BTreeMap, path::PathBuf, time::Instant};
+use std::{
+    collections::BTreeMap,
+    future::{Future, IntoFuture},
+    path::PathBuf,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll, Wake, Waker},
+    time::Instant,
+};
 
-use metal_oxide::{Batch, Device, Module, Pipeline};
+use metal_oxide::{Batch, Device, Launch, Module, Operation, Pipeline, sequence};
 use serde::{Deserialize, Serialize};
 
 use crate::stats::Summary;
@@ -130,31 +138,42 @@ fn elapsed(start: Instant) -> u64 {
         .expect("benchmark interval fits u64 nanoseconds")
 }
 
-// SAFETY: the caller supplies valid, disjoint resources and collective launch shapes.
-unsafe fn dispatch(
-    device: &Device,
-    encode: impl FnOnce(&mut Batch<'_>) -> metal_oxide::Result<()>,
-) -> Result<Sample> {
+/// Runs the operations `encode` pushes as one command buffer and times its phases.
+fn dispatch(encode: impl FnOnce(&mut Batch) -> metal_oxide::Result<()>) -> Result<Sample> {
     let mut sample = Sample::default();
     let start = Instant::now();
-    // SAFETY: the workload establishes each kernel's bounds, aliasing and participation contract.
-    let submission = unsafe {
-        device.submit(|batch| {
-            let start = Instant::now();
-            let result = encode(batch);
-            sample.encode_ns = elapsed(start);
-            result
-        })?
-    };
-    let submitted = elapsed(start);
+    let operation = sequence(|batch| {
+        let start = Instant::now();
+        let result = encode(batch);
+        sample.encode_ns = elapsed(start);
+        result
+    });
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut future = operation.timed().into_future();
+    let mut poll = Pin::new(&mut future).poll(&mut cx);
+    sample.submit_ns = elapsed(start);
     let start = Instant::now();
-    let report = submission.wait()?;
+    let ((), gpu) = loop {
+        match poll {
+            Poll::Ready(result) => break result?,
+            Poll::Pending => {
+                std::thread::park();
+                poll = Pin::new(&mut future).poll(&mut cx);
+            }
+        }
+    };
     sample.wait_ns = elapsed(start);
-    sample.submit_ns = submitted;
-    sample.gpu_ns = report
-        .gpu_duration
-        .map(|d| d.as_nanos().try_into().unwrap());
+    sample.gpu_ns = gpu.map(|d| d.as_nanos().try_into().unwrap());
     Ok(sample)
+}
+
+struct Unpark(std::thread::Thread);
+
+impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
 }
 
 pub(super) fn run() -> Result<()> {

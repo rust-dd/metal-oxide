@@ -1,4 +1,4 @@
-use metal_oxide::{Buffer, Device, LaunchConfig};
+use metal_oxide::{Buffer, Device, LaunchConfig, Operation};
 use metal_oxide_artifact::Manifest;
 
 use crate::{
@@ -45,18 +45,18 @@ pub fn run() -> Result<()> {
             let mut buffers = fgn::Buffers::new(&device, plan, 0.7)?;
             let mut baseline = native::Buffers::from(fgn::Buffers::new(&device, plan, 0.7)?);
             let cpu = cpu::fgn(
-                buffers.roots.as_slice(),
+                buffers.roots.read().wait(),
                 size as usize,
                 rows as usize,
                 first,
                 plan.seed,
                 plan.scale,
             );
-            generated.run(&device, plan, &mut buffers)?;
+            generated.run(plan, &mut buffers)?;
             reference.run(plan, &mut baseline)?;
-            compare(buffers.output.as_slice(), &cpu, plan.scale, "CPU");
+            compare(buffers.output.read().wait(), &cpu, plan.scale, "CPU");
             compare(
-                buffers.output.as_slice(),
+                buffers.output.read().wait(),
                 baseline.output(),
                 plan.scale,
                 "native",
@@ -76,8 +76,8 @@ fn law(device: &Device, context: &fgn::Context, max_threads: usize) -> Result<()
     for hurst in [0.3_f64, 0.5, 0.7] {
         let plan = Plan::new(257, 512, 0, hurst, u32::MAX, max_threads)?;
         let mut buffers = fgn::Buffers::new(device, plan, hurst)?;
-        context.run(device, plan, &mut buffers)?;
-        let values = buffers.output.as_slice();
+        context.run(plan, &mut buffers)?;
+        let values = buffers.output.read().wait();
         let mean = values
             .iter()
             .map(|&x| x as f64 / plan.scale as f64)
@@ -112,8 +112,8 @@ fn chunking(device: &Device, context: &fgn::Context, max_threads: usize) -> Resu
     for (size, first) in [(257, 0_u64), (4096, 1), (32, u64::MAX - 7)] {
         let plan = Plan::new(size, 9, first, 0.3, 0xfedc_ba98, max_threads)?;
         let mut buffers = fgn::Buffers::new(device, plan, 0.3)?;
-        context.run(device, plan, &mut buffers)?;
-        let full = buffers.output.as_slice().to_vec();
+        context.run(plan, &mut buffers)?;
+        let full = buffers.output.read().wait().to_vec();
         let mut chunked = Vec::new();
         let mut offset = 0;
         for rows in [1, 3, 2, 3] {
@@ -126,8 +126,8 @@ fn chunking(device: &Device, context: &fgn::Context, max_threads: usize) -> Resu
                 max_threads,
             )?;
             let mut buffers = fgn::Buffers::new(device, plan, 0.3)?;
-            context.run(device, plan, &mut buffers)?;
-            chunked.extend_from_slice(buffers.output.as_slice());
+            context.run(plan, &mut buffers)?;
+            chunked.extend_from_slice(buffers.output.read().wait());
             offset += rows as u64;
         }
         assert_eq!(full, chunked, "chunk invariance n={size}, first={first}");
@@ -168,10 +168,11 @@ fn interop(
             plan.rows,
             plan.size,
             0.001,
-        )?;
+        )
     }
+    .wait()?;
     compare(
-        values.as_slice(),
+        values.read().wait(),
         &expected,
         1.0,
         "native fGN -> generated Euler",

@@ -1,8 +1,8 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
 use std::{
-    future::Future,
-    pin::pin,
+    future::{Future, IntoFuture},
+    pin::{Pin, pin},
     sync::{
         Arc, Barrier,
         atomic::{AtomicUsize, Ordering},
@@ -12,8 +12,8 @@ use std::{
 };
 
 use metal_oxide::{
-    Argument, Buffer, Device, Error, GpuValue, LaunchConfig, Layout, Module, Pipeline, Result,
-    Submission, SubmissionReport,
+    Argument, Buffer, Device, Error, GpuValue, Launch, LaunchConfig, Layout, Module, Operation,
+    Pending, Pipeline, Read, ReadArgument, Result, Write, WriteArgument, sequence,
 };
 
 const SOURCE: &str = r#"
@@ -38,34 +38,36 @@ fn setup() -> Result<(Device, Module, Pipeline)> {
     Ok((device, module, pipeline))
 }
 
-/// Submits `output = input * scale + offset` over the first n elements.
+type ScaleAdd<I, O> = Launch<(I, O, [f32; 2], u32), 5>;
+
+/// `output = input * scale + offset` over the first n elements.
 ///
 /// # Safety
 ///
 /// Both buffers must hold at least n elements.
-unsafe fn scale_add<'a>(
-    device: &'a Device,
-    pipeline: &'a Pipeline,
-    input: &'a Buffer<f32>,
-    output: &'a mut Buffer<f32>,
-    [scale, offset]: [f32; 2],
+unsafe fn scale_add<I: ReadArgument<f32>, O: WriteArgument<f32>>(
+    pipeline: &Pipeline,
+    input: I,
+    output: O,
+    scale_offset: [f32; 2],
     n: u32,
-) -> Result<Submission<'a>> {
+) -> ScaleAdd<I, O> {
     // SAFETY: the caller sizes both buffers; the kernel guards the padded grid.
     unsafe {
-        device.submit(move |batch| {
-            batch.launch(
-                pipeline,
-                LaunchConfig::<256>::for_elements(n)?,
-                &[
-                    Argument::read(input),
-                    Argument::write(output),
-                    Argument::value(scale)?,
-                    Argument::value(offset)?,
-                    Argument::value(n)?,
-                ],
-            )
-        })
+        Launch::new(
+            Ok(pipeline),
+            LaunchConfig::<256>::for_elements(n).unwrap(),
+            (input, output, scale_offset, n),
+            |(input, output, [scale, offset], n)| {
+                Ok([
+                    Argument::read(input.buffer()),
+                    Argument::write(output.buffer_mut()),
+                    Argument::value(*scale)?,
+                    Argument::value(*offset)?,
+                    Argument::value(*n)?,
+                ])
+            },
+        )
     }
 }
 
@@ -97,10 +99,12 @@ fn runtime_handles_are_send_and_sync() {
     assert_send_sync::<Pipeline>();
     assert_send_sync::<Buffer<f32>>();
     assert_send_sync::<Buffer<(u32, f32)>>();
-    assert_send_sync::<Submission<'static>>();
+    assert_send_sync::<ScaleAdd<&'static Buffer<f32>, &'static mut Buffer<f32>>>();
+    assert_send_sync::<Pending<ScaleAdd<Arc<Buffer<f32>>, Buffer<f32>>>>();
+    assert_send_sync::<Read<'static, f32>>();
+    assert_send_sync::<Write<'static, f32>>();
     assert_send_sync::<Argument<'static>>();
     assert_send_sync::<Error>();
-    assert_send_sync::<SubmissionReport>();
 }
 
 #[test]
@@ -118,11 +122,9 @@ fn threads_share_one_device_module_and_pipeline() -> Result<()> {
                         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
                         let offset = worker as f32;
                         // SAFETY: both buffers hold n elements.
-                        unsafe {
-                            scale_add(device, pipeline, &input, &mut output, [2.0, offset], n)
-                        }?
-                        .wait()?;
-                        for (i, value) in output.as_slice().iter().enumerate() {
+                        unsafe { scale_add(pipeline, &input, &mut output, [2.0, offset], n) }
+                            .wait()?;
+                        for (i, value) in output.read().wait().iter().enumerate() {
                             assert_eq!(*value, i as f32 * 2.0 + offset, "worker {worker}, n {n}");
                         }
                     }
@@ -151,11 +153,15 @@ fn concurrent_launches_and_cpu_views_share_a_read_only_input() -> Result<()> {
                     for round in 0..8 {
                         let offset = (worker * 8 + round) as f32;
                         // SAFETY: both buffers hold n elements.
-                        unsafe {
-                            scale_add(device, pipeline, input, &mut output, [1.0, offset], n)
-                        }?
-                        .wait()?;
-                        assert!(output.as_slice().iter().all(|&value| value == 3.0 + offset));
+                        unsafe { scale_add(pipeline, input, &mut output, [1.0, offset], n) }
+                            .wait()?;
+                        assert!(
+                            output
+                                .read()
+                                .wait()
+                                .iter()
+                                .all(|&value| value == 3.0 + offset)
+                        );
                     }
                     Ok(())
                 })
@@ -166,7 +172,7 @@ fn concurrent_launches_and_cpu_views_share_a_read_only_input() -> Result<()> {
                 let input = &input;
                 scope.spawn(move || {
                     for _ in 0..64 {
-                        assert!(input.as_slice().iter().all(|&value| value == 3.0));
+                        assert!(input.read().wait().iter().all(|&value| value == 3.0));
                     }
                 })
             })
@@ -192,42 +198,43 @@ fn buffers_written_on_one_thread_synchronize_on_another() -> Result<()> {
             let input = device.buffer_from_slice(&vec![2.0_f32; n as usize])?;
             let mut output = device.buffer_zeroed::<f32>(n as usize)?;
             // SAFETY: both buffers hold n elements.
-            let submission =
-                unsafe { scale_add(&device, &pipeline, &input, &mut output, [3.0, 1.0], n) }?;
+            let operation = unsafe { scale_add(&pipeline, &input, &mut output, [3.0, 1.0], n) };
+            let mut future = operation.into_future();
+            let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
             if forget {
-                std::mem::forget(submission);
+                std::mem::forget(future);
             } else {
-                drop(submission);
+                drop(future);
             }
             Ok(output)
         })
         .join()
         .unwrap()?;
-        assert!(output.as_slice().iter().all(|&value| value == 7.0));
+        assert!(output.read().wait().iter().all(|&value| value == 7.0));
     }
     Ok(())
 }
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn submissions_complete_on_the_thread_that_awaits_them() -> Result<()> {
+fn operations_complete_on_the_thread_that_awaits_them() -> Result<()> {
     let (device, _module, pipeline) = setup()?;
     let n = 1_000_003_u32;
     let input = device.buffer_from_slice(&vec![4.0_f32; n as usize])?;
     let mut waited = device.buffer_zeroed::<f32>(n as usize)?;
     let mut awaited = device.buffer_zeroed::<f32>(n as usize)?;
     // SAFETY: all buffers hold n elements.
-    let first = unsafe { scale_add(&device, &pipeline, &input, &mut waited, [2.0, 1.0], n) }?;
+    let first = unsafe { scale_add(&pipeline, &input, &mut waited, [2.0, 1.0], n) };
     // SAFETY: all buffers hold n elements.
-    let second = unsafe { scale_add(&device, &pipeline, &input, &mut awaited, [3.0, 2.0], n) }?;
+    let second = unsafe { scale_add(&pipeline, &input, &mut awaited, [3.0, 2.0], n) };
     thread::scope(|scope| {
         let waiting = scope.spawn(move || first.wait());
-        let awaiting = scope.spawn(move || block_on(second));
+        let awaiting = scope.spawn(move || block_on(second.into_future()));
         waiting.join().unwrap()?;
         awaiting.join().unwrap()
     })?;
-    assert!(waited.as_slice().iter().all(|&value| value == 9.0));
-    assert!(awaited.as_slice().iter().all(|&value| value == 14.0));
+    assert!(waited.read().wait().iter().all(|&value| value == 9.0));
+    assert!(awaited.read().wait().iter().all(|&value| value == 14.0));
     Ok(())
 }
 
@@ -263,12 +270,14 @@ fn concurrent_codec_readbacks_decode_a_gpu_write_once() -> Result<()> {
     let mut output = device.buffer_zeroed::<Counted>(n as usize)?;
     // SAFETY: the kernel writes each of the n initialized elements once.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<64>::for_elements(n)?,
-            &[Argument::write(&mut output), Argument::value(n)?],
-        )?;
+            (&mut output, n),
+            |(output, n)| Ok([Argument::write(output), Argument::value(*n)?]),
+        )
     }
+    .wait()?;
     DECODES.store(0, Ordering::Relaxed);
     let barrier = Barrier::new(8);
     let expected = (0..n).map(|i| Counted(10 + i)).collect::<Vec<_>>();
@@ -277,7 +286,7 @@ fn concurrent_codec_readbacks_decode_a_gpu_write_once() -> Result<()> {
             let (output, barrier, expected) = (&output, &barrier, &expected);
             scope.spawn(move || {
                 barrier.wait();
-                assert_eq!(output.as_slice(), expected.as_slice());
+                assert_eq!(output.read().wait(), expected.as_slice());
             });
         }
     });
@@ -292,26 +301,18 @@ fn runtime_objects_drop_on_another_thread_while_work_is_pending() -> Result<()> 
     let n = 1_000_003_u32;
     let input = device.buffer_from_slice(&vec![1.0_f32; n as usize])?;
     let mut output = device.buffer_zeroed::<f32>(n as usize)?;
-    // SAFETY: both buffers hold n elements; the passes run in order.
-    let submission = unsafe {
-        device.submit(|batch| {
-            for pass in 0..64 {
-                batch.launch(
-                    &pipeline,
-                    LaunchConfig::<256>::for_elements(n)?,
-                    &[
-                        Argument::read(&input),
-                        Argument::write(&mut output),
-                        Argument::value(1.0_f32)?,
-                        Argument::value(pass as f32)?,
-                        Argument::value(n)?,
-                    ],
-                )?;
-            }
-            Ok(())
-        })?
-    };
-    std::mem::forget(submission);
+    let passes = sequence(|batch| {
+        for pass in 0..64 {
+            // SAFETY: both buffers hold n elements; the passes run in order.
+            batch.push(unsafe {
+                scale_add(&pipeline, &input, &mut output, [1.0, pass as f32], n)
+            })?;
+        }
+        Ok(())
+    });
+    let mut future = passes.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    std::mem::forget(future);
     thread::spawn(move || drop((device, module, pipeline, input, output)))
         .join()
         .unwrap();
@@ -319,8 +320,8 @@ fn runtime_objects_drop_on_another_thread_while_work_is_pending() -> Result<()> 
     let input = device.buffer_from_slice(&[5.0_f32; 3])?;
     let mut output = device.buffer_zeroed::<f32>(3)?;
     // SAFETY: both buffers hold three elements.
-    unsafe { scale_add(&device, &pipeline, &input, &mut output, [2.0, 0.0], 3) }?.wait()?;
-    assert_eq!(output.as_slice(), [10.0; 3]);
+    unsafe { scale_add(&pipeline, &input, &mut output, [2.0, 0.0], 3) }.wait()?;
+    assert_eq!(output.read().wait(), [10.0; 3]);
     Ok(())
 }
 
@@ -350,14 +351,16 @@ fn pipelines_are_created_concurrently_on_one_device() -> Result<()> {
                     let mut output = device.buffer_zeroed::<u32>(32)?;
                     // SAFETY: each lane writes its own initialized output element.
                     unsafe {
-                        device.launch(
-                            &pipeline,
+                        Launch::new(
+                            Ok(&pipeline),
                             LaunchConfig::<32>::for_elements(32)?,
-                            &[Argument::write(&mut output)],
-                        )?;
+                            (&mut output,),
+                            |(output,)| Ok([Argument::write(output)]),
+                        )
                     }
+                    .wait()?;
                     assert_eq!(
-                        output.as_slice(),
+                        output.read().wait(),
                         (0..32).map(|i| i + index).collect::<Vec<_>>()
                     );
                     Ok(())

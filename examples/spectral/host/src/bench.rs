@@ -38,10 +38,10 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
             let plan = Plan::new(size, chunk, 0, 0.7, 123, max_threads)?;
             let mut buffers = fgn::Buffers::new(&device, plan, 0.7)?;
             let mut baseline = native::Buffers::from(fgn::Buffers::new(&device, plan, 0.7)?);
-            generated.run(&device, plan, &mut buffers)?;
+            generated.run(plan, &mut buffers)?;
             reference.run(plan, &mut baseline)?;
             compare(
-                buffers.output.as_slice(),
+                buffers.output.read().wait(),
                 baseline.output(),
                 plan.scale,
                 "benchmark parity",
@@ -51,22 +51,20 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
             let repetitions = if rows <= 16 { 16 } else { 1 };
             for iteration in 0..warmup + samples {
                 let (rust, metal) = if iteration % 2 == 0 {
-                    let rust = logical_run(plan, rows, repetitions, |p| {
-                        generated.run(&device, p, &mut buffers)
-                    })?;
+                    let rust =
+                        logical_run(plan, rows, repetitions, |p| generated.run(p, &mut buffers))?;
                     let metal =
                         logical_run(plan, rows, repetitions, |p| reference.run(p, &mut baseline))?;
                     (rust, metal)
                 } else {
                     let metal =
                         logical_run(plan, rows, repetitions, |p| reference.run(p, &mut baseline))?;
-                    let rust = logical_run(plan, rows, repetitions, |p| {
-                        generated.run(&device, p, &mut buffers)
-                    })?;
+                    let rust =
+                        logical_run(plan, rows, repetitions, |p| generated.run(p, &mut buffers))?;
                     (rust, metal)
                 };
                 compare(
-                    buffers.output.as_slice(),
+                    buffers.output.read().wait(),
                     baseline.output(),
                     plan.scale,
                     "sample parity",

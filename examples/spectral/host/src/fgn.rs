@@ -1,6 +1,15 @@
-use std::time::Instant;
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    sync::Arc,
+    task::{Poll, Wake, Waker},
+    time::Instant,
+};
 
-use metal_oxide::{Argument, Buffer, Device, Dim3, DynamicLaunchConfig, Module, Pipeline};
+use metal_oxide::{
+    Argument, Batch, Buffer, Device, Dim3, DynamicLaunchConfig, Launch, Module, Operation,
+    Pipeline, sequence,
+};
 use serde::Serialize;
 
 use crate::{Result, cpu, kernels::Readout};
@@ -148,87 +157,138 @@ impl Context {
         self.tile.max_threads_per_block()
     }
 
-    pub fn run(&self, device: &Device, plan: Plan, buffers: &mut Buffers) -> Result<Timing> {
+    pub fn run(&self, plan: Plan, buffers: &mut Buffers) -> Result<Timing> {
         let mut timing = Timing::default();
         let start = Instant::now();
-        // SAFETY: the plan bounds every allocation and dispatch. Tiles divide each
-        // complete transform; every lane initializes scratch and reaches all barriers.
-        // Ordered passes own disjoint butterflies, and extraction guards output rows.
-        let submission = unsafe {
-            device.submit(|batch| {
-                let encode = Instant::now();
-                if plan.rows != 0 {
-                    batch.launch(
-                        &self.tile,
-                        DynamicLaunchConfig::new(
-                            Dim3::x(plan.total / plan.tile),
-                            Dim3::x(plan.tile / 2),
-                        ),
-                        &[
-                            Argument::write(&mut buffers.real),
-                            Argument::write(&mut buffers.imag),
-                            Argument::read(&buffers.roots),
-                            Argument::read(&buffers.reverse),
-                            Argument::value(plan.n)?,
-                            Argument::value(plan.seed)?,
-                            Argument::value(plan.base_cell)?,
-                            Argument::value(plan.stages)?,
-                            Argument::threadgroup::<f32>(plan.tile as usize)?,
-                            Argument::threadgroup::<f32>(plan.tile as usize)?,
-                        ],
-                    )?;
-                    for stage in (plan.stages..plan.n.trailing_zeros().saturating_sub(2)).step_by(2)
-                    {
-                        batch.launch(
-                            &self.radix4,
-                            DynamicLaunchConfig::for_elements(plan.total / 4, 256)?,
-                            &[
-                                Argument::read_write(&mut buffers.real),
-                                Argument::read_write(&mut buffers.imag),
-                                Argument::value(plan.n)?,
-                                Argument::value(stage)?,
-                                Argument::value(plan.total / 4)?,
-                            ],
-                        )?;
-                    }
-                    let (pipeline, count) = if plan.single_tail() {
-                        (&self.single, plan.total / 2)
-                    } else {
-                        (&self.extract, plan.total / 4)
-                    };
-                    batch.launch(
-                        pipeline,
-                        DynamicLaunchConfig::for_elements(count, 256)?,
-                        &[
-                            Argument::read(&buffers.real),
-                            Argument::read(&buffers.imag),
-                            Argument::value(plan.n)?,
-                            Argument::write(&mut buffers.output),
-                            Argument::value(Readout {
-                                size: plan.size,
-                                scale: plan.scale,
-                                rows: plan.rows,
-                                parity: plan.parity,
-                            })?,
-                            Argument::value(count)?,
-                        ],
-                    )?;
-                }
-                timing.encode_ns = elapsed(encode);
-                Ok(())
-            })?
-        };
+        let operation = sequence(|batch| {
+            let encode = Instant::now();
+            if plan.rows != 0 {
+                // SAFETY: the plan bounds every allocation and dispatch. Tiles divide each
+                // complete transform; every lane initializes scratch and reaches all barriers.
+                // Ordered passes own disjoint butterflies, and extraction guards output rows.
+                unsafe { self.encode(batch, plan, buffers)? };
+            }
+            timing.encode_ns = elapsed(encode);
+            Ok(())
+        });
+        let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+        let mut cx = std::task::Context::from_waker(&waker);
+        let mut future = operation.timed().into_future();
+        let mut poll = Pin::new(&mut future).poll(&mut cx);
         timing.submit_ns = elapsed(start);
         let waiting = Instant::now();
-        timing.gpu_ns = submission
-            .wait()?
-            .gpu_duration
-            .map(|t| t.as_nanos().try_into().unwrap());
+        let ((), gpu) = loop {
+            match poll {
+                Poll::Ready(result) => break result?,
+                Poll::Pending => {
+                    std::thread::park();
+                    poll = Pin::new(&mut future).poll(&mut cx);
+                }
+            }
+        };
+        timing.gpu_ns = gpu.map(|t| t.as_nanos().try_into().unwrap());
         timing.wait_ns = elapsed(waiting);
         let readback = Instant::now();
-        std::hint::black_box(buffers.output.as_slice());
+        std::hint::black_box(buffers.output.read().wait());
         timing.readback_ns = elapsed(readback);
         timing.total_ns = elapsed(start);
         Ok(timing)
+    }
+
+    /// # Safety
+    ///
+    /// The plan must describe the buffers; see [`Context::run`].
+    unsafe fn encode(
+        &self,
+        batch: &mut Batch,
+        plan: Plan,
+        buffers: &mut Buffers,
+    ) -> metal_oxide::Result<()> {
+        let tile =
+            DynamicLaunchConfig::new(Dim3::x(plan.total / plan.tile), Dim3::x(plan.tile / 2));
+        // SAFETY: forwarded from the caller.
+        unsafe {
+            batch.push(Launch::new(
+                Ok(&self.tile),
+                tile,
+                (
+                    &mut buffers.real,
+                    &mut buffers.imag,
+                    &buffers.roots,
+                    &buffers.reverse,
+                    plan,
+                ),
+                |(real, imag, roots, reverse, plan)| {
+                    Ok([
+                        Argument::write(real),
+                        Argument::write(imag),
+                        Argument::read(roots),
+                        Argument::read(reverse),
+                        Argument::value(plan.n)?,
+                        Argument::value(plan.seed)?,
+                        Argument::value(plan.base_cell)?,
+                        Argument::value(plan.stages)?,
+                        Argument::threadgroup::<f32>(plan.tile as usize)?,
+                        Argument::threadgroup::<f32>(plan.tile as usize)?,
+                    ])
+                },
+            ))?;
+            for stage in (plan.stages..plan.n.trailing_zeros().saturating_sub(2)).step_by(2) {
+                batch.push(Launch::new(
+                    Ok(&self.radix4),
+                    DynamicLaunchConfig::for_elements(plan.total / 4, 256)?,
+                    (&mut buffers.real, &mut buffers.imag, plan, stage),
+                    |(real, imag, plan, stage)| {
+                        Ok([
+                            Argument::read_write(real),
+                            Argument::read_write(imag),
+                            Argument::value(plan.n)?,
+                            Argument::value(*stage)?,
+                            Argument::value(plan.total / 4)?,
+                        ])
+                    },
+                ))?;
+            }
+            let (pipeline, count) = if plan.single_tail() {
+                (&self.single, plan.total / 2)
+            } else {
+                (&self.extract, plan.total / 4)
+            };
+            batch.push(Launch::new(
+                Ok(pipeline),
+                DynamicLaunchConfig::for_elements(count, 256)?,
+                (
+                    &buffers.real,
+                    &buffers.imag,
+                    &mut buffers.output,
+                    plan,
+                    count,
+                ),
+                |(real, imag, output, plan, count)| {
+                    Ok([
+                        Argument::read(real),
+                        Argument::read(imag),
+                        Argument::value(plan.n)?,
+                        Argument::write(output),
+                        Argument::value(Readout {
+                            size: plan.size,
+                            scale: plan.scale,
+                            rows: plan.rows,
+                            parity: plan.parity,
+                        })?,
+                        Argument::value(*count)?,
+                    ])
+                },
+            ))?;
+        }
+        Ok(())
+    }
+}
+
+struct Unpark(std::thread::Thread);
+
+impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
     }
 }

@@ -16,9 +16,18 @@ fn numeric_collectives_match_active_lane_references() -> metal_oxide::Result<()>
         let mut f = device.buffer_zeroed::<f32>(u.len())?;
         // SAFETY: all block threads participate; every shuffle reads an active lane or itself.
         unsafe {
-            device.launch(&unsigned, config, &[Argument::write(&mut u)])?;
-            device.launch(&signed, config, &[Argument::write(&mut i)])?;
-            device.launch(&float, config, &[Argument::write(&mut f)])?;
+            Launch::new(Ok(&unsigned), config, (&mut u,), |(u,)| {
+                Ok([Argument::write(u)])
+            })
+            .wait()?;
+            Launch::new(Ok(&signed), config, (&mut i,), |(i,)| {
+                Ok([Argument::write(i)])
+            })
+            .wait()?;
+            Launch::new(Ok(&float), config, (&mut f,), |(f,)| {
+                Ok([Argument::write(f)])
+            })
+            .wait()?;
         }
         for thread in 0..block * 2 {
             let lane = thread % block % width;
@@ -36,16 +45,16 @@ fn numeric_collectives_match_active_lane_references() -> metal_oxide::Result<()>
             ];
             let offset = thread as usize * 8;
             assert_eq!(
-                &u.as_slice()[offset..offset + 8],
+                &u.read().wait()[offset..offset + 8],
                 &expected,
                 "block={block}, lane={lane}"
             );
             assert_eq!(
-                &i.as_slice()[offset..offset + 8],
+                &i.read().wait()[offset..offset + 8],
                 &expected.map(|x| x as i32)
             );
             assert_eq!(
-                &f.as_slice()[offset..offset + 8],
+                &f.read().wait()[offset..offset + 8],
                 &expected.map(|x| x as f32)
             );
         }
@@ -77,12 +86,14 @@ fn signed_collectives_compare_negative_values_and_wrap_at_extremes() -> metal_ox
             let mut output = device.buffer_zeroed::<i32>(values.len() * 5)?;
             // SAFETY: every active lane participates; separate buffers cover every thread index.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     DynamicLaunchConfig::new(Dim3::x(2), Dim3::x(block as u32)),
-                    &[Argument::read(&input), Argument::write(&mut output)],
-                )?;
+                    (&input, &mut output),
+                    |(input, output)| Ok([Argument::read(input), Argument::write(output)]),
+                )
             }
+            .wait()?;
             for (block_index, block_values) in values.chunks(block).enumerate() {
                 for (group, lanes) in block_values.chunks(width).enumerate() {
                     let total = lanes.iter().copied().fold(0_i32, i32::wrapping_add);
@@ -93,7 +104,7 @@ fn signed_collectives_compare_negative_values_and_wrap_at_extremes() -> metal_ox
                         let index = block_index * block + group * width + lane;
                         let inclusive = prefix.wrapping_add(value);
                         assert_eq!(
-                            &output.as_slice()[index * 5..(index + 1) * 5],
+                            &output.read().wait()[index * 5..(index + 1) * 5],
                             &[total, minimum, maximum, inclusive, prefix],
                             "block={block}, group={group}, lane={lane}, pattern={pattern:?}"
                         );
@@ -120,12 +131,14 @@ fn votes_clear_unused_bits_and_bit_reductions_preserve_all_lanes() -> metal_oxid
         let mut out = device.buffer_zeroed::<u32>((block * 8) as usize)?;
         // SAFETY: all active lanes vote and reduce; xor uses the current lane as its source.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(block)),
-                &[Argument::write(&mut out)],
-            )?;
+                (&mut out,),
+                |(out,)| Ok([Argument::write(out)]),
+            )
         }
+        .wait()?;
         for thread in 0..block {
             let lane = thread % width;
             let active = width.min(block - (thread / width) * width);
@@ -136,7 +149,7 @@ fn votes_clear_unused_bits_and_bit_reductions_preserve_all_lanes() -> metal_oxid
             let or = (1..=active).fold(0, |a, b| a | b);
             let xor = (1..=active).fold(0, |a, b| a ^ b);
             assert_eq!(
-                &out.as_slice()[thread as usize * 8..(thread as usize + 1) * 8],
+                &out.read().wait()[thread as usize * 8..(thread as usize + 1) * 8],
                 &[
                     bits as u32,
                     (bits >> 32) as u32,
@@ -166,16 +179,22 @@ fn permutations_match_full_group_sources() -> metal_oxide::Result<()> {
     let mut f = device.buffer_zeroed::<f32>(i.len())?;
     // SAFETY: two full groups participate; down retains the last lane and XOR 1 selects active lanes.
     unsafe {
-        device.launch(&signed, config, &[Argument::write(&mut i)])?;
-        device.launch(&float, config, &[Argument::write(&mut f)])?;
+        Launch::new(Ok(&signed), config, (&mut i,), |(i,)| {
+            Ok([Argument::write(i)])
+        })
+        .wait()?;
+        Launch::new(Ok(&float), config, (&mut f,), |(f,)| {
+            Ok([Argument::write(f)])
+        })
+        .wait()?;
     }
     for thread in 0..width * 2 {
         let lane = thread % width;
         let next = (lane + 1).min(width - 1);
         let expected = [-1, -(next as i32) - 1, -((lane ^ 1) as i32) - 1];
         let range = thread as usize * 3..(thread as usize + 1) * 3;
-        assert_eq!(&i.as_slice()[range.clone()], &expected);
-        assert_eq!(&f.as_slice()[range], &expected.map(|value| value as f32));
+        assert_eq!(&i.read().wait()[range.clone()], &expected);
+        assert_eq!(&f.read().wait()[range], &expected.map(|value| value as f32));
     }
     Ok(())
 }

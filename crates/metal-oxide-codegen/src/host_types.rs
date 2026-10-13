@@ -33,6 +33,13 @@ impl HostTypes {
             .collect(),
         };
         for parameter in abi.kernels.iter().flat_map(|kernel| &kernel.parameters) {
+            if let ParameterType::Buffer { .. } = parameter.ty {
+                types
+                    .names
+                    .insert(crate::bindings::buffer_type(parameter.binding));
+            }
+        }
+        for parameter in abi.kernels.iter().flat_map(|kernel| &kernel.parameters) {
             types.collect(match &parameter.ty {
                 ParameterType::Value { layout } => layout,
                 ParameterType::Buffer { element, .. }

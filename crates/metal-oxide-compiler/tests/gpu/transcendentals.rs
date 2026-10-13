@@ -25,18 +25,22 @@ fn precise_transcendentals_match_cpu_bounds_and_reference_msl() -> metal_oxide::
             let mut output = device.buffer_from_slice(&vec![SENTINEL; (n as usize + 32) * 8])?;
             // SAFETY: inputs cover n; disjoint output has eight elements per active thread.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     LaunchConfig::<32>::for_elements(n)?,
-                    &[
-                        Argument::read(&input),
-                        Argument::read(&exponent),
-                        Argument::write(&mut output),
-                        Argument::value(n)?,
-                    ],
-                )?;
+                    (&input, &exponent, &mut output, n),
+                    |(input, exponent, output, n)| {
+                        Ok([
+                            Argument::read(input),
+                            Argument::read(exponent),
+                            Argument::write(output),
+                            Argument::value(*n)?,
+                        ])
+                    },
+                )
             }
-            let output = output.as_slice();
+            .wait()?;
+            let output = output.read().wait();
             assert!(output[n as usize * 8..].iter().all(|&v| v == SENTINEL));
             results.push(output[..n as usize * 8].to_vec());
         }
@@ -99,17 +103,21 @@ fn sin_cos_matches_separate_sin_and_cos_in_both_modes() -> metal_oxide::Result<(
         let mut out = device.buffer_from_slice(&vec![SENTINEL; 4 * x.len() + 4])?;
         // SAFETY: each active lane writes its own four outputs; the last four stay untouched.
         unsafe {
-            device.launch(
-                &pairs,
+            Launch::new(
+                Ok(&pairs),
                 LaunchConfig::<64>::for_elements(n)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut out),
-                    Argument::value(n)?,
-                ],
-            )?;
+                (&input, &mut out, n),
+                |(input, out, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(out),
+                        Argument::value(*n)?,
+                    ])
+                },
+            )
         }
-        let (values, padding) = out.as_slice().split_at(4 * x.len());
+        .wait()?;
+        let (values, padding) = out.read().wait().split_at(4 * x.len());
         assert!(padding.iter().all(|&v| v == SENTINEL));
         for (value, out) in x.iter().zip(values.as_chunks::<4>().0) {
             assert!(
@@ -143,18 +151,22 @@ fn box_muller_euler_step_matches_cpu_and_reference_msl() -> metal_oxide::Result<
             let mut output = device.buffer_from_slice(&vec![SENTINEL; n as usize + 128])?;
             // SAFETY: disjoint buffers cover n; the guarded 1D kernel owns each output index.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     LaunchConfig::<128>::for_elements(n)?,
-                    &[
-                        Argument::read(&input_u),
-                        Argument::read(&input_v),
-                        Argument::write(&mut output),
-                        Argument::value(n)?,
-                    ],
-                )?;
+                    (&input_u, &input_v, &mut output, n),
+                    |(input_u, input_v, output, n)| {
+                        Ok([
+                            Argument::read(input_u),
+                            Argument::read(input_v),
+                            Argument::write(output),
+                            Argument::value(*n)?,
+                        ])
+                    },
+                )
             }
-            let output = output.as_slice();
+            .wait()?;
+            let output = output.read().wait();
             assert!(output[n as usize..].iter().all(|&v| v == SENTINEL));
             results.push(output[..n as usize].to_vec());
         }
@@ -309,20 +321,24 @@ fn rounding_matches_rust_in_precise_and_fast_modes() -> metal_oxide::Result<()> 
         let mut out = device.buffer_from_slice(&vec![SENTINEL; 3 * x.len()])?;
         // SAFETY: each active lane writes its own three outputs.
         unsafe {
-            device.launch(
-                &rounding,
+            Launch::new(
+                Ok(&rounding),
                 LaunchConfig::<64>::for_elements(n)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut out),
-                    Argument::value(n)?,
-                ],
-            )?;
+                (&input, &mut out, n),
+                |(input, out, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(out),
+                        Argument::value(*n)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let functions: [fn(f32) -> f32; 3] = [f32::round, f32::ceil, f32::trunc];
         for (i, &value) in x.iter().enumerate() {
             for (k, function) in functions.iter().enumerate() {
-                let actual = out.as_slice()[3 * i + k];
+                let actual = out.read().wait()[3 * i + k];
                 // Subnormal inputs may be flushed, and fast mode leaves zero signs open.
                 let accepted = [function(value), function(flush(value))]
                     .iter()

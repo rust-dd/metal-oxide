@@ -104,7 +104,7 @@ fn duplicate_entrypoint_names_have_source_diagnostics() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
 fn seeded_rust_matches_cpu_on_gpu() {
-    use metal_oxide::{Argument, Device, LaunchConfig, Pipeline};
+    use metal_oxide::{Argument, Device, Launch, LaunchConfig, Operation, Pipeline};
     let device = Device::system_default().unwrap();
     for seed in [0, 0xdeadbeef, u32::MAX] {
         let case = support::differential::Case::new(seed);
@@ -115,18 +115,21 @@ fn seeded_rust_matches_cpu_on_gpu() {
         let mut output = device.buffer_zeroed::<u32>(case.inputs.len()).unwrap();
         // SAFETY: complete buffers are disjoint; padded threads are guarded and every valid index has one writer.
         unsafe {
-            device
-                .launch(
-                    &pipeline,
-                    LaunchConfig::<64>::for_elements(257).unwrap(),
-                    &[
-                        Argument::read(&input),
-                        Argument::write(&mut output),
-                        Argument::value(257_u32).unwrap(),
-                    ],
-                )
-                .unwrap();
+            Launch::new(
+                Ok(&pipeline),
+                LaunchConfig::<64>::for_elements(257).unwrap(),
+                (&input, &mut output, 257_u32),
+                |(input, output, v2)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(output),
+                        Argument::value(*v2)?,
+                    ])
+                },
+            )
+            .wait()
+            .unwrap();
         }
-        assert_eq!(output.as_slice(), case.cpu(), "seed {seed}");
+        assert_eq!(output.read().wait(), case.cpu(), "seed {seed}");
     }
 }

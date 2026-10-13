@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll, Wake, Waker},
 };
 
-use metal_oxide::{Device, LaunchConfig};
+use metal_oxide::{Device, LaunchConfig, sequence};
 
 struct Unpark(std::thread::Thread);
 impl Wake for Unpark {
@@ -35,37 +35,33 @@ pub(super) async fn verify() -> Result<(), Box<dyn std::error::Error>> {
             let mut intermediate = device.buffer_zeroed::<f32>(n as usize)?;
             let mut output = device.buffer_zeroed::<f32>(n as usize)?;
             // SAFETY: both stages guard n, use disjoint allocations, and run in encoded order.
-            let submission = unsafe {
-                device.submit(|batch| {
-                    if block == 128 {
-                        kernels.enqueue_scale_128(
-                            batch,
-                            LaunchConfig::<128>::for_elements(n)?,
-                            &input,
-                            &mut intermediate,
-                            n,
-                        )?;
-                    } else {
-                        kernels.enqueue_scale_256(
-                            batch,
-                            LaunchConfig::<256>::for_elements(n)?,
-                            &input,
-                            &mut intermediate,
-                            n,
-                        )?;
-                    }
-                    kernels.enqueue_finish(
-                        batch,
-                        LaunchConfig::<256>::for_elements(n)?,
-                        &intermediate,
-                        &mut output,
+            sequence(|batch| unsafe {
+                if block == 128 {
+                    batch.push(kernels.scale_128(
+                        LaunchConfig::<128>::for_elements(n)?,
+                        &input,
+                        &mut intermediate,
                         n,
-                    )
-                })
-            }?;
-            submission.await?;
+                    ))?;
+                } else {
+                    batch.push(kernels.scale_256(
+                        LaunchConfig::<256>::for_elements(n)?,
+                        &input,
+                        &mut intermediate,
+                        n,
+                    ))?;
+                }
+                batch.push(kernels.finish(
+                    LaunchConfig::<256>::for_elements(n)?,
+                    &intermediate,
+                    &mut output,
+                    n,
+                ))?;
+                Ok(())
+            })
+            .await?;
             let scale = if block == 128 { 2.0 } else { 4.0 };
-            for (i, &actual) in output.as_slice().iter().enumerate() {
+            for (i, &actual) in output.read().wait().iter().enumerate() {
                 assert_eq!(
                     actual,
                     (values[i] * scale + 3.0) * 5.0 + 7.0,

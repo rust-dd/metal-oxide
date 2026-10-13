@@ -1,4 +1,4 @@
-use metal_oxide::{Argument, Device, LaunchConfig, Module, Pipeline};
+use metal_oxide::{Argument, Device, Launch, LaunchConfig, Module, Operation, Pipeline};
 use metal_oxide_artifact::MathMode;
 
 use crate::{Result, kernels, validation::compare};
@@ -25,37 +25,50 @@ pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
         let mut expected = device.buffer_zeroed::<f32>(generated.len())?;
         // SAFETY: both kernels own four outputs per active path/step cell.
         unsafe {
-            kernels.sample_jumps(
+            kernels
+                .sample_jumps(
+                    LaunchConfig::<64>::for_elements(rows * steps)?,
+                    &mut generated,
+                    rows,
+                    steps,
+                    first,
+                    seed,
+                    shape,
+                    intensity,
+                )
+                .wait()?;
+            Launch::new(
+                Ok(&native),
                 LaunchConfig::<64>::for_elements(rows * steps)?,
-                &mut generated,
-                rows,
-                steps,
-                first,
-                seed,
-                shape,
-                intensity,
-            )?;
-            device.launch(
-                &native,
-                LaunchConfig::<64>::for_elements(rows * steps)?,
-                &[
-                    Argument::write(&mut expected),
-                    Argument::value(rows)?,
-                    Argument::value(steps)?,
-                    Argument::value(first)?,
-                    Argument::value(seed)?,
-                    Argument::value(shape)?,
-                    Argument::value(intensity)?,
-                ],
-            )?;
+                (&mut expected, rows, steps, first, seed, shape, intensity),
+                |(expected, rows, steps, first, seed, shape, intensity)| {
+                    Ok([
+                        Argument::write(expected),
+                        Argument::value(*rows)?,
+                        Argument::value(*steps)?,
+                        Argument::value(*first)?,
+                        Argument::value(*seed)?,
+                        Argument::value(*shape)?,
+                        Argument::value(*intensity)?,
+                    ])
+                },
+            )
+            .wait()?;
         }
         compare(
-            generated.as_slice(),
-            expected.as_slice(),
+            generated.read().wait(),
+            expected.read().wait(),
             1.0,
             "Euler native draws",
         );
-        for (cell, values) in generated.as_slice().as_chunks::<4>().0.iter().enumerate() {
+        for (cell, values) in generated
+            .read()
+            .wait()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+        {
             let path = first.wrapping_add(cell as u32 / steps);
             let key = hash(
                 path.wrapping_mul(2_654_435_761)
@@ -95,11 +108,16 @@ pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
                     seed,
                     shape,
                     intensity,
-                )?;
+                )
             }
-            chunked.extend_from_slice(chunk.as_slice());
+            .wait()?;
+            chunked.extend_from_slice(chunk.read().wait());
         }
-        assert_eq!(generated.as_slice(), chunked, "Euler draw chunk invariance");
+        assert_eq!(
+            generated.read().wait(),
+            chunked,
+            "Euler draw chunk invariance"
+        );
     }
     history(device, &kernels)?;
     series(device, &kernels)?;
@@ -237,10 +255,11 @@ fn history(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
                 rows,
                 steps,
                 first,
-            )?;
+            )
         }
+        .wait()?;
         compare(
-            actual.as_slice(),
+            actual.read().wait(),
             &expected,
             1.0,
             "program/history/lift CPU",
@@ -291,10 +310,11 @@ fn series(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
             table.len() as u32,
             rows,
             steps,
-        )?;
+        )
     }
+    .wait()?;
     compare(
-        output.as_slice(),
+        output.read().wait(),
         &row.repeat(rows as usize),
         1.0,
         "series/table CPU",

@@ -1,6 +1,15 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Buffer, Device, Error, LaunchConfig, Module, Pipeline};
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    task::{Context, Waker},
+};
+
+use metal_oxide::{
+    Argument, Buffer, Device, Error, Launch, LaunchConfig, Module, Operation, Pipeline,
+    WriteArgument, sequence,
+};
 use objc2_foundation::NSRange;
 use objc2_metal::{
     MTLBlitCommandEncoder, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
@@ -8,6 +17,35 @@ use objc2_metal::{
 };
 
 const SOURCE: &str = "#include <metal_stdlib>\nusing namespace metal;\nkernel void add(device uint* out [[buffer(0)]], constant uint& n [[buffer(1)]], uint i [[thread_position_in_grid]]) { if (i < n) out[i] += 7; }";
+
+/// Adds seven to the first `n` values.
+///
+/// # Safety
+///
+/// `values` must hold at least `n` elements.
+unsafe fn add<V: WriteArgument<u32>>(
+    pipeline: &Pipeline,
+    values: V,
+    n: u32,
+) -> Launch<(V, u32), 2> {
+    let config = LaunchConfig::<32>::for_elements(n).unwrap();
+    // SAFETY: forwarded from the caller; each active lane updates its own element.
+    unsafe {
+        Launch::new(Ok(pipeline), config, (values, n), |(values, n)| {
+            Ok([
+                Argument::read_write(values.buffer_mut()),
+                Argument::value(*n)?,
+            ])
+        })
+    }
+}
+
+/// Polls an operation once, which encodes and commits it, and returns its future.
+fn started<F: IntoFuture<IntoFuture: Unpin>>(operation: F) -> F::IntoFuture {
+    let mut future = operation.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    future
+}
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
@@ -35,26 +73,15 @@ fn native_handoffs_keep_storage_and_wait_for_cancelled_work() -> metal_oxide::Re
         // and no external access occurs until into_native returns ownership.
         let mut values = unsafe { Buffer::<u32>::from_native(&device, raw.clone(), n + 32)? };
         drop(raw);
-        assert_eq!(values.as_slice().as_ptr().cast_mut().cast(), address);
+        assert_eq!(values.read().wait().as_ptr().cast_mut().cast(), address);
         // SAFETY: each active lane updates its own element and the kernel guards padding.
-        let submission = unsafe {
-            device.submit(|batch| {
-                batch.launch(
-                    &pipeline,
-                    LaunchConfig::<32>::for_elements(n as u32)?,
-                    &[
-                        Argument::read_write(&mut values),
-                        Argument::value(n as u32)?,
-                    ],
-                )
-            })?
-        };
+        let operation = unsafe { add(&pipeline, &mut values, n as u32) };
         match completion {
             0 => {
-                submission.wait()?;
+                operation.wait()?;
             }
-            1 => drop(submission),
-            _ => std::mem::forget(submission),
+            1 => drop(started(operation)),
+            _ => std::mem::forget(started(operation)),
         }
         let raw = values.into_native();
         assert_eq!(raw.contents().as_ptr(), address);
@@ -70,14 +97,13 @@ fn native_handoffs_keep_storage_and_wait_for_cancelled_work() -> metal_oxide::Re
         assert!(matches!(
             // SAFETY: this context mismatch must be rejected before any encoding.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     LaunchConfig::<32>::for_elements(n as u32)?,
-                    &[
-                        Argument::read_write(&mut adopted),
-                        Argument::value(n as u32)?,
-                    ],
+                    (&mut adopted, n as u32),
+                    |(adopted, v1)| Ok([Argument::read_write(adopted), Argument::value(*v1)?]),
                 )
+                .wait()
             },
             Err(Error::DeviceMismatch)
         ));
@@ -85,16 +111,15 @@ fn native_handoffs_keep_storage_and_wait_for_cancelled_work() -> metal_oxide::Re
         let other_pipeline = Pipeline::new(&other, &other_module, "add")?;
         // SAFETY: the explicitly adopted context owns initialized, sufficiently sized storage.
         unsafe {
-            other.launch(
-                &other_pipeline,
+            Launch::new(
+                Ok(&other_pipeline),
                 LaunchConfig::<32>::for_elements(n as u32)?,
-                &[
-                    Argument::read_write(&mut adopted),
-                    Argument::value(n as u32)?,
-                ],
-            )?
+                (&mut adopted, n as u32),
+                |(adopted, v1)| Ok([Argument::read_write(adopted), Argument::value(*v1)?]),
+            )
+            .wait()?
         };
-        assert!(adopted.as_slice()[..n].iter().all(|&x| x == 0x0101_010f));
+        assert!(adopted.read().wait()[..n].iter().all(|&x| x == 0x0101_010f));
     }
     Ok(())
 }
@@ -115,7 +140,7 @@ fn native_import_checks_extent_and_storage_and_preserves_codecs() -> metal_oxide
             Err(Error::LengthOverflow)
         ));
         let empty = Buffer::<u64>::from_native(&device, raw, 0)?;
-        assert!(empty.as_slice().is_empty());
+        assert!(empty.read().wait().is_empty());
     }
     let private = device
         .as_native()
@@ -145,11 +170,11 @@ fn native_import_checks_extent_and_storage_and_preserves_codecs() -> metal_oxide
     // SAFETY: export initialized the canonical tuple encoding and completed pending accesses.
     let mut values = unsafe { Buffer::<(u8, u32)>::from_native(&device, raw, initial.len())? };
     assert_ne!(
-        values.as_slice().as_ptr().cast::<u8>(),
+        values.read().wait().as_ptr().cast::<u8>(),
         address.cast::<u8>()
     );
-    assert_eq!(values.as_slice(), initial);
-    values.as_mut_slice()[1] = (4, 400);
+    assert_eq!(values.read().wait(), initial);
+    values.write().wait()[1] = (4, 400);
     let raw = values.into_native();
     assert_eq!(raw.contents().as_ptr(), address);
     // SAFETY: the canonical encoding is initialized and idle after export.
@@ -169,30 +194,20 @@ fn native_storage_survives_discarded_batches_and_owned_resource_drop() -> metal_
     let raw = device.buffer_from_slice(&[3_u32; 32])?.into_native();
     // SAFETY: initialized idle allocation; the observer alias remains idle until completion.
     let mut values = unsafe { Buffer::<u32>::from_native(&device, raw.clone(), 32)? };
-    // SAFETY: the first dispatch is in bounds; returning an encoding error discards it.
-    let error = unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<32>::for_elements(32)?,
-                &[Argument::read_write(&mut values), Argument::value(32_u32)?],
-            )?;
-            Err(Error::InvalidLaunch("discard batch"))
-        })
-    };
+    let error = sequence(|batch| {
+        // SAFETY: the dispatch is in bounds; returning an error discards it.
+        batch.push(unsafe { add(&pipeline, &mut values, 32) })?;
+        Err::<(), _>(Error::InvalidLaunch("discard batch"))
+    })
+    .wait();
     assert!(matches!(error, Err(Error::InvalidLaunch("discard batch"))));
-    assert_eq!(values.as_slice(), &[3; 32]);
-    // SAFETY: the batch retains its owned imported buffer and pipeline after the closure drops them.
-    let submission = unsafe {
-        device.submit(move |batch| {
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<32>::for_elements(32)?,
-                &[Argument::read_write(&mut values), Argument::value(32_u32)?],
-            )
-        })?
-    };
-    submission.wait()?;
+    assert_eq!(values.read().wait(), &[3; 32]);
+    // SAFETY: the command retains the imported buffer the dropped future owned.
+    drop(started(unsafe { add(&pipeline, values, 32) }));
+    let mut other = device.buffer_zeroed::<u32>(32)?;
+    // SAFETY: as above; the queue runs it after the dropped operation.
+    unsafe { add(&pipeline, &mut other, 32) }.wait()?;
+    drop(pipeline);
     drop(module);
     drop(device);
     // SAFETY: all runtime accesses ended, and the observer still retains initialized native storage.

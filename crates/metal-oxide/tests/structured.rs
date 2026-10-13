@@ -1,6 +1,15 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
-use metal_oxide::{Argument, Device, Error, GpuValue, LaunchConfig, Layout, Module, Pipeline};
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    task::{Context, Waker},
+};
+
+use metal_oxide::{
+    Argument, Device, Error, GpuValue, Launch, LaunchConfig, Layout, Module, Operation, Pipeline,
+    ReadArgument, WriteArgument, sequence,
+};
 use metal_oxide_artifact::Scalar;
 
 #[repr(align(32))]
@@ -84,6 +93,43 @@ fn updated(times: u32) -> Record {
     }
 }
 
+/// One thread per element: `output[i] = input[i]` advanced by `config()`, for `i < n`.
+fn update<I, O>(
+    pipeline: &Pipeline,
+    input: I,
+    output: O,
+    n: u32,
+) -> metal_oxide::Result<Launch<(I, O, u32), 4>>
+where
+    I: ReadArgument<Record>,
+    O: WriteArgument<Record>,
+{
+    let launch = LaunchConfig::<32>::for_elements(n)?;
+    // SAFETY: callers pass separate initialized allocations that cover n elements.
+    Ok(unsafe {
+        Launch::new(
+            Ok(pipeline),
+            launch,
+            (input, output, n),
+            |(input, output, n)| {
+                Ok([
+                    Argument::read(input.buffer()),
+                    Argument::write(output.buffer_mut()),
+                    Argument::value(config())?,
+                    Argument::value(*n)?,
+                ])
+            },
+        )
+    })
+}
+
+/// Polls an operation once, which encodes and commits it, and returns its future.
+fn started<F: IntoFuture<IntoFuture: Unpin>>(operation: F) -> F::IntoFuture {
+    let mut future = operation.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    future
+}
+
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn structured_storage_uses_gpu_stride_and_keeps_cpu_slices_valid() -> metal_oxide::Result<()> {
@@ -94,28 +140,16 @@ fn structured_storage_uses_gpu_stride_and_keeps_cpu_slices_valid() -> metal_oxid
     for n in [0_u32, 1, 255, 256, 257] {
         let input = device.buffer_from_slice(&vec![original(); n as usize + 32])?;
         let mut out = device.buffer_from_slice(&vec![original(); input.len()])?;
-        let view = input.as_slice();
-        // SAFETY: separate initialized allocations cover n; each thread writes its own element.
-        unsafe {
-            device.launch(
-                &pipeline,
-                LaunchConfig::<32>::for_elements(n)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut out),
-                    Argument::value(config())?,
-                    Argument::value(n)?,
-                ],
-            )?;
-        }
-        assert_eq!(view, input.as_slice());
+        let view = input.read().wait();
+        update(&pipeline, &input, &mut out, n)?.wait()?;
+        assert_eq!(view, input.read().wait());
         assert!(
-            out.as_slice()[..n as usize]
+            out.read().wait()[..n as usize]
                 .iter()
                 .all(|value| *value == updated(1))
         );
         assert!(
-            out.as_slice()[n as usize..]
+            out.read().wait()[n as usize..]
                 .iter()
                 .all(|value| *value == original())
         );
@@ -125,91 +159,45 @@ fn structured_storage_uses_gpu_stride_and_keeps_cpu_slices_valid() -> metal_oxid
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn structured_chains_and_cancelled_submissions_keep_readback_current() -> metal_oxide::Result<()> {
+fn structured_chains_and_cancelled_operations_keep_readback_current() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = Module::from_source(&device, SOURCE)?;
     let pipeline = Pipeline::new(&device, &module, "update")?;
     let n = 257_u32;
-    let launch = LaunchConfig::<32>::for_elements(n)?;
     let input = device.buffer_from_slice(&vec![original(); n as usize])?;
     let mut middle = device.buffer_zeroed::<Record>(n as usize)?;
     let mut out = device.buffer_zeroed::<Record>(n as usize)?;
-    // SAFETY: the intermediate is read only after its write; allocations cover n unique writers.
-    unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                launch,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut middle),
-                    Argument::value(config())?,
-                    Argument::value(n)?,
-                ],
-            )?;
-            batch.launch(
-                &pipeline,
-                launch,
-                &[
-                    Argument::read(&middle),
-                    Argument::write(&mut out),
-                    Argument::value(config())?,
-                    Argument::value(n)?,
-                ],
-            )
-        })?
-    }
+    sequence(|batch| {
+        let (_, middle, _) = batch.push(update(&pipeline, &input, &mut middle, n)?)?;
+        batch.push(update(&pipeline, &*middle, &mut out, n)?)?;
+        Ok(())
+    })
     .wait()?;
-    assert_eq!(out.as_slice(), vec![updated(2); n as usize]);
+    assert_eq!(out.read().wait(), vec![updated(2); n as usize]);
     for forget in [false, true] {
-        out.as_mut_slice().fill(Record::zeroed());
-        // SAFETY: input is read-only; output has n initialized elements and unique writers.
-        let submission = unsafe {
-            device.submit(|batch| {
-                batch.launch(
-                    &pipeline,
-                    launch,
-                    &[
-                        Argument::read(&input),
-                        Argument::write(&mut out),
-                        Argument::value(config())?,
-                        Argument::value(n)?,
-                    ],
-                )
-            })?
-        };
+        out.write().wait().fill(Record::zeroed());
+        let future = started(update(&pipeline, &input, &mut out, n)?);
         if forget {
-            std::mem::forget(submission);
+            std::mem::forget(future);
         } else {
-            drop(submission);
+            drop(future);
         }
-        assert_eq!(out.as_slice(), vec![updated(1); n as usize]);
+        assert_eq!(out.read().wait(), vec![updated(1); n as usize]);
     }
-    // SAFETY: CPU inspection precedes commit; captured output cannot escape to concurrent CPU access.
-    unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                launch,
-                &[
-                    Argument::read(&middle),
-                    Argument::write(&mut out),
-                    Argument::value(config())?,
-                    Argument::value(n)?,
-                ],
-            )?;
-            assert_eq!(out.as_slice(), vec![updated(1); n as usize]);
-            Ok(())
-        })?
-    }
+    sequence(|batch| {
+        let (_, out, n) = batch.push(update(&pipeline, &middle, &mut out, n)?)?;
+        // CPU inspection precedes commit, so it still sees the previous values.
+        assert_eq!(out.read().wait(), vec![updated(1); n as usize]);
+        Ok(())
+    })
     .wait()?;
-    assert_eq!(out.as_slice(), vec![updated(2); n as usize]);
+    assert_eq!(out.read().wait(), vec![updated(2); n as usize]);
     Ok(())
 }
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn structured_allocation_checks_and_discarded_batches_preserve_values() -> metal_oxide::Result<()> {
+fn structured_allocation_checks_and_discarded_chains_preserve_values() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     assert!(matches!(
         device.buffer_zeroed::<Record>(usize::MAX),
@@ -219,24 +207,13 @@ fn structured_allocation_checks_and_discarded_batches_preserve_values() -> metal
     let pipeline = Pipeline::new(&device, &module, "update")?;
     let input = device.buffer_from_slice(&[original()])?;
     let mut out = device.buffer_from_slice(&[original()])?;
-    // SAFETY: this valid command is discarded when the encoding closure returns its error.
-    let result = unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<32>::for_elements(1)?,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut out),
-                    Argument::value(config())?,
-                    Argument::value(1_u32)?,
-                ],
-            )?;
-            Err(Error::Command("discard batch".into()))
-        })
-    };
+    let result = sequence(|batch| {
+        batch.push(update(&pipeline, &input, &mut out, 1)?)?;
+        Err::<(), _>(Error::Command("discard batch".into()))
+    })
+    .wait();
     assert!(result.is_err());
-    assert_eq!(out.as_slice(), [original()]);
+    assert_eq!(out.read().wait(), [original()]);
     assert!(Argument::value(BadCodec).is_err());
     assert!(matches!(
         device.buffer_zeroed::<BadCodec>(1),
@@ -307,23 +284,25 @@ fn large_owned_constants_are_immutable_for_each_dispatch() -> metal_oxide::Resul
     let mut b = [0_u32; 2048];
     b[0] = 12;
     b[2047] = 3;
+    let config = LaunchConfig::<1>::for_elements(1)?;
     // SAFETY: a single thread writes each initialized output; constants are immutable per dispatch.
-    let submission = unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<1>::for_elements(1)?,
-                &[Argument::write(&mut first), Argument::value(a)?],
-            )?;
-            batch.launch(
-                &pipeline,
-                LaunchConfig::<1>::for_elements(1)?,
-                &[Argument::write(&mut second), Argument::value(b)?],
-            )
-        })?
-    };
-    drop(submission);
-    assert_eq!(first.as_slice(), [18]);
-    assert_eq!(second.as_slice(), [15]);
+    let chain = sequence(|batch| unsafe {
+        batch.push(Launch::new(
+            Ok(&pipeline),
+            config,
+            (&mut first, a),
+            |(first, a)| Ok([Argument::write(first), Argument::value(*a)?]),
+        ))?;
+        batch.push(Launch::new(
+            Ok(&pipeline),
+            config,
+            (&mut second, b),
+            |(second, b)| Ok([Argument::write(second), Argument::value(*b)?]),
+        ))?;
+        Ok(())
+    });
+    drop(started(chain));
+    assert_eq!(first.read().wait(), [18]);
+    assert_eq!(second.read().wait(), [15]);
     Ok(())
 }

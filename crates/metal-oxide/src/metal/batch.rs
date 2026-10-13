@@ -1,83 +1,43 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLDevice, MTLSize};
+use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLSize};
 
 use super::{
-    Argument, Device, Pipeline, Submission,
+    Argument, Device, Operation, Pipeline,
     backend::Backend,
     buffer::Resource,
     classic::ClassicBatch,
-    completion::{Completion, SubmissionReport},
+    completion::Completion,
     failures::{Failures, Slot},
     metal4::Metal4Batch,
 };
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
 
-enum NativeBatch<'a> {
+enum NativeBatch {
     Classic(ClassicBatch),
-    Metal4(Metal4Batch<'a>),
+    Metal4(Metal4Batch),
 }
 
-impl NativeBatch<'_> {
-    /// # Safety
-    ///
-    /// The dispatch must satisfy `Device::launch`'s contract after `Batch` validation.
-    unsafe fn launch(
-        &mut self,
-        device: &ProtocolObject<dyn MTLDevice>,
-        pipeline: &Pipeline,
-        config: DynamicLaunchConfig,
-        arguments: &[Argument<'_>],
-        words: &[Word<'_>],
-        has_previous_dispatch: bool,
-    ) -> Result<()> {
-        // SAFETY: forwarded from the caller.
-        unsafe {
-            match self {
-                Self::Classic(batch) => batch.launch(
-                    device,
-                    pipeline,
-                    config,
-                    arguments,
-                    words,
-                    has_previous_dispatch,
-                ),
-                Self::Metal4(batch) => batch.launch(
-                    device,
-                    pipeline,
-                    config,
-                    arguments,
-                    words,
-                    has_previous_dispatch,
-                ),
-            }
-        }
-    }
-}
-
-/// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
+/// The command buffer an operation encodes into; see [`sequence`](super::sequence).
 ///
-/// A batch holds native command encoders, so it stays on the submitting thread:
+/// It holds native command encoders, so it stays on the encoding thread:
 ///
 /// ```compile_fail
-/// use metal_oxide::Device;
-/// fn check(device: &Device) {
-///     // SAFETY: the batch encodes no kernel.
-///     let submission = unsafe {
-///         device.submit(|batch| {
-///             std::thread::scope(|scope| {
-///                 scope.spawn(|| drop(batch));
-///             });
-///             Ok(())
-///         })
-///     };
-///     submission.unwrap().wait().unwrap();
-/// }
+/// metal_oxide::sequence(|batch| {
+///     std::thread::scope(|scope| {
+///         scope.spawn(|| drop(batch));
+///     });
+///     Ok(())
+/// });
 /// ```
-pub struct Batch<'d> {
-    device: &'d Device,
-    native: NativeBatch<'d>,
+pub struct Batch {
+    device: Option<Device>,
+    commands: Option<Commands>,
+}
+
+struct Commands {
+    native: NativeBatch,
     resources: Vec<Resource>,
     pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     failures: Failures,
@@ -103,10 +63,96 @@ impl<'a> Word<'a> {
     }
 }
 
-impl<'d> Batch<'d> {
-    pub(super) fn new(device: &'d Device) -> Result<Self> {
+impl Batch {
+    pub(super) fn new() -> Self {
+        Self {
+            device: None,
+            commands: None,
+        }
+    }
+
+    /// Encodes `operation` after the batch's previous dispatches and returns its output, which
+    /// is ready to use as the arguments of later operations in the batch.
+    pub fn push<O: Operation>(&mut self, operation: O) -> Result<O::Output> {
+        operation.encode(self)
+    }
+
+    /// Encodes a kernel after the batch's preceding dispatches.
+    ///
+    /// # Safety
+    ///
+    /// The dispatch must satisfy the launch contract of [`Launch::new`](super::Launch::new).
+    pub(super) unsafe fn launch(
+        &mut self,
+        pipeline: &Pipeline,
+        config: DynamicLaunchConfig,
+        arguments: &[Argument<'_>],
+    ) -> Result<()> {
+        let device = self.device.get_or_insert_with(|| pipeline.device().clone());
+        if pipeline.device().id() != device.id()
+            || arguments
+                .iter()
+                .any(|a| a.device_id().is_some_and(|id| id != device.id()))
+        {
+            return Err(Error::DeviceMismatch);
+        }
+        validate(device, pipeline, config, arguments)?;
+        if config.is_empty() {
+            return Ok(());
+        }
+        let commands = match &mut self.commands {
+            Some(commands) => commands,
+            None => self.commands.insert(Commands::new(device)?),
+        };
+        // SAFETY: validation passed; the caller provides the kernel contract.
+        unsafe { commands.launch(device, pipeline, config, arguments) }
+    }
+
+    /// Commits the encoded dispatches; a batch without any finishes immediately.
+    pub(super) fn commit(self) -> Arc<Completion> {
+        let completion = Arc::new(Completion::default());
+        match (self.device, self.commands) {
+            (Some(device), Some(commands)) => commands.commit(&device, &completion),
+            _ => completion.finish(Ok(None)),
+        }
+        completion
+    }
+}
+
+fn validate(
+    device: &Device,
+    pipeline: &Pipeline,
+    config: DynamicLaunchConfig,
+    arguments: &[Argument<'_>],
+) -> Result<()> {
+    let mut shared = arguments.iter().filter_map(Argument::threadgroup_bytes);
+    let shared_count = shared.clone().count();
+    let buffer_count = arguments.len() - shared_count;
+    if buffer_count > 31 {
+        return Err(Error::TooManyArguments(buffer_count));
+    }
+    if shared_count > 31 {
+        return Err(Error::InvalidLaunch("more than 31 threadgroup arguments"));
+    }
+    let shared_bytes = shared.try_fold(
+        pipeline.raw().staticThreadgroupMemoryLength(),
+        |total, bytes| total.checked_add(bytes),
+    );
+    if shared_bytes.is_none_or(|bytes| bytes > device.max_threadgroup_memory_per_block()) {
+        return Err(Error::InvalidLaunch(
+            "kernel exceeds threadgroup memory capacity",
+        ));
+    }
+    pipeline.validate_arguments(config.block, arguments)?;
+    config.validate(
+        pipeline.max_threads_per_block(),
+        device.max_block_dimensions(),
+    )
+}
+
+impl Commands {
+    fn new(device: &Device) -> Result<Self> {
         Ok(Self {
-            device,
             native: match device.backend() {
                 Backend::Classic(queue) => {
                     NativeBatch::Classic(ClassicBatch::new(queue, device.log_state())?)
@@ -126,52 +172,16 @@ impl<'d> Batch<'d> {
         })
     }
 
-    /// Encodes a kernel after preceding kernels in this batch.
-    ///
     /// # Safety
     ///
-    /// The arguments, bounds, access modes, and participation rules must satisfy
-    /// `Device::launch`'s contract. No external accesses may conflict with this batch.
-    pub unsafe fn launch(
+    /// The dispatch must satisfy the launch contract after `validate`.
+    unsafe fn launch(
         &mut self,
+        device: &Device,
         pipeline: &Pipeline,
-        config: impl Into<DynamicLaunchConfig>,
+        config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
     ) -> Result<()> {
-        let config = config.into();
-        if pipeline.device_id != self.device.id()
-            || arguments
-                .iter()
-                .any(|a| a.device_id().is_some_and(|id| id != self.device.id()))
-        {
-            return Err(Error::DeviceMismatch);
-        }
-        let mut shared = arguments.iter().filter_map(Argument::threadgroup_bytes);
-        let shared_count = shared.clone().count();
-        let buffer_count = arguments.len() - shared_count;
-        if buffer_count > 31 {
-            return Err(Error::TooManyArguments(buffer_count));
-        }
-        if shared_count > 31 {
-            return Err(Error::InvalidLaunch("more than 31 threadgroup arguments"));
-        }
-        let shared_bytes = shared.try_fold(
-            pipeline.raw.staticThreadgroupMemoryLength(),
-            |total, bytes| total.checked_add(bytes),
-        );
-        if shared_bytes.is_none_or(|bytes| bytes > self.device.max_threadgroup_memory_per_block()) {
-            return Err(Error::InvalidLaunch(
-                "kernel exceeds threadgroup memory capacity",
-            ));
-        }
-        pipeline.validate_arguments(config.block, arguments)?;
-        config.validate(
-            pipeline.max_threads_per_block(),
-            self.device.max_block_dimensions(),
-        )?;
-        if config.is_empty() {
-            return Ok(());
-        }
         for argument in arguments {
             argument.prepare();
             if let Some(resource) = argument.resource() {
@@ -186,25 +196,25 @@ impl<'d> Batch<'d> {
                 }
             }
         }
-        let assignment = match &pipeline.checks {
+        let assignment = match pipeline.checks() {
             Some(kernel) => Some((
                 kernel.gate_binding as usize,
-                self.failures.assign(self.device.raw(), kernel.fallible)?,
+                self.failures.assign(device.raw(), kernel.fallible)?,
             )),
             None => None,
         };
         if let Some((_, assignment)) = assignment.as_ref().filter(|(_, a)| a.snapshot) {
-            let snapshot = self.device.snapshot()?;
+            let snapshot = device.snapshot()?;
             let words = [
                 Word::new(&self.failures, 0, self.failures.failure_slot()),
                 Word::new(&self.failures, 1, assignment.gate),
             ];
-            self.pipelines.push(snapshot.raw.clone());
+            self.pipelines.push(snapshot.clone());
             let previous = std::mem::replace(&mut self.encoded, true);
             // SAFETY: one thread copies a word between live, retained failure-storage slots.
             unsafe {
                 self.native.launch(
-                    self.device.raw(),
+                    device,
                     snapshot,
                     DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(1)),
                     &[],
@@ -221,20 +231,14 @@ impl<'d> Batch<'d> {
             })
             .map(|(index, slot)| Word::new(&self.failures, index, slot))
             .collect::<Vec<_>>();
-        self.pipelines.push(pipeline.raw.clone());
+        self.pipelines.push(pipeline.raw().clone());
         let previous = std::mem::replace(&mut self.encoded, true);
-        // SAFETY: validation passed; the submit caller provides the shader safety contract.
+        // SAFETY: validation passed; the caller provides the shader safety contract.
         unsafe {
-            self.native.launch(
-                self.device.raw(),
-                pipeline,
-                config,
-                arguments,
-                &words,
-                previous,
-            )?
+            self.native
+                .launch(device, pipeline.raw(), config, arguments, &words, previous)?
         };
-        if let (Some(kernel), Some((_, assignment))) = (&pipeline.checks, &assignment)
+        if let (Some(kernel), Some((_, assignment))) = (pipeline.checks(), &assignment)
             && kernel.fallible
         {
             self.failures
@@ -244,29 +248,60 @@ impl<'d> Batch<'d> {
         Ok(())
     }
 
-    pub(super) fn commit<'a>(self) -> Submission<'a> {
-        let completion = Arc::new(Completion::default());
-        if self.dispatches == 0 {
-            completion.finish(Ok(SubmissionReport::default()));
-        } else {
-            for resource in &self.resources {
-                resource.access.register(&completion);
-                if resource.written {
-                    resource.access.mark_written();
-                }
-            }
-            match self.native {
-                NativeBatch::Classic(batch) => {
-                    batch.commit(Arc::clone(&completion), self.pipelines, self.failures)
-                }
-                NativeBatch::Metal4(batch) => {
-                    batch.commit(Arc::clone(&completion), self.pipelines, self.failures)
-                }
+    fn commit(self, device: &Device, completion: &Arc<Completion>) {
+        for resource in &self.resources {
+            resource.access.register(completion);
+            if resource.written {
+                resource.access.mark_written();
             }
         }
-        Submission {
-            completion,
-            marker: PhantomData,
+        match (self.native, device.backend()) {
+            (NativeBatch::Classic(batch), _) => {
+                batch.commit(Arc::clone(completion), self.pipelines, self.failures)
+            }
+            (NativeBatch::Metal4(batch), Backend::Metal4 { cache, .. }) => {
+                batch.commit(cache, Arc::clone(completion), self.pipelines, self.failures)
+            }
+            (NativeBatch::Metal4(_), Backend::Classic(_)) => {
+                unreachable!("a device keeps its native command path")
+            }
+        }
+    }
+}
+
+impl NativeBatch {
+    /// # Safety
+    ///
+    /// The dispatch must satisfy the launch contract after `validate`.
+    unsafe fn launch(
+        &mut self,
+        device: &Device,
+        pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
+        config: DynamicLaunchConfig,
+        arguments: &[Argument<'_>],
+        words: &[Word<'_>],
+        has_previous_dispatch: bool,
+    ) -> Result<()> {
+        // SAFETY: forwarded from the caller.
+        unsafe {
+            match self {
+                Self::Classic(batch) => batch.launch(
+                    device.raw(),
+                    pipeline,
+                    config,
+                    arguments,
+                    words,
+                    has_previous_dispatch,
+                ),
+                Self::Metal4(batch) => batch.launch(
+                    device.raw(),
+                    pipeline,
+                    config,
+                    arguments,
+                    words,
+                    has_previous_dispatch,
+                ),
+            }
         }
     }
 }

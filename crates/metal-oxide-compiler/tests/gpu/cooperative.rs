@@ -13,16 +13,18 @@ fn conditional_barrier_helpers_preserve_uniform_participation() -> metal_oxide::
         let mut output = device.buffer_zeroed::<u32>(32)?;
         // SAFETY: one full block initializes every shared cell; mode is uniform.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<32>::new(Dim3::x(1)),
-                &[Argument::write(&mut output), Argument::value(mode)?],
-            )?;
+                (&mut output, mode),
+                |(output, mode)| Ok([Argument::write(output), Argument::value(*mode)?]),
+            )
         }
+        .wait()?;
         let expected = (0..32)
             .map(|lane| if mode == 0 { lane } else { (lane + 1) & 31 })
             .collect::<Vec<_>>();
-        assert_eq!(output.as_slice(), expected);
+        assert_eq!(output.read().wait(), expected);
     }
     Ok(())
 }
@@ -48,35 +50,47 @@ fn reduction_matches_cpu_at_block_boundaries() -> metal_oxide::Result<()> {
         let mut output = device.buffer_zeroed::<f32>(n.div_ceil(256) as usize)?;
         // SAFETY: input covers n; each 256-thread block owns one initialized shared tile and output.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 config,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut output),
-                    Argument::value::<u32>(n)?,
-                ],
-            )?;
+                (&input, &mut output, n),
+                |(input, output, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(output),
+                        Argument::value::<u32>(*n)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let expected = values
             .chunks(256)
             .map(|v| v.iter().sum::<f32>())
             .collect::<Vec<_>>();
-        assert_eq!(output.as_slice(), expected, "n={n}");
+        assert_eq!(output.read().wait(), expected, "n={n}");
         let mut reference_output = device.buffer_zeroed::<f32>(n.div_ceil(256) as usize)?;
         // SAFETY: the handwritten reference has the same bounds and block contract as the Rust kernel.
         unsafe {
-            device.launch(
-                &reference,
+            Launch::new(
+                Ok(&reference),
                 config,
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut reference_output),
-                    Argument::value::<u32>(n)?,
-                ],
-            )?;
+                (&input, &mut reference_output, n),
+                |(input, reference_output, n)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(reference_output),
+                        Argument::value::<u32>(*n)?,
+                    ])
+                },
+            )
         }
-        assert_eq!(output.as_slice(), reference_output.as_slice(), "n={n}");
+        .wait()?;
+        assert_eq!(
+            output.read().wait(),
+            reference_output.read().wait(),
+            "n={n}"
+        );
     }
     Ok(())
 }
@@ -96,21 +110,25 @@ fn tiled_transpose_matches_cpu_on_rectangles_and_partial_tiles() -> metal_oxide:
         let mut output = device.buffer_zeroed::<f32>(values.len())?;
         // SAFETY: distinct full-sized buffers; 16x16 blocks initialize all shared cells before use.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<16, 16>::new(Dim3::xy(width.div_ceil(16), height.div_ceil(16))),
-                &[
-                    Argument::read(&input),
-                    Argument::write(&mut output),
-                    Argument::value::<u32>(width)?,
-                    Argument::value::<u32>(height)?,
-                ],
-            )?;
+                (&input, &mut output, width, height),
+                |(input, output, width, height)| {
+                    Ok([
+                        Argument::read(input),
+                        Argument::write(output),
+                        Argument::value::<u32>(*width)?,
+                        Argument::value::<u32>(*height)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         for y in 0..height {
             for x in 0..width {
                 assert_eq!(
-                    output.as_slice()[(x * height + y) as usize],
+                    output.read().wait()[(x * height + y) as usize],
                     values[(y * width + x) as usize]
                 );
             }
@@ -132,8 +150,11 @@ fn contended_atomic_add_counts_every_thread() -> metal_oxide::Result<()> {
     let config = LaunchConfig::<256>::new(Dim3::x(257));
     // SAFETY: all 65792 threads atomically update the same initialized u32.
     unsafe {
-        device.launch(&pipeline, config, &[Argument::atomic(&mut output)])?;
+        Launch::new(Ok(&pipeline), config, (&mut output,), |(output,)| {
+            Ok([Argument::atomic(output)])
+        })
     }
-    assert_eq!(output.as_slice(), [256 * 257]);
+    .wait()?;
+    assert_eq!(output.read().wait(), [256 * 257]);
     Ok(())
 }

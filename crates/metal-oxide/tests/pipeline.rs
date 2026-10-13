@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Barrier};
 
-use metal_oxide::{Argument, Device, LaunchConfig, Module, Pipeline};
+use metal_oxide::{Argument, Device, Launch, LaunchConfig, Module, Operation, Pipeline};
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
@@ -28,14 +28,16 @@ fn independent_contexts_compile_and_run_the_same_library_concurrently() {
                     let mut output = device.buffer_zeroed::<u32>(32)?;
                     // SAFETY: each lane writes its own initialized output element.
                     unsafe {
-                        device.launch(
-                            &pipeline,
+                        Launch::new(
+                            Ok(&pipeline),
                             LaunchConfig::<32>::for_elements(32)?,
-                            &[Argument::write(&mut output)],
-                        )?;
+                            (&mut output,),
+                            |(output,)| Ok([Argument::write(output)]),
+                        )
                     }
+                    .wait()?;
                     assert_eq!(
-                        output.as_slice(),
+                        output.read().wait(),
                         (0..32).map(|i| i + index).collect::<Vec<_>>()
                     );
                 }

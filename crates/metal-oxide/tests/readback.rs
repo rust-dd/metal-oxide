@@ -6,7 +6,10 @@ use std::{
     rc::Rc,
 };
 
-use metal_oxide::{Argument, Buffer, Device, GpuValue, LaunchConfig, Layout, Module, Pipeline};
+use metal_oxide::{
+    Argument, Buffer, Device, GpuValue, Launch, LaunchConfig, Layout, Module, Operation, Pipeline,
+    sequence,
+};
 
 thread_local! {
     static REENTER: RefCell<Option<Rc<Buffer<Value>>>> = const { RefCell::new(None) };
@@ -31,7 +34,7 @@ impl GpuValue for Value {
     fn decode(bytes: &[u8]) -> Self {
         let nested = REENTER.with(|state| state.borrow_mut().take());
         if let Some(buffer) = nested {
-            let _ = buffer.as_slice();
+            let _ = buffer.read().wait();
         }
         PANIC_AFTER.with(|state| match state.get() {
             Some(0) => {
@@ -61,10 +64,10 @@ fn imported_codecs_preserve_readback_reentry_and_panic_guards() -> metal_oxide::
     // SAFETY: Value encodes canonical u32 words; all external accesses completed.
     let out = Rc::new(unsafe { Buffer::<Value>::from_native(&device, raw, 3)? });
     REENTER.with(|state| *state.borrow_mut() = Some(Rc::clone(&out)));
-    assert!(catch_unwind(AssertUnwindSafe(|| out.as_slice())).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| out.read().wait())).is_err());
     PANIC_AFTER.with(|state| state.set(Some(1)));
-    assert!(catch_unwind(AssertUnwindSafe(|| out.as_slice())).is_err());
-    assert_eq!(out.as_slice(), [Value(10), Value(11), Value(12)]);
+    assert!(catch_unwind(AssertUnwindSafe(|| out.read().wait())).is_err());
+    assert_eq!(out.read().wait(), [Value(10), Value(11), Value(12)]);
     Ok(())
 }
 
@@ -77,17 +80,19 @@ fn decoder_cannot_reenter_the_same_buffer() -> metal_oxide::Result<()> {
     let mut out = device.buffer_zeroed::<Value>(3)?;
     // SAFETY: three threads write distinct initialized u32 values in the three-element buffer.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<1>::for_elements(3)?,
-            &[Argument::write(&mut out)],
-        )?;
+            (&mut out,),
+            |(out,)| Ok([Argument::write(out)]),
+        )
     }
+    .wait()?;
     let out = Rc::new(out);
     REENTER.with(|state| *state.borrow_mut() = Some(Rc::clone(&out)));
-    let result = catch_unwind(AssertUnwindSafe(|| out.as_slice()));
+    let result = catch_unwind(AssertUnwindSafe(|| out.read().wait()));
     assert!(result.is_err(), "recursive readback must be rejected");
-    assert_eq!(out.as_slice(), [Value(10), Value(11), Value(12)]);
+    assert_eq!(out.read().wait(), [Value(10), Value(11), Value(12)]);
     Ok(())
 }
 
@@ -98,21 +103,23 @@ fn decoder_panic_retries_readback_after_a_committed_write() -> metal_oxide::Resu
     let module = Module::from_source(&device, SOURCE)?;
     let pipeline = Pipeline::new(&device, &module, "write_values")?;
     let mut out = device.buffer_zeroed::<Value>(3)?;
-    // SAFETY: CPU inspection precedes commit; three threads write distinct initialized elements.
-    unsafe {
-        device.submit(|batch| {
-            batch.launch(
-                &pipeline,
+    sequence(|batch| {
+        // SAFETY: three threads write distinct initialized elements.
+        let (out,) = batch.push(unsafe {
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::for_elements(3)?,
-                &[Argument::write(&mut out)],
-            )?;
-            assert_eq!(out.as_slice(), [Value(0); 3]);
-            Ok(())
-        })?
-    }
+                (&mut out,),
+                |(out,)| Ok([Argument::write(out)]),
+            )
+        })?;
+        // CPU inspection precedes commit, so it still sees the old values.
+        assert_eq!(out.read().wait(), [Value(0); 3]);
+        Ok(())
+    })
     .wait()?;
     PANIC_AFTER.with(|state| state.set(Some(1)));
-    assert!(catch_unwind(AssertUnwindSafe(|| out.as_slice())).is_err());
-    assert_eq!(out.as_slice(), [Value(10), Value(11), Value(12)]);
+    assert!(catch_unwind(AssertUnwindSafe(|| out.read().wait())).is_err());
+    assert_eq!(out.read().wait(), [Value(10), Value(11), Value(12)]);
     Ok(())
 }

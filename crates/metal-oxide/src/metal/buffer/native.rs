@@ -69,14 +69,14 @@ impl<T: GpuValue> Buffer<T> {
         })
     }
 
-    /// Waits for pending GPU accesses, encodes dirty CPU values and transfers native ownership.
-    /// Pending command errors remain available through their `Submission`.
+    /// Blocks the calling thread until pending GPU accesses finish, encodes dirty CPU values
+    /// and transfers native ownership. Command errors are reported by their operations.
     ///
     /// ```compile_fail
     /// use metal_oxide::Device;
     /// let device = Device::system_default().unwrap();
     /// let buffer = device.buffer_zeroed::<u32>(4).unwrap();
-    /// let view = buffer.as_slice();
+    /// let view = buffer.read().wait();
     /// let native = buffer.into_native();
     /// println!("{view:?}");
     /// ```

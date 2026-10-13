@@ -27,33 +27,39 @@ fn checked_arithmetic_indices_and_division_match_rust() -> metal_oxide::Result<(
         let mut output = device.buffer_from_slice(&[987_i32; 3])?;
         // SAFETY: one thread owns all three output elements; scalar types match their bindings.
         unsafe {
-            device.launch(
-                &division,
+            Launch::new(
+                Ok(&division),
                 config,
-                &[
-                    Argument::write(&mut output),
-                    Argument::value(value)?,
-                    Argument::value(divisor)?,
-                ],
-            )?;
+                (&mut output, value, divisor),
+                |(output, value, divisor)| {
+                    Ok([
+                        Argument::write(output),
+                        Argument::value(*value)?,
+                        Argument::value(*divisor)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let expected = if divisor == 0 || (value == i32::MIN && divisor == -1) {
             [987; 3]
         } else {
             [value / divisor, value % divisor, value / 4 + 1]
         };
-        assert_eq!(output.as_slice(), expected);
+        assert_eq!(output.read().wait(), expected);
     }
     for value in [0_u32, 1, 7, 8, 15, 16, u32::MAX] {
         let mut output = device.buffer_from_slice(&[987_u32])?;
         // SAFETY: the sole thread owns the single output element.
         unsafe {
-            device.launch(
-                &range,
+            Launch::new(
+                Ok(&range),
                 config,
-                &[Argument::write(&mut output), Argument::value(value)?],
-            )?;
+                (&mut output, value),
+                |(output, value)| Ok([Argument::write(output), Argument::value(*value)?]),
+            )
         }
+        .wait()?;
         let expected = if value >= 16 {
             987
         } else if value < 8 {
@@ -61,26 +67,31 @@ fn checked_arithmetic_indices_and_division_match_rust() -> metal_oxide::Result<(
         } else {
             value + 9
         };
-        assert_eq!(output.as_slice(), [expected]);
+        assert_eq!(output.read().wait(), [expected]);
     }
     let mut output = device.buffer_zeroed::<u32>(4)?;
     // SAFETY: the sole thread writes the four-element output after updating its private array.
     unsafe {
-        device.launch(&arrays, config, &[Argument::write(&mut output)])?;
+        Launch::new(Ok(&arrays), config, (&mut output,), |(output,)| {
+            Ok([Argument::write(output)])
+        })
     }
-    assert_eq!(output.as_slice(), [11, 21, 31, 41]);
+    .wait()?;
+    assert_eq!(output.read().wait(), [11, 21, 31, 41]);
     for value in [0_u32, 1, 2, 3, 4, u32::MAX] {
         let mut output = device.buffer_from_slice(&[987_u32])?;
         // SAFETY: the sole thread writes one output; the kernel guards its private array index.
         unsafe {
-            device.launch(
-                &index,
+            Launch::new(
+                Ok(&index),
                 config,
-                &[Argument::write(&mut output), Argument::value(value)?],
-            )?;
+                (&mut output, value),
+                |(output, value)| Ok([Argument::write(output), Argument::value(*value)?]),
+            )
         }
+        .wait()?;
         assert_eq!(
-            output.as_slice(),
+            output.read().wait(),
             [if value < 4 { 11 + value * 10 } else { 987 }]
         );
     }
@@ -95,19 +106,23 @@ fn checked_arithmetic_indices_and_division_match_rust() -> metal_oxide::Result<(
         let mut out16 = device.buffer_zeroed::<i16>(2)?;
         // SAFETY: the sole thread owns both two-element outputs, whose element types match the kernel.
         unsafe {
-            device.launch(
-                &narrow,
+            Launch::new(
+                Ok(&narrow),
                 config,
-                &[
-                    Argument::write(&mut out8),
-                    Argument::write(&mut out16),
-                    Argument::value(a)?,
-                    Argument::value(b)?,
-                ],
-            )?;
+                (&mut out8, &mut out16, a, b),
+                |(out8, out16, a, b)| {
+                    Ok([
+                        Argument::write(out8),
+                        Argument::write(out16),
+                        Argument::value(*a)?,
+                        Argument::value(*b)?,
+                    ])
+                },
+            )
         }
-        assert_eq!(out8.as_slice(), [a / 3, a % 3]);
-        assert_eq!(out16.as_slice(), [b / 3, b % 3]);
+        .wait()?;
+        assert_eq!(out8.read().wait(), [a / 3, a % 3]);
+        assert_eq!(out16.read().wait(), [b / 3, b % 3]);
     }
     Ok(())
 }

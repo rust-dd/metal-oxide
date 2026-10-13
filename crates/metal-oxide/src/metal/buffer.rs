@@ -11,8 +11,10 @@ mod mirror;
 mod native;
 #[cfg(test)]
 mod tests;
+mod views;
 
 pub(super) use mirror::{Location, Mirror};
+pub use views::{Read, Write};
 
 pub(super) struct Resource {
     pub(super) access: Arc<AccessState>,
@@ -46,8 +48,9 @@ pub(super) trait BufferBinding: Sync {
 /// Primitive scalar views use the allocation directly. Other `GpuValue` types
 /// use a CPU mirror and their explicit canonical-layout codec.
 ///
-/// CPU access waits for pending GPU work, from any thread. GPU writes need an
-/// exclusive borrow, so shared CPU views never observe a partially decoded value.
+/// CPU access through [`read`](Self::read) and [`write`](Self::write) waits for pending GPU
+/// work, from any thread. A GPU write needs the buffer exclusively borrowed or owned, so shared
+/// CPU views never observe a partially decoded value.
 pub struct Buffer<T: GpuValue> {
     storage: Storage,
     device_id: u64,
@@ -123,8 +126,23 @@ impl<T: GpuValue> Buffer<T> {
         Ok(Some(Mirror::new(values, location)))
     }
 
-    pub fn as_slice(&self) -> &[T] {
-        self.access.synchronize();
+    /// Views the values once pending GPU work on the buffer has finished. Awaiting never
+    /// blocks the thread; `wait` does.
+    pub fn read(&self) -> Read<'_, T> {
+        Read::new(self)
+    }
+
+    /// Views the values for CPU writes once pending GPU work on the buffer has finished;
+    /// the next dispatch that uses the buffer encodes them. Awaiting never blocks the
+    /// thread; `wait` does.
+    pub fn write(&mut self) -> Write<'_, T> {
+        Write::new(self)
+    }
+
+    /// # Safety
+    ///
+    /// No GPU access to the buffer may be pending.
+    unsafe fn values(&self) -> &[T] {
         match &self.mirror {
             // SAFETY: the storage holds len canonical values, and no GPU access is pending.
             Some(mirror) => unsafe { mirror.download(&self.access, self.storage.contents()) },
@@ -136,8 +154,10 @@ impl<T: GpuValue> Buffer<T> {
         }
     }
 
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self.access.synchronize();
+    /// # Safety
+    ///
+    /// No GPU access to the buffer may be pending.
+    unsafe fn values_mut(&mut self) -> &mut [T] {
         let bytes = self.storage.contents();
         match &mut self.mirror {
             // SAFETY: the storage holds len canonical values, and no GPU access is pending.
@@ -146,6 +166,13 @@ impl<T: GpuValue> Buffer<T> {
             // and &mut self excludes all other CPU views.
             None => unsafe { std::slice::from_raw_parts_mut(bytes.cast::<T>().as_ptr(), self.len) },
         }
+    }
+
+    pub(super) fn from_slice(device: &Device, values: &[T]) -> Result<Self> {
+        let mut buffer = Self::zeroed(device, values.len())?;
+        // SAFETY: the buffer was just created, so no GPU access exists.
+        unsafe { buffer.values_mut() }.copy_from_slice(values);
+        Ok(buffer)
     }
 
     /// Encodes dirty CPU values into shared Metal storage before a later dispatch.

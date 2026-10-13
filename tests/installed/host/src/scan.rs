@@ -39,56 +39,52 @@ impl Scan {
         &self.levels[0].output
     }
 
-    pub(super) unsafe fn enqueue(
+    pub(super) unsafe fn encode(
         &mut self,
-        batch: &mut Batch<'_>,
+        batch: &mut Batch,
         kernels: &Kernels,
         input: &Buffer<u32>,
     ) -> Result<()> {
         // SAFETY: each level owns disjoint buffers sized for its input and block count.
         unsafe {
             let first = &mut self.levels[0];
-            kernels.enqueue_block_scan(
-                batch,
+            batch.push(kernels.block_scan(
                 LaunchConfig::<64>::for_elements(first.n)?,
                 input,
                 &mut first.local,
                 &mut first.totals,
                 first.n,
-            )?;
+            ))?;
             for index in 1..self.levels.len() {
                 let (previous, current) = self.levels.split_at_mut(index);
                 let previous = &previous[index - 1];
                 let current = &mut current[0];
-                kernels.enqueue_block_scan(
-                    batch,
+                batch.push(kernels.block_scan(
                     LaunchConfig::<64>::for_elements(current.n)?,
                     &previous.totals,
                     &mut current.local,
                     &mut current.totals,
                     current.n,
-                )?;
+                ))?;
             }
             let root = self.levels.last_mut().unwrap();
-            kernels.enqueue_add_offsets(
-                batch,
+            batch.push(kernels.add_offsets(
                 LaunchConfig::<64>::for_elements(root.n)?,
                 &root.local,
                 &self.zero,
                 &mut root.output,
                 root.n,
-            )?;
+            ))?;
             for index in (0..self.levels.len() - 1).rev() {
                 let (child, parent) = self.levels.split_at_mut(index + 1);
                 let child = &mut child[index];
-                kernels.enqueue_add_offsets(
-                    batch,
+                batch.push(kernels.add_offsets(
                     LaunchConfig::<64>::for_elements(child.n)?,
                     &child.local,
                     &parent[0].output,
                     &mut child.output,
                     child.n,
-                )?;
+                ))?;
             }
         }
         Ok(())

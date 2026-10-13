@@ -5,7 +5,7 @@ mod kernels {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use metal_oxide::{Device, LaunchConfig};
+    use metal_oxide::{Device, LaunchConfig, Operation};
     let device = Device::system_default()?;
     let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
@@ -19,13 +19,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &input,
                 &mut output,
                 n,
-            )?;
+            )
         }
+        .wait()?;
         let expected = values
             .chunks(256)
             .map(|v| v.iter().sum::<f32>())
             .collect::<Vec<_>>();
-        assert_eq!(output.as_slice(), expected, "n={n}");
+        assert_eq!(output.read().wait(), expected, "n={n}");
         println!("reduction n={n}: verified on {}", device.name());
     }
     Ok(())

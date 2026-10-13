@@ -53,29 +53,34 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
             .collect::<Vec<_>>();
         let cpu = elapsed(start);
         let start = Instant::now();
-        input.as_mut_slice().copy_from_slice(&values);
+        input.write().wait().copy_from_slice(&values);
         let copy = elapsed(start);
         let start = Instant::now();
         input.upload();
         output.upload();
         let upload = elapsed(start);
-        // SAFETY: generated codecs match the shared layouts; disjoint buffers cover n guarded threads.
-        let mut sample = unsafe {
-            dispatch(device, |batch| {
-                batch.launch(
-                    &pipelines[0],
-                    launch,
-                    &[
-                        Argument::read(&input),
-                        Argument::write(&mut output),
-                        Argument::value(parameters)?,
-                        Argument::value(n)?,
-                    ],
-                )
-            })?
-        };
+        let mut sample = dispatch(|batch| {
+            // SAFETY: generated codecs match the shared layouts; disjoint buffers cover n guarded threads.
+            unsafe {
+                batch
+                    .push(Launch::new(
+                        Ok(&pipelines[0]),
+                        launch,
+                        (&input, &mut output, parameters, n),
+                        |(input, output, parameters, n)| {
+                            Ok([
+                                Argument::read(input),
+                                Argument::write(output),
+                                Argument::value(*parameters)?,
+                                Argument::value(*n)?,
+                            ])
+                        },
+                    ))
+                    .map(drop)
+            }
+        })?;
         let start = Instant::now();
-        let result = output.as_slice();
+        let result = output.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "particle-update {variant}");
         sample.cpu_reference_ns = cpu;

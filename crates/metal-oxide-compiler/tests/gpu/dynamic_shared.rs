@@ -19,20 +19,24 @@ fn dynamic_shared_records_reduce_variable_blocks_and_partial_inputs() -> metal_o
             // SAFETY: each block has block elements in both scratch allocations. All
             // lanes initialize their elements and participate in the helper barrier.
             unsafe {
-                device.launch(
-                    &pipeline,
+                Launch::new(
+                    Ok(&pipeline),
                     config,
-                    &[
-                        Argument::read(&values),
-                        Argument::threadgroup::<f32>(block as usize)?,
-                        Argument::value(0.5_f32)?,
-                        Argument::write(&mut output),
-                        Argument::threadgroup::<(u8, u64)>(block as usize)?,
-                        Argument::value(n)?,
-                    ],
-                )?;
+                    (&values, &mut output, block as usize, n),
+                    |(values, output, block, n)| {
+                        Ok([
+                            Argument::read(values),
+                            Argument::threadgroup::<f32>(*block)?,
+                            Argument::value(0.5_f32)?,
+                            Argument::write(output),
+                            Argument::threadgroup::<(u8, u64)>(*block)?,
+                            Argument::value(*n)?,
+                        ])
+                    },
+                )
             }
-            for (group, actual) in output.as_slice()[..config.grid.x as usize]
+            .wait()?;
+            for (group, actual) in output.read().wait()[..config.grid.x as usize]
                 .iter()
                 .enumerate()
             {
@@ -43,7 +47,7 @@ fn dynamic_shared_records_reduce_variable_blocks_and_partial_inputs() -> metal_o
                 assert_eq!(*actual, expected, "n={n}, block={block}, group={group}");
             }
             assert!(
-                output.as_slice()[config.grid.x as usize..]
+                output.read().wait()[config.grid.x as usize..]
                     .iter()
                     .all(|&x| x == -8192.0)
             );

@@ -1,4 +1,5 @@
 use super::*;
+use crate::Operation;
 
 #[test]
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
@@ -22,27 +23,44 @@ fn reused_tables_follow_changing_kernel_bindings() -> Result<()> {
     let short = crate::Pipeline::new(&device, &module, "short_args")?;
     let long = crate::Pipeline::new(&device, &module, "long_args")?;
     let mut output = device.buffer_zeroed::<u32>(1)?;
+    let config = crate::LaunchConfig::<1>::for_elements(1)?;
     for (pipeline, values) in [
         (&short, &[11_u32][..]),
         (&long, &[2, 3, 4][..]),
         (&short, &[17][..]),
         (&long, &[5, 6, 7][..]),
     ] {
-        let mut arguments = vec![Argument::write(&mut output)];
-        for &value in values {
-            arguments.push(Argument::value(value)?);
-        }
         // SAFETY: each kernel's initialized constants match its signature; one thread
         // writes the single output. Waiting ends all accesses before the next dispatch.
         unsafe {
-            device.launch(
-                pipeline,
-                crate::LaunchConfig::<1>::for_elements(1)?,
-                &arguments,
-            )?;
+            match *values {
+                [value] => crate::Launch::new(
+                    Ok(pipeline),
+                    config,
+                    (&mut output, value),
+                    |(output, value)| Ok([Argument::write(output), Argument::value(*value)?]),
+                )
+                .wait()
+                .map(drop),
+                [a, b, c] => crate::Launch::new(
+                    Ok(pipeline),
+                    config,
+                    (&mut output, [a, b, c]),
+                    |(output, [a, b, c])| {
+                        Ok([
+                            Argument::write(output),
+                            Argument::value(*a)?,
+                            Argument::value(*b)?,
+                            Argument::value(*c)?,
+                        ])
+                    },
+                )
+                .wait()
+                .map(drop),
+                _ => unreachable!(),
+            }?;
         }
-        drop(arguments);
-        assert_eq!(output.as_slice(), [values.iter().sum::<u32>()]);
+        assert_eq!(output.read().wait(), [values.iter().sum::<u32>()]);
     }
     Ok(())
 }
@@ -68,28 +86,40 @@ fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()
     )?;
     let pipeline = crate::Pipeline::new(&device, &module, "values")?;
     let mut output = device.buffer_zeroed::<u64>(1)?;
-    for (values, count, retained) in [
-        (Argument::value([7_u32; 1022])?, 1022_u32, 0),
-        (Argument::value([7_u32; 1020])?, 1020_u32, 1),
-        (Argument::value(7_u32)?, 1_u32, 1),
-    ] {
-        // SAFETY: one thread writes one output; the initialized array covers count.
+    /// One thread writes one output; the initialized array covers count.
+    fn run<V: crate::GpuValue>(
+        pipeline: &crate::Pipeline,
+        output: &mut crate::Buffer<u64>,
+        values: V,
+        count: u32,
+    ) -> Result<()> {
+        let config = crate::LaunchConfig::<1>::for_elements(1)?;
+        // SAFETY: see above.
         unsafe {
-            device.submit(|batch| {
-                batch.launch(
-                    &pipeline,
-                    crate::LaunchConfig::<1>::for_elements(1)?,
-                    &[
-                        Argument::write(&mut output),
-                        values,
-                        Argument::value(count)?,
+            crate::Launch::new(
+                Ok(pipeline),
+                config,
+                (output, values, count),
+                |(output, values, count)| {
+                    Ok([
+                        Argument::write(output),
+                        Argument::value(*values)?,
+                        Argument::value(*count)?,
                         Argument::value(1_u64 << 40)?,
-                    ],
-                )
-            })?
+                    ])
+                },
+            )
+            .wait()
+            .map(drop)
         }
-        .wait()?;
-        assert_eq!(output.as_slice(), [14 + (1_u64 << 40)]);
+    }
+    for (count, retained) in [(1022_u32, 0), (1020, 1), (1, 1)] {
+        match count {
+            1022 => run(&pipeline, &mut output, [7_u32; 1022], count)?,
+            1020 => run(&pipeline, &mut output, [7_u32; 1020], count)?,
+            _ => run(&pipeline, &mut output, 7_u32, count)?,
+        }
+        assert_eq!(output.read().wait(), [14 + (1_u64 << 40)]);
         let entries = cache.entries();
         assert_eq!(entries.len(), 1);
         let (storage, _) = &entries[0];
@@ -121,16 +151,12 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
     first.bindings.push(buffer);
     let completion = Arc::new(Completion::default());
     first.commit(
+        &cache,
         Arc::clone(&completion),
         Vec::new(),
         Failures::new(Arc::clone(device.failure_pool())),
     );
-    super::super::Submission {
-        completion,
-        marker: std::marker::PhantomData,
-    }
-    .wait()
-    .unwrap();
+    completion.wait().unwrap();
     let second = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
     assert!(std::ptr::eq(&*command, &*second.command));
     assert!(std::ptr::eq(&*residency, &*second.residency));
@@ -149,7 +175,7 @@ fn command_storage_reuse_requires_completed_gpu_work() {
     let cache = BatchCache::default();
     cache.put(storage.clone(), Arc::clone(&completion));
     assert!(cache.take().is_none());
-    completion.finish(Ok(SubmissionReport::default()));
+    completion.finish(Ok(None));
     let reused = cache.take().unwrap();
     assert!(std::ptr::eq(&*storage.allocator, &*reused.allocator));
     assert!(std::ptr::eq(&*storage.command, &*reused.command));
@@ -173,6 +199,7 @@ fn pipelined_batches_reuse_pooled_command_storage() {
             commands.push(batch.command.clone());
             let completion = Arc::new(Completion::default());
             batch.commit(
+                &cache,
                 Arc::clone(&completion),
                 Vec::new(),
                 Failures::new(Arc::clone(device.failure_pool())),

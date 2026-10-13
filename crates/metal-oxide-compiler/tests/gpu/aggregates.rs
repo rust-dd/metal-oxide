@@ -14,16 +14,20 @@ fn rust_uninitialized_private_arrays_execute() -> metal_oxide::Result<()> {
         let mut out = device.buffer_from_slice(&[-1.0_f32; 65])?;
         // SAFETY: one thread reads at most 64 inputs and writes at most 64 of 65 outputs.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut out),
-                    Argument::read(&input),
-                    Argument::value::<u32>(count)?,
-                ],
-            )?;
+                (&mut out, &input, count),
+                |(out, input, count)| {
+                    Ok([
+                        Argument::write(out),
+                        Argument::read(input),
+                        Argument::value::<u32>(*count)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
         let written = count.min(64) as usize;
         let expected = (0..65)
             .map(|i| {
@@ -34,7 +38,7 @@ fn rust_uninitialized_private_arrays_execute() -> metal_oxide::Result<()> {
                 }
             })
             .collect::<Vec<_>>();
-        assert_eq!(out.as_slice(), expected, "count={count}");
+        assert_eq!(out.read().wait(), expected, "count={count}");
     }
     Ok(())
 }
@@ -64,13 +68,15 @@ fn rust_aggregate_copies_constants_and_generic_helpers_execute() -> metal_oxide:
             let mut out = device.buffer_zeroed::<f32>(expected.len())?;
             // SAFETY: one thread writes the matching number of elements in a distinct output buffer.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     LaunchConfig::<1>::new(Dim3::x(1)),
-                    &[Argument::write(&mut out), Argument::value::<f32>(seed)?],
-                )?;
+                    (&mut out, seed),
+                    |(out, seed)| Ok([Argument::write(out), Argument::value::<f32>(*seed)?]),
+                )
             }
-            assert_eq!(out.as_slice(), expected);
+            .wait()?;
+            assert_eq!(out.read().wait(), expected);
         }
     }
     Ok(())
@@ -94,17 +100,21 @@ fn rust_nested_aggregate_updates_across_control_flow_execute() -> metal_oxide::R
         let mut out = device.buffer_zeroed::<f32>(5)?;
         // SAFETY: one thread writes five initialized f32 elements; mode does not change the output bounds.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut out),
-                    Argument::value::<f32>(10.0)?,
-                    Argument::value::<u32>(mode)?,
-                ],
-            )?;
+                (&mut out, 10.0, mode),
+                |(out, v1, mode)| {
+                    Ok([
+                        Argument::write(out),
+                        Argument::value::<f32>(*v1)?,
+                        Argument::value::<u32>(*mode)?,
+                    ])
+                },
+            )
         }
-        assert_eq!(out.as_slice(), expected);
+        .wait()?;
+        assert_eq!(out.read().wait(), expected);
     }
     Ok(())
 }

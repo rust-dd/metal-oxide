@@ -75,26 +75,30 @@ fn native_increments_feed_generated_integration_without_staging() -> metal_oxide
         // ownership is handed over without any externally accessible buffer alias.
         let mut values = unsafe { Buffer::<f32>::from_native(&device, raw, len)? };
         // SAFETY: each active row owns 65 initialized elements; padded lanes do nothing.
-        let submission = unsafe {
-            device.submit(|batch| {
-                batch.launch(
-                    &pipeline,
+        let operation = sequence(|batch| unsafe {
+            batch
+                .push(Launch::new(
+                    Ok(&pipeline),
                     LaunchConfig::<32>::for_elements(33)?,
-                    &[
-                        Argument::read_write(&mut values),
-                        Argument::value(33_u32)?,
-                        Argument::value(65_u32)?,
-                        Argument::value(0.015625_f32)?,
-                    ],
-                )
-            })?
-        };
+                    (&mut values, 33_u32, 65_u32, 0.015625_f32),
+                    |(values, v1, v2, v3)| {
+                        Ok([
+                            Argument::read_write(values),
+                            Argument::value(*v1)?,
+                            Argument::value(*v2)?,
+                            Argument::value(*v3)?,
+                        ])
+                    },
+                ))
+                .map(drop)?;
+            Ok(())
+        });
         match completion {
             0 => {
-                submission.wait()?;
+                operation.wait()?;
             }
-            1 => drop(submission),
-            _ => std::mem::forget(submission),
+            1 => drop(started(operation)),
+            _ => std::mem::forget(started(operation)),
         }
         let raw = values.into_native();
         assert_eq!(raw.contents().as_ptr(), address);

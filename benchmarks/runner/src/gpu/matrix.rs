@@ -36,33 +36,38 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         }
         let cpu = elapsed(start);
         let start = Instant::now();
-        a.as_mut_slice().copy_from_slice(&a_values);
-        b.as_mut_slice().copy_from_slice(&b_values);
+        a.write().wait().copy_from_slice(&a_values);
+        b.write().wait().copy_from_slice(&b_values);
         let copy = elapsed(start);
         let start = Instant::now();
         a.upload();
         b.upload();
         output.upload();
         let upload = elapsed(start);
-        // SAFETY: matrices cover the declared dimensions; complete 16x16 blocks initialize both shared tiles.
-        let mut sample = unsafe {
-            dispatch(device, |batch| {
-                batch.launch(
-                    &pipelines[0],
-                    launch,
-                    &[
-                        Argument::read(&a),
-                        Argument::read(&b),
-                        Argument::write(&mut output),
-                        Argument::value(rows)?,
-                        Argument::value(columns)?,
-                        Argument::value(inner)?,
-                    ],
-                )
-            })?
-        };
+        let mut sample = dispatch(|batch| {
+            // SAFETY: matrices cover the declared dimensions; complete 16x16 blocks initialize both shared tiles.
+            unsafe {
+                batch
+                    .push(Launch::new(
+                        Ok(&pipelines[0]),
+                        launch,
+                        (&a, &b, &mut output, rows, columns, inner),
+                        |(a, b, output, rows, columns, inner)| {
+                            Ok([
+                                Argument::read(a),
+                                Argument::read(b),
+                                Argument::write(output),
+                                Argument::value(*rows)?,
+                                Argument::value(*columns)?,
+                                Argument::value(*inner)?,
+                            ])
+                        },
+                    ))
+                    .map(drop)
+            }
+        })?;
         let start = Instant::now();
-        let result = output.as_slice();
+        let result = output.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "matmul {variant}");
         sample.cpu_reference_ns = cpu;

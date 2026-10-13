@@ -29,21 +29,25 @@ fn range_loops_match_rust_for_signed_empty_and_extreme_bounds() -> metal_oxide::
     let mut counts = device.buffer_zeroed::<u32>(n)?;
     // SAFETY: the launch covers exactly one bounds pair and one output pair per thread.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<256>::new(Dim3::x(1)),
-            &[
-                Argument::read(&input),
-                Argument::write(&mut sums),
-                Argument::write(&mut counts),
-            ],
-        )?;
+            (&input, &mut sums, &mut counts),
+            |(input, sums, counts)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::write(sums),
+                    Argument::write(counts),
+                ])
+            },
+        )
     }
+    .wait()?;
     for (i, &(start, end)) in bounds.iter().enumerate() {
         let want = (start..end).fold(0_i32, i32::wrapping_add);
-        assert_eq!(sums.as_slice()[i], want, "{start}..{end}");
+        assert_eq!(sums.read().wait()[i], want, "{start}..{end}");
         assert_eq!(
-            counts.as_slice()[i],
+            counts.read().wait()[i],
             (start..end).count() as u32,
             "{start}..{end}"
         );
@@ -66,21 +70,27 @@ fn nested_byte_and_explicit_range_loops_match_rust() -> metal_oxide::Result<()> 
     let mut products = device.buffer_zeroed::<u32>(n as usize)?;
     // SAFETY: each single-block launch has one thread per output the buffers hold.
     unsafe {
-        device.launch(
-            &nested,
+        Launch::new(
+            Ok(&nested),
             LaunchConfig::<64>::new(Dim3::x(1)),
-            &[Argument::write(&mut tables), Argument::value(offset)?],
-        )?;
-        device.launch(
-            &bytes,
+            (&mut tables, offset),
+            |(tables, offset)| Ok([Argument::write(tables), Argument::value(*offset)?]),
+        )
+        .wait()?;
+        Launch::new(
+            Ok(&bytes),
             LaunchConfig::<256>::new(Dim3::x(1)),
-            &[Argument::read(&limit_buffer), Argument::write(&mut sums)],
-        )?;
-        device.launch(
-            &manual,
+            (&limit_buffer, &mut sums),
+            |(limit_buffer, sums)| Ok([Argument::read(limit_buffer), Argument::write(sums)]),
+        )
+        .wait()?;
+        Launch::new(
+            Ok(&manual),
             LaunchConfig::<64>::new(Dim3::x(1)),
-            &[Argument::write(&mut products), Argument::value(n)?],
-        )?;
+            (&mut products, n),
+            |(products, n)| Ok([Argument::write(products), Argument::value(*n)?]),
+        )
+        .wait()?;
     }
     let mut table = [0_u32; 16];
     for row in 0..4 {
@@ -88,7 +98,7 @@ fn nested_byte_and_explicit_range_loops_match_rust() -> metal_oxide::Result<()> 
             table[row * 4 + column] = (row * 10 + column) as u32 + offset;
         }
     }
-    for chunk in tables.as_slice().chunks(16) {
+    for chunk in tables.read().wait().chunks(16) {
         assert_eq!(chunk, table);
     }
     for (i, &limit) in limits.iter().enumerate() {
@@ -97,11 +107,11 @@ fn nested_byte_and_explicit_range_loops_match_rust() -> metal_oxide::Result<()> 
             (limit..u8::MAX).map(|k| u32::from(k) + 1).sum(),
             (5_u8..limit).map(|k| u32::from(k) * 3).sum(),
         ];
-        assert_eq!(&sums.as_slice()[3 * i..3 * i + 3], want, "limit {limit}");
+        assert_eq!(&sums.read().wait()[3 * i..3 * i + 3], want, "limit {limit}");
     }
     for i in 0..n {
         let want = (i..n).fold(1_u32, |product, k| product.wrapping_mul(k + 2));
-        assert_eq!(products.as_slice()[i as usize], want, "start {i}");
+        assert_eq!(products.read().wait()[i as usize], want, "start {i}");
     }
     Ok(())
 }
@@ -124,17 +134,21 @@ fn range_loops_keep_threadgroup_barriers_uniform() -> metal_oxide::Result<()> {
         let mut output = device.buffer_zeroed::<u32>(input.len())?;
         // SAFETY: each 64-thread block reads and writes its own 64 values.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<64>::new(Dim3::x(blocks as u32)),
-                &[
-                    Argument::read(&input_buffer),
-                    Argument::write(&mut output),
-                    Argument::value(rounds)?,
-                ],
-            )?;
+                (&input_buffer, &mut output, rounds),
+                |(input_buffer, output, rounds)| {
+                    Ok([
+                        Argument::read(input_buffer),
+                        Argument::write(output),
+                        Argument::value(*rounds)?,
+                    ])
+                },
+            )
         }
-        for (i, &actual) in output.as_slice().iter().enumerate() {
+        .wait()?;
+        for (i, &actual) in output.read().wait().iter().enumerate() {
             let (block, lane) = (i / 64, i % 64);
             let source = input[64 * block + (lane + rounds as usize) % 64];
             assert_eq!(

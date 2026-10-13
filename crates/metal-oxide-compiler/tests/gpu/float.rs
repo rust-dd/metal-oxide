@@ -61,32 +61,39 @@ fn float_casts(math_mode: metal_oxide_artifact::MathMode) -> metal_oxide::Result
     let mut high = device.buffer_zeroed::<u32>(values.len())?;
     // SAFETY: all buffers cover n elements; each active thread owns one output element.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<128>::for_elements(n)?,
-            &[
-                Argument::read(&input),
-                Argument::write(&mut i32s),
-                Argument::write(&mut u32s),
-                Argument::write(&mut i8s),
-                Argument::write(&mut u8s),
-                Argument::write(&mut i16s),
-                Argument::write(&mut u16s),
-                Argument::write(&mut high),
-                Argument::value(n)?,
-            ],
-        )?;
+            (
+                &input, &mut i32s, &mut u32s, &mut i8s, &mut u8s, &mut i16s, &mut u16s, &mut high,
+                n,
+            ),
+            |(input, i32s, u32s, i8s, u8s, i16s, u16s, high, n)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::write(i32s),
+                    Argument::write(u32s),
+                    Argument::write(i8s),
+                    Argument::write(u8s),
+                    Argument::write(i16s),
+                    Argument::write(u16s),
+                    Argument::write(high),
+                    Argument::value(*n)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     for (index, &value) in values.iter().enumerate() {
         let bits = value.to_bits();
-        assert_eq!(i32s.as_slice()[index], value as i32, "i32 {bits:08x}");
-        assert_eq!(u32s.as_slice()[index], value as u32, "u32 {bits:08x}");
-        assert_eq!(i8s.as_slice()[index], value as i8, "i8 {bits:08x}");
-        assert_eq!(u8s.as_slice()[index], value as u8, "u8 {bits:08x}");
-        assert_eq!(i16s.as_slice()[index], value as i16, "i16 {bits:08x}");
-        assert_eq!(u16s.as_slice()[index], value as u16, "u16 {bits:08x}");
+        assert_eq!(i32s.read().wait()[index], value as i32, "i32 {bits:08x}");
+        assert_eq!(u32s.read().wait()[index], value as u32, "u32 {bits:08x}");
+        assert_eq!(i8s.read().wait()[index], value as i8, "i8 {bits:08x}");
+        assert_eq!(u8s.read().wait()[index], value as u8, "u8 {bits:08x}");
+        assert_eq!(i16s.read().wait()[index], value as i16, "i16 {bits:08x}");
+        assert_eq!(u16s.read().wait()[index], value as u16, "u16 {bits:08x}");
         assert_eq!(
-            high.as_slice()[index],
+            high.read().wait()[index],
             ((value as usize) >> 32) as u32,
             "usize {bits:08x}"
         );
@@ -124,18 +131,22 @@ fn precise_math_preserves_special_values_and_explicit_fusion() -> metal_oxide::R
         let mut output = device.buffer_zeroed::<f32>(7)?;
         // SAFETY: one thread owns the seven-element output; all scalar arguments are f32.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut output),
-                    Argument::value(a)?,
-                    Argument::value(b)?,
-                    Argument::value(c)?,
-                ],
-            )?;
+                (&mut output, a, b, c),
+                |(output, a, b, c)| {
+                    Ok([
+                        Argument::write(output),
+                        Argument::value(*a)?,
+                        Argument::value(*b)?,
+                        Argument::value(*c)?,
+                    ])
+                },
+            )
         }
-        let actual = output.as_slice();
+        .wait()?;
+        let actual = output.read().wait();
         assert_eq!(actual[0].to_bits(), a.to_bits() & 0x7fffffff, "abs");
         assert_minmax(actual[1], a.min(b), flush(a).min(flush(b)));
         assert_minmax(actual[2], a.max(b), flush(a).max(flush(b)));

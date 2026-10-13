@@ -17,22 +17,32 @@ fn half_storage_preserves_all_patterns_and_widens_exactly() -> metal_oxide::Resu
     let mut copied = device.buffer_zeroed::<F16>(values.len())?;
     // SAFETY: buffers cover every binary16 pattern; each global thread owns its output index.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<256>::for_elements(values.len() as u32)?,
-            &[
-                Argument::read(&input),
-                Argument::write(&mut bits),
-                Argument::write(&mut wide),
-                Argument::write(&mut copied),
-                Argument::value(values.len() as u32)?,
-            ],
-        )?;
+            (
+                &input,
+                &mut bits,
+                &mut wide,
+                &mut copied,
+                values.len() as u32,
+            ),
+            |(input, bits, wide, copied, v4)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::write(bits),
+                    Argument::write(wide),
+                    Argument::write(copied),
+                    Argument::value(*v4)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     for (index, &value) in values.iter().enumerate() {
-        assert_eq!(bits.as_slice()[index], index as u16);
-        assert_eq!(copied.as_slice()[index].to_bits(), index as u16);
-        let actual = wide.as_slice()[index];
+        assert_eq!(bits.read().wait()[index], index as u16);
+        assert_eq!(copied.read().wait()[index].to_bits(), index as u16);
+        let actual = wide.read().wait()[index];
         let expected = value.to_f32();
         if expected.is_nan() {
             assert!(actual.is_nan(), "half {index:04x}");
@@ -80,18 +90,22 @@ fn half_conversion_rounds_ties_to_even_and_preserves_special_values() -> metal_o
     let mut output = device.buffer_zeroed::<F16>(values.len())?;
     // SAFETY: each global thread converts one initialized f32 into its own full-sized output slot.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<256>::for_elements(values.len() as u32)?,
-            &[
-                Argument::read(&input),
-                Argument::write(&mut output),
-                Argument::value(values.len() as u32)?,
-            ],
-        )?;
+            (&input, &mut output, values.len() as u32),
+            |(input, output, v2)| {
+                Ok([
+                    Argument::read(input),
+                    Argument::write(output),
+                    Argument::value(*v2)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     for (index, &value) in values.iter().enumerate() {
-        let actual = output.as_slice()[index];
+        let actual = output.read().wait()[index];
         let expected = F16::from_f32(value);
         if expected.is_nan() {
             assert!(actual.is_nan());
@@ -125,16 +139,20 @@ fn half_record_parameters_and_ctfe_constants_match_their_layout() -> metal_oxide
     let mut output = device.buffer_zeroed::<f32>(6)?;
     // SAFETY: the value has the kernel's record layout; one thread owns six output elements.
     unsafe {
-        device.launch(
-            &pipeline,
+        Launch::new(
+            Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
-            &[
-                Argument::write(&mut output),
-                Argument::value(value)?,
-                Argument::value(F16::from_f32(2.0))?,
-            ],
-        )?;
+            (&mut output, value, F16::from_f32(2.0)),
+            |(output, value, v2)| {
+                Ok([
+                    Argument::write(output),
+                    Argument::value(*value)?,
+                    Argument::value(*v2)?,
+                ])
+            },
+        )
     }
+    .wait()?;
     let expected = [
         2.0,
         -1.0,
@@ -143,7 +161,7 @@ fn half_record_parameters_and_ctfe_constants_match_their_layout() -> metal_oxide
         1.0,
         F16::from_bits(0x8001).to_f32(),
     ];
-    for (&actual, expected) in output.as_slice().iter().zip(expected) {
+    for (&actual, expected) in output.read().wait().iter().zip(expected) {
         assert_eq!(actual.to_bits(), expected.to_bits());
     }
     Ok(())

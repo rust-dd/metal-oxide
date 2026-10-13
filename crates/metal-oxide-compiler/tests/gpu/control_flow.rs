@@ -99,24 +99,28 @@ fn compare<T: GpuValue>(
             let mut output = device.buffer_from_slice(&vec![sentinel; len])?;
             // SAFETY: distinct buffers cover n; each active thread owns one output element.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     config,
-                    &[
-                        Argument::read(&input),
-                        Argument::write(&mut output),
-                        Argument::value::<u32>(n)?,
-                    ],
-                )?;
+                    (&input, &mut output, n),
+                    |(input, output, n)| {
+                        Ok([
+                            Argument::read(input),
+                            Argument::write(output),
+                            Argument::value::<u32>(*n)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             assert_eq!(
-                &output.as_slice()[..n as usize],
+                &output.read().wait()[..n as usize],
                 expected,
                 "n={n}, block={}",
                 config.block.x
             );
             assert!(
-                output.as_slice()[n as usize..]
+                output.read().wait()[n as usize..]
                     .iter()
                     .all(|&value| value == sentinel)
             );
@@ -151,18 +155,22 @@ fn uniform_exits_preserve_barriers_and_simd_helper_calls() -> metal_oxide::Resul
             let mut sums = device.buffer_from_slice(&[-1.0_f32; 96])?;
             // SAFETY: three 32-thread blocks own distinct outputs; mode is uniform across all lanes.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     LaunchConfig::<32>::new(Dim3::x(3)),
-                    &[
-                        Argument::write(&mut output),
-                        Argument::write(&mut sums),
-                        Argument::value::<u32>(mode)?,
-                    ],
-                )?;
+                    (&mut output, &mut sums, mode),
+                    |(output, sums, mode)| {
+                        Ok([
+                            Argument::write(output),
+                            Argument::write(sums),
+                            Argument::value::<u32>(*mode)?,
+                        ])
+                    },
+                )
             }
-            assert_eq!(output.as_slice(), expected, "mode={mode}");
-            assert_eq!(sums.as_slice(), expected_sum, "mode={mode}");
+            .wait()?;
+            assert_eq!(output.read().wait(), expected, "mode={mode}");
+            assert_eq!(sums.read().wait(), expected_sum, "mode={mode}");
         }
     }
     Ok(())
@@ -203,13 +211,17 @@ fn uniform_intrinsic_wrappers_preserve_barrier_participation() -> metal_oxide::R
             let mut output = device.buffer_from_slice(&vec![u32::MAX; blocks as usize * 32])?;
             // SAFETY: each block initializes 32 shared cells and owns 32 distinct output elements.
             unsafe {
-                device.launch(
-                    &generated,
+                Launch::new(
+                    Ok(&generated),
                     LaunchConfig::<32>::new(Dim3::x(blocks)),
-                    &[Argument::write(&mut output), Argument::value::<f32>(value)?],
-                )?;
+                    (&mut output, value),
+                    |(output, value)| {
+                        Ok([Argument::write(output), Argument::value::<f32>(*value)?])
+                    },
+                )
             }
-            for (i, &actual) in output.as_slice().iter().enumerate() {
+            .wait()?;
+            for (i, &actual) in output.read().wait().iter().enumerate() {
                 assert_eq!(
                     actual,
                     (i as u32 + 1) & 31,

@@ -118,8 +118,8 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
         }
     );
     let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
-    assert!(bindings.contains("&metal_oxide::Buffer<f32>"));
-    assert!(bindings.contains("&mut metal_oxide::Buffer<f32>"));
+    assert!(bindings.contains("MetalOxideBuffer0: metal_oxide::ReadArgument<f32>"));
+    assert!(bindings.contains("MetalOxideBuffer1: metal_oxide::WriteArgument<f32>"));
     assert!(bindings.contains("r#arg_2: u32"));
     assert_eq!(
         abi.kernels[0].parameters[3].ty,
@@ -129,32 +129,55 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
             access: Access::ReadWrite,
         }
     );
-    assert!(bindings.contains("Argument::read_write(r#arg_3)"));
-    assert!(bindings.contains("pub unsafe fn r#vec_add"));
-    assert!(
-        bindings
-            .contains("pub unsafe fn r#enqueue_vec_add(&self, batch: &mut metal_oxide::Batch<'_>")
-    );
     assert!(bindings.contains(
-        "batch.launch(self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_0"
+        "metal_oxide::Argument::read_write(metal_oxide::WriteArgument::buffer_mut(r#arg_3))"
     ));
+    assert!(bindings.contains("metal_oxide::Argument::value(*r#arg_2)?"));
+    assert!(bindings.contains(
+        "pub unsafe fn r#vec_add<MetalOxideBuffer0, MetalOxideBuffer1, MetalOxideBuffer3>"
+    ));
+    assert!(bindings.contains(
+        "-> metal_oxide::Launch<(MetalOxideBuffer0, MetalOxideBuffer1, u32, MetalOxideBuffer3), 4>"
+    ));
+    assert!(bindings.contains(
+        "metal_oxide::Launch::new(\n                self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_0"
+    ));
+    assert!(!bindings.contains("enqueue"));
 }
 
 #[test]
-fn generated_enqueue_names_cannot_shadow_another_entrypoint() {
-    let mut abi = metal_oxide_codegen::Codegen::new(&module(vec![]))
+fn buffer_type_parameters_keep_record_names_apart() {
+    use ir::{Aggregate, RecordField};
+    let mut module = module(vec![]);
+    let record = module.types.intern(Aggregate::Record {
+        name: "MetalOxideBuffer0".into(),
+        fields: vec![RecordField {
+            name: "value".into(),
+            ty: Type::Scalar(ir::Scalar::U32),
+        }],
+    });
+    let ir::Type::Aggregate(id) = record else {
+        panic!()
+    };
+    module.functions[0].parameters = 2;
+    module.functions[0].locals.extend([
+        Type::Buffer {
+            element: ir::Element::Aggregate(id),
+            access: ir::Access::Read,
+            address_space: ir::AddressSpace::Device,
+        },
+        record,
+    ]);
+    let abi = metal_oxide_codegen::Codegen::new(&module)
         .unwrap()
         .abi()
         .unwrap();
-    let mut other = abi.kernels[0].clone();
-    other.name = "enqueue_vec_add".into();
-    abi.kernels.push(other);
+    let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
+    assert!(bindings.contains("pub struct r#MetalOxideBuffer02"));
     assert!(
-        metal_oxide_codegen::bindings(&abi)
-            .unwrap_err()
-            .to_string()
-            .contains("collide")
+        bindings.contains("MetalOxideBuffer0: metal_oxide::ReadArgument<r#MetalOxideBuffer02>")
     );
+    assert!(bindings.contains("r#arg_1: r#MetalOxideBuffer02"));
 }
 
 #[test]

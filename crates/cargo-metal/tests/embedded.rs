@@ -2,7 +2,7 @@
 
 mod support;
 
-use metal_oxide::{Argument, Device, Error, LaunchConfig, Module, Pipeline};
+use metal_oxide::{Argument, Device, Error, Launch, LaunchConfig, Module, Operation, Pipeline};
 use metal_oxide_artifact::{Manifest, sha256};
 use std::{path::PathBuf, process::Command};
 use support::{Workspace, checked};
@@ -138,37 +138,45 @@ fn verify_argument_types(device: &Device, pipeline: &Pipeline) -> metal_oxide::R
     for _ in 0..2 {
         // SAFETY: three guarded threads update their own elements in place.
         unsafe {
-            device.launch(
-                pipeline,
+            Launch::new(
+                Ok(pipeline),
                 config,
-                &[
-                    Argument::read_write(&mut values),
-                    Argument::value(5_u64)?,
-                    Argument::value(3_u32)?,
-                ],
-            )?;
+                (&mut values, 5_u64, 3_u32),
+                |(values, v1, v2)| {
+                    Ok([
+                        Argument::read_write(values),
+                        Argument::value(*v1)?,
+                        Argument::value(*v2)?,
+                    ])
+                },
+            )
         }
+        .wait()?;
     }
-    assert_eq!(values.as_slice(), [11, 12, 13]);
-    let mismatched = [
-        [
-            Argument::read_write(&mut values),
-            Argument::value(5_u32)?,
-            Argument::value(3_u32)?,
-        ],
-        [
-            Argument::read_write(&mut narrow),
-            Argument::value(5_u64)?,
-            Argument::value(3_u32)?,
-        ],
-    ];
-    for arguments in &mismatched {
-        // SAFETY: validation rejects the arguments before anything is encoded.
-        let result = unsafe { device.launch(pipeline, config, arguments) };
-        assert!(matches!(result, Err(Error::Artifact(_))));
-    }
-    drop(mismatched);
-    assert_eq!(values.as_slice(), [11, 12, 13]);
+    assert_eq!(values.read().wait(), [11, 12, 13]);
+    // SAFETY: validation rejects the arguments before anything is encoded.
+    let scalar = unsafe {
+        Launch::new(Ok(pipeline), config, (&mut values,), |(values,)| {
+            Ok([
+                Argument::read_write(values),
+                Argument::value(5_u32)?,
+                Argument::value(3_u32)?,
+            ])
+        })
+    };
+    assert!(matches!(scalar.wait(), Err(Error::Artifact(_))));
+    // SAFETY: as above.
+    let element = unsafe {
+        Launch::new(Ok(pipeline), config, (&mut narrow,), |(narrow,)| {
+            Ok([
+                Argument::read_write(narrow),
+                Argument::value(5_u64)?,
+                Argument::value(3_u32)?,
+            ])
+        })
+    };
+    assert!(matches!(element.wait(), Err(Error::Artifact(_))));
+    assert_eq!(values.read().wait(), [11, 12, 13]);
     Ok(())
 }
 

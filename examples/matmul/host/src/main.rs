@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
 fn verify_f32(device: &metal_oxide::Device, kernels: &kernels::Kernels) -> metal_oxide::Result<()> {
-    use metal_oxide::{Dim3, LaunchConfig};
+    use metal_oxide::{Dim3, LaunchConfig, Operation};
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
         let a = (0..n)
             .map(|i| (i % 13) as f32 * 0.25 - 1.0)
@@ -30,11 +30,9 @@ fn verify_f32(device: &metal_oxide::Device, kernels: &kernels::Kernels) -> metal
         let config = LaunchConfig::<256>::for_elements(n)?;
         let mut output = device.buffer_zeroed::<f32>(config.grid.x as usize * 256)?;
         // SAFETY: distinct inputs cover n; output has space even for one SIMD group per thread.
-        unsafe {
-            kernels.dot(config, &input_a, &input_b, &mut output, n)?;
-        }
+        unsafe { kernels.dot(config, &input_a, &input_b, &mut output, n) }.wait()?;
         assert_eq!(
-            output.as_slice().iter().sum::<f32>(),
+            output.read().wait().iter().sum::<f32>(),
             a.iter().zip(&b).map(|(a, b)| a * b).sum::<f32>()
         );
         println!("dot n={n}: verified on {}", device.name());
@@ -64,15 +62,16 @@ fn verify_f32(device: &metal_oxide::Device, kernels: &kernels::Kernels) -> metal
                 rows,
                 columns,
                 inner,
-            )?;
+            )
         }
+        .wait()?;
         for row in 0..rows {
             for column in 0..columns {
                 let expected = (0..inner)
                     .map(|k| a[(row * inner + k) as usize] * b[(k * columns + column) as usize])
                     .sum::<f32>();
                 assert_eq!(
-                    output.as_slice()[(row * columns + column) as usize],
+                    output.read().wait()[(row * columns + column) as usize],
                     expected
                 );
             }

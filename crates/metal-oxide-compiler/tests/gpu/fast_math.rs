@@ -31,23 +31,27 @@ fn fast_functions_match_reference_within_their_accuracy_domains() -> metal_oxide
             let mut output = device.buffer_from_slice(&vec![-8192.0_f32; (n as usize + 32) * 8])?;
             // SAFETY: disjoint buffers cover n, with eight output values per guarded thread.
             unsafe {
-                device.launch(
-                    pipeline,
+                Launch::new(
+                    Ok(pipeline),
                     LaunchConfig::<32>::for_elements(n)?,
-                    &[
-                        Argument::read(&input),
-                        Argument::read(&exponent),
-                        Argument::write(&mut output),
-                        Argument::value(n)?,
-                    ],
-                )?;
+                    (&input, &exponent, &mut output, n),
+                    |(input, exponent, output, n)| {
+                        Ok([
+                            Argument::read(input),
+                            Argument::read(exponent),
+                            Argument::write(output),
+                            Argument::value(*n)?,
+                        ])
+                    },
+                )
             }
+            .wait()?;
             assert!(
-                output.as_slice()[n as usize * 8..]
+                output.read().wait()[n as usize * 8..]
                     .iter()
                     .all(|&x| x == -8192.0)
             );
-            results.push(output.as_slice()[..n as usize * 8].to_vec());
+            results.push(output.read().wait()[..n as usize * 8].to_vec());
         }
         assert_eq!(results[0], results[1]);
         for (index, actual) in results[0].as_chunks::<8>().0.iter().enumerate() {
@@ -103,18 +107,22 @@ fn fast_source_contract_allows_fusion_and_keeps_nan_and_infinity() -> metal_oxid
         let mut output = device.buffer_zeroed::<f32>(7)?;
         // SAFETY: one thread owns all seven elements and each value argument is f32.
         unsafe {
-            device.launch(
-                &pipeline,
+            Launch::new(
+                Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
-                &[
-                    Argument::write(&mut output),
-                    Argument::value(a)?,
-                    Argument::value(b)?,
-                    Argument::value(c)?,
-                ],
-            )?;
+                (&mut output, a, b, c),
+                |(output, a, b, c)| {
+                    Ok([
+                        Argument::write(output),
+                        Argument::value(*a)?,
+                        Argument::value(*b)?,
+                        Argument::value(*c)?,
+                    ])
+                },
+            )
         }
-        let actual = output.as_slice();
+        .wait()?;
+        let actual = output.read().wait();
         let expected = a.mul_add(b, c);
         for &value in &actual[4..6] {
             assert!(
