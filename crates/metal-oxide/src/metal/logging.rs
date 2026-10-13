@@ -18,9 +18,15 @@ pub(super) fn log_state(
     descriptor.setLevel(MTLLogLevel::Debug);
     // SAFETY: the size exceeds Metal's 1 KiB minimum.
     unsafe { descriptor.setBufferSize(BUFFER_BYTES) };
+    // The Apple Paravirtual device of macOS VMs reports Mac2 but cannot create a log state.
     let state = device
         .newLogStateWithDescriptor_error(&descriptor)
-        .map_err(|error| Error::Command(error.localizedDescription().to_string()))?;
+        .map_err(|error| {
+            Error::UnsupportedDevice(format!(
+                "shader logging is unavailable: {}",
+                error.localizedDescription()
+            ))
+        })?;
     let handler = RcBlock::new(
         |_: *mut NSString, _: *mut NSString, _: MTLLogLevel, message: NonNull<NSString>| {
             // SAFETY: Metal passes a live message string.

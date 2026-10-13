@@ -1,5 +1,6 @@
 use super::*;
 use metal_oxide::{Error, KernelFailure};
+use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/runtime_checks.rs";
 
@@ -260,12 +261,22 @@ fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxi
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn device_log_messages_reach_standard_error() {
     const CHILD: &str = "METAL_OXIDE_LOG_CHILD";
+    let device = Device::system_default().unwrap();
+    // Apple GPUs log; the Mac2-only paravirtual device of hosted macOS VMs cannot.
+    let logs = device.as_native().supportsFamily(MTLGPUFamily::Apple7);
     if std::env::var_os(CHILD).is_some() {
-        let device = Device::system_default().unwrap();
         let (output, directory) =
             support::emit("crates/metal-oxide-compiler/tests/fixtures/logging.rs", &[]);
         support::checked(output);
-        let module = support::artifact::module(&device, &directory).unwrap();
+        let module = support::artifact::module(&device, &directory);
+        if !logs {
+            let Err(Error::UnsupportedDevice(reason)) = &module else {
+                panic!("expected no shader logging, got {:?}", module.err());
+            };
+            assert!(reason.contains("shader logging"), "{reason}");
+            return;
+        }
+        let module = module.unwrap();
         let pipeline = Pipeline::new(&device, &module, "logging").unwrap();
         let mut out = device.buffer_zeroed::<u32>(3).unwrap();
         // SAFETY: three threads write their own elements.
@@ -298,7 +309,7 @@ fn device_log_messages_reach_standard_error() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
-    for thread in 0..3 {
+    for thread in (0..3).filter(|_| logs) {
         let message = format!(
             "thread {thread} scale 0.100000001 half 0.5 wide 1099511627776 signed -3 {{braces}} 100%"
         );
