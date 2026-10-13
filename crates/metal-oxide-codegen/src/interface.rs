@@ -82,10 +82,11 @@ impl KernelInterfaces {
                         })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
-                if slots[0] > 29 {
+                // A fixed limit, independent of which checks the proofs remove.
+                if slots[0] > 28 {
                     return Err(Error::new(
                         &function.source,
-                        "kernels take at most 29 buffer and value parameters; the next slots carry the gate and failure words",
+                        "kernels take at most 28 buffer and value parameters; the next slots carry the gate, failure and length words",
                     ));
                 }
                 Ok(Some(artifact::Kernel {
@@ -94,6 +95,7 @@ impl KernelInterfaces {
                     required_block: function.required_block,
                     gate_binding: slots[0],
                     fallible: analysis.fallible,
+                    lengths: reads_lengths(module, function, analysis),
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -213,4 +215,22 @@ fn layout(module: &Module, ty: Type, function: &Function) -> Result<artifact::La
         }
     };
     result.map_err(|error| Error::new(&function.source, error.to_string()))
+}
+
+/// Whether a kernel reads the length of one of its buffer parameters.
+fn reads_lengths(module: &Module, function: &Function, analysis: &FunctionAnalysis) -> bool {
+    analysis
+        .cfg
+        .reachable_blocks()
+        .flat_map(|block| &function.blocks[block].statements)
+        .any(|statement| {
+            matches!(
+                &statement.value,
+                metal_oxide_ir::Expression::Slice(data) | metal_oxide_ir::Expression::Len(data)
+                    if matches!(
+                        metal_oxide_ir::operand_type(module, function, data, &statement.source),
+                        Ok(Type::Buffer { .. })
+                    )
+            )
+        })
 }

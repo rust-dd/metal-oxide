@@ -84,6 +84,8 @@ preserves the function body. MSL and host binding generation happen later.
 They avoid handing every GPU thread an exclusive Rust reference to the same
 whole buffer. Read-write handles support in-place algorithms; their host bindings
 borrow the buffer exclusively, while the caller still ensures race-free GPU access.
+Inside the kernel entrypoint, a buffer parameter's `len()` is the element count the host
+bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`.
 
 Primitive scalar buffers expose shared Metal storage directly through `read` and
 `write`, which wait for pending GPU work first: awaiting them never blocks the thread,
@@ -189,6 +191,7 @@ The importer also replaces recognized calls:
 | `block_dim()` | `Coordinates(BlockDim)` |
 | `load_unchecked(buffer, index)` | `BufferLoad` |
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
+| `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.
@@ -503,8 +506,9 @@ The runtime performs these steps:
    pipeline, the configuration and the arguments; nothing is encoded yet.
 5. `wait` (or the first poll of its future) creates a `Batch`, which binds the four
    ordered arguments and checks resource context, ABI types/access, block
-   requirements and dispatch limits. It then encodes the bindings, a gate word and,
-   for a kernel that can fail a check, the command buffer's failure word. A kernel
+   requirements and dispatch limits. It then encodes the bindings, a gate word,
+   for a kernel that can fail a check the command buffer's failure word, and for a
+   kernel that reads buffer lengths a table of its arguments' element counts. A kernel
    tests its gate once, at the latest point that precedes all of its memory accesses,
    synchronization and logs, and returns once an earlier dispatch has failed. A
    fallible dispatch after another fallible one gates on a snapshot of the failure

@@ -49,8 +49,8 @@ pub(super) struct State<'a> {
     pub slices: BTreeMap<Place, Place>,
     /// Places that hold a copy of another place's unchanged value, by that place.
     pub copies: BTreeMap<Place, Place>,
-    /// Slices of whole arrays and their lengths.
-    pub extents: BTreeMap<Place, u32>,
+    /// Bounds of slice lengths: exact for whole arrays, refined by comparisons.
+    pub lengths: BTreeMap<Place, Range>,
     /// The comparison each boolean place holds, between places and constants as written.
     pub conditions: BTreeMap<Place, (Comparison, Atom, Atom)>,
     /// Comparisons assumed true. Unlike `truths`, they name places rather than their current
@@ -66,7 +66,7 @@ impl PartialEq for State<'_> {
             && self.truths == other.truths
             && self.slices == other.slices
             && self.copies == other.copies
-            && self.extents == other.extents
+            && self.lengths == other.lengths
             && self.conditions == other.conditions
             && self.relations == other.relations
     }
@@ -86,7 +86,7 @@ impl<'a> State<'a> {
             truths: BTreeMap::new(),
             slices: BTreeMap::new(),
             copies: BTreeMap::new(),
-            extents: BTreeMap::new(),
+            lengths: BTreeMap::new(),
             conditions: BTreeMap::new(),
             relations: BTreeSet::new(),
         }
@@ -122,9 +122,12 @@ impl<'a> State<'a> {
         if let Some(resolved) = self.resolve(place) {
             let own = self.facts.get(&resolved).cloned().unwrap_or(full);
             // An alias holds the same value, so a refinement of its target also bounds it.
-            if let Some(Atom::Place(target)) = self.aliases.get(&resolved)
-                && let Some(target) = self.facts.get(target)
-            {
+            let target = match self.aliases.get(&resolved) {
+                Some(Atom::Place(target)) => self.facts.get(target).cloned(),
+                Some(length @ Atom::Length(_)) => Some(self.atom(length)),
+                _ => None,
+            };
+            if let Some(target) = target {
                 let mut both = own.clone();
                 if both.restrict(target.lo, target.hi) {
                     return Some(both);
@@ -192,9 +195,10 @@ impl<'a> State<'a> {
             Atom::Integer(n) => Range::exact(*n),
             Atom::Place(p) => self.range(p).unwrap(),
             Atom::Length(slice) => self
-                .extents
+                .lengths
                 .get(slice)
-                .map_or(Range::full(Scalar::Usize), |&n| Range::exact(i128::from(n))),
+                .cloned()
+                .unwrap_or_else(|| Range::full(Scalar::Usize)),
         }
     }
 
@@ -284,7 +288,7 @@ impl<'a> State<'a> {
             .retain(|view, slice| independent(view) && independent(slice));
         self.copies
             .retain(|copy, source| independent(copy) && independent(source));
-        self.extents.retain(|slice, _| independent(slice));
+        self.lengths.retain(|slice, _| independent(slice));
         self.conditions
             .retain(|condition, (_, a, b)| independent(condition) && atom(a) && atom(b));
         self.relations.retain(|(a, _, b)| atom(a) && atom(b));
@@ -335,7 +339,7 @@ impl<'a> State<'a> {
         changed |= retain_common(&mut self.predicates, &other.predicates);
         changed |= retain_common(&mut self.slices, &other.slices);
         changed |= retain_common(&mut self.copies, &other.copies);
-        changed |= retain_common(&mut self.extents, &other.extents);
+        changed |= join_common(&mut self.lengths, &other.lengths);
         changed |= retain_common(&mut self.conditions, &other.conditions);
         let relations = self.relations.len();
         self.relations
@@ -408,4 +412,14 @@ fn retain_common<K: Ord, V: PartialEq>(map: &mut BTreeMap<K, V>, other: &BTreeMa
             .is_some_and(|(k, v)| *k == key && **v == *value)
     });
     map.len() != before
+}
+
+/// Joins the ranges both maps hold and drops the others; returns whether anything changed.
+fn join_common<K: Ord + Clone>(map: &mut BTreeMap<K, Range>, other: &BTreeMap<K, Range>) -> bool {
+    let before = map.clone();
+    map.retain(|key, _| other.contains_key(key));
+    for (key, range) in map.iter_mut() {
+        *range = range.join(&other[key]);
+    }
+    *map != before
 }

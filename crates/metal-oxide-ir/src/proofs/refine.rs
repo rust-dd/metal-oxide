@@ -81,11 +81,16 @@ impl State<'_> {
         if !valid {
             return false;
         }
-        if let Atom::Place(p) = a {
-            self.facts.insert(p.clone(), x);
-        }
-        if let Atom::Place(p) = b {
-            self.facts.insert(p.clone(), y);
+        for (atom, range) in [(a, x), (b, y)] {
+            match atom {
+                Atom::Place(p) => {
+                    self.facts.insert(p.clone(), range);
+                }
+                Atom::Length(slice) => {
+                    self.lengths.insert(slice.clone(), range);
+                }
+                Atom::Integer(_) => {}
+            }
         }
         true
     }

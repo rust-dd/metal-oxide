@@ -38,6 +38,7 @@ impl Storage {
 
 pub(super) trait BufferBinding: Sync {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>>;
+    fn len(&self) -> usize;
     fn resource(&self) -> Resource;
     fn device_id(&self) -> u64;
     fn prepare(&self, access: Access);
@@ -177,6 +178,9 @@ impl<T: GpuValue> Buffer<T> {
 impl<T: GpuValue> BufferBinding for Buffer<T> {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
         &self.storage.0
+    }
+    fn len(&self) -> usize {
+        self.len
     }
     fn device_id(&self) -> u64 {
         self.device_id

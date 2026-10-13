@@ -97,6 +97,7 @@ mod tests {
                 required_block: None,
                 gate_binding: 0,
                 fallible: false,
+                lengths: false,
             }],
         };
         let manifest = Manifest {

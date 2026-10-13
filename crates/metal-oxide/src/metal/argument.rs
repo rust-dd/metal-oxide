@@ -141,6 +141,14 @@ impl<'a> Argument<'a> {
         }
     }
 
+    /// The element count of a buffer argument.
+    pub(super) fn length(&self) -> Option<usize> {
+        match &self.value {
+            Value::Buffer(buffer) => Some(buffer.len()),
+            _ => None,
+        }
+    }
+
     pub(super) fn device_id(&self) -> Option<u64> {
         match &self.value {
             Value::Buffer(buffer) => Some(buffer.device_id()),

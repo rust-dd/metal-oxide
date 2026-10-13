@@ -20,6 +20,7 @@ fn manifest() -> Manifest {
                 required_block: None,
                 gate_binding: 1,
                 fallible: true,
+                lengths: true,
             }],
         },
         checks: vec![Check {
@@ -93,6 +94,7 @@ fn kernels_share_type_and_signature_tables() {
             required_block: None,
             gate_binding: 2,
             fallible: false,
+            lengths: false,
         })
         .into();
     let json = manifest.to_json().unwrap();

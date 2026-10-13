@@ -62,6 +62,8 @@ mod half;
 mod integer_bits;
 #[path = "gpu/ir_aggregates.rs"]
 mod ir_aggregates;
+#[path = "gpu/lengths.rs"]
+mod lengths;
 #[path = "gpu/narrow.rs"]
 mod narrow;
 #[path = "gpu/native.rs"]

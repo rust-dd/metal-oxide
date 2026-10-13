@@ -89,6 +89,9 @@ pub struct Kernel {
     /// The kernel can fail a runtime check; it then also takes the command buffer's failure
     /// word in the slot after its gate.
     pub fallible: bool,
+    /// The kernel reads buffer lengths; it then takes the element count of each parameter, as
+    /// a `ulong` table, in the slot after its gate and failure words.
+    pub lengths: bool,
 }
 
 /// Serialized with layouts and parameter lists shared across kernels.

@@ -223,12 +223,24 @@ impl Commands {
                 )?
             };
         }
+        let lengths = match pipeline.checks() {
+            Some(kernel) if kernel.lengths => {
+                let counts = arguments
+                    .iter()
+                    .map(|argument| argument.length().unwrap_or(0) as u64)
+                    .collect::<Vec<_>>();
+                let binding = kernel.gate_binding as usize + 1 + usize::from(kernel.fallible);
+                Some((binding, self.failures.table(device.raw(), &counts)?))
+            }
+            _ => None,
+        };
         let words = assignment
             .iter()
             .flat_map(|(binding, assignment)| {
                 std::iter::once((*binding, assignment.gate))
                     .chain(assignment.failure.map(|failure| (binding + 1, failure)))
             })
+            .chain(lengths)
             .map(|(index, slot)| Word::new(&self.failures, index, slot))
             .collect::<Vec<_>>();
         self.pipelines.push(pipeline.raw().clone());

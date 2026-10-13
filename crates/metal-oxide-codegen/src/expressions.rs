@@ -248,22 +248,30 @@ pub(crate) fn expression(
             };
             reference(module, function, value, target, source)?
         }
-        Expression::Len(slice) => format!("{}.length", op(slice)),
+        Expression::Len(data) => match ty(data)? {
+            Type::Buffer { .. } => buffer_length(data),
+            _ => format!("{}.length", op(data)),
+        },
         Expression::Slice(data) => {
             let pointer = result_pointer(module, function, value, source)?;
-            let length = match ty(data)? {
-                Type::Buffer { .. } => {
-                    return Err(Error::new(source, "buffer slices are not supported yet"));
+            match ty(data)? {
+                Type::Buffer { .. } => format!(
+                    "metal_oxide_pointer_{pointer}{{{}, {}}}",
+                    op(data),
+                    buffer_length(data)
+                ),
+                array => {
+                    let Some(Type::Aggregate(id)) = module.types.pointer(array).map(|p| p.target)
+                    else {
+                        unreachable!("validated slice")
+                    };
+                    format!(
+                        "metal_oxide_pointer_{pointer}{{(*{}).elements, {}ul}}",
+                        op(data),
+                        module.types.get(id).unwrap().len()
+                    )
                 }
-                array => match module.types.pointer(array).map(|p| p.target) {
-                    Some(Type::Aggregate(id)) => module.types.get(id).unwrap().len(),
-                    _ => unreachable!("validated slice"),
-                },
-            };
-            format!(
-                "metal_oxide_pointer_{pointer}{{(*{}).elements, {length}ul}}",
-                op(data)
-            )
+            }
         }
         Expression::Subslice { slice, start, end } => {
             let pointer = result_pointer(module, function, value, source)?;
@@ -339,4 +347,12 @@ fn reference(
             format!("metal_oxide_pointer_{pointer}{{{emitted}.data, {emitted}.length}}")
         },
     )
+}
+
+/// The bound length of a kernel buffer parameter, which validation requires the operand to be.
+fn buffer_length(buffer: &Operand) -> String {
+    let Operand::Place(place) = buffer else {
+        unreachable!("validated buffer length")
+    };
+    format!("metal_oxide_lengths[{}]", place.local - 1)
 }

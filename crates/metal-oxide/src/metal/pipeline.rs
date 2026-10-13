@@ -63,6 +63,7 @@ impl Pipeline {
                     name: kernel.name.clone(),
                     gate_binding: kernel.gate_binding,
                     fallible: kernel.fallible,
+                    lengths: kernel.lengths,
                     checks: Arc::clone(&module.checks),
                 })
             }),

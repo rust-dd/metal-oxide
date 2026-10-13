@@ -9,6 +9,7 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) instance: Instance<'tcx>,
     /// The kernel's lowered signature, or the argument types of the helper's callers.
     parameters: Vec<ir::Type>,
+    pub(super) kernel: bool,
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
     pub(super) constants: Vec<Option<ir::Constant>>,
@@ -27,6 +28,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             module,
             instance,
             parameters,
+            kernel: false,
             locals: Vec::new(),
             allocations: 0,
             constants: Vec::new(),
@@ -36,6 +38,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
     }
 
     pub(super) fn import(mut self, kernel: bool) -> Result<ir::Function> {
+        self.kernel = kernel;
         let tcx = self.module.tcx;
         let body = tcx.instance_mir(self.instance.def);
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
@@ -190,6 +193,17 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 destination,
                 target: Some(target),
                 ..
+            } if self.buffer_query(func, body, span)?.is_some() => {
+                let query = self.buffer_query(func, body, span)?.unwrap();
+                self.buffer(&mut statements, query, args, destination, span)?;
+                ir::Terminator::Goto(target.as_usize())
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
             } => {
                 statements.push(ir::Statement {
                     destination: self.place(destination, span)?,
@@ -240,6 +254,10 @@ fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
 }
 
 impl FunctionImporter<'_, '_> {
+    pub(super) fn parameter_count(&self) -> usize {
+        self.parameters.len()
+    }
+
     /// Appends a block after the MIR blocks and returns its id.
     pub(super) fn append(&mut self, body: &mir::Body<'_>, block: ir::Block) -> usize {
         self.appended.push(block);

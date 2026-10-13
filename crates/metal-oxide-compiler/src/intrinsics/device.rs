@@ -5,7 +5,7 @@ use rustc_hir::{
 };
 use rustc_middle::ty::{self, TyCtxt};
 
-use super::Intrinsic;
+use super::{BufferQuery, Intrinsic};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeviceType {
@@ -144,6 +144,14 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             | DeviceType::DynamicThreadgroupBuffer,
             "store_unchecked",
         ) => Some(Intrinsic::BufferStore),
+        (DeviceType::ReadBuffer | DeviceType::WriteBuffer | DeviceType::ReadWriteBuffer, "len") => {
+            Some(Intrinsic::Buffer(BufferQuery::Length))
+        }
+        (
+            DeviceType::ReadBuffer | DeviceType::WriteBuffer | DeviceType::ReadWriteBuffer,
+            "is_empty",
+        ) => Some(Intrinsic::Buffer(BufferQuery::IsEmpty)),
+        (DeviceType::ReadBuffer, "as_slice") => Some(Intrinsic::Buffer(BufferQuery::Slice)),
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load_relaxed" => AtomicOp::Load,

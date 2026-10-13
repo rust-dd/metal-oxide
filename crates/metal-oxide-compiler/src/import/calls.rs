@@ -234,7 +234,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Use(value)
             }
-            Intrinsic::Subslice => unreachable!("subslices are expanded with their checks"),
+            Intrinsic::Subslice | Intrinsic::Buffer(_) => {
+                unreachable!("subslices and buffer queries are expanded in place")
+            }
         })
     }
 }

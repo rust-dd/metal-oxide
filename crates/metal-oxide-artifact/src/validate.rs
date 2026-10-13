@@ -109,9 +109,10 @@ impl Abi {
                     )));
                 }
             }
-            if kernel.gate_binding != slots[0] || slots[0] > 29 {
+            let hidden = 1 + u32::from(kernel.fallible) + u32::from(kernel.lengths);
+            if kernel.gate_binding != slots[0] || slots[0] + hidden > 31 {
                 return Err(Error(format!(
-                    "kernel {} must take its gate and failure words in the buffer slots after its parameters",
+                    "kernel {} must take its gate, failure and length words in the buffer slots after its parameters",
                     kernel.name
                 )));
             }

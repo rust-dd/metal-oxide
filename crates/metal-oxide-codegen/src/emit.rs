@@ -263,6 +263,12 @@ impl<'a> ModuleEmitter<'a> {
                     kernel.gate_binding + 1
                 ));
             }
+            if kernel.lengths {
+                parameters.push(format!(
+                    "constant ulong* metal_oxide_lengths [[buffer({})]]",
+                    kernel.gate_binding + 1 + u32::from(kernel.fallible)
+                ));
+            }
             Ok(format!(
                 "kernel void {}({})",
                 kernel.name,

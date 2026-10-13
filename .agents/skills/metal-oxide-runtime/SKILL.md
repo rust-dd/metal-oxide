@@ -61,8 +61,9 @@ separate.
 - A launch checks queue-context ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
-- Generated kernels bind a gate word after their parameters and, when fallible, the
-  command buffer's failure word. `Failures` owns pooled words until completion. A zero
+- Generated kernels bind a gate word after their parameters, the command buffer's
+  failure word when fallible, and a table of argument element counts when they read
+  buffer lengths. `Failures` owns these pooled words until completion. A zero
   word gates dispatches before the first fallible one, and the failure word gates
   later infallible ones. Before each later fallible dispatch, a one-thread snapshot
   kernel copies the failure word into a fresh gate, since a kernel must not gate on

@@ -39,6 +39,7 @@ unsafe extern "Rust" {
     pub(crate) fn __metal_log(format: *const (), length: usize, arguments: *const (), bytes: usize);
     pub(crate) fn __metal_uninit(out: *mut (), bytes: usize);
     pub(crate) fn __metal_threadgroup_alloc(bytes: usize, alignment: usize) -> *mut ();
+    pub(crate) fn __metal_buffer_length(buffer: *const ()) -> usize;
     pub(crate) fn __metal_buffer_load(buffer: *const (), index: u32, out: *mut (), bytes: usize);
     pub(crate) fn __metal_buffer_store(buffer: *mut (), index: u32, value: *const (), bytes: usize);
     pub(crate) fn __metal_threadgroup_load(

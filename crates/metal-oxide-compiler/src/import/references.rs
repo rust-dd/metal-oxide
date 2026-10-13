@@ -6,7 +6,7 @@ use rustc_middle::{
 use rustc_span::{Span, Spanned};
 
 use super::{Result, function::FunctionImporter};
-use crate::intrinsics::{DeviceType, Intrinsic, device_type};
+use crate::intrinsics::{BufferQuery, DeviceType, Intrinsic, device_type};
 
 /// Locals bound once to `&local` or `&mut local`, directly or by reborrow, where `local` is an
 /// integer range or a device buffer handle. They stand for that local in the calls that use them.
@@ -231,6 +231,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
+        if let Some(Intrinsic::Buffer(BufferQuery::Slice)) = callee.intrinsic {
+            let parameter = self.buffer_parameter(&args[0].node, span)?;
+            return self.buffer_slice_type(parameter, span).map(Some);
+        }
         let mut types = Vec::with_capacity(args.len());
         for argument in args {
             match self.argument_type(&argument.node, pending, argument.span)? {

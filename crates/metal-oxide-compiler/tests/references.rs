@@ -36,3 +36,21 @@ fn slices_of_local_arrays_index_subslice_and_reborrow_without_runtime_checks() {
     let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
     assert_eq!(checks.trim(), "[]", "{checks}");
 }
+
+#[test]
+fn buffer_slices_read_the_bound_lengths_without_runtime_checks() {
+    let directory = emit("buffer_lengths");
+    let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
+    assert!(abi.contains("\"lengths\": true"), "{abi}");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float a[3] = {1, 2, 3}; float b[2] = {10, 20}; float out[4] = {}; ulong bound[3] = {3, 2, 4}; \
+             for (uint x = 0; x < 4; x++) lengths(a, b, out, {x, 0, 0}, {0, 0, 0}, {4, 1, 1}, {1, 1, 1}, metal_oxide_gate, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "11 22 0 6 "
+    );
+    let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
+    assert_eq!(checks.trim(), "[]", "{checks}");
+}

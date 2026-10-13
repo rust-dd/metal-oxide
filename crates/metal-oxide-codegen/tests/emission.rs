@@ -382,7 +382,7 @@ fn reserved_msl_kernel_names_have_source_diagnostics() {
 
 #[test]
 fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
-    for (parameters, kernel, valid) in [(29, true, true), (30, true, false), (32, false, true)] {
+    for (parameters, kernel, valid) in [(28, true, true), (29, true, false), (32, false, true)] {
         let mut module = module(
             parameters,
             std::iter::once(Type::Unit)
@@ -399,7 +399,7 @@ fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
                 assert!(
                     error
                         .message
-                        .contains("at most 29 buffer and value parameters")
+                        .contains("at most 28 buffer and value parameters")
                 );
             }
         }

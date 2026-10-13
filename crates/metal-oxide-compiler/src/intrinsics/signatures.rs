@@ -5,7 +5,7 @@ use rustc_middle::{
 };
 
 use super::{
-    Intrinsic,
+    BufferQuery, Intrinsic,
     device::{self, DeviceType},
 };
 
@@ -217,6 +217,34 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                 }
                 atomic_bridge(op)
             }
+            (Intrinsic::Buffer(query), &[receiver]) => {
+                let ty::Ref(_, buffer, Mutability::Not) = receiver.kind() else {
+                    return false;
+                };
+                let Some((kind, element)) = buffer_element(tcx, *buffer) else {
+                    return false;
+                };
+                let valid = match query {
+                    BufferQuery::Length => output == tcx.types.usize,
+                    BufferQuery::IsEmpty => output.is_bool(),
+                    BufferQuery::Slice => {
+                        kind == DeviceType::ReadBuffer
+                            && matches!(output.kind(), ty::Ref(_, slice, Mutability::Not)
+                                if matches!(slice.kind(), ty::Slice(item) if *item == element))
+                    }
+                };
+                if !valid
+                    || !matches!(
+                        kind,
+                        DeviceType::ReadBuffer
+                            | DeviceType::WriteBuffer
+                            | DeviceType::ReadWriteBuffer
+                    )
+                {
+                    return false;
+                }
+                "__metal_buffer_length"
+            }
             (Intrinsic::Log, &[format, arguments])
                 if output.is_unit()
                     && matches!(format.kind(), ty::Ref(_, text, Mutability::Not) if text.is_str())
@@ -230,8 +258,10 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
         }
         .to_owned()
     };
-    if !matches!(operation, Intrinsic::ThreadgroupAlloc(_) | Intrinsic::Log)
-        && signature.safety() != Safety::Unsafe
+    if !matches!(
+        operation,
+        Intrinsic::ThreadgroupAlloc(_) | Intrinsic::Log | Intrinsic::Buffer(_)
+    ) && signature.safety() != Safety::Unsafe
     {
         return false;
     }
@@ -287,6 +317,7 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
     let read = Pointer(Mutability::Not);
     let write = Pointer(Mutability::Mut);
     match operation {
+        Intrinsic::Buffer(_) => declaration(tcx, definition, &[read], Usize, Safety::Unsafe),
         Intrinsic::Uninit => declaration(tcx, definition, &[write, Usize], Unit, Safety::Unsafe),
         Intrinsic::BufferLoad => declaration(
             tcx,

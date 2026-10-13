@@ -77,9 +77,13 @@ impl Analysis<'_> {
                     }
                 }
             }
-            Expression::Slice(array) => {
-                let length = operand_type(state.module, state.function, array, &statement.source)
-                    .ok()
+            Expression::Slice(data) => {
+                let ty = operand_type(state.module, state.function, data, &statement.source).ok();
+                if let (Some(Type::Buffer { .. }), Operand::Place(buffer)) = (ty, data) {
+                    // A buffer slice has the buffer's length.
+                    state.reborrow(&statement.destination, buffer);
+                }
+                let length = ty
                     .and_then(|ty| state.module.types.pointer(ty))
                     .and_then(|pointer| match pointer.target {
                         Type::Aggregate(id) => state.module.types.get(id).map(Aggregate::len),
@@ -205,11 +209,9 @@ impl Analysis<'_> {
                 function,
                 arguments,
             } => self.function(*function, &arguments.iter().map(value).collect::<Vec<_>>())?,
-            Expression::Len(Operand::Place(slice)) => {
-                state.static_length(slice).map_or_else(Value::default, |n| {
-                    Value::scalar(Range::exact(i128::from(n)))
-                })
-            }
+            Expression::Len(Operand::Place(slice)) => state
+                .length_range(slice)
+                .map_or_else(Value::default, Value::scalar),
             _ => Value::default(),
         })
     }

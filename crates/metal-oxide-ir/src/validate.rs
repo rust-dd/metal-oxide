@@ -254,10 +254,10 @@ fn acyclic_calls(module: &Module) -> Result<Vec<usize>, Error> {
     }
 }
 
-/// A buffer slice reads the length the runtime binds for a kernel parameter, so it must slice
-/// that parameter itself, which the kernel never reassigns.
+/// A buffer's length is the one the runtime binds for a kernel parameter, so a buffer slice or
+/// length must name that parameter itself, which the kernel never reassigns.
 fn buffer_slice(module: &Module, function: &Function, statement: &Statement) -> Result<(), Error> {
-    let Expression::Slice(data) = &statement.value else {
+    let (Expression::Slice(data) | Expression::Len(data)) = &statement.value else {
         return Ok(());
     };
     if !matches!(
@@ -278,7 +278,7 @@ fn buffer_slice(module: &Module, function: &Function, statement: &Statement) -> 
     if !function.kernel || !(1..=function.parameters).contains(&parameter) || assigned {
         return Err(Error::new(
             &statement.source,
-            "buffer slices require an unmodified kernel buffer parameter",
+            "buffer lengths and slices require an unmodified kernel buffer parameter",
         ));
     }
     Ok(())

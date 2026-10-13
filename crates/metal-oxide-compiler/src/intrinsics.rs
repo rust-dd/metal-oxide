@@ -34,6 +34,15 @@ pub(crate) enum Intrinsic {
     Subslice,
     /// `IntoIterator::into_iter` of an iterator, which returns its argument.
     Identity,
+    /// `len`, `is_empty` and `as_slice` of a kernel buffer parameter.
+    Buffer(BufferQuery),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BufferQuery {
+    Length,
+    IsEmpty,
+    Slice,
 }
 
 impl Intrinsic {
@@ -67,6 +76,9 @@ impl Intrinsic {
             Self::SliceLen => "slice_len",
             Self::Subslice => "subslice",
             Self::Identity => "identity",
+            Self::Buffer(BufferQuery::Length) => "buffer_length",
+            Self::Buffer(BufferQuery::IsEmpty) => "buffer_is_empty",
+            Self::Buffer(BufferQuery::Slice) => "buffer_slice",
         }
     }
 }

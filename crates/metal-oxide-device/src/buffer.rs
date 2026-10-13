@@ -6,6 +6,28 @@ pub struct ReadBuffer<T> {
 }
 
 impl<T: Copy> ReadBuffer<T> {
+    /// The number of elements the host bound; kernel buffer parameters only.
+    pub fn len(&self) -> usize {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast()) == 0 }
+    }
+
+    /// The bound elements; kernel buffer parameters only.
+    pub fn as_slice(&self) -> &[T] {
+        // SAFETY: the host bound `len` initialized elements that no thread writes.
+        unsafe {
+            core::slice::from_raw_parts(
+                self.ptr,
+                crate::intrinsics::__metal_buffer_length(self.ptr.cast()),
+            )
+        }
+    }
+
     /// Reads an element without checking its index.
     ///
     /// # Safety
@@ -35,6 +57,17 @@ pub struct WriteBuffer<T> {
 }
 
 impl<T: Copy> WriteBuffer<T> {
+    /// The number of elements the host bound; kernel buffer parameters only.
+    pub fn len(&self) -> usize {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }
+    }
+
     /// Writes an element without checking its index.
     ///
     /// # Safety
@@ -65,6 +98,17 @@ pub struct ReadWriteBuffer<T> {
 }
 
 impl<T: Copy> ReadWriteBuffer<T> {
+    /// The number of elements the host bound; kernel buffer parameters only.
+    pub fn len(&self) -> usize {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }
+    }
+
     /// Reads an element without checking its index.
     ///
     /// # Safety

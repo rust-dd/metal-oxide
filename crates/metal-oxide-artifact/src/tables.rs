@@ -88,6 +88,7 @@ struct KernelEntry {
     required_block: Option<[u32; 3]>,
     gate_binding: u32,
     fallible: bool,
+    lengths: bool,
 }
 
 impl From<Abi> for AbiTables {
@@ -132,6 +133,7 @@ impl From<Abi> for AbiTables {
                     required_block: kernel.required_block,
                     gate_binding: kernel.gate_binding,
                     fallible: kernel.fallible,
+                    lengths: kernel.lengths,
                 }
             })
             .collect();
@@ -225,6 +227,7 @@ impl TryFrom<AbiTables> for Abi {
                     required_block: kernel.required_block,
                     gate_binding: kernel.gate_binding,
                     fallible: kernel.fallible,
+                    lengths: kernel.lengths,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;

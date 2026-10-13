@@ -287,7 +287,7 @@ fn a_write_through_a_reference_voids_facts_about_the_borrowed_local() {
 }
 
 #[test]
-fn a_buffer_slice_outside_a_kernel_is_rejected() {
+fn buffer_slices_and_lengths_outside_a_kernel_are_rejected() {
     let mut types = TypeTable::default();
     let slice = pointer(&mut types, U32, false, true);
     let buffer = Type::Buffer {
@@ -301,15 +301,22 @@ fn a_buffer_slice_outside_a_kernel_is_rejected() {
         mutable: false,
         slice: true,
     });
-    let mut module = helper(
-        types,
-        vec![Type::Unit, buffer, device_slice, slice],
-        vec![block(
-            vec![assign(2, Expression::Slice(Operand::local(1)))],
-            Terminator::Return,
-        )],
-    );
-    module.functions[0].parameters = 1;
-    let error = validate(&module).unwrap_err();
-    assert!(error.message.contains("kernel buffer parameter"), "{error}");
+    for value in [
+        Expression::Slice(Operand::local(1)),
+        Expression::Len(Operand::local(1)),
+    ] {
+        let destination = if matches!(value, Expression::Len(_)) {
+            4
+        } else {
+            2
+        };
+        let mut module = helper(
+            types.clone(),
+            vec![Type::Unit, buffer, device_slice, slice, USIZE],
+            vec![block(vec![assign(destination, value)], Terminator::Return)],
+        );
+        module.functions[0].parameters = 1;
+        let error = validate(&module).unwrap_err();
+        assert!(error.message.contains("kernel buffer parameter"), "{error}");
+    }
 }

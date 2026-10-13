@@ -46,6 +46,17 @@ impl Chunk {
         Ok(chunk)
     }
 
+    fn write(&self, index: usize, values: &[u64]) {
+        // SAFETY: the words are 8-byte aligned, inside the chunk, and its command buffer has
+        // not been committed.
+        unsafe {
+            let words = self.0.contents().cast::<u32>().add(index).cast::<u64>();
+            words
+                .as_ptr()
+                .copy_from_nonoverlapping(values.as_ptr(), values.len());
+        }
+    }
+
     fn word(&self, index: usize) -> u32 {
         // SAFETY: the index is inside the chunk, and its command buffer has completed.
         unsafe { self.0.contents().cast::<u32>().add(index).read() }
@@ -71,6 +82,7 @@ pub(super) struct KernelChecks {
     pub(super) name: String,
     pub(super) gate_binding: u32,
     pub(super) fallible: bool,
+    pub(super) lengths: bool,
     pub(super) checks: Arc<[Check]>,
 }
 
@@ -180,6 +192,24 @@ impl Failures {
 
     fn read(&self, slot: Slot) -> u32 {
         self.chunks[slot.chunk].word(slot.offset / WORD_BYTES)
+    }
+
+    /// Writes `values` into aligned words that one dispatch reads as a `ulong` table.
+    pub(super) fn table(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        values: &[u64],
+    ) -> Result<Slot> {
+        let words = values.len() * 2;
+        let mut start = self.used.next_multiple_of(2);
+        if start + words > self.chunks.len() * CHUNK_WORDS {
+            start = self.chunks.len() * CHUNK_WORDS;
+            self.reserve(device)?;
+        }
+        self.used = start + words;
+        let slot = Self::slot(start);
+        self.chunks[slot.chunk].write(slot.offset / WORD_BYTES, values);
+        Ok(slot)
     }
 
     fn allocate(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<Slot> {

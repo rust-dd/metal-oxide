@@ -34,7 +34,8 @@ Implement the next acceptance criterion; create crates when their code is needed
   stores `check + 2` in the command buffer's failure word and returns; callers of
   fallible helpers return after them. A check before a barrier or SIMD collective
   must be proved or uniform. Generated kernels take a gate word in the buffer slot
-  after their parameters and, when fallible, the failure word in the next one.
+  after their parameters, then the failure word when fallible, then a `ulong` table of
+  parameter lengths when they read buffer lengths; user kernels keep 28 slots.
 - A kernel tests its gate once, at the latest point that dominates every effect and
   outside loops. On M3/M4 GPUs a gate at kernel entry, extra gate sites or a richer
   failure path lower the occupancy of the whole kernel; keep failure recording to one

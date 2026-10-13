@@ -422,19 +422,25 @@ pub fn expression_type(
                 source,
             )
         }
-        Expression::Len(slice) => match module.types.pointer(ty(slice)?) {
-            Some(pointer) if pointer.slice => Ok(Type::Scalar(Scalar::Usize)),
-            _ => Err(Error::new(source, "length requires a slice")),
+        Expression::Len(slice) => match ty(slice)? {
+            Type::Buffer {
+                address_space: AddressSpace::Device,
+                ..
+            } => Ok(Type::Scalar(Scalar::Usize)),
+            ty => match module.types.pointer(ty) {
+                Some(pointer) if pointer.slice => Ok(Type::Scalar(Scalar::Usize)),
+                _ => Err(Error::new(source, "length requires a slice or buffer")),
+            },
         },
         Expression::Slice(data) => {
             let slice = match ty(data)? {
                 Type::Buffer {
                     element,
                     access: access @ (Access::Read | Access::ReadWrite),
-                    address_space,
+                    address_space: AddressSpace::Device,
                 } => Pointer {
                     target: element.ty(),
-                    space: address_space,
+                    space: AddressSpace::Device,
                     mutable: access == Access::ReadWrite,
                     slice: true,
                 },

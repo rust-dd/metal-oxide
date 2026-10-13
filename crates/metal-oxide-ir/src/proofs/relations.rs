@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use super::{
-    domain::integer,
+    domain::{Range, integer},
     predicate::{Atom, Comparison, compare},
     state::State,
 };
@@ -163,8 +163,8 @@ impl State<'_> {
     /// Records that `destination` reborrows all of `slice`.
     pub fn reborrow(&mut self, destination: &Place, slice: &Place) {
         if let (Some(destination), Some(slice)) = (self.resolve(destination), self.slice(slice)) {
-            if let Some(&length) = self.extents.get(&slice) {
-                self.extents.insert(destination.clone(), length);
+            if let Some(length) = self.lengths.get(&slice).cloned() {
+                self.lengths.insert(destination.clone(), length);
             }
             self.slices.insert(destination, slice);
         }
@@ -173,13 +173,15 @@ impl State<'_> {
     /// Records that `destination` slices a whole array of `length` elements.
     pub fn extent(&mut self, destination: &Place, length: u32) {
         if let Some(destination) = self.resolve(destination) {
-            self.extents.insert(destination, length);
+            self.lengths
+                .insert(destination, Range::exact(i128::from(length)));
         }
     }
 
-    /// The static length of a slice of a whole array.
-    pub fn static_length(&self, slice: &Place) -> Option<u32> {
-        self.extents.get(&self.slice(slice)?).copied()
+    /// The bounds known for a slice's length.
+    pub fn length_range(&self, slice: &Place) -> Option<Range> {
+        let slice = self.slice(slice)?;
+        Some(self.atom(&Atom::Length(slice)))
     }
 
     /// Records that `destination` holds the length of `slice`, a symbol that outlives it.
