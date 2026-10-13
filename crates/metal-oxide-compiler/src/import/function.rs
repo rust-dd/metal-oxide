@@ -55,7 +55,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 ir::Type::Unit
             } else if discriminants[index] {
                 ir::Type::Scalar(ir::Scalar::Bool)
-            } else if crate::types::has_reference(self.normalize_type(local.ty)) {
+            } else if crate::types::has_reference(tcx, self.normalize_type(local.ty)) {
                 pending[index] = true;
                 ir::Type::Unit
             } else {
@@ -187,6 +187,42 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 body,
                 caller,
             )?,
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
+            } if self.created_iterator(func, body, span)?.is_some() => {
+                let iterator = self.created_iterator(func, body, span)?.unwrap();
+                self.create_iterator(
+                    &mut statements,
+                    iterator,
+                    args,
+                    destination,
+                    target.as_usize(),
+                    body,
+                    caller,
+                )?
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
+            } if self.advanced_iterator(func, body, span)?.is_some() => {
+                let iterator = self.advanced_iterator(func, body, span)?.unwrap();
+                self.next_item(
+                    &mut statements,
+                    iterator,
+                    args,
+                    destination,
+                    target.as_usize(),
+                    body,
+                    span,
+                )?
+            }
             mir::TerminatorKind::Call {
                 func,
                 args,

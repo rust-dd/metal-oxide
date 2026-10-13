@@ -68,3 +68,20 @@ fn each_thread_writes_its_own_disjoint_element() {
         "11 22 33 "
     );
 }
+
+#[test]
+fn slice_iterators_visit_elements_and_chunks_without_runtime_checks() {
+    let directory = emit("slice_iterators");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float out[3] = {}; slice_iterators(out, 2.0f, {}, {}, {}, {}, metal_oxide_gate); for (float x : out) std::cout << x << ' ';",
+        ),
+        "30 56 -76 "
+    );
+    let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
+    assert!(
+        !checks.contains("bounds") && !checks.contains("slice"),
+        "{checks}"
+    );
+}

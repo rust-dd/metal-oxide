@@ -6,22 +6,27 @@ use rustc_middle::{
 use rustc_span::{Span, Spanned};
 
 use super::{Result, function::FunctionImporter};
-use crate::intrinsics::{BufferQuery, DeviceType, Intrinsic, device_type};
+use crate::intrinsics::{BufferQuery, DeviceType, Intrinsic, SliceIterator, device_type};
 
 /// Locals bound once to `&local` or `&mut local`, directly or by reborrow, where `local` is an
-/// integer range or a device buffer handle. They stand for that local in the calls that use them.
+/// integer range, a slice iterator or a device buffer handle. They stand for that local in the
+/// calls that use them.
 pub(super) fn handles<'tcx>(
     tcx: TyCtxt<'tcx>,
     body: &mir::Body<'tcx>,
     normalize: impl Fn(Ty<'tcx>) -> Ty<'tcx>,
 ) -> Vec<Option<mir::Local>> {
-    let handle = |local: mir::Local| match normalize(body.local_decls[local].ty).kind() {
-        ty::Adt(definition, _) => {
-            tcx.lang_items().range_struct() == Some(definition.did())
-                || device_type(tcx, definition.did())
-                    .is_some_and(|kind| !matches!(kind, DeviceType::Dim3 | DeviceType::F16))
-        }
-        _ => false,
+    let handle = |local: mir::Local| {
+        let ty = normalize(body.local_decls[local].ty);
+        SliceIterator::of(tcx, ty).is_some()
+            || match ty.kind() {
+                ty::Adt(definition, _) => {
+                    tcx.lang_items().range_struct() == Some(definition.did())
+                        || device_type(tcx, definition.did())
+                            .is_some_and(|kind| !matches!(kind, DeviceType::Dim3 | DeviceType::F16))
+                }
+                _ => false,
+            }
     };
     let mut bindings = vec![0_u32; body.local_decls.len()];
     let mut handles = vec![None; body.local_decls.len()];
@@ -231,6 +236,17 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
+        if let Some(iterator) =
+            crate::intrinsics::slice_next(self.module.tcx, callee.definition, callee.arguments)
+        {
+            return self.next_item_type(iterator, &args[0].node, pending, span);
+        }
+        if let Some(Intrinsic::SliceIterator(iterator)) = callee.intrinsic {
+            let Some(slice) = self.argument_type(&args[0].node, pending, args[0].span)? else {
+                return Ok(None);
+            };
+            return self.iterator_type(iterator, slice, span).map(Some);
+        }
         if let Some(Intrinsic::Buffer(query @ (BufferQuery::Slice | BufferQuery::Element))) =
             callee.intrinsic
         {
@@ -254,6 +270,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
         }
         match callee.intrinsic {
+            Some(Intrinsic::Identity) => Ok(types.first().copied()),
             Some(Intrinsic::Subslice) => {
                 let receiver = types[0];
                 let array = self

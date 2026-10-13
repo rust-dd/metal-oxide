@@ -163,10 +163,12 @@ impl<'tcx> Collector<'tcx> {
             return;
         }
         if tcx.lang_items().next_fn() == Some(definition) {
-            if crate::intrinsics::range_next(tcx, definition, arguments).is_none() {
+            if crate::intrinsics::range_next(tcx, definition, arguments).is_none()
+                && crate::intrinsics::slice_next(tcx, definition, arguments).is_none()
+            {
                 tcx.dcx().span_err(
                     span,
-                    "iterators other than integer ranges are not supported in Metal kernels",
+                    "iterators other than integer ranges and slice iterators are not supported in Metal kernels",
                 );
             }
             return;

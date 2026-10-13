@@ -11,6 +11,7 @@ use crate::intrinsics::Intrinsic;
 /// A resolved call target.
 pub(super) struct Callee<'tcx> {
     pub instance: Instance<'tcx>,
+    pub definition: rustc_hir::def_id::DefId,
     /// The generic arguments of the called definition, before resolution.
     pub arguments: ty::GenericArgsRef<'tcx>,
     pub intrinsic: Option<Intrinsic>,
@@ -42,6 +43,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .or_else(|| crate::intrinsics::builtin(tcx, instance.def_id()));
         Ok(Callee {
             instance,
+            definition,
             arguments,
             intrinsic,
         })
@@ -234,8 +236,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Use(value)
             }
-            Intrinsic::Subslice | Intrinsic::Buffer(_) => {
-                unreachable!("subslices and buffer queries are expanded in place")
+            Intrinsic::Subslice | Intrinsic::Buffer(_) | Intrinsic::SliceIterator(_) => {
+                unreachable!("subslices, buffer queries and slice iterators are expanded in place")
             }
         })
     }

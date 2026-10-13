@@ -6,7 +6,7 @@ use super::{Result, control::integer, function::FunctionImporter, location};
 
 /// The discriminant local and the `Some` and `None` targets when `target` only reads the
 /// discriminant of `option` and switches on it.
-fn matched<'tcx>(
+pub(super) fn matched<'tcx>(
     body: &mir::Body<'tcx>,
     target: usize,
     option: &mir::Place<'tcx>,

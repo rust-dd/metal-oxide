@@ -15,6 +15,9 @@ impl Analysis<'_> {
                 checks::place(state, p, &statement.source)?;
             }
         }
+        if let Expression::Subslice { slice, start, end } = &statement.value {
+            checks::subslice(state, slice, start, end, &statement.source)?;
+        }
         let ty = place_type(
             state.module,
             state.function,
@@ -65,8 +68,15 @@ impl Analysis<'_> {
                     state.record_comparison(&statement.destination, comparison, a, b);
                 }
             }
-            Expression::Subslice { slice, start, end } => {
-                checks::subslice(state, slice, start, end, &statement.source)?;
+            Expression::Subslice { start, end, .. } => {
+                // The bounds check before a subslice proves `start <= end`.
+                if let (Some(start), Some(end)) =
+                    (state.operand_range(start), state.operand_range(end))
+                    && end.hi >= start.lo
+                {
+                    let length = Range::new((end.lo - start.hi).max(0), end.hi - start.lo);
+                    state.extent_range(&statement.destination, length);
+                }
             }
             Expression::Aggregate { fields, .. } => {
                 for (index, field) in fields.iter().enumerate() {
@@ -74,6 +84,9 @@ impl Analysis<'_> {
                         let mut destination = statement.destination.clone();
                         destination.projection.push(Projection::Field(index as u32));
                         state.copy(&destination, source);
+                        if pointer(state, source) {
+                            state.reborrow(&destination, source);
+                        }
                     }
                 }
             }

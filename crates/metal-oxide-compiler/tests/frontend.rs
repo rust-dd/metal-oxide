@@ -122,7 +122,7 @@ fn unsupported_reachable_calls_are_reported() {
         ),
         (
             "range_inclusive",
-            "iterators other than integer ranges are not supported in Metal kernels",
+            "iterators other than integer ranges and slice iterators are not supported in Metal kernels",
         ),
     ] {
         support::rejected(support::fixture(fixture), error);

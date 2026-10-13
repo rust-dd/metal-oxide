@@ -194,6 +194,7 @@ The importer also replaces recognized calls:
 | `load_unchecked(buffer, index)` | `BufferLoad` |
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
+| `slice.iter()`, `iter_mut()`, `chunks_exact(n)` and their `next` | the remaining slice in a record; `next` takes its first element or chunk |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.

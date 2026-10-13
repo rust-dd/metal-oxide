@@ -4,7 +4,7 @@ use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::Span;
 
-use crate::intrinsics::{DeviceType, device_type};
+use crate::intrinsics::{DeviceType, SliceIterator, device_type};
 
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
@@ -167,6 +167,28 @@ impl<'tcx> TypeLowering<'tcx> {
             let value = self.reference(arguments.type_at(0), space, span)?;
             return Ok(self.option(value));
         }
+        if let Some(iterator) = SliceIterator::of(self.tcx, ty) {
+            let ty::Adt(_, arguments) = ty.kind() else {
+                unreachable!()
+            };
+            let element = arguments
+                .types()
+                .next()
+                .ok_or((span, format!("unsupported device type: {ty}")))?;
+            let mutability = if iterator == SliceIterator::Mutable {
+                ty::Mutability::Mut
+            } else {
+                ty::Mutability::Not
+            };
+            let slice = Ty::new_ref(
+                self.tcx,
+                self.tcx.lifetimes.re_erased,
+                Ty::new_slice(self.tcx, element),
+                mutability,
+            );
+            let rest = self.reference(slice, space, span)?;
+            return Ok(self.iterator(iterator, rest));
+        }
         let (ty::Ref(_, target, mutability) | ty::RawPtr(target, mutability)) = *ty.kind() else {
             return Err((span, format!("unsupported device type: {ty}")));
         };
@@ -191,14 +213,41 @@ impl<'tcx> TypeLowering<'tcx> {
         self.option(value)
     }
 
-    /// The address space of a reference, or of the reference an `Option` holds.
-    pub(crate) fn reference_space(&self, ty: ir::Type) -> Option<ir::AddressSpace> {
-        let pointer = if self.is_option(ty) {
-            self.types.field(ty, 1)?
-        } else {
-            ty
+    /// A slice iterator: the slice it has not yielded and, for chunks, the chunk size.
+    pub(crate) fn iterator(&mut self, iterator: SliceIterator, rest: ir::Type) -> ir::Type {
+        let field = |name: &str, ty| ir::RecordField {
+            name: name.into(),
+            ty,
         };
-        self.types.pointer(pointer).map(|pointer| pointer.space)
+        let (name, fields) = match iterator {
+            SliceIterator::Shared => ("Iter", vec![field("rest", rest)]),
+            SliceIterator::Mutable => ("IterMut", vec![field("rest", rest)]),
+            SliceIterator::Chunks => (
+                "ChunksExact",
+                vec![
+                    field("rest", rest),
+                    field("size", ir::Type::Scalar(ir::Scalar::Usize)),
+                ],
+            ),
+        };
+        self.types.intern(ir::Aggregate::Record {
+            name: name.into(),
+            fields,
+        })
+    }
+
+    /// The address space of a reference, or of the first reference a record holds.
+    pub(crate) fn reference_space(&self, ty: ir::Type) -> Option<ir::AddressSpace> {
+        if let Some(pointer) = self.types.pointer(ty) {
+            return Some(pointer.space);
+        }
+        let ir::Type::Aggregate(id) = ty else {
+            return None;
+        };
+        self.types
+            .get(id)?
+            .component_types()
+            .find_map(|component| self.reference_space(component))
     }
 
     fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
@@ -293,11 +342,13 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
     }
 }
 
-/// Whether `ty` holds a reference or raw pointer, whose address space its uses determine.
-pub(crate) fn has_reference(ty: Ty<'_>) -> bool {
+/// Whether `ty` holds a reference, raw pointer or slice iterator, whose address space its uses
+/// determine.
+pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
     ty.walk().any(|argument| {
-        argument
-            .as_type()
-            .is_some_and(|ty| matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..)))
+        argument.as_type().is_some_and(|ty| {
+            matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..))
+                || SliceIterator::of(tcx, ty).is_some()
+        })
     })
 }

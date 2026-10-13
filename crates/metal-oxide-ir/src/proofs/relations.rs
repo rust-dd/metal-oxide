@@ -178,6 +178,13 @@ impl State<'_> {
         }
     }
 
+    /// Records bounds for the length of the slice in `destination`.
+    pub fn extent_range(&mut self, destination: &Place, length: Range) {
+        if let Some(destination) = self.resolve(destination) {
+            self.lengths.insert(destination, length);
+        }
+    }
+
     /// The bounds known for a slice's length.
     pub fn length_range(&self, slice: &Place) -> Option<Range> {
         let slice = self.slice(slice)?;

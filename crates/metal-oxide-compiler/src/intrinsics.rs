@@ -36,6 +36,37 @@ pub(crate) enum Intrinsic {
     Identity,
     /// `len`, `is_empty` and `as_slice` of a kernel buffer parameter.
     Buffer(BufferQuery),
+    /// `iter`, `iter_mut`, `chunks_exact` or `into_iter` of a slice reference.
+    SliceIterator(SliceIterator),
+}
+
+/// The `core::slice` iterators, which the importer expands inline.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SliceIterator {
+    Shared,
+    Mutable,
+    Chunks,
+}
+
+impl SliceIterator {
+    /// The iterator a `core::slice` iterator type is.
+    pub(crate) fn of(tcx: TyCtxt<'_>, ty: Ty<'_>) -> Option<Self> {
+        let ty::Adt(definition, _) = ty.kind() else {
+            return None;
+        };
+        let did = definition.did();
+        if tcx.crate_name(did.krate).as_str() != "core"
+            || !tcx.def_path_str(did).starts_with("core::slice::")
+        {
+            return None;
+        }
+        match tcx.item_name(did).as_str() {
+            "Iter" => Some(Self::Shared),
+            "IterMut" => Some(Self::Mutable),
+            "ChunksExact" => Some(Self::Chunks),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,6 +113,7 @@ impl Intrinsic {
             Self::Buffer(BufferQuery::IsEmpty) => "buffer_is_empty",
             Self::Buffer(BufferQuery::Slice) => "buffer_slice",
             Self::Buffer(BufferQuery::Element) => "disjoint_element",
+            Self::SliceIterator(_) => "slice_iterator",
         }
     }
 }
@@ -111,6 +143,18 @@ pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEnt
     (items.format_arguments() == Some(ty.ty_adt_def()?.did())
         && tcx.item_name(definition).as_str() == "from_str")
         .then_some(PanicEntry::LiteralArguments)
+}
+
+/// The slice iterator whose `Iterator::next` a call invokes.
+pub(crate) fn slice_next<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    definition: DefId,
+    arguments: ty::GenericArgsRef<'tcx>,
+) -> Option<SliceIterator> {
+    if tcx.lang_items().next_fn() != Some(definition) {
+        return None;
+    }
+    SliceIterator::of(tcx, arguments.type_at(0))
 }
 
 /// The element type of `Iterator::next` on `Range<T>`, which the importer expands inline.
@@ -161,13 +205,22 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     if iterator_identity(tcx, definition) {
         return Some(Intrinsic::Identity);
     }
+    if let Some(iterator) = slice_into_iterator(tcx, definition) {
+        return Some(Intrinsic::SliceIterator(iterator));
+    }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
         ty::TypingEnv::non_body_analysis(tcx, implementation),
         tcx.type_of(implementation).instantiate_identity(),
     );
-    if matches!(ty.kind(), ty::Slice(_)) && tcx.item_name(definition).as_str() == "len" {
-        return Some(Intrinsic::SliceLen);
+    if matches!(ty.kind(), ty::Slice(_)) {
+        match tcx.item_name(definition).as_str() {
+            "len" => return Some(Intrinsic::SliceLen),
+            "iter" => return Some(Intrinsic::SliceIterator(SliceIterator::Shared)),
+            "iter_mut" => return Some(Intrinsic::SliceIterator(SliceIterator::Mutable)),
+            "chunks_exact" => return Some(Intrinsic::SliceIterator(SliceIterator::Chunks)),
+            _ => {}
+        }
     }
     if matches!(ty.kind(), ty::Float(ty::FloatTy::F32)) {
         match tcx.item_name(definition).as_str() {
@@ -218,4 +271,27 @@ fn iterator_identity(tcx: TyCtxt<'_>, definition: DefId) -> bool {
         .into_iter_fn()
         .is_some_and(|method| tcx.associated_item(definition).trait_item_def_id() == Some(method))
         && matches!(ty.kind(), ty::Param(_))
+}
+
+/// `IntoIterator::into_iter` of `&[T]` or `&mut [T]`, which iterates over the slice.
+fn slice_into_iterator(tcx: TyCtxt<'_>, definition: DefId) -> Option<SliceIterator> {
+    let implementation = tcx.impl_of_assoc(definition)?;
+    let into_iter = tcx.lang_items().into_iter_fn()?;
+    if tcx.associated_item(definition).trait_item_def_id() != Some(into_iter) {
+        return None;
+    }
+    let ty = tcx.normalize_erasing_regions(
+        ty::TypingEnv::non_body_analysis(tcx, implementation),
+        tcx.type_of(implementation).instantiate_identity(),
+    );
+    match ty.kind() {
+        ty::Ref(_, slice, mutability) if matches!(slice.kind(), ty::Slice(_)) => {
+            Some(if mutability.is_mut() {
+                SliceIterator::Mutable
+            } else {
+                SliceIterator::Shared
+            })
+        }
+        _ => None,
+    }
 }
