@@ -77,7 +77,8 @@ def stable_deployment(work, source, project, artifact, env):
     manifest = moved / "artifact/manifest.json"
     original = manifest.read_text()
     value = json.loads(original)
-    value["abi"]["kernels"][0]["parameters"][0]["name"] += "_stale"
+    abi = value["abi"]
+    abi["signatures"][abi["kernels"][0]["signature"]][0]["name"] += "_stale"
     manifest.write_text(json.dumps(value))
     output = run([moved / "external-host", "--artifact", moved / "artifact"], moved,
                  dict(env, METAL_OXIDE_BACKEND="classic"), work / "stale-bindings.log", success=False)
