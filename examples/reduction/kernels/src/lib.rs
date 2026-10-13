@@ -1,21 +1,24 @@
 #![no_std]
 
-use metal_oxide_device::{ReadBuffer, WriteBuffer, block_idx, kernel, thread_idx, threadgroup};
+use metal_oxide_device::{
+    ReadBuffer, WriteBuffer, block_idx, kernel, thread_idx, thread_index, threadgroup,
+};
 
+/// Sums each block's 256 inputs into the block's output element; inputs past the end count as
+/// zero, and blocks past the end of `output` write nothing.
+///
 /// # Safety
-/// Input covers n elements, output covers one element per block, and the block is 256x1x1.
-/// The buffers must not overlap.
+/// Nothing writes `input` while the kernel runs.
 #[kernel(block = (256, 1, 1))]
-pub unsafe fn reduce(input: ReadBuffer<f32>, output: WriteBuffer<f32>, n: u32) {
+pub unsafe fn reduce(input: ReadBuffer<f32>, output: WriteBuffer<f32>) {
     let shared = threadgroup::shared::<f32, 256>();
     let lane = thread_idx().x;
-    let i = block_idx().x * 256 + lane;
-    let mut value = 0.0;
-    // SAFETY: the host supplies n initialized inputs, one output per block, and a 256-thread block.
+    let block = block_idx().x;
+    let input = input.as_slice();
+    let i = thread_index().get();
+    let value = if i < input.len() { input[i] } else { 0.0 };
+    // SAFETY: lanes index the block's 256-element tile, and each block writes its own output.
     unsafe {
-        if i < n {
-            value = input.load_unchecked(i);
-        }
         shared.store_unchecked(lane, value);
         threadgroup::barrier();
         let mut stride = 128;
@@ -27,8 +30,8 @@ pub unsafe fn reduce(input: ReadBuffer<f32>, output: WriteBuffer<f32>, n: u32) {
             threadgroup::barrier();
             stride >>= 1;
         }
-        if lane == 0 {
-            output.store_unchecked(block_idx().x, shared.load_unchecked(0));
+        if lane == 0 && (block as usize) < output.len() {
+            output.store_unchecked(block, shared.load_unchecked(0));
         }
     }
 }

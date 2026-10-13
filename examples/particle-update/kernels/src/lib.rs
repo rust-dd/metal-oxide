@@ -1,46 +1,44 @@
 #![no_std]
 
-use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 use particle_device_math::{Config, Particle, advance};
 
+/// Advances each particle by two steps; threads past the end of a buffer write nothing.
+///
 /// # Safety
-/// Buffers cover n initialized elements, do not overlap, and have one writer per output index.
+/// Nothing writes `input` while the kernel runs.
 #[kernel(block = (64, 1, 1))]
 pub unsafe fn particle_update(
     input: ReadBuffer<Particle>,
-    output: WriteBuffer<Particle>,
+    mut output: DisjointBuffer<Particle>,
     config: Config,
-    n: u32,
 ) {
-    let i = block_idx()
-        .x
-        .wrapping_mul(block_dim().x)
-        .wrapping_add(thread_idx().x);
-    if i < n {
-        // SAFETY: the launch contract provides initialized n-element buffers and unique writers.
-        unsafe {
-            output.store_unchecked(i, advance::<2>(input.load_unchecked(i), config));
-        }
+    let index = thread_index();
+    let input = input.as_slice();
+    let i = index.get();
+    if let Some(output) = output.get_mut(&index)
+        && i < input.len()
+    {
+        *output = advance::<2>(input[i], config);
     }
 }
 
+/// Advances each particle by one step; threads past the end of a buffer write nothing.
+///
 /// # Safety
-/// Buffers cover n initialized elements, do not overlap, and have one writer per output index.
+/// Nothing writes `input` while the kernel runs.
 #[kernel(block = (64, 1, 1))]
 pub unsafe fn particle_step(
     input: ReadBuffer<Particle>,
-    output: WriteBuffer<Particle>,
+    mut output: DisjointBuffer<Particle>,
     config: Config,
-    n: u32,
 ) {
-    let i = block_idx()
-        .x
-        .wrapping_mul(block_dim().x)
-        .wrapping_add(thread_idx().x);
-    if i < n {
-        // SAFETY: the launch contract provides initialized n-element buffers and unique writers.
-        unsafe {
-            output.store_unchecked(i, advance::<1>(input.load_unchecked(i), config));
-        }
+    let index = thread_index();
+    let input = input.as_slice();
+    let i = index.get();
+    if let Some(output) = output.get_mut(&index)
+        && i < input.len()
+    {
+        *output = advance::<1>(input[i], config);
     }
 }

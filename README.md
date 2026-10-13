@@ -11,19 +11,27 @@ Kernel (`kernels/src/lib.rs`):
 ```rust
 #![no_std]
 
-use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 
 /// # Safety
-/// Buffers cover n elements; output is disjoint from inputs. The launch is 1D.
+/// Nothing writes `a` or `b` while the kernel runs.
 #[kernel]
-pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32) {
-    let i = block_idx().x * block_dim().x + thread_idx().x;
-    if i < n {
-        // SAFETY: the guard bounds each access; every output index has one writer.
-        unsafe { out.store_unchecked(i, a.load_unchecked(i) + b.load_unchecked(i)) };
+pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+    let index = thread_index();
+    let a = a.as_slice();
+    let b = b.as_slice();
+    let i = index.get();
+    if let Some(out) = out.get_mut(&index)
+        && i < a.len()
+        && i < b.len()
+    {
+        *out = a[i] + b[i];
     }
 }
 ```
+
+Slices carry the lengths the host bound, so their indexing is checked; here the guards
+prove it and no check remains. `get_mut` gives each thread `&mut` to its own element only.
 
 Host (`host/src/main.rs`):
 
@@ -42,8 +50,8 @@ fn main() -> metal_oxide::Result<()> {
     let mut out = device.buffer_zeroed::<f32>(3)?;
     let config = LaunchConfig::<256>::for_elements(3)?;
 
-    // SAFETY: disjoint three-element buffers, 1D launch, one writer per index.
-    unsafe { kernels.vec_add(config, &a, &b, &mut out, 3) }.wait()?;
+    // SAFETY: nothing else writes the inputs while the kernel runs.
+    unsafe { kernels.vec_add(config, &a, &b, &mut out) }.wait()?;
 
     assert_eq!(out.read().wait(), &[11.0, 22.0, 33.0]);
     Ok(())
@@ -56,7 +64,7 @@ Arguments come back in the form they were passed, so owned and `Arc` buffers mak
 blocking the executor thread:
 
 ```rust
-let (a, b, out, _) = unsafe { kernels.vec_add(config, a, b, out, 3) }.await?;
+let (a, b, out) = unsafe { kernels.vec_add(config, a, b, out) }.await?;
 let values = out.read().await;
 ```
 

@@ -61,15 +61,16 @@ pub(super) fn verify() -> metal_oxide::Result<()> {
     };
     println!("Device: {}", device.name());
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
-        let initial = particles(n as usize + 64);
+        let initial = particles(n as usize);
         let input = device.buffer_from_slice(&initial)?;
-        let mut output = device.buffer_from_slice(&vec![sentinel; initial.len()])?;
-        let mut handwritten = device.buffer_from_slice(&vec![sentinel; initial.len()])?;
+        let mut output = device.buffer_from_slice(&vec![sentinel; initial.len() + 64])?;
+        let mut handwritten = device.buffer_from_slice(&vec![sentinel; initial.len() + 64])?;
         let launch = LaunchConfig::<64>::for_elements(n)?;
-        // SAFETY: disjoint initialized buffers cover n; padded threads take the guard branch.
+        // SAFETY: nothing else writes the input; the handwritten kernel stops at n, which the
+        // input covers, and the outputs are distinct.
         unsafe {
             kernels
-                .particle_update(launch, &input, &mut output, config(), n)
+                .particle_update(launch, &input, &mut output, config())
                 .wait()?;
             Launch::new(
                 Ok(&reference),
@@ -86,7 +87,7 @@ pub(super) fn verify() -> metal_oxide::Result<()> {
             )
             .wait()?;
         }
-        let cpu = expected(&initial[..n as usize], config(), 2);
+        let cpu = expected(&initial, config(), 2);
         assert_eq!(&output.read().wait()[..n as usize], cpu);
         assert_eq!(output.read().wait(), handwritten.read().wait());
         assert_eq!(&output.read().wait()[n as usize..], vec![sentinel; 64]);
@@ -106,8 +107,8 @@ pub(super) fn verify_chain() -> metal_oxide::Result<()> {
     let launch = LaunchConfig::<64>::for_elements(initial.len() as u32)?;
     // SAFETY: the second kernel reads the first kernel's completed writes in the same batch.
     sequence(|batch| unsafe {
-        batch.push(kernels.particle_update(launch, &input, &mut middle, config(), 257))?;
-        batch.push(kernels.particle_step(launch, &middle, &mut output, config(), 257))?;
+        batch.push(kernels.particle_update(launch, &input, &mut middle, config()))?;
+        batch.push(kernels.particle_step(launch, &middle, &mut output, config()))?;
         Ok(())
     })
     .wait()?;
@@ -130,9 +131,8 @@ pub(super) fn verify_cancelled() -> metal_oxide::Result<()> {
     let launch = LaunchConfig::<64>::for_elements(257)?;
     for forget in [false, true] {
         let mut output = device.buffer_zeroed::<Particle>(257)?;
-        // SAFETY: output has one writer per element; completion retains library/buffer/constant state.
-        let operation =
-            unsafe { kernels.particle_update(launch, &input, &mut output, config(), 257) };
+        // SAFETY: nothing else writes the input; completion retains library/buffer/constant state.
+        let operation = unsafe { kernels.particle_update(launch, &input, &mut output, config()) };
         let mut future = operation.into_future();
         let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
         if forget {

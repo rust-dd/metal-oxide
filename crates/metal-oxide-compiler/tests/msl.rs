@@ -176,7 +176,7 @@ fn parameter_names_produce_valid_metadata_and_rust_bindings() {
 #[test]
 fn rust_vec_add_generated_source_executes_and_guards_padding() {
     let (output, directory) = support::emit(
-        "examples/vec-add/kernels/src/lib.rs",
+        "crates/metal-oxide-compiler/tests/fixtures/vec_add.rs",
         &["-C", "overflow-checks=off"],
     );
     support::checked(output);
@@ -234,7 +234,7 @@ fn concrete_trait_and_const_generic_helpers_execute() {
 #[test]
 fn checked_builds_prove_the_global_index() {
     let (output, directory) = support::emit(
-        "examples/vec-add/kernels/src/lib.rs",
+        "crates/metal-oxide-compiler/tests/fixtures/vec_add.rs",
         &["-C", "overflow-checks=on"],
     );
     support::checked(output);
@@ -302,7 +302,7 @@ fn rust_raw_identifier_cannot_be_an_msl_keyword() {
 #[test]
 fn failed_rebuild_removes_previous_generated_source() {
     let (output, directory) = support::emit(
-        "examples/vec-add/kernels/src/lib.rs",
+        "crates/metal-oxide-compiler/tests/fixtures/vec_add.rs",
         &["-C", "overflow-checks=off"],
     );
     support::checked(output);

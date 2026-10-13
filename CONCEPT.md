@@ -58,21 +58,24 @@ The kernel crate contains ordinary Rust:
 ```rust
 #![no_std]
 
-use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 
+/// Adds two buffers element by element; threads past the end of a buffer write nothing.
+///
 /// # Safety
 ///
-/// Buffers contain at least n elements. Output does not overlap either input.
-/// The launch is one-dimensional, with one writer per output index.
+/// Nothing writes `a` or `b` while the kernel runs.
 #[kernel]
-pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32) {
-    let i = block_idx().x * block_dim().x + thread_idx().x;
-
-    if i < n {
-        // SAFETY: i < n; the caller supplies valid buffers and independent output indices.
-        unsafe {
-            out.store_unchecked(i, a.load_unchecked(i) + b.load_unchecked(i));
-        }
+pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+    let index = thread_index();
+    let a = a.as_slice();
+    let b = b.as_slice();
+    let i = index.get();
+    if let Some(out) = out.get_mut(&index)
+        && i < a.len()
+        && i < b.len()
+    {
+        *out = a[i] + b[i];
     }
 }
 ```
@@ -137,30 +140,40 @@ For `vec_add`, rustc emits operations such as these. The excerpts omit storage
 lifetime statements, declarations, and unrelated blocks:
 
 ```text
-bb0: {
-    _8 = metal_oxide_device::block_idx() -> [return: bb1, unwind unreachable];
+bb1: {
+    _6 = &_1;
+    _5 = metal_oxide_device::ReadBuffer::<f32>::as_slice(move _6) -> [return: bb2, unwind unreachable];
 }
 
-bb2: {
-    _9 = copy (_10.0: u32);
-    _6 = Mul(move _7, move _9);
-    _12 = metal_oxide_device::thread_idx() -> [return: bb3, unwind unreachable];
+bb4: {
+    _12 = &mut _3;
+    _14 = &_4;
+    _13 = &(*_14);
+    _11 = metal_oxide_device::DisjointBuffer::<f32>::get_mut(move _12, move _13) -> [return: bb5, unwind unreachable];
 }
 
-bb3: {
-    _11 = copy (_12.0: u32);
-    _5 = Add(move _6, move _11);
-    _14 = copy _5;
-    _15 = copy _4;
-    _13 = Lt(move _14, move _15);
-    switchInt(move _13) -> [0: bb8, otherwise: bb4];
+bb5: {
+    _15 = discriminant(_11);
+    switchInt(move _15) -> [1: bb6, otherwise: bb16];
+}
+
+bb10: {
+    _26 = copy _9;
+    _27 = PtrMetadata(copy _5);
+    _28 = Lt(copy _26, copy _27);
+    assert(move _28, "index out of bounds: the length is {} but the index is {}", move _27, copy _26) -> [success: bb11, unwind unreachable];
+}
+
+bb11: {
+    _25 = copy (*_5)[_26];
 }
 ```
 
-Here `_4` is `n`, `_5` is `i`, and the `.0` projections read the
-`x` coordinate. Rustc has also resolved the buffer calls to concrete
-`ReadBuffer::<f32>::load_unchecked` and `WriteBuffer::<f32>::store_unchecked`
-methods.
+Here `_4` is the thread index, `_5` the slice of `a`, and `_9` is `i`. `get_mut`
+returns an `Option<&mut f32>` whose discriminant `bb5` tests. Indexing keeps rustc's
+bounds assertion against the slice length, `PtrMetadata(_5)`. Rustc has resolved the
+method calls to concrete `ReadBuffer::<f32>::as_slice` and
+`DisjointBuffer::<f32>::get_mut` instances.
 
 MIR gives the importer an already checked Rust program with explicit operations.
 Reading Rust syntax directly would require another frontend to determine types,
@@ -184,7 +197,6 @@ For this kernel, the parameter types become:
 | `a` | Buffer of `F32` | Read | Device |
 | `b` | Buffer of `F32` | Read | Device |
 | `out` | Buffer of `F32` | Write | Device |
-| `n` | Scalar `U32` | Value | — |
 
 The importer also replaces recognized calls:
 
@@ -193,6 +205,8 @@ The importer also replaces recognized calls:
 | `thread_idx()` | `Coordinates(ThreadIdx)` |
 | `block_idx()` | `Coordinates(BlockIdx)` |
 | `block_dim()` | `Coordinates(BlockDim)` |
+| `thread_index()` | `ThreadIndex` |
+| `DisjointBuffer::get_mut(index)` | the element's `Ref` if the index is below the buffer's `Len` |
 | `load_unchecked(buffer, index)` | `BufferLoad` |
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
@@ -203,20 +217,29 @@ With copy-only temporaries collapsed, the kernel has the following operations.
 This is abbreviated notation for the IR data, not a device language:
 
 ```text
-coordinates:
-    block:  Dim3 = Coordinates(BlockIdx)
-    shape:  Dim3 = Coordinates(BlockDim)
-    thread: Dim3 = Coordinates(ThreadIdx)
-    offset: U32  = Binary(Mul, block.x, shape.x)
-    i:      U32  = Binary(Add, offset, thread.x)
-    active: Bool = Binary(Lt, i, n)
-    Branch(active, write, done)
+entry:
+    i:       Usize      = ThreadIndex
+    a:       &[F32]     = Slice(a)
+    b:       &[F32]     = Slice(b)
+    out:     &mut [F32] = Slice(out)
+    has_out: Bool       = Binary(Lt, i, Len(out))
+    Branch(has_out, element, done)
+
+element:
+    slot:    &mut F32   = Ref((*out)[i])
+    has_a:   Bool       = Binary(Lt, i, Len(a))
+    Branch(has_a, second, done)
+
+second:
+    has_b:   Bool       = Binary(Lt, i, Len(b))
+    Branch(has_b, write, done)
 
 write:
-    x: F32 = BufferLoad(a, i)
-    y: F32 = BufferLoad(b, i)
-    z: F32 = Binary(Add, x, y)
-    BufferStore(out, i, z)
+    Assert(Lt(i, Len(a)), Bounds)
+    x: F32 = (*a)[i]
+    Assert(Lt(i, Len(b)), Bounds)
+    y: F32 = (*b)[i]
+    *slot = Binary(Add, x, y)
     Goto(done)
 
 done:
@@ -227,9 +250,12 @@ The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
 Unsupported operations produce diagnostics. MIR assertions remain in the IR
 until a typed constant or range proof establishes that they cannot fail.
+The guards prove both bounds assertions, so `vec_add` has no runtime checks.
 Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
 `block_idx * block_dim + thread_idx` needs no overflow check; under a required block,
 neither does `block_idx * B + thread_idx` for a constant `B` up to the block size.
+`ThreadIndex` is Metal's `thread_position_in_grid.x`; the runtime launches a kernel
+that reads it only in one dimension, where no two threads share it.
 Metal has no device trap, so each unproved assertion and each literal `panic!` or
 `assert!` becomes a runtime check: a failing thread stores the check in its
 command buffer's failure word and returns. A check before a barrier or SIMD collective
@@ -275,21 +301,21 @@ kernel void vec_add(
     device const float* a [[buffer(0)]],
     device const float* b [[buffer(1)]],
     device float* out [[buffer(2)]],
-    constant uint& n [[buffer(3)]],
-    uint3 thread_idx [[thread_position_in_threadgroup]],
-    uint3 block_idx [[threadgroup_position_in_grid]],
-    uint3 block_dim [[threads_per_threadgroup]],
-    uint3 grid_dim [[threadgroups_per_grid]]
+    uint3 thread_position [[thread_position_in_grid]],
+    const device uint* gate [[buffer(3)]],
+    constant ulong* lengths [[buffer(4)]]
 ) {
-    uint i = block_idx.x * block_dim.x + thread_idx.x;
-    if (i < n) {
+    ulong i = thread_position.x;
+    if (i < lengths[2] && i < lengths[0] && i < lengths[1]) {
+        if (*gate != 0u) { return; }
         out[i] = a[i] + b[i];
     }
 }
 ```
 
-The host supplies four arguments: `a`, `b`, `out`, and `n`. Metal supplies
-the coordinate parameters from the dispatch:
+The host supplies three arguments: `a`, `b`, and `out`. The runtime binds the gate
+word and the table of their element counts after them, and Metal supplies the
+coordinate parameters from the dispatch:
 
 | Device function | MSL builtin |
 | --- | --- |
@@ -297,6 +323,7 @@ the coordinate parameters from the dispatch:
 | `block_idx()` | `threadgroup_position_in_grid` |
 | `block_dim()` | `threads_per_threadgroup` |
 | `grid_dim()` | `threadgroups_per_grid` |
+| `thread_index()` | `thread_position_in_grid` (x) |
 
 ### ABI
 
@@ -312,19 +339,25 @@ For `vec_add`, `abi.json` contains:
   "math_mode": "precise",
   "required_features": [],
   "types": [
-    { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } },
-    { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "u32" } }
+    { "size": 4, "alignment": 4, "kind": { "kind": "scalar", "scalar": "f32" } }
   ],
   "signatures": [
     [
       { "name": "a", "binding": 0, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "read" } },
       { "name": "b", "binding": 1, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "read" } },
-      { "name": "out", "binding": 2, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "write" } },
-      { "name": "n", "binding": 3, "ty": { "kind": "value", "layout": 1 } }
+      { "name": "out", "binding": 2, "ty": { "kind": "buffer", "element": 0, "stride": 4, "access": "write" } }
     ]
   ],
   "kernels": [
-    { "name": "vec_add", "signature": 0, "required_block": null }
+    {
+      "name": "vec_add",
+      "signature": 0,
+      "required_block": null,
+      "gate_binding": 3,
+      "fallible": false,
+      "lengths": true,
+      "one_dimensional": true
+    }
   ]
 }
 ```
@@ -332,12 +365,15 @@ For `vec_add`, `abi.json` contains:
 Kernels share two tables. `types` holds each distinct layout once, and nested
 layouts refer to earlier entries. `signatures` holds each distinct parameter
 list. The in-memory `Abi` keeps every kernel's parameters and layouts inline.
+Each kernel also records its gate slot, whether it can fail a check (it then takes
+the failure word next), whether it reads buffer lengths (it then takes their table
+next), and whether it reads its thread index.
 
 Buffer handles become Metal bindings. Values and buffer elements carry a
 canonical layout with size, alignment, field offsets, array stride, and padding.
 Generated record types implement `GpuValue` to encode/decode those bytes.
-Scalars also use this representation; `n` is a four-byte `u32`. The host does not copy the memory
-layout of the Rust device handles into the shader.
+Scalars also use this representation; a `u32` value is four bytes. The host does not copy
+the memory layout of the Rust device handles into the shader.
 
 Build-time and runtime consumers use this description:
 
@@ -346,7 +382,7 @@ Build-time and runtime consumers use this description:
 | Kernel build | Binding generator | Produce typed host parameters and ordered `Argument` values |
 | Artifact build | `metal-oxide-build` | Embed the ABI in `manifest.json` |
 | Artifact loading | Runtime | Validate the manifest and bindings ABI hash; retain each kernel's ABI |
-| Kernel launch | Runtime | Check argument count, scalar/element types, access modes, and any required block shape |
+| Kernel launch | Runtime | Check argument count, scalar/element types, access modes, any required block shape, and the one-dimensional launch of a thread-index kernel |
 
 The Apple compiler compiles the MSL declarations, including their binding
 attributes. It does not generate our ABI file or Rust wrappers.
@@ -478,8 +514,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = device.buffer_zeroed::<f32>(n as usize)?;
     let config = LaunchConfig::<256>::for_elements(n)?;
 
-    // SAFETY: distinct n-element buffers and a 1D launch give one writer per index.
-    unsafe { kernels.vec_add(config, &a, &b, &mut out, n) }.wait()?;
+    // SAFETY: nothing else writes the inputs while the kernel runs.
+    unsafe { kernels.vec_add(config, &a, &b, &mut out) }.wait()?;
 
     assert!(out.read().wait().iter().all(|&value| value == 3.0));
     Ok(())
@@ -487,12 +523,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 `LaunchConfig::<256>` sets 256 threads per block. For 257 elements,
-`for_elements` produces two blocks, so 512 GPU threads execute. The kernel's
-`i < n` condition limits writes to indices 0 through 256.
+`for_elements` produces two blocks, so 512 GPU threads execute. Threads 257 through
+511 find no element of `out`, so `get_mut` returns `None` and they write nothing.
 
-The launch configuration controls dispatch geometry. The scalar `n` controls
-the kernel's own bounds condition. They are separate inputs. The wrapper takes
-five values after `self`: the configuration and four kernel arguments.
+The launch configuration controls dispatch geometry; the bound buffers' lengths
+bound the kernel's accesses. The wrapper takes four values after `self`: the
+configuration and three kernel arguments.
 
 When an entrypoint declares `#[kernel(block = (256, 1, 1))]`, its ABI records
 that shape and the wrapper accepts the matching `LaunchConfig` type.
@@ -509,9 +545,10 @@ The runtime performs these steps:
    compute pipeline, and retains that entrypoint's ABI. Later calls reuse it.
 4. The generated `vec_add` wrapper returns a `Launch` operation that holds the
    pipeline, the configuration and the arguments; nothing is encoded yet.
-5. `wait` (or the first poll of its future) creates a `Batch`, which binds the four
+5. `wait` (or the first poll of its future) creates a `Batch`, which binds the three
    ordered arguments and checks resource context, ABI types/access, block
-   requirements and dispatch limits. It then encodes the bindings, a gate word,
+   requirements, the one-dimensional launch of a kernel that reads its thread index,
+   and dispatch limits. It then encodes the bindings, a gate word,
    for a kernel that can fail a check the command buffer's failure word, and for a
    kernel that reads buffer lengths a table of its arguments' element counts. A kernel
    tests its gate once, at the latest point that precedes all of its memory accesses,
@@ -528,9 +565,8 @@ The runtime's `Module` holds a loaded Metal library and ABI metadata.
 
 The runtime checks the call interface against the ABI. The kernel's documented
 bounds, aliasing, race, and participation requirements remain the unsafe caller's
-responsibility.
-For example, passing `n = 257` with a shorter buffer is not made valid by
-matching the `Buffer<f32>` parameter type.
+responsibility. For `vec_add` that is the absence of other writers to its inputs;
+a kernel that indexes with `load_unchecked` must also keep its indices in bounds.
 
 ## Native resource ownership
 

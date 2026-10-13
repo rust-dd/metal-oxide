@@ -12,16 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let values = (0..n).map(|i| (i % 17) as f32 - 8.0).collect::<Vec<_>>();
         let input = device.buffer_from_slice(&values)?;
         let mut output = device.buffer_zeroed::<f32>(n.div_ceil(256) as usize)?;
-        // SAFETY: each 256-thread block owns one shared tile and output; input covers n elements.
-        unsafe {
-            kernels.reduce(
-                LaunchConfig::<256>::for_elements(n)?,
-                &input,
-                &mut output,
-                n,
-            )
-        }
-        .wait()?;
+        // SAFETY: nothing else writes the input while the kernel runs.
+        unsafe { kernels.reduce(LaunchConfig::<256>::for_elements(n)?, &input, &mut output) }
+            .wait()?;
         let expected = values
             .chunks(256)
             .map(|v| v.iter().sum::<f32>())

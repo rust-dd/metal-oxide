@@ -11,7 +11,8 @@ fn invalid_output_flag_returns_failure() {
 
 #[test]
 fn vec_add_imports_device_access_and_preserves_checks() {
-    let (output, directory) = support::emit("examples/vec-add/kernels/src/lib.rs", &[]);
+    let (output, directory) =
+        support::emit("crates/metal-oxide-compiler/tests/fixtures/vec_add.rs", &[]);
     support::checked(output);
     let ir = std::fs::read_to_string(directory.join("kernels.oxide-ir")).unwrap();
     for operation in [

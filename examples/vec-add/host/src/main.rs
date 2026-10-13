@@ -19,8 +19,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
         let config = LaunchConfig::<256>::for_elements(n)?;
 
-        // SAFETY: the vec_add ABI uses distinct n-element buffers and one writer per index.
-        unsafe { kernels.vec_add(config, &input_a, &input_b, &mut output, n) }.wait()?;
+        // SAFETY: nothing else writes the inputs while the kernel runs.
+        unsafe { kernels.vec_add(config, &input_a, &input_b, &mut output) }.wait()?;
 
         for (i, actual) in output.read().wait().iter().enumerate() {
             if *actual != a[i] + b[i] {
@@ -80,14 +80,22 @@ mod tests {
                 Launch::new(
                     Ok(&pipeline),
                     config,
-                    (&wrong, &b, &mut out, 0),
-                    |(wrong, b, out, n)| Ok([
+                    (&wrong, &b, &mut out),
+                    |(wrong, b, out)| Ok([
                         Argument::read(wrong),
                         Argument::read(b),
-                        Argument::write(out),
-                        Argument::value::<u32>(*n)?
+                        Argument::write(out)
                     ])
                 )
+                .wait(),
+                Err(Error::Artifact(_))
+            ));
+            assert!(matches!(
+                Launch::new(Ok(&pipeline), config, (&a, &b, &out), |(a, b, out)| Ok([
+                    Argument::read(a),
+                    Argument::read(b),
+                    Argument::read(out)
+                ]))
                 .wait(),
                 Err(Error::Artifact(_))
             ));
@@ -95,45 +103,20 @@ mod tests {
                 Launch::new(
                     Ok(&pipeline),
                     config,
-                    (&a, &b, &out, 0),
+                    (&a, &b, &mut out, 0),
                     |(a, b, out, n)| Ok([
                         Argument::read(a),
                         Argument::read(b),
-                        Argument::read(out),
+                        Argument::write(out),
                         Argument::value::<u32>(*n)?
                     ])
                 )
                 .wait(),
                 Err(Error::Artifact(_))
             ));
-            assert!(matches!(
-                Launch::new(
-                    Ok(&pipeline),
-                    config,
-                    (&a, &b, &mut out, 0.0),
-                    |(a, b, out, n)| Ok([
-                        Argument::read(a),
-                        Argument::read(b),
-                        Argument::write(out),
-                        Argument::value::<f32>(*n)?
-                    ])
-                )
-                .wait(),
-                Err(Error::Artifact(_))
-            ));
-            Launch::new(
-                Ok(&pipeline),
-                config,
-                (&a, &b, &mut out, 0),
-                |(a, b, out, n)| {
-                    Ok([
-                        Argument::read(a),
-                        Argument::read(b),
-                        Argument::write(out),
-                        Argument::value::<u32>(*n)?,
-                    ])
-                },
-            )
+            Launch::new(Ok(&pipeline), config, (&a, &b, &mut out), |(a, b, out)| {
+                Ok([Argument::read(a), Argument::read(b), Argument::write(out)])
+            })
             .wait()?;
         }
         Ok(())
@@ -191,15 +174,8 @@ mod tests {
             Launch::new(
                 Ok(&pipeline),
                 LaunchConfig::<256>::for_elements(0)?,
-                (&a, &b, &mut out, 0),
-                |(a, b, out, n)| {
-                    Ok([
-                        Argument::read(a),
-                        Argument::read(b),
-                        Argument::write(out),
-                        Argument::value::<u32>(*n)?,
-                    ])
-                },
+                (&a, &b, &mut out),
+                |(a, b, out)| Ok([Argument::read(a), Argument::read(b), Argument::write(out)]),
             )
             .wait()
         };

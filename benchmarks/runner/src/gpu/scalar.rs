@@ -50,10 +50,19 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
         out.upload();
         let upload = elapsed(start);
         let mut sample = dispatch(|batch| {
-            // SAFETY: distinct buffers cover n inputs and the exact output shape; all 256 lanes participate.
+            // SAFETY: distinct buffers; generated kernels stop at the buffer lengths, handwritten
+            // ones at n, which every buffer covers. All 256 lanes of a reduction block participate.
             unsafe {
-                if reduction {
-                    batch
+                match (reduction, variant == "rust") {
+                    (true, true) => batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&a, &mut out),
+                            |(a, out)| Ok([Argument::read(a), Argument::write(out)]),
+                        ))
+                        .map(drop),
+                    (true, false) => batch
                         .push(Launch::new(
                             Ok(&pipelines[0]),
                             launch,
@@ -66,9 +75,18 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
                                 ])
                             },
                         ))
-                        .map(drop)
-                } else {
-                    batch
+                        .map(drop),
+                    (false, true) => batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&a, &b, &mut out),
+                            |(a, b, out)| {
+                                Ok([Argument::read(a), Argument::read(b), Argument::write(out)])
+                            },
+                        ))
+                        .map(drop),
+                    (false, false) => batch
                         .push(Launch::new(
                             Ok(&pipelines[0]),
                             launch,
@@ -82,7 +100,7 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
                                 ])
                             },
                         ))
-                        .map(drop)
+                        .map(drop),
                 }
             }
         })?;

@@ -26,7 +26,9 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Keep device builtins consistent with CUDA thread/block/grid semantics.
   Use `thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` with x/y/z
   fields; Metal threadgroups implement blocks. Scalar kernel parameters do not
-  define launch dimensions automatically.
+  define launch dimensions automatically. `thread_index()` is
+  `thread_position_in_grid.x`; a kernel that reads it, directly or through a helper,
+  records `one_dimensional` in its ABI, and the runtime rejects other launches.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   recursion, layouts, and conversions must produce diagnostics. Never remove a
   bounds/overflow check without a sound proof or silently change semantics.

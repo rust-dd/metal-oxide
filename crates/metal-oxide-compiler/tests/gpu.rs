@@ -138,7 +138,11 @@ fn pipeline_with_math_mode(
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn rust_vec_add_matches_cpu_and_preserves_padding() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let pipeline = pipeline(&device, "examples/vec-add/kernels/src/lib.rs", "vec_add")?;
+    let pipeline = pipeline(
+        &device,
+        "crates/metal-oxide-compiler/tests/fixtures/vec_add.rs",
+        "vec_add",
+    )?;
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
         verify_vec_add(&device, &pipeline, n, LaunchConfig::<32>::for_elements(n)?)?;
         verify_vec_add(&device, &pipeline, n, LaunchConfig::<256>::for_elements(n)?)?;

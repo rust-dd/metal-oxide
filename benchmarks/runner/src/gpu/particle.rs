@@ -60,23 +60,41 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         output.upload();
         let upload = elapsed(start);
         let mut sample = dispatch(|batch| {
-            // SAFETY: generated codecs match the shared layouts; disjoint buffers cover n guarded threads.
+            // SAFETY: generated codecs match the shared layouts; the generated kernel stops at the
+            // buffer lengths, the handwritten one at n, which both distinct buffers cover.
             unsafe {
-                batch
-                    .push(Launch::new(
-                        Ok(&pipelines[0]),
-                        launch,
-                        (&input, &mut output, parameters, n),
-                        |(input, output, parameters, n)| {
-                            Ok([
-                                Argument::read(input),
-                                Argument::write(output),
-                                Argument::value(*parameters)?,
-                                Argument::value(*n)?,
-                            ])
-                        },
-                    ))
-                    .map(drop)
+                if variant == "rust" {
+                    batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&input, &mut output, parameters),
+                            |(input, output, parameters)| {
+                                Ok([
+                                    Argument::read(input),
+                                    Argument::write(output),
+                                    Argument::value(*parameters)?,
+                                ])
+                            },
+                        ))
+                        .map(drop)
+                } else {
+                    batch
+                        .push(Launch::new(
+                            Ok(&pipelines[0]),
+                            launch,
+                            (&input, &mut output, parameters, n),
+                            |(input, output, parameters, n)| {
+                                Ok([
+                                    Argument::read(input),
+                                    Argument::write(output),
+                                    Argument::value(*parameters)?,
+                                    Argument::value(*n)?,
+                                ])
+                            },
+                        ))
+                        .map(drop)
+                }
             }
         })?;
         let start = Instant::now();

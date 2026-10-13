@@ -1,18 +1,22 @@
 #![no_std]
 
-use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 
-/// Adds two buffers element by element.
+/// Adds two buffers element by element; threads past the end of a buffer write nothing.
 ///
 /// # Safety
 ///
-/// Buffers must contain at least n elements. Output must not overlap either
-/// input. The launch must be one-dimensional, with one writer per output index.
+/// Nothing writes `a` or `b` while the kernel runs.
 #[kernel]
-pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32) {
-    let i = block_idx().x * block_dim().x + thread_idx().x;
-    if i < n {
-        // SAFETY: i is below n and the caller guarantees buffer bounds and independent output.
-        unsafe { out.store_unchecked(i, a.load_unchecked(i) + b.load_unchecked(i)) };
+pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+    let index = thread_index();
+    let a = a.as_slice();
+    let b = b.as_slice();
+    let i = index.get();
+    if let Some(out) = out.get_mut(&index)
+        && i < a.len()
+        && i < b.len()
+    {
+        *out = a[i] + b[i];
     }
 }

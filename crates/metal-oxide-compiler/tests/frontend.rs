@@ -34,7 +34,7 @@ fn native_output_is_rejected() {
 #[test]
 fn separate_vec_add_crate_has_typed_mir_and_concrete_device_instances() {
     let report = support::checked(support::compile(
-        "examples/vec-add/kernels/src/lib.rs",
+        "crates/metal-oxide-compiler/tests/fixtures/vec_add.rs",
         "metadata",
         true,
     ));

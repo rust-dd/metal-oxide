@@ -58,12 +58,12 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
             .iter()
             .map(|p| p.name.as_str())
             .collect::<Vec<_>>(),
-        ["a", "b", "out", "n"]
+        ["a", "b", "out"]
     );
+    assert!(kernel.lengths && kernel.one_dimensional);
     let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();
     assert!(bindings.contains("r#out: MetalOxideBuffer2"));
     assert!(bindings.contains("MetalOxideBuffer2: metal_oxide::WriteArgument<f32>"));
-    assert!(bindings.contains("r#n: u32"));
     assert!(
         std::fs::read_to_string(output.join("kernels.metal"))
             .unwrap()
@@ -72,7 +72,7 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
 
     cargo.env("RUSTFLAGS", "-Zunstable-options -Coverflow-checks=on");
     support::checked(cargo.output().unwrap());
-    // Launch validation bounds the global index, so overflow checks prove it.
+    // The length guards prove every index, so a checked build adds no runtime checks.
     let checks = std::fs::read_to_string(output.join("checks.json")).unwrap();
     let checks = serde_json::from_str::<Vec<serde_json::Value>>(&checks).unwrap();
     assert!(checks.is_empty(), "{checks:?}");
@@ -136,7 +136,7 @@ fn cross_crate_nested_records_and_const_helpers_lower_through_cargo() {
         .next()
         .unwrap();
     let program = format!(
-        "{particle} input = {{uchar(1),ushort(3),9u,{{{{1.0f,2.0f}},{{{{3.0f,4.0f}}}}}},{{{{uchar(5),uchar(6),uchar(7)}}}}}}; {particle} output = {{}}; {config} config = {{0.5f,{{1.0f,2.0f}}}}; uint n = 1; particle_update(&input, &output, config, n, {{}}, {{}}, {{64,1,1}}, {{1,1,1}}, metal_oxide_gate); std::cout << output.f0 + 0 << ',' << output.f1 << ',' << output.f2 << ',' << output.f3.f0.f0 << ',' << output.f3.f0.f1 << ',' << output.f3.f1.elements[0] << ',' << output.f3.f1.elements[1] << ',' << output.f4.elements[1] + 0;"
+        "{particle} input = {{uchar(1),ushort(3),9u,{{{{1.0f,2.0f}},{{{{3.0f,4.0f}}}}}},{{{{uchar(5),uchar(6),uchar(7)}}}}}}; {particle} output = {{}}; {config} config = {{0.5f,{{1.0f,2.0f}}}}; ulong lengths[3] = {{1, 1, 0}}; particle_update(&input, &output, config, {{}}, {{}}, {{64,1,1}}, {{1,1,1}}, {{}}, metal_oxide_gate, lengths); std::cout << output.f0 + 0 << ',' << output.f1 << ',' << output.f2 << ',' << output.f3.f0.f0 << ',' << output.f3.f0.f1 << ',' << output.f3.f1.elements[0] << ',' << output.f3.f1.elements[1] << ',' << output.f4.elements[1] + 0;"
     );
     assert_eq!(
         support::execute_msl(&directory, &program),

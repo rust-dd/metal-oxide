@@ -76,7 +76,8 @@ separate.
   buffers carry it, and its handler prints messages to stderr.
 - Artifact loading validates the ABI version, requirements, and library digest.
   Load the verified bytes rather than reopening their path. Check argument types,
-  access modes, and any required block shape before encoding a launch.
+  access modes, any required block shape, and the one-dimensional launch of a
+  `one_dimensional` kernel before encoding a launch.
 - Keep launches unsafe until all kernel-specific ABI, bounds, access, and race
   preconditions are proved by the API. Document the actual caller obligations.
 - Keep fast math explicit. Source compilation uses safe math and precise
