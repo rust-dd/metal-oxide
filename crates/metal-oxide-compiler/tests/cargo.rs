@@ -136,7 +136,7 @@ fn cross_crate_nested_records_and_const_helpers_lower_through_cargo() {
         .next()
         .unwrap();
     let program = format!(
-        "{particle} input = {{uchar(1),ushort(3),9u,{{{{1.0f,2.0f}},{{{{3.0f,4.0f}}}}}},{{{{uchar(5),uchar(6),uchar(7)}}}}}}; {particle} output = {{}}; {config} config = {{0.5f,{{1.0f,2.0f}}}}; ulong lengths[3] = {{1, 1, 0}}; particle_update(&input, &output, config, {{}}, {{}}, {{64,1,1}}, {{1,1,1}}, {{}}, metal_oxide_gate, lengths); std::cout << output.f0 + 0 << ',' << output.f1 << ',' << output.f2 << ',' << output.f3.f0.f0 << ',' << output.f3.f0.f1 << ',' << output.f3.f1.elements[0] << ',' << output.f3.f1.elements[1] << ',' << output.f4.elements[1] + 0;"
+        "{particle} input = {{uchar(1),{{}},ushort(3),9u,{{{{1.0f,2.0f}},{{{{3.0f,4.0f}}}}}},{{{{uchar(5),uchar(6),uchar(7)}}}},{{}}}}; {particle} output = {{}}; {config} config = {{0.5f,{{1.0f,2.0f}}}}; ulong lengths[3] = {{1, 1, 0}}; particle_update(&input, &output, config, {{}}, {{}}, {{64,1,1}}, {{1,1,1}}, {{}}, metal_oxide_gate, lengths); std::cout << output.f0 + 0 << ',' << output.f1 << ',' << output.f2 << ',' << output.f3.f0.f0 << ',' << output.f3.f0.f1 << ',' << output.f3.f1.elements[0] << ',' << output.f3.f1.elements[1] << ',' << output.f4.elements[1] + 0;"
     );
     assert_eq!(
         support::execute_msl(&directory, &program),

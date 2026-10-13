@@ -12,6 +12,7 @@ mod gates;
 mod host_types;
 mod integer;
 mod interface;
+mod layout;
 mod log;
 mod names;
 mod numeric;

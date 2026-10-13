@@ -3,6 +3,7 @@ use crate::{
     control::StructuredGraph,
     expressions::type_name,
     interface::KernelInterfaces,
+    layout::{self, Member},
 };
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
@@ -65,11 +66,23 @@ impl<'a> ModuleEmitter<'a> {
             self.output.push('\n');
         }
         for (id, aggregate) in module.types.iter() {
+            let shape = layout::shape(module, id);
             writeln!(self.output, "struct metal_oxide_aggregate_{id} {{").unwrap();
             match aggregate {
                 Aggregate::Record { .. } | Aggregate::Tuple(_) => {
-                    for (field, ty) in aggregate.component_types().enumerate() {
-                        writeln!(self.output, "    {} f{field};", type_name(ty)).unwrap();
+                    for (position, member) in shape.members.iter().enumerate() {
+                        match *member {
+                            Member::Field(field) => writeln!(
+                                self.output,
+                                "    {} f{field};",
+                                type_name(aggregate.field(field).unwrap())
+                            ),
+                            Member::Padding(bytes) => writeln!(
+                                self.output,
+                                "    uchar metal_oxide_padding_{position}[{bytes}];"
+                            ),
+                        }
+                        .unwrap();
                     }
                 }
                 Aggregate::Array { element, length } => {
@@ -81,7 +94,12 @@ impl<'a> ModuleEmitter<'a> {
                     .unwrap();
                 }
             }
-            self.output.push_str("};\n\n");
+            writeln!(
+                self.output,
+                "}};\nstatic_assert(sizeof(metal_oxide_aggregate_{id}) == {} && alignof(metal_oxide_aggregate_{id}) == {}, \"metal_oxide_aggregate_{id} layout\");\n",
+                shape.size, shape.alignment
+            )
+            .unwrap();
         }
         self.output.push_str(&crate::simd::helpers(module));
         self.output

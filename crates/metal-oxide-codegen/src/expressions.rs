@@ -1,3 +1,4 @@
+use crate::layout::{self, Member};
 use metal_oxide_ir::*;
 
 pub(crate) fn type_name(ty: Type) -> String {
@@ -63,13 +64,22 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
     }
 }
 
+/// A struct value; padding members start zeroed.
 fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
-    let fields = fields.join(", ");
-    let fields = match module.types.get(id).unwrap() {
-        Aggregate::Array { .. } => format!("{{{fields}}}"),
-        Aggregate::Record { .. } | Aggregate::Tuple(_) => fields,
+    let aggregate = module.types.get(id).unwrap();
+    let values = match aggregate {
+        Aggregate::Array { .. } => format!("{{{}}}", fields.join(", ")),
+        Aggregate::Record { .. } | Aggregate::Tuple(_) => layout::shape(module, id)
+            .members
+            .iter()
+            .map(|member| match *member {
+                Member::Field(field) => fields[field as usize].as_str(),
+                Member::Padding(_) => "{}",
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
     };
-    format!("metal_oxide_aggregate_{id}{{{fields}}}")
+    format!("metal_oxide_aggregate_{id}{{{values}}}")
 }
 
 pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u32) -> String {

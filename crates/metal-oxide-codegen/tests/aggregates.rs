@@ -249,3 +249,44 @@ fn array_update_source_size_is_bounded_independently_of_length() {
         );
     }
 }
+
+#[test]
+fn constructed_records_carry_zeroed_padding() {
+    let mut types = TypeTable::default();
+    let record = types.intern(Aggregate::record(
+        "Padded",
+        vec![
+            Type::Scalar(Scalar::U8),
+            Type::Scalar(Scalar::U16),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U8),
+        ],
+    ));
+    let mut output = module(
+        0,
+        vec![record],
+        vec![block(
+            vec![(
+                0,
+                construct(
+                    record,
+                    vec![
+                        Operand::Constant(Constant::U8(1)),
+                        Operand::Constant(Constant::U16(2)),
+                        uint(3),
+                        Operand::Constant(Constant::U8(4)),
+                    ],
+                ),
+            )],
+            Terminator::Return,
+        )],
+    );
+    output.types = types;
+    assert_eq!(
+        support::execute(
+            &output,
+            "auto value = metal_oxide_fn_0(ctx); unsigned char bytes[sizeof(value)]; std::memcpy(bytes, &value, sizeof(value)); for (unsigned char byte : bytes) std::cout << int(byte) << ',';"
+        ),
+        "1,0,2,0,3,0,0,0,4,0,0,0,"
+    );
+}
