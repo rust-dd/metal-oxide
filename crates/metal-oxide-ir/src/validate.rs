@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use crate::{typing::expression_type, *};
+use crate::{
+    typing::{expression_type, place_info},
+    *,
+};
 
 /// Checks types, initialization, control flow, participation, and numerical safety.
 pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
@@ -73,6 +76,9 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             {
                 return Err(Error::new(&function.source, "invalid aggregate type"));
             }
+            if matches!(ty, Type::Pointer(_)) && module.types.pointer(*ty).is_none() {
+                return Err(Error::new(&function.source, "invalid pointer type"));
+            }
             if matches!(
                 ty,
                 Type::Buffer {
@@ -114,6 +120,15 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
         let graph = ControlFlowGraph::new(function)?;
         for block in &function.blocks {
             for statement in &block.statements {
+                if !place_info(module, function, &statement.destination, &statement.source)?
+                    .writable
+                {
+                    return Err(Error::new(
+                        &statement.source,
+                        "write through a shared reference",
+                    ));
+                }
+                buffer_slice(module, function, statement)?;
                 let expected =
                     place_type(module, function, &statement.destination, &statement.source)?;
                 let actual =
@@ -181,16 +196,16 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
         analysis.checks = checks;
     }
     for &id in &order {
-        let blocks = &module.functions[id].blocks;
+        let function = &module.functions[id];
         let statements = || {
             graphs[id]
                 .cfg
                 .reachable_blocks()
-                .flat_map(|block| &blocks[block].statements)
+                .flat_map(|block| &function.blocks[block].statements)
         };
         let fallible = !graphs[id].checks.is_empty()
             || statements().any(|statement| statement.value.is_fallible(&graphs));
-        let effects = statements().any(|statement| statement.value.has_effect(&graphs));
+        let effects = statements().any(|statement| statement.has_effect(module, function, &graphs));
         graphs[id].fallible = fallible;
         graphs[id].effects = effects;
     }
@@ -237,4 +252,34 @@ fn acyclic_calls(module: &Module) -> Result<Vec<usize>, Error> {
             "recursion is not supported",
         ))
     }
+}
+
+/// A buffer slice reads the length the runtime binds for a kernel parameter, so it must slice
+/// that parameter itself, which the kernel never reassigns.
+fn buffer_slice(module: &Module, function: &Function, statement: &Statement) -> Result<(), Error> {
+    let Expression::Slice(data) = &statement.value else {
+        return Ok(());
+    };
+    if !matches!(
+        operand_type(module, function, data, &statement.source)?,
+        Type::Buffer { .. }
+    ) {
+        return Ok(());
+    }
+    let parameter = match data {
+        Operand::Place(place) if place.projection.is_empty() => place.local,
+        _ => usize::MAX,
+    };
+    let assigned = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .any(|other| other.destination.local == parameter);
+    if !function.kernel || !(1..=function.parameters).contains(&parameter) || assigned {
+        return Err(Error::new(
+            &statement.source,
+            "buffer slices require an unmodified kernel buffer parameter",
+        ));
+    }
+    Ok(())
 }

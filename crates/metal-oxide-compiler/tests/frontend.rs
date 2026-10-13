@@ -130,23 +130,12 @@ fn unsupported_reachable_calls_are_reported() {
 }
 
 #[test]
-fn enum_values_and_other_references_are_rejected_on_import() {
-    for (fixture, error) in [
-        (
-            "option_value",
-            "enum values cannot be constructed in Metal kernels",
-        ),
-        (
-            "reference_use",
-            "references are supported only as range iterator arguments",
-        ),
-    ] {
-        let (output, _) = support::emit(
-            &format!("crates/metal-oxide-compiler/tests/fixtures/{fixture}.rs"),
-            &[],
-        );
-        support::rejected(output, error);
-    }
+fn enum_values_are_rejected_on_import() {
+    let (output, _) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/option_value.rs",
+        &[],
+    );
+    support::rejected(output, "enum values cannot be constructed in Metal kernels");
 }
 
 #[test]

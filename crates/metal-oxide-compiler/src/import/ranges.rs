@@ -4,41 +4,6 @@ use rustc_span::{Span, Spanned};
 
 use super::{Result, control::integer, function::FunctionImporter, location};
 
-/// Locals bound once to `&mut local`, directly or by reborrow; they stand for that local.
-pub(super) fn references(body: &mir::Body<'_>) -> Vec<Option<mir::Local>> {
-    let mut bindings = vec![0_u32; body.local_decls.len()];
-    let mut references = vec![None; body.local_decls.len()];
-    for statement in body.basic_blocks.iter().flat_map(|block| &block.statements) {
-        let mir::StatementKind::Assign(assignment) = &statement.kind else {
-            continue;
-        };
-        let (destination, value) = assignment.as_ref();
-        let Some(local) = destination.as_local() else {
-            continue;
-        };
-        bindings[local.as_usize()] += 1;
-        if let mir::Rvalue::Ref(_, mir::BorrowKind::Mut { .. }, referent) = value {
-            references[local.as_usize()] = match referent.as_ref() {
-                mir::PlaceRef {
-                    local,
-                    projection: [],
-                } => Some(local),
-                mir::PlaceRef {
-                    local,
-                    projection: [mir::ProjectionElem::Deref],
-                } => references[local.as_usize()],
-                _ => None,
-            };
-        }
-    }
-    for (reference, count) in references.iter_mut().zip(bindings) {
-        if count != 1 {
-            *reference = None;
-        }
-    }
-    references
-}
-
 /// The discriminant local and the `Some` and `None` targets when `target` only reads the
 /// discriminant of `option` and switches on it.
 fn matched<'tcx>(
@@ -118,7 +83,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 .node
                 .place()
                 .and_then(|place| place.as_local())
-                .and_then(|local| self.references[local.as_usize()]),
+                .and_then(|local| self.handles[local.as_usize()]),
             _ => None,
         }
         .ok_or((
@@ -227,15 +192,17 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         target: usize,
         source: &ir::SourceLocation,
     ) -> usize {
-        self.appended.push(ir::Block {
-            statements,
-            terminator: ir::Terminator::Goto(target),
-            source: source.clone(),
-        });
-        body.basic_blocks.len() + self.appended.len() - 1
+        self.append(
+            body,
+            ir::Block {
+                statements,
+                terminator: ir::Terminator::Goto(target),
+                source: source.clone(),
+            },
+        )
     }
 
-    fn temporary(&mut self, ty: ir::Type) -> usize {
+    pub(super) fn temporary(&mut self, ty: ir::Type) -> usize {
         self.locals.push(ty);
         self.locals.len() - 1
     }

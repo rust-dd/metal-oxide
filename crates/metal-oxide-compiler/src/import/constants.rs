@@ -73,6 +73,12 @@ pub(super) fn locals<'tcx>(
                 let (place, value) = value.as_ref();
                 writes[place.local.as_usize()].push(value);
                 projected[place.local.as_usize()] |= !place.projection.is_empty();
+                // Writes through a mutable borrow do not appear as assignments.
+                if let mir::Rvalue::Ref(_, mir::BorrowKind::Mut { .. }, borrowed)
+                | mir::Rvalue::RawPtr(_, borrowed) = value
+                {
+                    projected[borrowed.local.as_usize()] = true;
+                }
             }
         }
         if let mir::TerminatorKind::Call { destination, .. } = &block.terminator().kind {

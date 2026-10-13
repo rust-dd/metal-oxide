@@ -53,6 +53,17 @@ impl<'a> ModuleEmitter<'a> {
         self.output.push_str("struct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n    const device uint* gate;\n    device atomic_uint* failure;\n    thread bool* failed;\n};\n\n");
         self.output.push_str(&crate::numeric::helpers(module)?);
         self.output.push_str(&crate::atomics::helpers(module)?);
+        if module.types.pointers().next().is_some() {
+            // Pointers may target aggregates, and `Option` records may hold pointers.
+            for (id, _) in module.types.iter() {
+                writeln!(self.output, "struct metal_oxide_aggregate_{id};").unwrap();
+            }
+            for (id, pointer) in module.types.pointers() {
+                self.output
+                    .push_str(&crate::expressions::pointer_declaration(id, pointer));
+            }
+            self.output.push('\n');
+        }
         for (id, aggregate) in module.types.iter() {
             writeln!(self.output, "struct metal_oxide_aggregate_{id} {{").unwrap();
             match aggregate {

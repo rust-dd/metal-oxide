@@ -238,6 +238,17 @@ fn flow(
             value.parameters.insert(index);
         }
     }
+    // Writes through pointers are not tracked, so mutably borrowed locals vary.
+    for statement in function.blocks.iter().flat_map(|block| &block.statements) {
+        if let Expression::Ref {
+            place: Operand::Place(place),
+            mutable: true,
+        } = &statement.value
+            && !place.is_indirect()
+        {
+            values[place.local].varying = true;
+        }
+    }
     let mut control = vec![Dependencies::default(); function.blocks.len()];
     loop {
         let mut changed = false;
@@ -282,7 +293,9 @@ fn flow(
                         }
                     }
                 }
-                changed |= values[statement.destination.local].merge(&value);
+                if !statement.destination.is_indirect() {
+                    changed |= values[statement.destination.local].merge(&value);
+                }
             }
             if let Terminator::Branch { condition, .. }
             | Terminator::Switch {
@@ -324,6 +337,7 @@ fn dependencies(value: &Operand, values: &[Dependencies]) -> Dependencies {
         }
         Operand::Place(place) => {
             let mut result = values[place.local].clone();
+            result.varying |= place.is_indirect();
             for projection in &place.projection {
                 if let Projection::Index(index) = projection {
                     result.merge(&values[*index]);

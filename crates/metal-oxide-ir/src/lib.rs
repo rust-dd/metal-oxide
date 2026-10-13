@@ -21,6 +21,8 @@ pub use control_flow::{ControlFlowGraph, Dominators};
 pub use log::{LogPiece, log_pieces};
 pub use model::*;
 pub use simd::{SimdOp, ballot_type};
-pub use types::{Access, AddressSpace, Aggregate, Element, RecordField, Scalar, Type, TypeTable};
-pub use typing::{operand_type, place_type};
+pub use types::{
+    Access, AddressSpace, Aggregate, Element, Pointer, RecordField, Scalar, Type, TypeTable,
+};
+pub use typing::{Located, PlaceInfo, expression_type, operand_type, place_info, place_type};
 pub use validate::validate;

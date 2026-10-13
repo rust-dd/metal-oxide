@@ -53,10 +53,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
     let mut output = String::new();
     for (element, space) in signatures {
         let ty = crate::expressions::scalar_name(element);
-        let space = match space {
-            AddressSpace::Device => "device",
-            AddressSpace::Threadgroup => "threadgroup",
-        };
+        let space = crate::expressions::space_name(space);
         writeln!(output, "static inline metal_oxide_checked_{} metal_oxide_compare_exchange_weak({space} atomic_{ty} *object, {ty} expected, {ty} desired) {{\n    bool success = atomic_compare_exchange_weak_explicit(object, &expected, desired, memory_order_relaxed, memory_order_relaxed);\n    return {{expected, success}};\n}}\n", element.name()).unwrap();
     }
     Ok(output)

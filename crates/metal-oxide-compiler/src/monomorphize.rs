@@ -7,27 +7,22 @@ use rustc_middle::{
 };
 use rustc_span::Span;
 
-pub(crate) fn reachable<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    entries: &[Instance<'tcx>],
-) -> Vec<Instance<'tcx>> {
+/// Reports recursion and calls the importer cannot lower in every instance the kernels reach.
+pub(crate) fn validate<'tcx>(tcx: TyCtxt<'tcx>, entries: &[Instance<'tcx>]) {
     let mut collector = Collector {
         tcx,
         seen: HashSet::new(),
         active: HashSet::new(),
-        instances: Vec::new(),
     };
     for &entry in entries {
         collector.visit(entry, tcx.def_span(entry.def_id()));
     }
-    collector.instances
 }
 
 struct Collector<'tcx> {
     tcx: TyCtxt<'tcx>,
     seen: HashSet<Instance<'tcx>>,
     active: HashSet<Instance<'tcx>>,
-    instances: Vec<Instance<'tcx>>,
 }
 
 impl<'tcx> Collector<'tcx> {
@@ -83,7 +78,6 @@ impl<'tcx> Collector<'tcx> {
                     }
                 );
             });
-            self.instances.push(instance);
             return;
         }
         if !signature.abi().is_rustic_abi() || tcx.is_foreign_item(instance.def_id()) {
@@ -96,7 +90,6 @@ impl<'tcx> Collector<'tcx> {
                 .span_err(span, format!("device MIR is unavailable for {instance}"));
             return;
         }
-        self.instances.push(instance);
         let body = tcx.instance_mir(instance.def);
         crate::trace(|| {
             println!("instance: {instance}");

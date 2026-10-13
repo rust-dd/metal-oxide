@@ -27,6 +27,13 @@ pub(crate) enum Intrinsic {
     FloatConvert(Scalar),
     UncheckedFloatToInt,
     Log,
+    /// `<[T]>::len`.
+    SliceLen,
+    /// `Index::index` or `IndexMut::index_mut` on a slice or array; the index type selects the
+    /// range.
+    Subslice,
+    /// `IntoIterator::into_iter` of an iterator, which returns its argument.
+    Identity,
 }
 
 impl Intrinsic {
@@ -57,6 +64,9 @@ impl Intrinsic {
             Self::FloatConvert(_) => "float_conversion",
             Self::UncheckedFloatToInt => "unchecked_float_to_int",
             Self::Log => "log",
+            Self::SliceLen => "slice_len",
+            Self::Subslice => "subslice",
+            Self::Identity => "identity",
         }
     }
 }
@@ -130,11 +140,20 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
             _ => return None,
         }));
     }
+    if let Some(index) = slice_index(tcx, definition) {
+        return Some(index);
+    }
+    if iterator_identity(tcx, definition) {
+        return Some(Intrinsic::Identity);
+    }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
         ty::TypingEnv::non_body_analysis(tcx, implementation),
         tcx.type_of(implementation).instantiate_identity(),
     );
+    if matches!(ty.kind(), ty::Slice(_)) && tcx.item_name(definition).as_str() == "len" {
+        return Some(Intrinsic::SliceLen);
+    }
     if matches!(ty.kind(), ty::Float(ty::FloatTy::F32)) {
         match tcx.item_name(definition).as_str() {
             "abs" => return Some(Intrinsic::Math(MathOp::Abs)),
@@ -154,4 +173,34 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
         }
     }
     None
+}
+
+/// The `Index` and `IndexMut` implementations of slices and arrays, which index by ranges.
+fn slice_index(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
+    let items = tcx.lang_items();
+    let implementation = tcx.impl_of_assoc(definition)?;
+    let trait_ = tcx.impl_opt_trait_id(implementation)?;
+    if Some(trait_) != items.index_trait() && Some(trait_) != items.index_mut_trait() {
+        return None;
+    }
+    let ty = tcx.normalize_erasing_regions(
+        ty::TypingEnv::non_body_analysis(tcx, implementation),
+        tcx.type_of(implementation).instantiate_identity(),
+    );
+    matches!(ty.kind(), ty::Slice(_) | ty::Array(..)).then_some(Intrinsic::Subslice)
+}
+
+/// The blanket `impl<I: Iterator> IntoIterator for I`, whose `into_iter` returns `self`.
+fn iterator_identity(tcx: TyCtxt<'_>, definition: DefId) -> bool {
+    let Some(implementation) = tcx.impl_of_assoc(definition) else {
+        return false;
+    };
+    let ty = tcx.normalize_erasing_regions(
+        ty::TypingEnv::non_body_analysis(tcx, implementation),
+        tcx.type_of(implementation).instantiate_identity(),
+    );
+    tcx.lang_items()
+        .into_iter_fn()
+        .is_some_and(|method| tcx.associated_item(definition).trait_item_def_id() == Some(method))
+        && matches!(ty.kind(), ty::Param(_))
 }

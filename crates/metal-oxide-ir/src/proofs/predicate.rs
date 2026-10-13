@@ -6,6 +6,15 @@ use super::{domain::Range, state::State};
 pub(super) enum Atom {
     Place(Place),
     Integer(i128),
+    /// The length of the slice in a place, which changes only when the place does.
+    Length(Place),
+}
+
+impl Atom {
+    /// Whether a write to `destination` changes the atom's value.
+    pub fn uses(&self, destination: &Place) -> bool {
+        matches!(self, Self::Place(p) | Self::Length(p) if p.contains(destination) || destination.contains(p))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -16,6 +25,20 @@ pub(super) enum Comparison {
     Le,
     Gt,
     Ge,
+}
+
+impl Comparison {
+    /// The comparison that holds when this one does not.
+    pub fn negate(self) -> Self {
+        match self {
+            Self::Eq => Self::Ne,
+            Self::Ne => Self::Eq,
+            Self::Lt => Self::Ge,
+            Self::Le => Self::Gt,
+            Self::Gt => Self::Le,
+            Self::Ge => Self::Lt,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -29,7 +52,7 @@ pub(super) enum Predicate {
 impl Predicate {
     pub fn uses(&self, destination: &Place) -> bool {
         match self {
-            Self::Compare(_, a, b) => [a, b].iter().any(|a| matches!(a, Atom::Place(p) if p.contains(destination) || destination.contains(p))),
+            Self::Compare(_, a, b) => a.uses(destination) || b.uses(destination),
             Self::Not(p) => p.uses(destination),
             Self::And(values) | Self::Or(values) => values.iter().any(|p| p.uses(destination)),
         }

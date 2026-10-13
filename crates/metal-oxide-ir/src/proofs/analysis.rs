@@ -11,6 +11,7 @@ type Context = (usize, Option<[u32; 3]>, Vec<Value>);
 
 pub(super) struct Analysis<'a> {
     module: &'a Module,
+    escaped: &'a [Vec<usize>],
     pub remaining: usize,
     /// The required block of the kernel being analyzed, which bounds launch coordinates.
     pub block: Option<[u32; 3]>,
@@ -22,9 +23,10 @@ pub(super) struct Analysis<'a> {
 }
 
 impl<'a> Analysis<'a> {
-    pub fn new(module: &'a Module, graphs: &[FunctionAnalysis]) -> Self {
+    pub fn new(module: &'a Module, graphs: &[FunctionAnalysis], escaped: &'a [Vec<usize>]) -> Self {
         Self {
             module,
+            escaped,
             remaining: 0,
             block: None,
             checks: vec![BTreeSet::new(); module.functions.len()],
@@ -45,7 +47,7 @@ impl<'a> Analysis<'a> {
             return Ok(result.clone());
         }
         let function = &self.module.functions[index];
-        let mut entry = State::new(self.module, function);
+        let mut entry = State::new(self.module, function, &self.escaped[index]);
         for (position, argument) in arguments.iter().enumerate() {
             entry.assign(&Place::local(position + 1), argument.clone());
         }
@@ -99,13 +101,18 @@ impl<'a> Analysis<'a> {
                     target,
                     ..
                 } => {
-                    if *enabled && state.condition(condition) != Some(*expected) {
-                        self.checks[index].insert(id);
+                    if !*enabled {
+                        pending.push_back((*target, state));
+                    } else {
+                        if state.condition(condition) != Some(*expected)
+                            && !state.implied(condition, *expected)
+                        {
+                            self.checks[index].insert(id);
+                        }
+                        // Proven conditions are assumed too: slice indices rely on their truth.
                         if state.assume(condition, *expected) {
                             pending.push_back((*target, state));
                         }
-                    } else {
-                        pending.push_back((*target, state));
                     }
                 }
                 Terminator::Panic(_) => {

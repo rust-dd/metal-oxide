@@ -3,23 +3,22 @@ use super::{
     predicate::{Atom, Comparison, Predicate},
     state::State,
 };
-use crate::*;
+use crate::{typing::Located, *};
 
 pub(super) fn place(
     state: &State<'_>,
     place: &Place,
     source: &SourceLocation,
 ) -> Result<(), Error> {
-    let mut ty = state.function.locals[place.local];
-    for projection in &place.projection {
-        ty = match *projection {
-            Projection::Field(field) => state.module.types.field(ty, field).unwrap(),
-            Projection::Index(index) => {
-                let Type::Aggregate(id) = ty else {
-                    unreachable!()
-                };
-                let Aggregate::Array { element, length } = state.module.types.get(id).unwrap()
-                else {
+    let types = &state.module.types;
+    let mut located = Located::Value(state.function.locals[place.local]);
+    for (position, projection) in place.projection.iter().enumerate() {
+        located = match (*projection, located) {
+            (Projection::Field(field), Located::Value(ty)) => {
+                Located::Value(types.field(ty, field).unwrap())
+            }
+            (Projection::Index(index), Located::Value(Type::Aggregate(id))) => {
+                let Aggregate::Array { element, length } = types.get(id).unwrap() else {
                     unreachable!()
                 };
                 let range = state.range(&Place::local(index)).unwrap();
@@ -29,8 +28,35 @@ pub(super) fn place(
                         "dynamic array index bounds cannot be proved safe",
                     ));
                 }
-                *element
+                Located::Value(*element)
             }
+            (Projection::Index(index), Located::Elements(slice)) => {
+                // The projection before the index is the slice's dereference.
+                let slice_place = Place {
+                    local: place.local,
+                    projection: place.projection[..position - 1].to_vec(),
+                };
+                if !state
+                    .index_atoms(index)
+                    .iter()
+                    .any(|atom| state.bounded(atom, Comparison::Lt, &slice_place))
+                {
+                    return Err(Error::new(
+                        source,
+                        "slice index is not below a checked slice length",
+                    ));
+                }
+                Located::Value(slice.target)
+            }
+            (Projection::Deref, Located::Value(ty)) => {
+                let pointer = types.pointer(ty).unwrap();
+                if pointer.slice {
+                    Located::Elements(pointer)
+                } else {
+                    Located::Value(pointer.target)
+                }
+            }
+            _ => unreachable!("validated place"),
         };
     }
     Ok(())
@@ -81,4 +107,23 @@ fn equality(state: &State<'_>, operand: &Operand, value: i128) -> Option<Predica
         std::mem::swap(&mut a, &mut b);
     }
     Some(Predicate::Compare(Comparison::Eq, a, b))
+}
+
+/// `slice[start..end]` needs its range checks: `start <= end <= len`.
+pub(super) fn subslice(
+    state: &State<'_>,
+    slice: &Operand,
+    start: &Operand,
+    end: &Operand,
+    source: &SourceLocation,
+) -> Result<(), Error> {
+    let (Operand::Place(slice), Some(start), Some(end)) =
+        (slice, state.written(start), state.written(end))
+    else {
+        return Err(Error::new(source, "subslice bounds are not checked"));
+    };
+    if !state.ordered(&start, &end) || !state.bounded(&end, Comparison::Le, slice) {
+        return Err(Error::new(source, "subslice bounds are not checked"));
+    }
+    Ok(())
 }

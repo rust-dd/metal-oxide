@@ -36,7 +36,7 @@ pub(crate) fn body(
         module,
         function,
         id,
-        gates: Gates::new(function, id, analyses, &graph),
+        gates: Gates::new(module, function, id, analyses, &graph),
         graph,
         used,
         analyses,

@@ -104,11 +104,14 @@ impl Constant {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Projection {
     Field(u32),
-    /// The index is a pointer-width integer local.
+    /// The index is a pointer-width integer local. On a dereferenced slice it must be below the
+    /// slice length; the bounds assertion before it establishes this.
     Index(usize),
+    /// The value a reference points to, or the elements of a slice.
+    Deref,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -127,6 +130,11 @@ impl Place {
 
     pub fn contains(&self, other: &Self) -> bool {
         self.local == other.local && other.projection.starts_with(&self.projection)
+    }
+
+    /// Whether the place is reached through a pointer rather than stored in its local.
+    pub fn is_indirect(&self) -> bool {
+        self.projection.contains(&Projection::Deref)
     }
 }
 
@@ -317,6 +325,21 @@ pub enum Expression {
         op: AtomicOp,
         arguments: Vec<Operand>,
     },
+    /// The address of a place, which the operand names; the place stays in its address space.
+    Ref {
+        place: Operand,
+        mutable: bool,
+    },
+    /// The length of a slice.
+    Len(Operand),
+    /// A slice of a whole array behind a reference, or of a kernel buffer parameter.
+    Slice(Operand),
+    /// `slice[start..end]`; the bounds assertions before it establish `start <= end <= len`.
+    Subslice {
+        slice: Operand,
+        start: Operand,
+        end: Operand,
+    },
     Call {
         function: usize,
         arguments: Vec<Operand>,
@@ -335,7 +358,10 @@ impl Expression {
             | Self::Unary(_, v)
             | Self::Cast(v, _)
             | Self::UncheckedCast(v, _)
-            | Self::Bitcast(v, _) => vec![v],
+            | Self::Bitcast(v, _)
+            | Self::Ref { place: v, .. }
+            | Self::Len(v)
+            | Self::Slice(v) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
@@ -355,6 +381,7 @@ impl Expression {
                 index,
                 value,
             } => vec![buffer, index, value],
+            Self::Subslice { slice, start, end } => vec![slice, start, end],
             Self::Call { arguments, .. }
             | Self::Log { arguments, .. }
             | Self::Math { arguments, .. }

@@ -8,7 +8,45 @@ use rustc_span::{Span, Spanned};
 use super::{Result, function::FunctionImporter};
 use crate::intrinsics::Intrinsic;
 
+/// A resolved call target.
+pub(super) struct Callee<'tcx> {
+    pub instance: Instance<'tcx>,
+    /// The generic arguments of the called definition, before resolution.
+    pub arguments: ty::GenericArgsRef<'tcx>,
+    pub intrinsic: Option<Intrinsic>,
+}
+
 impl<'tcx> FunctionImporter<'_, 'tcx> {
+    pub(super) fn callee(
+        &self,
+        func: &mir::Operand<'tcx>,
+        body: &mir::Body<'tcx>,
+        span: Span,
+    ) -> Result<Callee<'tcx>> {
+        let tcx = self.module.tcx;
+        let ty = self.normalize_type(func.ty(&body.local_decls, tcx));
+        let ty::FnDef(definition, arguments) = *ty.kind() else {
+            return Err((span, "indirect calls cannot be imported".into()));
+        };
+        let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
+        let instance = Instance::try_resolve(
+            tcx,
+            ty::TypingEnv::fully_monomorphized(),
+            definition,
+            arguments,
+        )
+        .ok()
+        .flatten()
+        .ok_or((span, "cannot resolve concrete function".into()))?;
+        let intrinsic = crate::intrinsics::builtin(tcx, definition)
+            .or_else(|| crate::intrinsics::builtin(tcx, instance.def_id()));
+        Ok(Callee {
+            instance,
+            arguments,
+            intrinsic,
+        })
+    }
+
     pub(super) fn call(
         &mut self,
         func: &mir::Operand<'tcx>,
@@ -16,39 +54,26 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         body: &mir::Body<'tcx>,
         span: Span,
     ) -> Result<ir::Expression> {
-        let ty = self.normalize_type(func.ty(&body.local_decls, self.module.tcx));
-        let ty::FnDef(def, args_types) = *ty.kind() else {
-            return Err((span, "indirect calls cannot be imported".into()));
-        };
-        let args_types = self
-            .module
-            .tcx
-            .instantiate_bound_regions_with_erased(args_types);
-        let instance = Instance::try_resolve(
-            self.module.tcx,
-            ty::TypingEnv::fully_monomorphized(),
-            def,
-            args_types,
-        )
-        .map_err(|_| (span, "cannot resolve concrete function".into()))?
-        .ok_or((span, "cannot resolve concrete function".into()))?;
-        if let Some(Intrinsic::Log) = crate::intrinsics::builtin(self.module.tcx, def) {
-            return self.log(args, args_types, span);
+        let callee = self.callee(func, body, span)?;
+        if let Some(Intrinsic::Log) = callee.intrinsic {
+            return self.log(args, callee.arguments, span);
         }
         let arguments = args
             .iter()
             .map(|a| self.operand(&a.node, a.span))
             .collect::<Result<Vec<_>>>()?;
-        if let Some(intrinsic) = crate::intrinsics::builtin(self.module.tcx, def) {
-            return self.intrinsic(intrinsic, args_types, arguments, span);
+        if let Some(intrinsic) = callee.intrinsic {
+            return self.intrinsic(intrinsic, callee.arguments, arguments, span);
         }
-        let function = *self
-            .module
-            .function_ids
-            .get(&instance)
-            .ok_or((span, "missing concrete function instance".into()))?;
+        let mut types = Vec::with_capacity(args.len());
+        for argument in args {
+            types.push(
+                self.argument_type(&argument.node, &[], argument.span)?
+                    .expect("inferred references are known"),
+            );
+        }
         Ok(ir::Expression::Call {
-            function,
+            function: self.module.function(callee.instance, types, false)?,
             arguments,
         })
     }
@@ -201,6 +226,15 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     value,
                 }
             }
+            Intrinsic::SliceLen => {
+                let [slice] = arguments(values, span)?;
+                ir::Expression::Len(slice)
+            }
+            Intrinsic::Identity => {
+                let [value] = arguments(values, span)?;
+                ir::Expression::Use(value)
+            }
+            Intrinsic::Subslice => unreachable!("subslices are expanded with their checks"),
         })
     }
 }

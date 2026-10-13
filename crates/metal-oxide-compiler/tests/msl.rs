@@ -51,7 +51,10 @@ fn records_with_references_are_rejected() {
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
         &[],
     );
-    support::rejected(output, "unsupported device type");
+    support::rejected(
+        output,
+        "references cannot be stored in records, tuples or arrays",
+    );
     assert!(!directory.join("kernels.metal").exists());
 }
 

@@ -2,28 +2,35 @@ use metal_oxide_ir as ir;
 use rustc_middle::{mir, ty::Instance};
 use rustc_span::Span;
 
-use super::{ModuleImporter, Result, control, location, panics::Panics, ranges};
+use super::{ModuleImporter, Result, control, location, panics::Panics, ranges, references};
 
 pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
     pub(super) instance: Instance<'tcx>,
+    /// The kernel's lowered signature, or the argument types of the helper's callers.
+    parameters: Vec<ir::Type>,
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
     pub(super) constants: Vec<Option<ir::Constant>>,
-    pub(super) references: Vec<Option<mir::Local>>,
-    /// Blocks numbered after the MIR blocks, from expanded range iteration.
+    pub(super) handles: Vec<Option<mir::Local>>,
+    /// Blocks numbered after the MIR blocks, from expanded range iteration and subslicing.
     pub(super) appended: Vec<ir::Block>,
 }
 
 impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
-    pub(super) fn new(module: &'a mut ModuleImporter<'tcx>, instance: Instance<'tcx>) -> Self {
+    pub(super) fn new(
+        module: &'a mut ModuleImporter<'tcx>,
+        instance: Instance<'tcx>,
+        parameters: Vec<ir::Type>,
+    ) -> Self {
         Self {
             module,
             instance,
+            parameters,
             locals: Vec::new(),
             allocations: 0,
             constants: Vec::new(),
-            references: Vec::new(),
+            handles: Vec::new(),
             appended: Vec::new(),
         }
     }
@@ -35,19 +42,25 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let used = control::used_locals(body);
         let panics = Panics::new(tcx, body)?;
         self.constants = super::constants::locals(tcx, self.instance, body);
-        self.references = ranges::references(body);
+        self.handles = references::handles(tcx, body, |ty| self.normalize_type(ty));
         let discriminants = ranges::discriminants(body);
+        let mut pending = vec![false; body.local_decls.len()];
         for (index, local) in body.local_decls.iter().enumerate() {
-            let ty = if !used[index] || self.references[index].is_some() || panics.is_literal(index)
-            {
+            let ty = if (1..=body.arg_count).contains(&index) {
+                self.parameters[index - 1]
+            } else if !used[index] || self.handles[index].is_some() || panics.is_literal(index) {
                 ir::Type::Unit
             } else if discriminants[index] {
                 ir::Type::Scalar(ir::Scalar::Bool)
+            } else if crate::types::has_reference(self.normalize_type(local.ty)) {
+                pending[index] = true;
+                ir::Type::Unit
             } else {
                 self.lower_type(local.ty, local.source_info.span)?
             };
             self.locals.push(ty);
         }
+        self.infer_references(body, pending)?;
         let mut blocks = Vec::with_capacity(body.basic_blocks.len());
         for block in body.basic_blocks.iter() {
             blocks.push(self.block(block, body, &panics)?);
@@ -86,7 +99,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                     if assignment
                         .0
                         .as_local()
-                        .is_some_and(|local| self.references[local.as_usize()].is_some()) => {}
+                        .is_some_and(|local| self.handles[local.as_usize()].is_some()) => {}
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
                     statements.push(ir::Statement {
@@ -163,6 +176,20 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 destination,
                 target: Some(target),
                 ..
+            } if self.is_subslice(func, body, span)? => self.subslice(
+                &mut statements,
+                args,
+                destination,
+                target.as_usize(),
+                body,
+                caller,
+            )?,
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
             } => {
                 statements.push(ir::Statement {
                     destination: self.place(destination, span)?,
@@ -210,4 +237,12 @@ fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
         AssertKind::RemainderByZero(_) => ir::Check::RemainderByZero,
         other => return Err((span, format!("unsupported MIR assertion: {other:?}"))),
     })
+}
+
+impl FunctionImporter<'_, '_> {
+    /// Appends a block after the MIR blocks and returns its id.
+    pub(super) fn append(&mut self, body: &mir::Body<'_>, block: ir::Block) -> usize {
+        self.appended.push(block);
+        body.basic_blocks.len() + self.appended.len() - 1
+    }
 }

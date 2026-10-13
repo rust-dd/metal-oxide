@@ -7,15 +7,13 @@ pub(crate) fn type_name(ty: Type) -> String {
         Type::Dim3 => "uint3".into(),
         Type::Aggregate(id) => format!("metal_oxide_aggregate_{id}"),
         Type::Checked(s) => format!("metal_oxide_checked_{}", s.name()),
+        Type::Pointer(id) => format!("metal_oxide_pointer_{id}"),
         Type::Buffer {
             element,
             access,
             address_space,
         } => {
-            let space = match address_space {
-                AddressSpace::Device => "device",
-                AddressSpace::Threadgroup => "threadgroup",
-            };
+            let space = space_name(address_space);
             let qualifier = if access == Access::Read { "const " } else { "" };
             let atomic = if access == Access::Atomic {
                 "atomic_"
@@ -24,6 +22,29 @@ pub(crate) fn type_name(ty: Type) -> String {
             };
             format!("{space} {qualifier}{atomic}{} *", type_name(element.ty()))
         }
+    }
+}
+
+pub(crate) fn space_name(space: AddressSpace) -> &'static str {
+    match space {
+        AddressSpace::Device => "device",
+        AddressSpace::Threadgroup => "threadgroup",
+        AddressSpace::Thread => "thread",
+    }
+}
+
+/// A thin pointer is a typedef; a slice is a struct of its data pointer and length.
+pub(crate) fn pointer_declaration(id: usize, pointer: &Pointer) -> String {
+    let constness = if pointer.mutable { "" } else { "const " };
+    let data = format!(
+        "{} {constness}{}*",
+        space_name(pointer.space),
+        type_name(pointer.target)
+    );
+    if pointer.slice {
+        format!("struct metal_oxide_pointer_{id} {{\n    {data} data;\n    ulong length;\n}};\n\n")
+    } else {
+        format!("typedef {data} metal_oxide_pointer_{id};\n")
     }
 }
 
@@ -59,30 +80,44 @@ pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u3
 }
 
 pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> String {
-    let mut ty = function.locals[value.local];
+    let mut located = Located::Value(function.locals[value.local]);
     let mut result = format!("v{}", value.local);
     for projection in &value.projection {
-        if let Projection::Index(index) = *projection {
-            result = format!("{result}.elements[v{index}]");
-            let Type::Aggregate(id) = ty else {
-                unreachable!()
-            };
-            let Aggregate::Array { element, .. } = module.types.get(id).unwrap() else {
-                unreachable!()
-            };
-            ty = *element;
-            continue;
-        }
-        let Projection::Field(field) = *projection else {
-            unreachable!()
-        };
-        result = match ty {
-            Type::Aggregate(id) => aggregate_field(module, id, &result, field),
-            Type::Dim3 => format!("{result}.{}", ["x", "y", "z"][field as usize]),
-            Type::Checked(_) => format!("{result}.{}", ["value", "overflow"][field as usize]),
+        (result, located) = match (*projection, located) {
+            (Projection::Field(field), Located::Value(ty)) => (
+                match ty {
+                    Type::Aggregate(id) => aggregate_field(module, id, &result, field),
+                    Type::Dim3 => format!("{result}.{}", ["x", "y", "z"][field as usize]),
+                    Type::Checked(_) => {
+                        format!("{result}.{}", ["value", "overflow"][field as usize])
+                    }
+                    _ => unreachable!("validated projection"),
+                },
+                Located::Value(module.types.field(ty, field).unwrap()),
+            ),
+            (Projection::Index(index), Located::Value(Type::Aggregate(id))) => {
+                let Some(Aggregate::Array { element, .. }) = module.types.get(id) else {
+                    unreachable!("validated projection")
+                };
+                (
+                    format!("{result}.elements[v{index}]"),
+                    Located::Value(*element),
+                )
+            }
+            (Projection::Index(index), Located::Elements(slice)) => (
+                format!("{result}.data[v{index}]"),
+                Located::Value(slice.target),
+            ),
+            (Projection::Deref, Located::Value(ty)) => {
+                let pointer = module.types.pointer(ty).unwrap();
+                if pointer.slice {
+                    (result, Located::Elements(pointer))
+                } else {
+                    (format!("(*{result})"), Located::Value(pointer.target))
+                }
+            }
             _ => unreachable!("validated projection"),
         };
-        ty = module.types.field(ty, field).unwrap();
     }
     result
 }
@@ -207,6 +242,37 @@ pub(crate) fn expression(
             index,
             value,
         } => format!("{}[{}] = {}", op(buffer), op(index), op(value)),
+        Expression::Ref { place: target, .. } => {
+            let Operand::Place(target) = target else {
+                unreachable!("validated reference")
+            };
+            reference(module, function, value, target, source)?
+        }
+        Expression::Len(slice) => format!("{}.length", op(slice)),
+        Expression::Slice(data) => {
+            let pointer = result_pointer(module, function, value, source)?;
+            let length = match ty(data)? {
+                Type::Buffer { .. } => {
+                    return Err(Error::new(source, "buffer slices are not supported yet"));
+                }
+                array => match module.types.pointer(array).map(|p| p.target) {
+                    Some(Type::Aggregate(id)) => module.types.get(id).unwrap().len(),
+                    _ => unreachable!("validated slice"),
+                },
+            };
+            format!(
+                "metal_oxide_pointer_{pointer}{{(*{}).elements, {length}ul}}",
+                op(data)
+            )
+        }
+        Expression::Subslice { slice, start, end } => {
+            let pointer = result_pointer(module, function, value, source)?;
+            let (slice, start) = (op(slice), op(start));
+            format!(
+                "metal_oxide_pointer_{pointer}{{{slice}.data + {start}, {} - {start}}}",
+                op(end)
+            )
+        }
         Expression::Call {
             function: id,
             arguments,
@@ -232,4 +298,45 @@ pub(crate) fn expression(
             crate::arithmetic::binary(*operation, &op(a), &op(b), ty(a)?)
         }
     })
+}
+
+fn result_pointer(
+    module: &Module,
+    function: &Function,
+    value: &Expression,
+    source: &SourceLocation,
+) -> Result<usize, Error> {
+    match expression_type(module, function, value, source)? {
+        Type::Pointer(id) => Ok(id),
+        _ => unreachable!("validated pointer expression"),
+    }
+}
+
+/// `&place`; a reborrowed slice is rebuilt when its mutability, and so its MSL type, changes.
+fn reference(
+    module: &Module,
+    function: &Function,
+    value: &Expression,
+    target: &Place,
+    source: &SourceLocation,
+) -> Result<String, Error> {
+    let emitted = place(module, function, target);
+    if !matches!(
+        place_info(module, function, target, source)?.located,
+        Located::Elements(_)
+    ) {
+        return Ok(format!("&{emitted}"));
+    }
+    let pointer = result_pointer(module, function, value, source)?;
+    let slice = Place {
+        local: target.local,
+        projection: target.projection[..target.projection.len() - 1].to_vec(),
+    };
+    Ok(
+        if place_type(module, function, &slice, source)? == Type::Pointer(pointer) {
+            emitted
+        } else {
+            format!("metal_oxide_pointer_{pointer}{{{emitted}.data, {emitted}.length}}")
+        },
+    )
 }

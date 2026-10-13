@@ -86,6 +86,10 @@ impl<'tcx> TypeLowering<'tcx> {
             return Ok(self.types.intern(ir::Aggregate::Tuple(fields)));
         }
         if let ty::Adt(definition, args) = ty.kind() {
+            // `slice[..]` passes a field-less `RangeFull`, which needs no storage.
+            if self.tcx.lang_items().range_full_struct() == Some(definition.did()) {
+                return Ok(ir::Type::Unit);
+            }
             if device_type(self.tcx, definition.did()) == Some(DeviceType::F16) {
                 return Ok(ir::Type::Scalar(ir::Scalar::F16));
             }
@@ -149,7 +153,40 @@ impl<'tcx> TypeLowering<'tcx> {
         ty
     }
 
+    /// A reference or slice reference into `space`; its target must be an owned value.
+    pub(crate) fn reference(
+        &mut self,
+        ty: Ty<'tcx>,
+        space: ir::AddressSpace,
+        span: Span,
+    ) -> Result<ir::Type, (Span, String)> {
+        let (ty::Ref(_, target, mutability) | ty::RawPtr(target, mutability)) = *ty.kind() else {
+            return Err((span, format!("unsupported device type: {ty}")));
+        };
+        let (target, slice) = match target.kind() {
+            ty::Slice(element) => (*element, true),
+            _ => (target, false),
+        };
+        let target = self.owned(target, span)?;
+        Ok(self.types.intern_pointer(ir::Pointer {
+            target,
+            space,
+            mutable: mutability.is_mut(),
+            slice,
+        }))
+    }
+
+    pub(crate) fn intern_pointer(&mut self, pointer: ir::Pointer) -> ir::Type {
+        self.types.intern_pointer(pointer)
+    }
+
     fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
+        if matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..)) {
+            return Err((
+                span,
+                "references cannot be stored in records, tuples or arrays".into(),
+            ));
+        }
         let ty = self.lower(ty, span)?;
         if matches!(
             ty,
@@ -233,4 +270,13 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
         _ if lowering.types.is_abi_value(ty) => Some(ty),
         _ => None,
     }
+}
+
+/// Whether `ty` holds a reference or raw pointer, whose address space its uses determine.
+pub(crate) fn has_reference(ty: Ty<'_>) -> bool {
+    ty.walk().any(|argument| {
+        argument
+            .as_type()
+            .is_some_and(|ty| matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..)))
+    })
 }

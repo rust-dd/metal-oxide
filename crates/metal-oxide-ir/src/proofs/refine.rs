@@ -21,6 +21,10 @@ impl State<'_> {
         if let Operand::Place(p) = operand
             && let Some(p) = self.resolve(p)
         {
+            if let Some((op, a, b)) = self.conditions.get(&p).cloned() {
+                let op = if expected { op } else { op.negate() };
+                self.relations.insert((a, op, b));
+            }
             self.facts.insert(p, Range::exact(i128::from(expected)));
         }
         true
@@ -58,18 +62,7 @@ impl State<'_> {
 
     fn refine_comparison(&mut self, op: Comparison, a: &Atom, b: &Atom, expected: bool) -> bool {
         use Comparison::*;
-        let op = if expected {
-            op
-        } else {
-            match op {
-                Eq => Ne,
-                Ne => Eq,
-                Lt => Ge,
-                Le => Gt,
-                Gt => Le,
-                Ge => Lt,
-            }
-        };
+        let op = if expected { op } else { op.negate() };
         let left = self.atom(a);
         let right = self.atom(b);
         let mut x = left.clone();

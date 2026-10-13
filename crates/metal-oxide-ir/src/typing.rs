@@ -1,37 +1,87 @@
 use crate::*;
 
-pub fn place_type(
+/// What a place denotes: a value, or the elements behind a dereferenced slice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Located {
+    Value(Type),
+    Elements(Pointer),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlaceInfo {
+    pub located: Located,
+    pub space: AddressSpace,
+    /// Writes and mutable references need every pointer on the path to be mutable.
+    pub writable: bool,
+}
+
+pub fn place_info(
     module: &Module,
     function: &Function,
     place: &Place,
     source: &SourceLocation,
-) -> Result<Type, Error> {
-    let mut ty = *function
+) -> Result<PlaceInfo, Error> {
+    let ty = *function
         .locals
         .get(place.local)
         .ok_or_else(|| Error::new(source, "invalid local reference"))?;
     if ty == Type::Never {
         return Err(Error::new(source, "never-typed values cannot be read"));
     }
+    let mut info = PlaceInfo {
+        located: Located::Value(ty),
+        space: AddressSpace::Thread,
+        writable: true,
+    };
     for projection in &place.projection {
-        ty = match *projection {
-            Projection::Field(field) => module.types.field(ty, field),
-            Projection::Index(index) => {
+        let invalid = match projection {
+            Projection::Field(_) => "invalid aggregate field projection",
+            Projection::Index(_) => "invalid array or slice index projection",
+            Projection::Deref => "dereference requires a pointer",
+        };
+        info.located = match (*projection, info.located) {
+            (Projection::Field(field), Located::Value(ty)) => {
+                module.types.field(ty, field).map(Located::Value)
+            }
+            (Projection::Index(index), located) => {
                 if function.locals.get(index) != Some(&Type::Scalar(Scalar::Usize)) {
                     return Err(Error::new(source, "array indices require a usize local"));
                 }
-                match ty {
-                    Type::Aggregate(id) => match module.types.get(id) {
-                        Some(Aggregate::Array { element, .. }) => Some(*element),
+                match located {
+                    Located::Value(Type::Aggregate(id)) => match module.types.get(id) {
+                        Some(Aggregate::Array { element, .. }) => Some(Located::Value(*element)),
                         _ => None,
                     },
-                    _ => None,
+                    Located::Elements(slice) => Some(Located::Value(slice.target)),
+                    Located::Value(_) => None,
                 }
             }
+            (Projection::Deref, Located::Value(ty)) => module.types.pointer(ty).map(|pointer| {
+                info.space = pointer.space;
+                info.writable &= pointer.mutable;
+                if pointer.slice {
+                    Located::Elements(pointer)
+                } else {
+                    Located::Value(pointer.target)
+                }
+            }),
+            _ => None,
         }
-        .ok_or_else(|| Error::new(source, "invalid aggregate field projection"))?;
+        .ok_or_else(|| Error::new(source, invalid))?;
     }
-    Ok(ty)
+    Ok(info)
+}
+
+pub fn place_type(
+    module: &Module,
+    function: &Function,
+    place: &Place,
+    source: &SourceLocation,
+) -> Result<Type, Error> {
+    match place_info(module, function, place, source)?.located {
+        Located::Value(ty) => Ok(ty),
+        Located::Elements(_) => Err(Error::new(source, "slice elements are not one value")),
+    }
 }
 
 pub fn operand_type(
@@ -63,7 +113,7 @@ pub fn operand_type(
     }
 }
 
-pub(crate) fn expression_type(
+pub fn expression_type(
     module: &Module,
     function: &Function,
     expression: &Expression,
@@ -346,7 +396,85 @@ pub(crate) fn expression_type(
         Expression::Atomic { op, arguments } => {
             crate::atomic::atomic_type(module, function, *op, arguments, source)
         }
+        Expression::Ref { place, mutable } => {
+            let Operand::Place(place) = place else {
+                return Err(Error::new(source, "references require a place"));
+            };
+            let info = place_info(module, function, place, source)?;
+            if *mutable && !info.writable {
+                return Err(Error::new(
+                    source,
+                    "a mutable reference requires a mutable path",
+                ));
+            }
+            let (target, slice) = match info.located {
+                Located::Value(ty) => (ty, false),
+                Located::Elements(elements) => (elements.target, true),
+            };
+            pointer_type(
+                module,
+                Pointer {
+                    target,
+                    space: info.space,
+                    mutable: *mutable,
+                    slice,
+                },
+                source,
+            )
+        }
+        Expression::Len(slice) => match module.types.pointer(ty(slice)?) {
+            Some(pointer) if pointer.slice => Ok(Type::Scalar(Scalar::Usize)),
+            _ => Err(Error::new(source, "length requires a slice")),
+        },
+        Expression::Slice(data) => {
+            let slice = match ty(data)? {
+                Type::Buffer {
+                    element,
+                    access: access @ (Access::Read | Access::ReadWrite),
+                    address_space,
+                } => Pointer {
+                    target: element.ty(),
+                    space: address_space,
+                    mutable: access == Access::ReadWrite,
+                    slice: true,
+                },
+                array => match module.types.pointer(array) {
+                    Some(
+                        pointer @ Pointer {
+                            target: Type::Aggregate(id),
+                            slice: false,
+                            ..
+                        },
+                    ) => match module.types.get(id) {
+                        Some(Aggregate::Array { element, .. }) => Pointer {
+                            target: *element,
+                            slice: true,
+                            ..pointer
+                        },
+                        _ => return Err(Error::new(source, "slices require an array or buffer")),
+                    },
+                    _ => return Err(Error::new(source, "slices require an array or buffer")),
+                },
+            };
+            pointer_type(module, slice, source)
+        }
+        Expression::Subslice { slice, start, end } => {
+            require(ty(start)?, Type::Scalar(Scalar::Usize))?;
+            require(ty(end)?, Type::Scalar(Scalar::Usize))?;
+            let slice = ty(slice)?;
+            match module.types.pointer(slice) {
+                Some(pointer) if pointer.slice => Ok(slice),
+                _ => Err(Error::new(source, "subslices require a slice")),
+            }
+        }
     }
+}
+
+fn pointer_type(module: &Module, pointer: Pointer, source: &SourceLocation) -> Result<Type, Error> {
+    module
+        .types
+        .find_pointer(pointer)
+        .ok_or_else(|| Error::new(source, format!("pointer type {pointer:?} is not interned")))
 }
 
 fn binary_type(op: BinaryOp, a: Type, b: Type, source: &SourceLocation) -> Result<Type, Error> {

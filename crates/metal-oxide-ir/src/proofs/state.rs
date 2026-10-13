@@ -6,7 +6,7 @@ use std::{
 
 use super::{
     domain::{Range, integer},
-    predicate::{Atom, Predicate},
+    predicate::{Atom, Comparison, Predicate},
 };
 use crate::*;
 
@@ -39,10 +39,23 @@ impl Value {
 pub(super) struct State<'a> {
     pub module: &'a Module,
     pub function: &'a Function,
+    /// Locals whose address is taken mutably; writes through pointers may change them.
+    pub escaped: &'a [usize],
     pub facts: BTreeMap<Place, Range>,
     pub aliases: BTreeMap<Place, Atom>,
     pub predicates: BTreeMap<Place, Predicate>,
     pub truths: BTreeMap<Predicate, bool>,
+    /// Reborrowed slices and the slice they view whole.
+    pub slices: BTreeMap<Place, Place>,
+    /// Places that hold a copy of another place's unchanged value, by that place.
+    pub copies: BTreeMap<Place, Place>,
+    /// Slices of whole arrays and their lengths.
+    pub extents: BTreeMap<Place, u32>,
+    /// The comparison each boolean place holds, between places and constants as written.
+    pub conditions: BTreeMap<Place, (Comparison, Atom, Atom)>,
+    /// Comparisons assumed true. Unlike `truths`, they name places rather than their current
+    /// values, so they survive joins of loop iterations.
+    pub relations: BTreeSet<(Atom, Comparison, Atom)>,
 }
 
 impl PartialEq for State<'_> {
@@ -51,20 +64,31 @@ impl PartialEq for State<'_> {
             && self.aliases == other.aliases
             && self.predicates == other.predicates
             && self.truths == other.truths
+            && self.slices == other.slices
+            && self.copies == other.copies
+            && self.extents == other.extents
+            && self.conditions == other.conditions
+            && self.relations == other.relations
     }
 }
 
 impl Eq for State<'_> {}
 
 impl<'a> State<'a> {
-    pub fn new(module: &'a Module, function: &'a Function) -> Self {
+    pub fn new(module: &'a Module, function: &'a Function, escaped: &'a [usize]) -> Self {
         Self {
             module,
             function,
+            escaped,
             facts: BTreeMap::new(),
             aliases: BTreeMap::new(),
             predicates: BTreeMap::new(),
             truths: BTreeMap::new(),
+            slices: BTreeMap::new(),
+            copies: BTreeMap::new(),
+            extents: BTreeMap::new(),
+            conditions: BTreeMap::new(),
+            relations: BTreeSet::new(),
         }
     }
 
@@ -75,6 +99,7 @@ impl<'a> State<'a> {
         }
     }
 
+    /// The place with constant indices as fields; `None` behind a pointer or a varying index.
     pub fn resolve(&self, place: &Place) -> Option<Place> {
         let mut result = Place::local(place.local);
         for projection in &place.projection {
@@ -83,6 +108,7 @@ impl<'a> State<'a> {
                 Projection::Index(index) => Projection::Field(
                     u32::try_from(self.range(&Place::local(index))?.singleton()?).ok()?,
                 ),
+                Projection::Deref => return None,
             });
         }
         Some(result)
@@ -90,6 +116,9 @@ impl<'a> State<'a> {
 
     pub fn range(&self, place: &Place) -> Option<Range> {
         let full = Range::full(self.scalar(place)?);
+        if place.is_indirect() {
+            return Some(full);
+        }
         if let Some(resolved) = self.resolve(place) {
             let own = self.facts.get(&resolved).cloned().unwrap_or(full);
             // An alias holds the same value, so a refinement of its target also bounds it.
@@ -162,6 +191,10 @@ impl<'a> State<'a> {
         match atom {
             Atom::Integer(n) => Range::exact(*n),
             Atom::Place(p) => self.range(p).unwrap(),
+            Atom::Length(slice) => self
+                .extents
+                .get(slice)
+                .map_or(Range::full(Scalar::Usize), |&n| Range::exact(i128::from(n))),
         }
     }
 
@@ -213,7 +246,21 @@ impl<'a> State<'a> {
         }
     }
 
+    /// Drops every fact about locals a write through a pointer may have changed.
+    pub fn forget_escaped(&mut self) {
+        for &local in self.escaped {
+            self.forget(&Place::local(local));
+        }
+    }
+
     pub fn forget(&mut self, place: &Place) {
+        if place.is_indirect() {
+            self.forget_escaped();
+            return;
+        }
+        if let Some(destination) = self.resolve(place) {
+            self.inherit(&destination);
+        }
         let destination = self.resolve(place).unwrap_or_else(|| {
             let mut p = place.clone();
             p.projection.truncate(
@@ -224,12 +271,23 @@ impl<'a> State<'a> {
             );
             p
         });
-        self.facts
-            .retain(|p, _| !destination.contains(p) && !p.contains(&destination));
-        self.aliases.retain(|p, a| !destination.contains(p) && !matches!(a, Atom::Place(p) if destination.contains(p) || p.contains(&destination)));
+        let independent =
+            |place: &Place| !destination.contains(place) && !place.contains(&destination);
+        let atom = |atom: &Atom| !atom.uses(&destination);
+        self.facts.retain(|p, _| independent(p));
+        self.aliases
+            .retain(|p, a| !destination.contains(p) && atom(a));
         self.predicates
             .retain(|p, v| !destination.contains(p) && !v.uses(&destination));
         self.truths.retain(|p, _| !p.uses(&destination));
+        self.slices
+            .retain(|view, slice| independent(view) && independent(slice));
+        self.copies
+            .retain(|copy, source| independent(copy) && independent(source));
+        self.extents.retain(|slice, _| independent(slice));
+        self.conditions
+            .retain(|condition, (_, a, b)| independent(condition) && atom(a) && atom(b));
+        self.relations.retain(|(a, _, b)| atom(a) && atom(b));
     }
 
     pub fn assign(&mut self, destination: &Place, value: Value) {
@@ -275,6 +333,14 @@ impl<'a> State<'a> {
         self.facts.extend(added);
         changed |= retain_common(&mut self.aliases, &other.aliases);
         changed |= retain_common(&mut self.predicates, &other.predicates);
+        changed |= retain_common(&mut self.slices, &other.slices);
+        changed |= retain_common(&mut self.copies, &other.copies);
+        changed |= retain_common(&mut self.extents, &other.extents);
+        changed |= retain_common(&mut self.conditions, &other.conditions);
+        let relations = self.relations.len();
+        self.relations
+            .retain(|relation| other.relations.contains(relation));
+        changed |= relations != self.relations.len();
         changed | retain_common(&mut self.truths, &other.truths)
     }
 

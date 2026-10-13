@@ -35,24 +35,28 @@ fn remove_contained(state: &mut State, place: &Place) {
     }
 }
 
+/// Whether a read of `place` sees initialized storage: the part stored in the local up to the
+/// first varying index or dereference must be initialized. Rust initializes pointer targets.
 fn covered(state: &State, place: &Place) -> bool {
-    let mut required = place.clone();
-    if let Some(index) = required
-        .projection
-        .iter()
-        .position(|p| matches!(p, Projection::Index(_)))
-    {
-        required.projection.truncate(index);
-    }
+    let required = stored(place);
     same_local(state, required.local).any(|value| value.contains(&required))
 }
 
-fn mark(module: &Module, function: &Function, state: &mut State, place: &Place) {
-    if place
+/// The prefix of `place` that names storage of its own local with fixed fields.
+fn stored(place: &Place) -> Place {
+    let mut prefix = place.clone();
+    if let Some(index) = prefix
         .projection
         .iter()
-        .any(|p| matches!(p, Projection::Index(_)))
+        .position(|p| matches!(p, Projection::Index(_) | Projection::Deref))
     {
+        prefix.projection.truncate(index);
+    }
+    prefix
+}
+
+fn mark(module: &Module, function: &Function, state: &mut State, place: &Place) {
+    if stored(place) != *place {
         return;
     }
     if covered(state, place) {
@@ -126,6 +130,13 @@ pub(crate) fn initialized(
         let mut initialized = inputs[id].clone().unwrap();
         for statement in &block.statements {
             check_indices(&initialized, &statement.destination, &statement.source)?;
+            if statement.destination.is_indirect() && !covered(&initialized, &statement.destination)
+            {
+                return Err(Error::new(
+                    &statement.source,
+                    "write through an uninitialized pointer",
+                ));
+            }
             for operand in statement.value.operands() {
                 check(function, &initialized, operand, &statement.source)?;
             }

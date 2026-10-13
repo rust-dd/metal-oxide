@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use crate::{ControlFlowGraph, Dominators, Expression};
+use crate::{
+    AddressSpace, ControlFlowGraph, Dominators, Expression, Function, Module, Operand, Place,
+    Statement, typing::place_info,
+};
 
 /// Control-flow facts and effects established by IR validation.
 #[derive(Debug)]
@@ -42,5 +45,31 @@ impl Expression {
             Self::Call { function, .. } => functions[*function].effects,
             _ => false,
         }
+    }
+}
+
+impl Statement {
+    /// Like [`Expression::has_effect`], and also true for an access to device or threadgroup
+    /// memory through a pointer.
+    pub fn has_effect(
+        &self,
+        module: &Module,
+        function: &Function,
+        functions: &[FunctionAnalysis],
+    ) -> bool {
+        let shared = |place: &Place| {
+            place.is_indirect()
+                && place_info(module, function, place, &self.source)
+                    .is_ok_and(|info| info.space != AddressSpace::Thread)
+        };
+        let reads = match &self.value {
+            Expression::Ref { .. } => Vec::new(),
+            value => value.operands(),
+        };
+        self.value.has_effect(functions)
+            || shared(&self.destination)
+            || reads
+                .into_iter()
+                .any(|operand| matches!(operand, Operand::Place(place) if shared(place)))
     }
 }

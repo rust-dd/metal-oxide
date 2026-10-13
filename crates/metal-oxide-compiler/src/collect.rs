@@ -39,7 +39,8 @@ pub(crate) fn block_shape(
     }
 }
 
-pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> (Vec<Instance<'tcx>>, Vec<Instance<'tcx>>) {
+/// Kernel entrypoints, after reporting unsupported code they can reach.
+pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Instance<'tcx>> {
     let marker = [Symbol::intern("metal_oxide"), Symbol::intern("kernel")];
     let mut entries = Vec::new();
     for definition in tcx.hir_crate_items(()).definitions() {
@@ -50,8 +51,8 @@ pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> (Vec<Instance<'tcx>>, Vec<Inst
         }
     }
     tcx.dcx().abort_if_errors();
-    let instances = crate::monomorphize::reachable(tcx, &entries);
-    (entries, instances)
+    crate::monomorphize::validate(tcx, &entries);
+    entries
 }
 
 fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {

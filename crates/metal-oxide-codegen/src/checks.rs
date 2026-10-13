@@ -56,6 +56,9 @@ fn kind(check: &Check) -> artifact::CheckKind {
         }),
         Check::DivisionByZero => artifact::CheckKind::DivisionByZero,
         Check::RemainderByZero => artifact::CheckKind::RemainderByZero,
+        Check::SliceStart => artifact::CheckKind::SliceStart,
+        Check::SliceEnd => artifact::CheckKind::SliceEnd,
+        Check::SliceOrder => artifact::CheckKind::SliceOrder,
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::control::StructuredGraph;
-use metal_oxide_ir::{Function, FunctionAnalysis};
+use metal_oxide_ir::{Function, FunctionAnalysis, Module};
 
 /// Tests the gate word: a skipped dispatch leaves before it touches memory or synchronizes.
 pub(crate) const GATE: &str = "if (*metal_oxide_gate != 0u) { return; }";
@@ -16,6 +16,7 @@ pub(crate) struct Gates {
 
 impl Gates {
     pub(crate) fn new(
+        module: &Module,
         function: &Function,
         id: usize,
         analyses: &[FunctionAnalysis],
@@ -30,7 +31,7 @@ impl Gates {
             function.blocks[block]
                 .statements
                 .iter()
-                .position(|statement| statement.value.has_effect(analyses))
+                .position(|statement| statement.has_effect(module, function, analyses))
         };
         let effects = analysis
             .cfg

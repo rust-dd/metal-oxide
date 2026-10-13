@@ -46,7 +46,10 @@ impl Used {
         while let Some(local) = pending.pop() {
             for &(id, index) in &writers[local] {
                 let statement = &function.blocks[id].statements[index];
-                if !statements[id][index] || !removable(&statement.value) {
+                if !statements[id][index]
+                    || !removable(&statement.value)
+                    || statement.destination.is_indirect()
+                {
                     continue;
                 }
                 statements[id][index] = false;
@@ -100,6 +103,9 @@ fn removable(value: &Expression) -> bool {
 }
 
 fn statement_reads(destination: &Place, value: &Expression, visit: &mut dyn FnMut(usize)) {
+    if destination.is_indirect() {
+        visit(destination.local);
+    }
     place_indices(destination, visit);
     for operand in value.operands() {
         operand_reads(operand, visit);

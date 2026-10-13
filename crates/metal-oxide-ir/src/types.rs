@@ -1,6 +1,6 @@
 use crate::{Error, SourceLocation};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Scalar {
     Bool,
     F32,
@@ -62,7 +62,7 @@ impl Scalar {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Access {
     Read,
     Write,
@@ -70,13 +70,15 @@ pub enum Access {
     Atomic,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AddressSpace {
     Device,
     Threadgroup,
+    /// Locals and temporaries, private to one thread.
+    Thread,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Element {
     Scalar(Scalar),
     Aggregate(usize),
@@ -91,7 +93,7 @@ impl Element {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     Unit,
     Never,
@@ -105,6 +107,18 @@ pub enum Type {
     },
     /// Integer value and its overflow flag, in that order.
     Checked(Scalar),
+    /// A reference or slice interned in the type table.
+    Pointer(usize),
+}
+
+/// A reference into one address space; a slice also carries its length.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pointer {
+    /// The referenced value, or the element type of a slice.
+    pub target: Type,
+    pub space: AddressSpace,
+    pub mutable: bool,
+    pub slice: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -178,6 +192,7 @@ impl Aggregate {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TypeTable {
     aggregates: Vec<Aggregate>,
+    pointers: Vec<Pointer>,
 }
 
 impl TypeTable {
@@ -192,6 +207,43 @@ impl TypeTable {
             }
         };
         Type::Aggregate(id)
+    }
+
+    /// Interns a pointer whose target is already interned.
+    pub fn intern_pointer(&mut self, pointer: Pointer) -> Type {
+        self.find_pointer(pointer).unwrap_or_else(|| {
+            self.pointers.push(pointer);
+            Type::Pointer(self.pointers.len() - 1)
+        })
+    }
+
+    pub fn find_pointer(&self, pointer: Pointer) -> Option<Type> {
+        self.pointers
+            .iter()
+            .position(|value| *value == pointer)
+            .map(Type::Pointer)
+    }
+
+    pub fn pointer(&self, ty: Type) -> Option<Pointer> {
+        match ty {
+            Type::Pointer(id) => self.pointers.get(id).copied(),
+            _ => None,
+        }
+    }
+
+    pub fn pointers(&self) -> impl Iterator<Item = (usize, &Pointer)> {
+        self.pointers.iter().enumerate()
+    }
+
+    /// Values that contain no pointer, so they can live in arrays, slices and buffers.
+    pub fn is_owned(&self, ty: Type) -> bool {
+        match ty {
+            Type::Scalar(_) | Type::Dim3 | Type::Checked(_) => true,
+            Type::Aggregate(id) => self
+                .get(id)
+                .is_some_and(|aggregate| aggregate.component_types().all(|t| self.is_owned(t))),
+            _ => false,
+        }
     }
 
     pub fn field(&self, ty: Type, index: u32) -> Option<Type> {
@@ -252,6 +304,9 @@ impl TypeTable {
                             format!("aggregate type {id} must reference earlier definitions"),
                         ));
                     }
+                    Type::Pointer(pointer)
+                        if pointer < self.pointers.len()
+                            && !matches!(aggregate, Aggregate::Array { .. }) => {}
                     _ => {
                         return Err(Error::new(
                             source,
@@ -259,6 +314,19 @@ impl TypeTable {
                         ));
                     }
                 }
+            }
+        }
+        for pointer in &self.pointers {
+            let target = pointer.target;
+            let valid = match target {
+                Type::Aggregate(id) => id < self.aggregates.len(),
+                _ => !matches!(target, Type::Unit | Type::Never | Type::Buffer { .. }),
+            };
+            if !valid || !self.is_owned(target) {
+                return Err(Error::new(
+                    source,
+                    "pointers must target owned values without references",
+                ));
             }
         }
         Ok(())

@@ -47,10 +47,10 @@ impl Callbacks for Frontend {
             return Compilation::Continue;
         }
         crate::target::validate(tcx);
-        let (entries, instances) = crate::collect::kernels(tcx);
+        let entries = crate::collect::kernels(tcx);
         tcx.dcx().abort_if_errors();
         if let Some(directory) = &self.output {
-            match crate::import::ModuleImporter::new(tcx).import(&entries, &instances) {
+            match crate::import::ModuleImporter::new(tcx).import(&entries) {
                 Ok(module) => {
                     if let Err(error) = crate::output::write(
                         directory,

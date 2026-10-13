@@ -15,6 +15,9 @@ pub enum CheckKind {
     Overflow(OverflowOp),
     DivisionByZero,
     RemainderByZero,
+    SliceStart,
+    SliceEnd,
+    SliceOrder,
     Panic(String),
 }
 
@@ -40,7 +43,7 @@ pub struct Location {
 }
 
 impl CheckKind {
-    /// Rust's runtime panic message; bounds failures do not record the length and index.
+    /// Rust's runtime panic message without the indices and length it would format.
     pub fn message(&self) -> String {
         match self {
             Self::Bounds => "index out of bounds".into(),
@@ -61,6 +64,9 @@ impl CheckKind {
             Self::RemainderByZero => {
                 "attempt to calculate the remainder with a divisor of zero".into()
             }
+            Self::SliceStart => "range start index out of range for slice".into(),
+            Self::SliceEnd => "range end index out of range for slice".into(),
+            Self::SliceOrder => "slice index starts after it ends".into(),
             Self::Panic(message) => message.clone(),
         }
     }

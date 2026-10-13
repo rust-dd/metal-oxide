@@ -38,7 +38,59 @@ impl Analysis<'_> {
             Expression::Use(operand) => state.symbol(operand),
             _ => None,
         };
+        if matches!(statement.value, Expression::Call { .. }) {
+            state.forget_escaped();
+        }
         state.assign(&statement.destination, value);
+        match &statement.value {
+            Expression::Len(Operand::Place(slice)) => state.length(&statement.destination, slice),
+            Expression::Use(Operand::Place(source)) => {
+                state.copy(&statement.destination, source);
+                if pointer(state, source) {
+                    state.reborrow(&statement.destination, source);
+                }
+            }
+            Expression::Ref {
+                place: Operand::Place(place),
+                ..
+            } if place.projection.last() == Some(&Projection::Deref) => {
+                let mut slice = place.clone();
+                slice.projection.pop();
+                if pointer(state, &slice) {
+                    state.reborrow(&statement.destination, &slice);
+                }
+            }
+            Expression::Binary(op, a, b) => {
+                if let Some(comparison) = predicate::comparison(*op) {
+                    state.record_comparison(&statement.destination, comparison, a, b);
+                }
+            }
+            Expression::Subslice { slice, start, end } => {
+                checks::subslice(state, slice, start, end, &statement.source)?;
+            }
+            Expression::Aggregate { fields, .. } => {
+                for (index, field) in fields.iter().enumerate() {
+                    if let Operand::Place(source) = field {
+                        let mut destination = statement.destination.clone();
+                        destination.projection.push(Projection::Field(index as u32));
+                        state.copy(&destination, source);
+                    }
+                }
+            }
+            Expression::Slice(array) => {
+                let length = operand_type(state.module, state.function, array, &statement.source)
+                    .ok()
+                    .and_then(|ty| state.module.types.pointer(ty))
+                    .and_then(|pointer| match pointer.target {
+                        Type::Aggregate(id) => state.module.types.get(id).map(Aggregate::len),
+                        _ => None,
+                    });
+                if let Some(length) = length {
+                    state.extent(&statement.destination, length as u32);
+                }
+            }
+            _ => {}
+        }
         if let Some(destination) = state.resolve(&statement.destination) {
             if let Some(predicate) = predicate
                 && predicate.nodes() <= 64
@@ -47,7 +99,7 @@ impl Analysis<'_> {
                 state.predicates.insert(destination.clone(), predicate);
             }
             if let Some(alias) = alias
-                && !matches!(&alias, predicate::Atom::Place(p) if p.contains(&destination) || destination.contains(p))
+                && !alias.uses(&destination)
             {
                 state.aliases.insert(destination, alias);
             }
@@ -153,6 +205,11 @@ impl Analysis<'_> {
                 function,
                 arguments,
             } => self.function(*function, &arguments.iter().map(value).collect::<Vec<_>>())?,
+            Expression::Len(Operand::Place(slice)) => {
+                state.static_length(slice).map_or_else(Value::default, |n| {
+                    Value::scalar(Range::exact(i128::from(n)))
+                })
+            }
             _ => Value::default(),
         })
     }
@@ -164,4 +221,12 @@ fn aggregate(state: &State<'_>, fields: &[Operand]) -> Value {
         result.field(index as u32, state.operand_value(operand));
     }
     result
+}
+
+/// Whether `place` holds a slice.
+fn pointer(state: &State<'_>, place: &Place) -> bool {
+    place_type(state.module, state.function, place, &state.function.source)
+        .ok()
+        .and_then(|ty| state.module.types.pointer(ty))
+        .is_some_and(|pointer| pointer.slice)
 }

@@ -3,6 +3,7 @@ mod checks;
 mod domain;
 mod predicate;
 mod refine;
+mod relations;
 mod state;
 mod transfer;
 
@@ -42,7 +43,8 @@ pub(crate) fn prove_numerics(
         return Ok(vec![BTreeSet::new(); module.functions.len()]);
     }
     let kernels = module.functions.iter().any(|function| function.kernel);
-    let mut analysis = analysis::Analysis::new(module, graphs);
+    let escaped = module.functions.iter().map(escaped).collect::<Vec<_>>();
+    let mut analysis = analysis::Analysis::new(module, graphs, &escaped);
     for (index, function) in module.functions.iter().enumerate() {
         if function.kernel || !kernels {
             // Completed summaries are keyed by function and argument facts;
@@ -53,6 +55,25 @@ pub(crate) fn prove_numerics(
         }
     }
     Ok(analysis.checks)
+}
+
+/// Locals borrowed mutably, which writes through pointers and calls may change.
+fn escaped(function: &Function) -> Vec<usize> {
+    let mut locals = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| match &statement.value {
+            Expression::Ref {
+                place: Operand::Place(place),
+                mutable: true,
+            } if !place.is_indirect() => Some(place.local),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    locals.sort_unstable();
+    locals.dedup();
+    locals
 }
 
 fn dynamic_operand(operand: &Operand) -> bool {

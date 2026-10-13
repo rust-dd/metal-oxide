@@ -1,7 +1,7 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{
     mir,
-    ty::{EarlyBinder, Ty, TypingEnv},
+    ty::{EarlyBinder, Ty, TypingEnv, adjustment::PointerCoercion},
 };
 use rustc_span::Span;
 
@@ -84,6 +84,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         })
                     }
                     ir::Type::Aggregate(ty) => Ok(ir::Expression::Aggregate { ty, fields }),
+                    // A field-less value such as `RangeFull`.
+                    ir::Type::Unit => Ok(ir::Expression::Use(ir::Operand::Constant(
+                        ir::Constant::Unit,
+                    ))),
                     ir::Type::Dim3 => Ok(ir::Expression::Dim3(
                         fields
                             .try_into()
@@ -103,6 +107,35 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 })
             }
             mir::Rvalue::Use(v, _) => Ok(ir::Expression::Use(self.operand(v, span)?)),
+            mir::Rvalue::CopyForDeref(place) => Ok(ir::Expression::Use(ir::Operand::Place(
+                self.place(place, span)?,
+            ))),
+            mir::Rvalue::Ref(_, kind, place) => {
+                let mutable = match kind {
+                    mir::BorrowKind::Shared => false,
+                    mir::BorrowKind::Mut { .. } => true,
+                    mir::BorrowKind::Fake(_) => {
+                        return Err((span, "fake borrows cannot be imported".into()));
+                    }
+                };
+                Ok(ir::Expression::Ref {
+                    place: ir::Operand::Place(self.place(place, span)?),
+                    mutable,
+                })
+            }
+            // `&raw const (*slice)` only feeds the slice's length.
+            mir::Rvalue::RawPtr(mir::RawPtrKind::FakeForPtrMetadata, place) => {
+                Ok(ir::Expression::Ref {
+                    place: ir::Operand::Place(self.place(place, span)?),
+                    mutable: false,
+                })
+            }
+            mir::Rvalue::UnaryOp(mir::UnOp::PtrMetadata, v) => {
+                Ok(ir::Expression::Len(self.operand(v, span)?))
+            }
+            mir::Rvalue::Cast(mir::CastKind::PointerCoercion(PointerCoercion::Unsize, _), v, _) => {
+                Ok(ir::Expression::Slice(self.operand(v, span)?))
+            }
             mir::Rvalue::Discriminant(place) => {
                 let (mut place, ty) = self.typed_place(place, span)?;
                 if !self.module.types.is_option(ty) {

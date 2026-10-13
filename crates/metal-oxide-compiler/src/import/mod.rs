@@ -6,12 +6,14 @@ mod literals;
 mod panics;
 mod places;
 mod ranges;
+mod references;
+mod slices;
 mod values;
 
 use std::collections::HashMap;
 
 use metal_oxide_ir as ir;
-use rustc_middle::ty::{Instance, TyCtxt};
+use rustc_middle::ty::{EarlyBinder, Instance, TyCtxt, TypingEnv};
 use rustc_span::Span;
 
 use crate::types::TypeLowering;
@@ -21,7 +23,11 @@ type Result<T> = std::result::Result<T, (Span, String)>;
 
 pub(crate) struct ModuleImporter<'tcx> {
     tcx: TyCtxt<'tcx>,
-    function_ids: HashMap<Instance<'tcx>, usize>,
+    /// Functions by instance and parameter types: a helper is imported once per address-space
+    /// signature of its reference parameters.
+    ids: HashMap<(Instance<'tcx>, Vec<ir::Type>), usize>,
+    /// Empty while the function is being imported.
+    functions: Vec<Option<ir::Function>>,
     types: TypeLowering<'tcx>,
 }
 
@@ -29,41 +35,65 @@ impl<'tcx> ModuleImporter<'tcx> {
     pub(crate) fn new(tcx: TyCtxt<'tcx>) -> Self {
         Self {
             tcx,
-            function_ids: HashMap::new(),
+            ids: HashMap::new(),
+            functions: Vec::new(),
             types: TypeLowering::new(tcx),
         }
     }
 
-    pub(crate) fn import(
-        mut self,
-        entries: &[Instance<'tcx>],
-        instances: &[Instance<'tcx>],
-    ) -> Result<ir::Module> {
+    pub(crate) fn import(mut self, entries: &[Instance<'tcx>]) -> Result<ir::Module> {
         if entries.is_empty() {
             return Err((
                 rustc_span::DUMMY_SP,
                 "no kernel entrypoints were found".into(),
             ));
         }
-        let instances = instances
-            .iter()
-            .copied()
-            .filter(|i| crate::intrinsics::builtin(self.tcx, i.def_id()).is_none())
-            .collect::<Vec<_>>();
-        self.function_ids = instances
-            .iter()
-            .enumerate()
-            .map(|(id, &i)| (i, id))
-            .collect();
-        let mut functions = Vec::with_capacity(instances.len());
-        for instance in instances {
-            let kernel = entries.contains(&instance);
-            functions.push(FunctionImporter::new(&mut self, instance).import(kernel)?);
+        for &entry in entries {
+            let body = self.tcx.instance_mir(entry.def);
+            let parameters = body
+                .args_iter()
+                .map(|local| {
+                    let declaration = &body.local_decls[local];
+                    let ty = entry.instantiate_mir_and_normalize_erasing_regions(
+                        self.tcx,
+                        TypingEnv::fully_monomorphized(),
+                        EarlyBinder::bind(self.tcx, declaration.ty),
+                    );
+                    self.types.lower(ty, declaration.source_info.span)
+                })
+                .collect::<Result<Vec<_>>>()?;
+            self.function(entry, parameters, true)?;
         }
         Ok(ir::Module {
-            functions: called(functions),
+            functions: called(self.functions.into_iter().map(Option::unwrap).collect()),
             types: self.types.into_types(),
         })
+    }
+
+    /// The function for `instance` called with `parameters`, imported on first use.
+    fn function(
+        &mut self,
+        instance: Instance<'tcx>,
+        parameters: Vec<ir::Type>,
+        kernel: bool,
+    ) -> Result<usize> {
+        let key = (instance, parameters);
+        if let Some(&id) = self.ids.get(&key) {
+            return Ok(id);
+        }
+        let id = self.functions.len();
+        self.functions.push(None);
+        self.ids.insert(key.clone(), id);
+        let function = FunctionImporter::new(self, instance, key.1).import(kernel)?;
+        self.functions[id] = Some(function);
+        Ok(id)
+    }
+
+    fn return_type(&self, id: usize) -> ir::Type {
+        self.functions[id]
+            .as_ref()
+            .expect("callees are imported before their callers")
+            .locals[0]
     }
 }
 
