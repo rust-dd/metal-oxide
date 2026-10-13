@@ -100,7 +100,7 @@ fn run_codecs(fixture: &str, program: &str) {
     support::checked(output);
     let source = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
     // Launch wrappers require macOS; the generated value codecs are portable.
-    let source = source.split_once("pub struct Kernels<'a>").unwrap().0;
+    let source = source.split_once("pub struct Kernels").unwrap().0;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()

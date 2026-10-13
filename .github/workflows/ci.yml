@@ -31,6 +31,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Portable tests and compile-fail examples
         run: cargo test --workspace --locked
+      - name: Loom models of cross-thread runtime state
+        if: runner.os == 'macOS'
+        run: RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release --locked --target-dir target/loom loom
       - name: Minimum supported Rust
         run: |
           rustup toolchain install 1.89.0 --profile minimal

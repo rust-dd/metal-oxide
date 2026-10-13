@@ -4,7 +4,7 @@ use super::*;
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
 fn reused_tables_follow_changing_kernel_bindings() -> Result<()> {
     let device = crate::Device::system_default()?;
-    let super::super::backend::Backend::Metal4 { .. } = &device.backend else {
+    let super::super::backend::Backend::Metal4 { .. } = device.backend() else {
         return Ok(());
     };
     let module = crate::Module::from_source(
@@ -51,7 +51,7 @@ fn reused_tables_follow_changing_kernel_bindings() -> Result<()> {
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
 fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()> {
     let device = crate::Device::system_default()?;
-    let super::super::backend::Backend::Metal4 { cache, .. } = &device.backend else {
+    let super::super::backend::Backend::Metal4 { cache, .. } = device.backend() else {
         return Ok(());
     };
     let module = crate::Module::from_source(
@@ -90,7 +90,7 @@ fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()
         }
         .wait()?;
         assert_eq!(output.as_slice(), [14 + (1_u64 << 40)]);
-        let entry = cache.0.borrow();
+        let entry = cache.entry();
         let (storage, _) = entry.as_ref().unwrap();
         assert_eq!(storage.constants.len(), retained);
         assert!(
@@ -107,15 +107,15 @@ fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
 fn completed_batches_reuse_command_storage_without_stale_residency() {
     let device = crate::Device::system_default().unwrap();
-    if !super::super::backend::Backend::supports_metal4(&device.raw) {
+    if !super::super::backend::Backend::supports_metal4(device.raw()) {
         return;
     }
-    let queue = device.raw.newMTL4CommandQueue().unwrap();
+    let queue = device.raw().newMTL4CommandQueue().unwrap();
     let cache = BatchCache::default();
-    let mut first = Metal4Batch::new(&device.raw, &queue, &cache).unwrap();
+    let mut first = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
     let command = first.command.clone();
     let residency = first.residency.clone();
-    let buffer = super::super::constants::allocate(&device.raw, 16).unwrap();
+    let buffer = super::super::constants::allocate(device.raw(), 16).unwrap();
     residency.addAllocation(ProtocolObject::from_ref(&*buffer));
     first.bindings.push(buffer);
     let completion = Arc::new(Completion::default());
@@ -126,7 +126,7 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
     }
     .wait()
     .unwrap();
-    let second = Metal4Batch::new(&device.raw, &queue, &cache).unwrap();
+    let second = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
     assert!(std::ptr::eq(&*command, &*second.command));
     assert!(std::ptr::eq(&*residency, &*second.residency));
     assert_eq!(second.residency.allocationCount(), 0);
@@ -136,18 +136,16 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
 fn command_storage_reuse_requires_completed_gpu_work() {
     let device = crate::Device::system_default().unwrap();
-    if !super::super::backend::Backend::supports_metal4(&device.raw) {
+    if !super::super::backend::Backend::supports_metal4(device.raw()) {
         return;
     }
-    let storage = CommandStorage::new(&device.raw).unwrap();
+    let storage = CommandStorage::new(device.raw()).unwrap();
     let completion = Arc::new(Completion::default());
     let cache = BatchCache::default();
-    cache
-        .0
-        .replace(Some((storage.clone(), Arc::clone(&completion))));
+    *cache.entry() = Some((storage.clone(), Arc::clone(&completion)));
     assert!(cache.take().is_none());
     completion.finish(Ok(SubmissionReport::default()));
-    cache.0.replace(Some((storage.clone(), completion)));
+    *cache.entry() = Some((storage.clone(), completion));
     let reused = cache.take().unwrap();
     assert!(std::ptr::eq(&*storage.allocator, &*reused.allocator));
     assert!(std::ptr::eq(&*storage.command, &*reused.command));

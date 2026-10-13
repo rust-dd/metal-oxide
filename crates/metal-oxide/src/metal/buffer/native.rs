@@ -1,11 +1,14 @@
-use std::{cell::Cell, marker::PhantomData, rc::Rc};
+use std::sync::Arc;
 
 use metal_oxide_artifact::Access;
-use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2::{
+    rc::{Retained, autoreleasepool},
+    runtime::ProtocolObject,
+};
 use objc2_metal::{MTLBuffer, MTLDevice, MTLHazardTrackingMode, MTLResource, MTLStorageMode};
 
-use super::{Buffer, BufferBinding, Location, native_layout};
-use crate::{Device, Error, GpuValue, Result, metal::completion::AccessState};
+use super::{Buffer, BufferBinding, Location, Storage, native_layout};
+use crate::{Device, Error, GpuValue, Result};
 
 impl<T: GpuValue> Buffer<T> {
     /// Adopts initialized canonical GPU values from retained native storage.
@@ -21,7 +24,8 @@ impl<T: GpuValue> Buffer<T> {
     /// remain allocated, non-purgeable and non-aliasable. External aliases must stay
     /// idle until all runtime CPU views and encoded/pending GPU accesses end.
     /// `into_native` performs the synchronized handoff back to native code;
-    /// merely dropping a buffer does not complete pending commands.
+    /// merely dropping a buffer does not complete pending commands. The runtime may
+    /// retain, release and read immutable properties of `raw` on any thread.
     pub unsafe fn from_native(
         device: &Device,
         raw: Retained<ProtocolObject<dyn MTLBuffer>>,
@@ -29,7 +33,9 @@ impl<T: GpuValue> Buffer<T> {
     ) -> Result<Self> {
         crate::value::layout::<T>()?;
         let bytes = Self::byte_len(len)?;
-        if raw.device().registryID() != device.raw.registryID() {
+        let same_device =
+            autoreleasepool(|_| raw.device().registryID() == device.raw().registryID());
+        if !same_device {
             return Err(Error::DeviceMismatch);
         }
         if raw.storageMode() != MTLStorageMode::Shared {
@@ -54,16 +60,12 @@ impl<T: GpuValue> Buffer<T> {
                 "native storage does not satisfy element alignment",
             ));
         }
-        let values = Self::cpu_values(len, bytes)?;
         Ok(Self {
-            raw,
+            mirror: Self::mirror(len, bytes, Location::Gpu)?,
+            storage: Storage(raw),
             device_id: device.id(),
-            access: Rc::new(AccessState::default()),
-            values,
-            location: Cell::new(Location::Gpu),
-            decoding: Cell::new(false),
+            access: Arc::default(),
             len,
-            marker: PhantomData,
         })
     }
 
@@ -81,6 +83,6 @@ impl<T: GpuValue> Buffer<T> {
     pub fn into_native(self) -> Retained<ProtocolObject<dyn MTLBuffer>> {
         self.access.synchronize();
         self.prepare(Access::Read);
-        self.raw
+        self.storage.0
     }
 }

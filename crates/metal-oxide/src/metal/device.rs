@@ -1,7 +1,6 @@
-use std::{
-    marker::PhantomData,
-    rc::Rc,
-    sync::atomic::{AtomicU64, Ordering},
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use objc2::{
@@ -16,12 +15,17 @@ use super::{Argument, Batch, Buffer, Pipeline, Submission, backend::Backend};
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A Metal device and an ordered command queue confined to one host thread.
-pub struct Device {
-    pub(super) raw: Retained<ProtocolObject<dyn MTLDevice>>,
-    pub(super) backend: Backend,
+/// A Metal device and its ordered command queue.
+///
+/// Clones are cheap handles to the same queue context, and every method may be
+/// called from any thread. Batches committed from several threads execute in commit order.
+#[derive(Clone)]
+pub struct Device(Arc<Context>);
+
+struct Context {
+    raw: Retained<ProtocolObject<dyn MTLDevice>>,
+    backend: Backend,
     id: u64,
-    marker: PhantomData<Rc<()>>,
 }
 
 impl Device {
@@ -48,38 +52,35 @@ impl Device {
                 "metal-oxide requires macOS 15 or later".into(),
             ));
         }
-        if !raw.hasUnifiedMemory() {
-            return Err(Error::UnsupportedDevice(format!(
-                "{} does not have unified memory",
-                raw.name()
-            )));
-        }
-        let backend = Backend::new(&raw)?;
-        #[allow(deprecated, reason = "try_update is unavailable at the MSRV")]
-        let id = NEXT_DEVICE_ID
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
-            .map_err(|_| Error::Command("device identity space exhausted".into()))?;
-        Ok(Self {
-            raw,
-            backend,
-            id,
-            marker: PhantomData,
+        autoreleasepool(|_| {
+            if !raw.hasUnifiedMemory() {
+                return Err(Error::UnsupportedDevice(format!(
+                    "{} does not have unified memory",
+                    raw.name()
+                )));
+            }
+            let backend = Backend::new(&raw)?;
+            #[allow(deprecated, reason = "try_update is unavailable at the MSRV")]
+            let id = NEXT_DEVICE_ID
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .map_err(|_| Error::Command("device identity space exhausted".into()))?;
+            Ok(Self(Arc::new(Context { raw, backend, id })))
         })
     }
 
     pub fn name(&self) -> String {
-        autoreleasepool(|_| self.raw.name().to_string())
+        autoreleasepool(|_| self.raw().name().to_string())
     }
 
     /// Borrows the native device for resource creation and external Metal integration.
     pub fn as_native(&self) -> &ProtocolObject<dyn MTLDevice> {
-        &self.raw
+        self.raw()
     }
 
     /// The device's recommended working-set size in bytes, not currently free memory
     /// or a guarantee that an allocation of this size will succeed.
     pub fn recommended_max_working_set_size(&self) -> u64 {
-        self.raw.recommendedMaxWorkingSetSize()
+        self.raw().recommendedMaxWorkingSetSize()
     }
 
     pub fn buffer_from_slice<T: GpuValue>(&self, values: &[T]) -> Result<Buffer<T>> {
@@ -93,18 +94,26 @@ impl Device {
     }
 
     pub fn max_block_dimensions(&self) -> Dim3 {
-        let limits = self.raw.maxThreadsPerThreadgroup();
+        let limits = self.raw().maxThreadsPerThreadgroup();
         let axis = |value: usize| value.min(u32::MAX as usize) as u32;
         Dim3::new(axis(limits.width), axis(limits.height), axis(limits.depth))
     }
 
     /// Maximum combined static and dynamic threadgroup storage per block, in bytes.
     pub fn max_threadgroup_memory_per_block(&self) -> usize {
-        self.raw.maxThreadgroupMemoryLength()
+        self.raw().maxThreadgroupMemoryLength()
+    }
+
+    pub(super) fn raw(&self) -> &ProtocolObject<dyn MTLDevice> {
+        &self.0.raw
+    }
+
+    pub(super) fn backend(&self) -> &Backend {
+        &self.0.backend
     }
 
     pub(super) fn id(&self) -> u64 {
-        self.id
+        self.0.id
     }
 
     /// Encodes and commits an ordered batch without waiting for the GPU.

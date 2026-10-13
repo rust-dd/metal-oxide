@@ -14,7 +14,7 @@ pub(super) fn prefix(values: &[u32]) -> (Vec<u32>, u32) {
     (prefix, sum)
 }
 
-pub(super) fn scan(device: &Device, program: &Program<'_>, values: &[u32]) -> Result<()> {
+pub(super) fn scan(device: &Device, program: &Program, values: &[u32]) -> Result<()> {
     let input = device.buffer_from_slice(values)?;
     let mut scan = Scan::new(device, values.len() as u32)?;
     // SAFETY: complete blocks use neutral padding, and every global dependency follows its producer.
@@ -26,7 +26,7 @@ pub(super) fn scan(device: &Device, program: &Program<'_>, values: &[u32]) -> Re
     Ok(())
 }
 
-pub(super) fn histogram(device: &Device, program: &Program<'_>, values: &[u32]) -> Result<()> {
+pub(super) fn histogram(device: &Device, program: &Program, values: &[u32]) -> Result<()> {
     let input = device.buffer_from_slice(values)?;
     let mut bins = device.buffer_zeroed::<u32>(16)?;
     // SAFETY: initialized bins are exclusively atomic during the submitted 1D launch.
@@ -42,7 +42,7 @@ pub(super) fn histogram(device: &Device, program: &Program<'_>, values: &[u32]) 
     Ok(())
 }
 
-pub(super) fn compact(device: &Device, program: &Program<'_>, values: &[u32]) -> Result<()> {
+pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Result<()> {
     let n = values.len() as u32;
     let input = device.buffer_from_slice(values)?;
     let mut flags = device.buffer_zeroed::<u32>(values.len())?;

@@ -129,7 +129,7 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
             .contains("pub unsafe fn r#enqueue_vec_add(&self, batch: &mut metal_oxide::Batch<'_>")
     );
     assert!(bindings.contains(
-        "batch.launch(self::metal_oxide_pipeline(self.device, &self.module, &self.pipeline_0"
+        "batch.launch(self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_0"
     ));
 }
 

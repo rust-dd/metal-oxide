@@ -158,7 +158,7 @@ fn evaluate(program: &[(u32, f32)], curve: f32, state: f32) -> f32 {
     stack[0]
 }
 
-fn history(device: &Device, kernels: &kernels::Kernels<'_>) -> Result<()> {
+fn history(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
     let program = [
         (0, 0.0),
         (1, 0.0),
@@ -249,7 +249,7 @@ fn history(device: &Device, kernels: &kernels::Kernels<'_>) -> Result<()> {
     Ok(())
 }
 
-fn series(device: &Device, kernels: &kernels::Kernels<'_>) -> Result<()> {
+fn series(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
     let events = [0.0, 0.5, 0.125, 0.25, 0.3, -0.125, 1.0, 0.75];
     let table = [0.0, 0.25, 0.25, 0.4, 0.6];
     let (rows, steps) = (3, 33);

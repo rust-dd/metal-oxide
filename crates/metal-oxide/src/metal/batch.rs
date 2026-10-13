@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, rc::Rc, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLComputePipelineState, MTLSize};
@@ -19,6 +19,24 @@ enum NativeBatch<'a> {
 }
 
 /// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
+///
+/// A batch holds native command encoders, so it stays on the submitting thread:
+///
+/// ```compile_fail
+/// use metal_oxide::Device;
+/// fn check(device: &Device) {
+///     // SAFETY: the batch encodes no kernel.
+///     let submission = unsafe {
+///         device.submit(|batch| {
+///             std::thread::scope(|scope| {
+///                 scope.spawn(|| drop(batch));
+///             });
+///             Ok(())
+///         })
+///     };
+///     submission.unwrap().wait().unwrap();
+/// }
+/// ```
 pub struct Batch<'d> {
     device: &'d Device,
     native: NativeBatch<'d>,
@@ -31,10 +49,10 @@ impl<'d> Batch<'d> {
     pub(super) fn new(device: &'d Device) -> Result<Self> {
         Ok(Self {
             device,
-            native: match &device.backend {
+            native: match device.backend() {
                 Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(queue)?),
                 Backend::Metal4 { queue, cache, .. } => {
-                    NativeBatch::Metal4(Metal4Batch::new(&device.raw, queue, cache)?)
+                    NativeBatch::Metal4(Metal4Batch::new(device.raw(), queue, cache)?)
                 }
             },
             resources: Vec::new(),
@@ -95,7 +113,7 @@ impl<'d> Batch<'d> {
                 if let Some(existing) = self
                     .resources
                     .iter_mut()
-                    .find(|existing| Rc::ptr_eq(&existing.access, &resource.access))
+                    .find(|existing| Arc::ptr_eq(&existing.access, &resource.access))
                 {
                     existing.written |= resource.written;
                 } else {
@@ -108,14 +126,14 @@ impl<'d> Batch<'d> {
         unsafe {
             match &mut self.native {
                 NativeBatch::Classic(batch) => batch.launch(
-                    &self.device.raw,
+                    self.device.raw(),
                     pipeline,
                     config,
                     arguments,
                     self.has_dispatches,
                 )?,
                 NativeBatch::Metal4(batch) => batch.launch(
-                    &self.device.raw,
+                    self.device.raw(),
                     pipeline,
                     config,
                     arguments,

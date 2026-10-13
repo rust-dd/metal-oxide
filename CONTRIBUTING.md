@@ -24,7 +24,12 @@ nightly compiler.
 Add tests for observable behavior and safety boundaries. For runtime changes,
 also execute the ignored hardware tests on an Apple Silicon machine. Record
 which checks actually ran and their environment. CI compilation is not evidence
-that a GPU kernel executed correctly.
+that a GPU kernel executed correctly. Changes to cross-thread runtime state also
+run its loom models:
+
+```sh
+RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release --locked --target-dir target/loom loom
+```
 
 Run the compiler checks from `crates/metal-oxide-compiler`, where the dated nightly
 is pinned:

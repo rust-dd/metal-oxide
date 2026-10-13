@@ -1,3 +1,4 @@
+mod access;
 mod argument;
 mod backend;
 mod batch;
@@ -7,9 +8,12 @@ mod completion;
 mod constants;
 mod device;
 mod failure;
+#[cfg(all(test, loom))]
+mod loom;
 mod metal4;
 mod module;
 mod pipeline;
+mod sync;
 
 pub use argument::Argument;
 pub use batch::Batch;

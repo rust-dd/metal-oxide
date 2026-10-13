@@ -1,6 +1,9 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc, sync::Mutex};
+use std::sync::{Mutex, OnceLock};
 
-use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2::{
+    rc::{Retained, autoreleasepool},
+    runtime::ProtocolObject,
+};
 use objc2_foundation::NSString;
 use objc2_metal::{
     MTL4Compiler, MTL4ComputePipelineDescriptor, MTL4LibraryFunctionDescriptor,
@@ -17,8 +20,8 @@ pub struct Pipeline {
     pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(super) device_id: u64,
     pub(super) abi: Option<metal_oxide_artifact::Kernel>,
-    validated: RefCell<Vec<Option<Signature>>>,
-    marker: PhantomData<Rc<()>>,
+    /// The first argument signature validated for each parameter; others are checked per launch.
+    validated: Box<[OnceLock<Signature>]>,
 }
 
 impl Pipeline {
@@ -37,9 +40,30 @@ impl Pipeline {
                     .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))
             })
             .transpose()?;
+        let raw = autoreleasepool(|_| Self::native(device, module, entrypoint))?;
+        if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
+            return Err(Error::InvalidLaunch(
+                "kernel exceeds threadgroup memory capacity",
+            ));
+        }
+        Ok(Self {
+            raw,
+            device_id: device.id(),
+            validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
+                .map(|_| OnceLock::new())
+                .collect(),
+            abi,
+        })
+    }
+
+    fn native(
+        device: &Device,
+        module: &Module,
+        entrypoint: &str,
+    ) -> Result<Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
         // Concurrent Metal 4 pipeline creation has crashed inside the driver on
         // macOS 26.2, even with independent device contexts.
-        let _compilation = matches!(device.backend, Backend::Metal4 { .. }).then(|| {
+        let _compilation = matches!(device.backend(), Backend::Metal4 { .. }).then(|| {
             METAL4_COMPILATION
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner())
@@ -48,9 +72,9 @@ impl Pipeline {
             .raw
             .newFunctionWithName(&NSString::from_str(entrypoint))
             .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))?;
-        let raw = match &device.backend {
+        match device.backend() {
             Backend::Classic(_) => device
-                .raw
+                .raw()
                 .newComputePipelineStateWithFunction_error(&function),
             Backend::Metal4 { compiler, .. } => {
                 let descriptor = MTL4ComputePipelineDescriptor::new();
@@ -64,22 +88,7 @@ impl Pipeline {
                 )
             }
         }
-        .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))?;
-        if raw.staticThreadgroupMemoryLength() > device.raw.maxThreadgroupMemoryLength() {
-            return Err(Error::InvalidLaunch(
-                "kernel exceeds threadgroup memory capacity",
-            ));
-        }
-        Ok(Self {
-            raw,
-            device_id: device.id(),
-            validated: RefCell::new(vec![
-                None;
-                abi.as_ref().map_or(0, |abi| abi.parameters.len())
-            ]),
-            abi,
-            marker: PhantomData,
-        })
+        .map_err(|error| Error::Pipeline(error.localizedDescription().to_string()))
     }
 
     pub fn thread_execution_width(&self) -> usize {
@@ -105,13 +114,12 @@ impl Pipeline {
                 ))
                 .into());
             }
-            let mut validated = self.validated.borrow_mut();
             for ((argument, parameter), checked) in arguments
                 .iter()
                 .zip(&kernel.parameters)
-                .zip(validated.iter_mut())
+                .zip(&self.validated)
             {
-                if *checked == Some(argument.signature()) {
+                if checked.get() == Some(&argument.signature()) {
                     continue;
                 }
                 let ty = argument.ty()?;
@@ -122,7 +130,7 @@ impl Pipeline {
                     ))
                     .into());
                 }
-                *checked = Some(argument.signature());
+                let _ = checked.set(argument.signature());
             }
             if kernel
                 .required_block

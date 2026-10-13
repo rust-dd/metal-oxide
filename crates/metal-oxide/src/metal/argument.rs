@@ -1,4 +1,4 @@
-use std::{any::TypeId, cell::RefCell, collections::HashSet, marker::PhantomData, rc::Rc};
+use std::{any::TypeId, cell::RefCell, collections::HashSet};
 
 use metal_oxide_artifact::{Access, Layout, ParameterType};
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -38,7 +38,6 @@ pub struct Argument<'a> {
     layout: fn() -> Result<Layout>,
     size: usize,
     alignment: usize,
-    marker: PhantomData<&'a mut Rc<()>>,
 }
 
 impl<'a> Argument<'a> {
@@ -93,7 +92,6 @@ impl<'a> Argument<'a> {
             layout: crate::value::layout::<T>,
             size: T::SIZE,
             alignment: T::ALIGNMENT,
-            marker: PhantomData,
         }
     }
 

@@ -1,7 +1,7 @@
 use metal_oxide::{Argument, Batch, Buffer, Device, LaunchConfig, Module, Pipeline, Result};
 
-pub(super) enum Program<'d> {
-    Generated(super::kernels::Kernels<'d>),
+pub(super) enum Program {
+    Generated(super::kernels::Kernels),
     Reference(Reference),
 }
 pub(super) struct Reference {
@@ -11,14 +11,14 @@ pub(super) struct Reference {
     mark: Pipeline,
     scatter: Pipeline,
 }
-impl<'d> Program<'d> {
-    pub(super) fn generated(device: &'d Device) -> Result<Self> {
+impl Program {
+    pub(super) fn generated(device: &Device) -> Result<Self> {
         Ok(Self::Generated(super::kernels::load(
             device,
             env!("METAL_OXIDE_ARTIFACT_DIR"),
         )?))
     }
-    pub(super) fn reference(device: &'d Device) -> Result<Self> {
+    pub(super) fn reference(device: &Device) -> Result<Self> {
         let module = Module::from_source(
             device,
             include_str!("../../../../benchmarks/reference-msl/cooperation.metal"),

@@ -1,7 +1,7 @@
 use crate::kernels::Kernels;
 use metal_oxide::{Argument, Device, Dim3, F16, LaunchConfig, Module, Pipeline};
 
-pub(super) fn verify(device: &Device, kernels: &Kernels<'_>) -> metal_oxide::Result<()> {
+pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<()> {
     let module = Module::from_source(
         device,
         include_str!("../../../../benchmarks/reference-msl/matmul_half.metal"),

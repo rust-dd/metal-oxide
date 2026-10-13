@@ -7,14 +7,15 @@ use crate::{Error, Result};
 /// `SIZE` and `ALIGNMENT` must match `layout()`. Encoding initializes every byte,
 /// including padding; decoding ignores padding and constructs a valid Rust value.
 /// Neither operation copies the Rust memory representation. The byte slices have
-/// exactly `SIZE` bytes. Generated record bindings implement this trait.
+/// exactly `SIZE` bytes. Generated record bindings implement this trait. Values are
+/// plain data that buffers share across threads.
 ///
 /// ```compile_fail
 /// use metal_oxide::GpuValue;
 /// fn element<T: GpuValue>() {}
 /// element::<bool>();
 /// ```
-pub trait GpuValue: Copy + 'static {
+pub trait GpuValue: Copy + Send + Sync + 'static {
     const SIZE: usize;
     const ALIGNMENT: usize;
     fn layout() -> Result<Layout>;

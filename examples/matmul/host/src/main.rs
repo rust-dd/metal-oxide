@@ -16,10 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
-fn verify_f32(
-    device: &metal_oxide::Device,
-    kernels: &kernels::Kernels<'_>,
-) -> metal_oxide::Result<()> {
+fn verify_f32(device: &metal_oxide::Device, kernels: &kernels::Kernels) -> metal_oxide::Result<()> {
     use metal_oxide::{Dim3, LaunchConfig};
     for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
         let a = (0..n)

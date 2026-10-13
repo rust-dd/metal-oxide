@@ -22,6 +22,9 @@ objc2-metal = { workspace = true }
 half = { workspace = true }
 metal-oxide-artifact = { workspace = true }
 
+[target.'cfg(loom)'.dev-dependencies]
+loom = { workspace = true }
+
 [package.metadata.docs.rs]
 default-target = "aarch64-apple-darwin"
 targets = ["aarch64-apple-darwin"]

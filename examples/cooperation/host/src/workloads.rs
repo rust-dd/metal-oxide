@@ -48,7 +48,7 @@ impl Scan {
     pub(super) unsafe fn enqueue(
         &mut self,
         batch: &mut Batch<'_>,
-        program: &Program<'_>,
+        program: &Program,
         input: &Buffer<u32>,
     ) -> Result<()> {
         // SAFETY: each level owns distinct initialized buffers sized for its input and block count.

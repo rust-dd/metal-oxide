@@ -7,7 +7,7 @@ fn primitive_cpu_views_use_the_metal_allocation() -> Result<()> {
     fn verify<T: GpuValue>(device: &Device) -> Result<()> {
         for len in [0, 1, 257] {
             let mut buffer = device.buffer_zeroed::<T>(len)?;
-            let address = buffer.raw.contents().as_ptr().cast::<T>();
+            let address = buffer.storage.contents().cast::<T>().as_ptr();
             assert_eq!(buffer.as_slice().as_ptr(), address);
             assert_eq!(buffer.as_mut_slice().as_mut_ptr(), address);
             assert_eq!(buffer.as_slice().len(), len);
@@ -61,7 +61,7 @@ fn shared_primitive_views_preserve_bits_and_reuse_storage() -> Result<()> {
     buffer.upload();
     assert_eq!(buffer.as_slice().as_ptr(), address);
     // SAFETY: no GPU work is pending and f32 bits are readable as u32.
-    let bits = unsafe { buffer.raw.contents().cast::<u32>().as_ptr().read() };
+    let bits = unsafe { buffer.storage.contents().cast::<u32>().as_ptr().read() };
     assert_eq!(bits, 0x8000_0000);
     Ok(())
 }

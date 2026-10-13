@@ -1,22 +1,25 @@
 use std::{
-    cell::{Cell, RefCell},
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    rc::Rc,
-    sync::{Arc, Condvar, Mutex},
+    sync::Arc,
     task::{Context, Poll, Waker},
     time::Duration,
 };
 
-use super::failure::CommandFailure;
+use super::{
+    failure::CommandFailure,
+    sync::{Condvar, Mutex, MutexGuard, lock},
+};
 use crate::{Error, Result};
+
 #[derive(Default)]
 struct State {
     result: Option<std::result::Result<SubmissionReport, CommandFailure>>,
     waker: Option<Waker>,
 }
 
+/// The single result of a committed batch, written once by its native callback.
 #[derive(Default)]
 pub(super) struct Completion {
     state: Mutex<State>,
@@ -26,7 +29,7 @@ pub(super) struct Completion {
 impl Completion {
     pub(super) fn finish(&self, result: std::result::Result<SubmissionReport, CommandFailure>) {
         let waker = {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = lock(&self.state);
             if state.result.is_some() {
                 return;
             }
@@ -41,23 +44,31 @@ impl Completion {
     }
 
     pub(super) fn is_finished(&self) -> bool {
-        self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .result
-            .is_some()
+        lock(&self.state).result.is_some()
     }
 
-    fn wait(&self) -> Result<SubmissionReport> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    /// Blocks until the native callback has published the result.
+    pub(super) fn block(&self) {
+        drop(self.finished());
+    }
+
+    fn finished(&self) -> MutexGuard<'_, State> {
+        let mut state = lock(&self.state);
         while state.result.is_none() {
-            state = self.ready.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = self
+                .ready
+                .wait(state)
+                .unwrap_or_else(|error| error.into_inner());
         }
-        state.result.as_ref().unwrap().clone().map_err(Error::from)
+        state
     }
 
-    fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<SubmissionReport>> {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+    pub(super) fn wait(&self) -> Result<SubmissionReport> {
+        self.finished().result.clone().unwrap().map_err(Error::from)
+    }
+
+    pub(super) fn poll(&self, cx: &mut Context<'_>) -> Poll<Result<SubmissionReport>> {
+        let mut state = lock(&self.state);
         match &state.result {
             Some(result) => Poll::Ready(result.clone().map_err(Error::from)),
             None => {
@@ -70,34 +81,6 @@ impl Completion {
                 }
                 Poll::Pending
             }
-        }
-    }
-}
-
-#[derive(Default)]
-pub(super) struct AccessState {
-    pending: RefCell<Vec<Arc<Completion>>>,
-    written: Cell<bool>,
-}
-
-impl AccessState {
-    pub(super) fn mark_written(&self) {
-        self.written.set(true);
-    }
-    pub(super) fn take_written(&self) -> bool {
-        self.written.replace(false)
-    }
-
-    pub(super) fn register(&self, completion: &Arc<Completion>) {
-        let mut pending = self.pending.borrow_mut();
-        pending.retain(|state| !state.is_finished());
-        pending.push(Arc::clone(completion));
-    }
-
-    pub(super) fn synchronize(&self) {
-        for completion in self.pending.borrow_mut().drain(..) {
-            // Decoding owned fields remains valid on failure; the submission reports its error.
-            let _ = completion.wait();
         }
     }
 }
@@ -125,7 +108,7 @@ impl SubmissionReport {
 #[must_use = "await the submission or call wait to check GPU completion"]
 pub struct Submission<'a> {
     pub(super) completion: Arc<Completion>,
-    pub(super) marker: PhantomData<&'a mut Rc<()>>,
+    pub(super) marker: PhantomData<&'a ()>,
 }
 
 impl Submission<'_> {
@@ -142,7 +125,7 @@ impl Future for Submission<'_> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
     use objc2_foundation::{NSError, NSString};
@@ -159,6 +142,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "creates an NSError through Objective-C")]
     fn terminal_memory_errors_survive_wait_and_poll() {
         for (domain, code, memory) in [
             ("MTLCommandBufferErrorDomain", 8, true),
@@ -233,21 +217,5 @@ mod tests {
                 .poll(&mut Context::from_waker(Waker::noop()))
                 .is_ready()
         );
-    }
-
-    #[test]
-    fn buffer_access_waits_for_every_pending_submission() {
-        let access = AccessState::default();
-        let first = Arc::new(Completion::default());
-        let second = Arc::new(Completion::default());
-        access.register(&first);
-        access.register(&second);
-        let worker = std::thread::spawn(move || {
-            first.finish(Ok(SubmissionReport::default()));
-            second.finish(Ok(SubmissionReport::default()));
-        });
-        access.synchronize();
-        worker.join().unwrap();
-        assert!(access.pending.borrow().is_empty());
     }
 }

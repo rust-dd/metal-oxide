@@ -17,28 +17,28 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
     let types = HostTypes::new(abi)?;
     let mut output = String::new();
     types.emit(&mut output);
-    output.push_str("pub struct Kernels<'a> {\n    device: &'a metal_oxide::Device,\n    module: metal_oxide::Module,\n");
+    output.push_str("pub struct Kernels {\n    device: metal_oxide::Device,\n    module: metal_oxide::Module,\n");
     for index in 0..abi.kernels.len() {
         writeln!(
             output,
-            "    pipeline_{index}: std::cell::OnceCell<metal_oxide::Pipeline>,"
+            "    pipeline_{index}: std::sync::OnceLock<metal_oxide::Pipeline>,"
         )
         .unwrap();
     }
-    output.push_str("}\n\n#[allow(dead_code)]\npub fn load(device: &metal_oxide::Device, directory: impl std::convert::AsRef<std::path::Path>) -> metal_oxide::Result<Kernels<'_>> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_artifact(device, directory)?)\n}\n");
-    output.push_str("\n#[allow(dead_code)]\npub fn load_bytes<'a>(device: &'a metal_oxide::Device, manifest: &str, metallib: &[u8]) -> metal_oxide::Result<Kernels<'a>> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_bytes(device, manifest, metallib)?)\n}\n");
-    output.push_str("\nfn metal_oxide_kernels(device: &metal_oxide::Device, module: metal_oxide::Module) -> metal_oxide::Result<Kernels<'_>> {\n");
+    output.push_str("}\n\n#[allow(dead_code)]\npub fn load(device: &metal_oxide::Device, directory: impl std::convert::AsRef<std::path::Path>) -> metal_oxide::Result<Kernels> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_artifact(device, directory)?)\n}\n");
+    output.push_str("\n#[allow(dead_code)]\npub fn load_bytes(device: &metal_oxide::Device, manifest: &str, metallib: &[u8]) -> metal_oxide::Result<Kernels> {\n    metal_oxide_kernels(device, metal_oxide::Module::from_bytes(device, manifest, metallib)?)\n}\n");
+    output.push_str("\nfn metal_oxide_kernels(device: &metal_oxide::Device, module: metal_oxide::Module) -> metal_oxide::Result<Kernels> {\n");
     writeln!(
         output,
         "    module.verify_abi({:?})?;",
         metal_oxide_artifact::sha256(abi.to_json()?.as_bytes())
     )
     .unwrap();
-    output.push_str("    Ok(Kernels {\n        device,\n        module,\n");
+    output.push_str("    Ok(Kernels {\n        device: device.clone(),\n        module,\n");
     for index in 0..abi.kernels.len() {
         writeln!(
             output,
-            "        pipeline_{index}: std::cell::OnceCell::new(),"
+            "        pipeline_{index}: std::sync::OnceLock::new(),"
         )
         .unwrap();
     }
@@ -48,7 +48,7 @@ pub fn bindings(abi: &Abi) -> Result<String, Error> {
 fn metal_oxide_pipeline<'a>(
     device: &metal_oxide::Device,
     module: &metal_oxide::Module,
-    slot: &'a std::cell::OnceCell<metal_oxide::Pipeline>,
+    slot: &'a std::sync::OnceLock<metal_oxide::Pipeline>,
     name: &str,
 ) -> metal_oxide::Result<&'a metal_oxide::Pipeline> {
     if let Some(pipeline) = slot.get() {
@@ -59,7 +59,7 @@ fn metal_oxide_pipeline<'a>(
 }
 
 #[allow(dead_code)]
-impl Kernels<'_> {
+impl Kernels {
 "#,
     );
     for (index, kernel) in abi.kernels.iter().enumerate() {
@@ -147,7 +147,7 @@ fn emit_method(
     let receiver = if enqueue { "batch" } else { "self.device" };
     writeln!(
         output,
-        "            {receiver}.launch(self::metal_oxide_pipeline(self.device, &self.module, &self.pipeline_{index}, {:?})?, config, &[{}])",
+        "            {receiver}.launch(self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_{index}, {:?})?, config, &[{}])",
         kernel.name, arguments.join(", ")
     )
     .unwrap();

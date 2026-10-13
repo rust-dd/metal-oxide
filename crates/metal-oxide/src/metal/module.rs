@@ -1,6 +1,9 @@
-use std::{marker::PhantomData, path::Path, rc::Rc};
+use std::path::Path;
 
-use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2::{
+    rc::{Retained, autoreleasepool},
+    runtime::ProtocolObject,
+};
 use objc2_foundation::{NSString, NSURL};
 use objc2_metal::{
     MTLCompileOptions, MTLDevice, MTLGPUFamily, MTLLibrary, MTLMathFloatingPointFunctions,
@@ -17,7 +20,6 @@ pub struct Module {
     pub(super) raw: Retained<ProtocolObject<dyn MTLLibrary>>,
     pub(super) device_id: u64,
     pub(super) abi: Option<Abi>,
-    marker: PhantomData<Rc<()>>,
 }
 
 impl Module {
@@ -26,34 +28,36 @@ impl Module {
     /// Source pragmas and explicit math namespaces override these defaults.
     /// Generated MSL carries its selected numerical mode in the source.
     pub fn from_source(device: &Device, source: &str) -> Result<Self> {
-        let options = MTLCompileOptions::new();
-        options.setMathMode(MTLMathMode::Safe);
-        options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
-        let raw = device
-            .raw
-            .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
-            .map_err(|error| Error::Library(error.localizedDescription().to_string()))?;
+        let raw = autoreleasepool(|_| {
+            let options = MTLCompileOptions::new();
+            options.setMathMode(MTLMathMode::Safe);
+            options.setMathFloatingPointFunctions(MTLMathFloatingPointFunctions::Precise);
+            device
+                .raw()
+                .newLibraryWithSource_options_error(&NSString::from_str(source), Some(&options))
+                .map_err(|error| Error::Library(error.localizedDescription().to_string()))
+        })?;
         Ok(Self {
             raw,
             device_id: device.id(),
             abi: None,
-            marker: PhantomData,
         })
     }
 
     pub fn from_metallib(device: &Device, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().canonicalize()?;
         let path = path.to_str().ok_or(Error::InvalidPath)?;
-        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
-        let raw = device
-            .raw
-            .newLibraryWithURL_error(&url)
-            .map_err(|error| Error::Library(error.localizedDescription().to_string()))?;
+        let raw = autoreleasepool(|_| {
+            let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+            device
+                .raw()
+                .newLibraryWithURL_error(&url)
+                .map_err(|error| Error::Library(error.localizedDescription().to_string()))
+        })?;
         Ok(Self {
             raw,
             device_id: device.id(),
             abi: None,
-            marker: PhantomData,
         })
     }
 
@@ -75,19 +79,20 @@ impl Module {
 
     fn load_artifact(device: &Device, manifest: Manifest, bytes: &[u8]) -> Result<Self> {
         for feature in &manifest.abi.required_features {
-            require(feature, |family| device.raw.supportsFamily(family))?;
+            require(feature, |family| device.raw().supportsFamily(family))?;
         }
         manifest.verify_library(bytes)?;
-        let data = dispatch2::DispatchData::from_bytes(bytes);
-        let raw = device
-            .raw
-            .newLibraryWithData_error(&data)
-            .map_err(|error| Error::Library(error.localizedDescription().to_string()))?;
+        let raw = autoreleasepool(|_| {
+            let data = dispatch2::DispatchData::from_bytes(bytes);
+            device
+                .raw()
+                .newLibraryWithData_error(&data)
+                .map_err(|error| Error::Library(error.localizedDescription().to_string()))
+        })?;
         Ok(Self {
             raw,
             device_id: device.id(),
             abi: Some(manifest.abi),
-            marker: PhantomData,
         })
     }
     /// Checks that generated bindings describe this artifact's exact ABI.

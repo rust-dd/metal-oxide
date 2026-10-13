@@ -1,4 +1,7 @@
-use std::{cell::RefCell, ptr::NonNull, sync::Arc};
+use std::{
+    ptr::NonNull,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use block2::RcBlock;
 use objc2::{
@@ -72,18 +75,27 @@ impl CommandStorage {
     }
 }
 
+// SAFETY: one batch owns the storage, or the cache parks it behind a mutex. Its native objects
+// are used by one thread at a time, and the cache returns them only after GPU completion.
+unsafe impl Send for CommandStorage {}
+
+/// The command storage of the latest batch, reused once its GPU work has completed.
 #[derive(Default)]
-pub(super) struct BatchCache(RefCell<Option<(CommandStorage, Arc<Completion>)>>);
+pub(super) struct BatchCache(Mutex<Option<(CommandStorage, Arc<Completion>)>>);
 
 impl BatchCache {
     fn take(&self) -> Option<CommandStorage> {
-        let (storage, completion) = self.0.borrow_mut().take()?;
+        let (storage, completion) = self.entry().take()?;
         if !completion.is_finished() {
             return None;
         }
         // Commit feedback has confirmed that the GPU no longer reads these commands.
         storage.allocator.reset();
         Some(storage)
+    }
+
+    fn entry(&self) -> MutexGuard<'_, Option<(CommandStorage, Arc<Completion>)>> {
+        self.0.lock().unwrap_or_else(|error| error.into_inner())
     }
 }
 
@@ -240,7 +252,7 @@ impl<'a> Metal4Batch<'a> {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
-        self.cache.0.replace(Some((
+        *self.cache.entry() = Some((
             CommandStorage {
                 allocator: self.allocator.clone(),
                 command: self.command.clone(),
@@ -249,7 +261,7 @@ impl<'a> Metal4Batch<'a> {
                 tables: self.tables.clone(),
             },
             Arc::clone(&completion),
-        )));
+        ));
         let keepalive = (
             self.command.clone(),
             self.allocator.clone(),

@@ -42,7 +42,7 @@ impl Scan {
     pub(super) unsafe fn enqueue(
         &mut self,
         batch: &mut Batch<'_>,
-        kernels: &Kernels<'_>,
+        kernels: &Kernels,
         input: &Buffer<u32>,
     ) -> Result<()> {
         // SAFETY: each level owns disjoint buffers sized for its input and block count.
