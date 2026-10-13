@@ -64,13 +64,13 @@ fn u64_operations_and_saturating_casts_match_rust() -> metal_oxide::Result<()> {
                         Ok(&pipeline),
                         LaunchConfig::<1>::new(Dim3::x(1)),
                         (&mut output, a, b, shift, -123_i32),
-                        |(output, a, b, shift, v4)| {
+                        |(output, a, b, shift, signed)| {
                             Ok([
                                 Argument::write(output),
                                 Argument::value(*a)?,
                                 Argument::value(*b)?,
                                 Argument::value(*shift)?,
-                                Argument::value(*v4)?,
+                                Argument::value(*signed)?,
                             ])
                         },
                     )

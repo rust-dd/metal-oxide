@@ -81,12 +81,12 @@ fn native_increments_feed_generated_integration_without_staging() -> metal_oxide
                     Ok(&pipeline),
                     LaunchConfig::<32>::for_elements(33)?,
                     (&mut values, 33_u32, 65_u32, 0.015625_f32),
-                    |(values, v1, v2, v3)| {
+                    |(values, rows, steps, dt)| {
                         Ok([
                             Argument::read_write(values),
-                            Argument::value(*v1)?,
-                            Argument::value(*v2)?,
-                            Argument::value(*v3)?,
+                            Argument::value(*rows)?,
+                            Argument::value(*steps)?,
+                            Argument::value(*dt)?,
                         ])
                     },
                 ))

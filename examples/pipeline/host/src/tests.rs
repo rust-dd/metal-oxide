@@ -44,11 +44,11 @@ fn raw_launch_rejects_the_wrong_const_specialization() -> metal_oxide::Result<()
             Ok(&pipeline),
             LaunchConfig::<256>::for_elements(0)?,
             (&input, &mut output, 0),
-            |(input, output, v2)| {
+            |(input, output, n)| {
                 Ok([
                     Argument::read(input),
                     Argument::write(output),
-                    Argument::value::<u32>(*v2)?,
+                    Argument::value::<u32>(*n)?,
                 ])
             },
         )

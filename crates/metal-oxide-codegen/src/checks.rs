@@ -62,7 +62,7 @@ fn kind(check: &Check) -> artifact::CheckKind {
     }
 }
 
-/// Stores `check + 2` in the submission's failure word unless the dispatch is skipped; when
+/// Stores `check + 2` in the command buffer's failure word unless the dispatch is skipped; when
 /// threads fail different checks, one of them remains.
 pub(crate) const FAIL: &str = "static void metal_oxide_fail(metal_oxide_context ctx, uint check) {
     *ctx.failed = true;

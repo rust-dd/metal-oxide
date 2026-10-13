@@ -19,17 +19,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// GPU work that runs when it is awaited or waited.
-///
-/// Nothing is encoded before the first poll or `wait`; then the whole operation encodes into
-/// one command buffer and commits. A device has one ordered queue, so operations execute in
-/// the order they are first polled or waited, not the order they were created. Dropping an
-/// operation before that encodes nothing. Dropping its future later does not cancel the GPU
-/// work: its resources stay retained until completion, and CPU access to its buffers waits.
-///
-/// Errors from pipeline creation, validation or encoding discard the whole command buffer,
-/// and owned arguments are dropped with it. [`sequence`] runs several operations in one
-/// command buffer.
+/// GPU work that encodes into one command buffer and commits when first polled or waited,
+/// which also fixes its place in the device's queue; dropped before that, it encodes nothing.
 pub trait Operation: sealed::Sealed + Sized {
     /// What the operation returns after its GPU work has finished.
     type Output;
@@ -78,16 +69,13 @@ pub struct Launch<A, const N: usize> {
 }
 
 impl<A, const N: usize> Launch<A, N> {
-    /// Describes a dispatch of `pipeline` whose kernel parameters `bind` builds from
-    /// `arguments`. A pipeline creation error is returned when the operation runs.
+    /// A dispatch of `pipeline` with the parameters `bind` builds from `arguments`; a pipeline
+    /// error is returned when the operation runs.
     ///
     /// # Safety
     ///
-    /// The bound arguments must match the kernel's types, slots, lengths, and access modes.
-    /// The kernel must stay in bounds, respect read-only resources, have no data races, and
-    /// leave valid values in every written element. Its grid and block must satisfy all
-    /// participation and synchronization requirements. Dispatches of one command buffer run
-    /// in order, and no external GPU or CPU access may conflict with them.
+    /// The arguments must match the kernel's parameters, and the kernel must stay in bounds,
+    /// race-free and synchronized on this grid, with no conflicting access to its buffers.
     pub unsafe fn new(
         pipeline: Result<&Pipeline>,
         config: impl Into<DynamicLaunchConfig>,
@@ -116,9 +104,8 @@ impl<A, const N: usize> Operation for Launch<A, N> {
     }
 }
 
-/// Builds one operation from the operations `encode` pushes, in order, into a single command
-/// buffer. Later operations see the writes of earlier ones; the closure runs when the
-/// operation is first polled or waited, before the command buffer commits.
+/// One operation from those `encode` pushes, in order, into a single command buffer; the
+/// closure runs when the operation is first polled or waited.
 pub fn sequence<F, T>(encode: F) -> Sequence<F>
 where
     F: FnOnce(&mut Batch) -> Result<T>,
@@ -144,9 +131,7 @@ where
 impl<A, const N: usize> sealed::Sealed for Launch<A, N> {}
 impl<F> sealed::Sealed for Sequence<F> {}
 
-/// An operation that also returns its command buffer's GPU execution time; see
-/// [`Operation::timed`]. The time is `None` when nothing was dispatched or the device
-/// reports no timestamps.
+/// An operation that also returns its GPU time, `None` without dispatches or timestamps.
 #[must_use = "operations do nothing until awaited or waited"]
 pub struct Timed<O>(O);
 

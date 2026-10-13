@@ -119,11 +119,11 @@ fn seeded_rust_matches_cpu_on_gpu() {
                 Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(257).unwrap(),
                 (&input, &mut output, 257_u32),
-                |(input, output, v2)| {
+                |(input, output, n)| {
                     Ok([
                         Argument::read(input),
                         Argument::write(output),
-                        Argument::value(*v2)?,
+                        Argument::value(*n)?,
                     ])
                 },
             )

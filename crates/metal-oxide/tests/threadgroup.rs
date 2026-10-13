@@ -55,7 +55,7 @@ fn threadgroup_memory_limits_include_static_storage_and_empty_grids() -> metal_o
                 Ok(&pipeline),
                 LaunchConfig::<32>::new(Dim3::x(grid)),
                 (maximum / 4, &mut output),
-                |(v0, output)| Ok([Argument::threadgroup::<u32>(*v0)?, Argument::write(output)]),
+                |(a, output)| Ok([Argument::threadgroup::<u32>(*a)?, Argument::write(output)]),
             )
             .wait()
         };
@@ -67,7 +67,7 @@ fn threadgroup_memory_limits_include_static_storage_and_empty_grids() -> metal_o
             Ok(&pipeline),
             LaunchConfig::<32>::new(Dim3::x(1)),
             (32, &mut output),
-            |(v0, output)| Ok([Argument::threadgroup::<u32>(*v0)?, Argument::write(output)]),
+            |(a, output)| Ok([Argument::threadgroup::<u32>(*a)?, Argument::write(output)]),
         )
     }
     .wait()?;

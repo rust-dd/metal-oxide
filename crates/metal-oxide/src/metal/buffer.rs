@@ -43,14 +43,8 @@ pub(super) trait BufferBinding: Sync {
     fn prepare(&self, access: Access);
 }
 
-/// Shared Metal storage with initialized CPU views.
-///
-/// Primitive scalar views use the allocation directly. Other `GpuValue` types
-/// use a CPU mirror and their explicit canonical-layout codec.
-///
-/// CPU access through [`read`](Self::read) and [`write`](Self::write) waits for pending GPU
-/// work, from any thread. A GPU write needs the buffer exclusively borrowed or owned, so shared
-/// CPU views never observe a partially decoded value.
+/// Shared Metal storage with initialized CPU views; non-primitive values go through a CPU
+/// mirror. CPU access waits for pending GPU work, and GPU writes need exclusive access.
 pub struct Buffer<T: GpuValue> {
     storage: Storage,
     device_id: u64,
@@ -126,15 +120,13 @@ impl<T: GpuValue> Buffer<T> {
         Ok(Some(Mirror::new(values, location)))
     }
 
-    /// Views the values once pending GPU work on the buffer has finished. Awaiting never
-    /// blocks the thread; `wait` does.
+    /// The values, once pending GPU work on the buffer has finished; awaiting never blocks.
     pub fn read(&self) -> Read<'_, T> {
         Read::new(self)
     }
 
-    /// Views the values for CPU writes once pending GPU work on the buffer has finished;
-    /// the next dispatch that uses the buffer encodes them. Awaiting never blocks the
-    /// thread; `wait` does.
+    /// The values for CPU writes, once pending GPU work has finished; the next dispatch that
+    /// uses the buffer encodes them.
     pub fn write(&mut self) -> Write<'_, T> {
         Write::new(self)
     }

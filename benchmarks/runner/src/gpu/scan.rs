@@ -76,12 +76,12 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
                         Ok(&pipelines[0]),
                         LaunchConfig::<256>::for_elements(level.n)?,
                         (source, &mut level.local, &mut level.totals, level.n),
-                        |(source, a1, a2, v3)| {
+                        |(source, prefix, totals, n)| {
                             Ok([
                                 Argument::read(source),
-                                Argument::write(a1),
-                                Argument::write(a2),
-                                Argument::value(*v3)?,
+                                Argument::write(prefix),
+                                Argument::write(totals),
+                                Argument::value(*n)?,
                             ])
                         },
                     ))?;
@@ -94,12 +94,12 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
                         Ok(&pipelines[1]),
                         LaunchConfig::<256>::for_elements(level.n)?,
                         (&level.local, source, &mut level.output, level.n),
-                        |(a0, source, a2, v3)| {
+                        |(local, source, output, n)| {
                             Ok([
-                                Argument::read(a0),
+                                Argument::read(local),
                                 Argument::read(source),
-                                Argument::write(a2),
-                                Argument::value(*v3)?,
+                                Argument::write(output),
+                                Argument::value(*n)?,
                             ])
                         },
                     ))?;

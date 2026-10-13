@@ -22,11 +22,8 @@ use super::{
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A Metal device and its ordered command queue.
-///
-/// Clones are cheap handles to the same queue context, and every method may be
-/// called from any thread. Operations started from several threads execute in the order
-/// they commit.
+/// A Metal device and its ordered command queue. Clones share the queue, any thread may use
+/// them, and operations run in the order they commit.
 #[derive(Clone)]
 pub struct Device(Arc<Context>);
 

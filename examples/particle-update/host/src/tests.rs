@@ -44,11 +44,11 @@ fn record_and_config_layouts_are_checked_before_dispatch() -> metal_oxide::Resul
                 Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(0)?,
                 (&wrong, &mut output, run::config(), 0_u32),
-                |(wrong, output, v2, v3)| Ok([
+                |(wrong, output, config, n)| Ok([
                     Argument::read(wrong),
                     Argument::write(output),
-                    Argument::value(*v2)?,
-                    Argument::value(*v3)?
+                    Argument::value(*config)?,
+                    Argument::value(*n)?
                 ])
             )
             .wait(),
@@ -59,11 +59,11 @@ fn record_and_config_layouts_are_checked_before_dispatch() -> metal_oxide::Resul
                 Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(0)?,
                 (&input, &mut output, 0_u32, 0_u32),
-                |(input, output, v2, v3)| Ok([
+                |(input, output, config, n)| Ok([
                     Argument::read(input),
                     Argument::write(output),
-                    Argument::value(*v2)?,
-                    Argument::value(*v3)?
+                    Argument::value(*config)?,
+                    Argument::value(*n)?
                 ])
             )
             .wait(),
@@ -74,11 +74,11 @@ fn record_and_config_layouts_are_checked_before_dispatch() -> metal_oxide::Resul
                 Ok(&pipeline),
                 LaunchConfig::<32>::for_elements(0)?,
                 (&input, &mut output, run::config(), 0_u32),
-                |(input, output, v2, v3)| Ok([
+                |(input, output, config, n)| Ok([
                     Argument::read(input),
                     Argument::write(output),
-                    Argument::value(*v2)?,
-                    Argument::value(*v3)?
+                    Argument::value(*config)?,
+                    Argument::value(*n)?
                 ])
             )
             .wait(),

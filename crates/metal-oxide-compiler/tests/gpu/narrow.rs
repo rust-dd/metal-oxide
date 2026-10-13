@@ -76,12 +76,12 @@ fn byte_buffers_widen_and_scale_without_changing_stride() -> metal_oxide::Result
             Ok(&pipeline),
             LaunchConfig::<256>::new(Dim3::x(1)),
             (&input, &mut output, 300, 256),
-            |(input, output, v2, v3)| {
+            |(input, output, scale, n)| {
                 Ok([
                     Argument::read(input),
                     Argument::write(output),
-                    Argument::value::<u16>(*v2)?,
-                    Argument::value::<u32>(*v3)?,
+                    Argument::value::<u16>(*scale)?,
+                    Argument::value::<u32>(*n)?,
                 ])
             },
         )
@@ -201,11 +201,11 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
                     &mut record16,
                     SignedRecord((a, b, (-1_i8, 7_u16))),
                 ),
-                |(record8, record16, v2)| {
+                |(record8, record16, input)| {
                     Ok([
                         Argument::write(record8),
                         Argument::write(record16),
-                        Argument::value(*v2)?,
+                        Argument::value(*input)?,
                     ])
                 },
             )

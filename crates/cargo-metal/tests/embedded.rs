@@ -142,11 +142,11 @@ fn verify_argument_types(device: &Device, pipeline: &Pipeline) -> metal_oxide::R
                 Ok(pipeline),
                 config,
                 (&mut values, 5_u64, 3_u32),
-                |(values, v1, v2)| {
+                |(values, increment, n)| {
                     Ok([
                         Argument::read_write(values),
-                        Argument::value(*v1)?,
-                        Argument::value(*v2)?,
+                        Argument::value(*increment)?,
+                        Argument::value(*n)?,
                     ])
                 },
             )

@@ -75,11 +75,11 @@ pub(super) fn verify() -> metal_oxide::Result<()> {
                 Ok(&reference),
                 launch,
                 (&input, &mut handwritten, config(), n),
-                |(input, handwritten, v2, n)| {
+                |(input, handwritten, config, n)| {
                     Ok([
                         Argument::read(input),
                         Argument::write(handwritten),
-                        Argument::value(*v2)?,
+                        Argument::value(*config)?,
                         Argument::value(*n)?,
                     ])
                 },

@@ -104,10 +104,10 @@ fn rust_nested_aggregate_updates_across_control_flow_execute() -> metal_oxide::R
                 Ok(&pipeline),
                 LaunchConfig::<1>::new(Dim3::x(1)),
                 (&mut out, 10.0, mode),
-                |(out, v1, mode)| {
+                |(out, seed, mode)| {
                     Ok([
                         Argument::write(out),
-                        Argument::value::<f32>(*v1)?,
+                        Argument::value::<f32>(*seed)?,
                         Argument::value::<u32>(*mode)?,
                     ])
                 },

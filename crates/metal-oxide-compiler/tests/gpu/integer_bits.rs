@@ -45,13 +45,13 @@ macro_rules! bits {
                     Ok(&pipeline),
                     LaunchConfig::<64>::for_elements(n as u32)?,
                     (&input, &shift_buffer, &mut counts, &mut values, n as u32),
-                    |(input, shift_buffer, counts, values, v4)| {
+                    |(input, shift_buffer, counts, values, n)| {
                         Ok([
                             Argument::read(input),
                             Argument::read(shift_buffer),
                             Argument::write(counts),
                             Argument::write(values),
-                            Argument::value(*v4)?,
+                            Argument::value(*n)?,
                         ])
                     },
                 )

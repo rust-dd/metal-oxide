@@ -37,11 +37,11 @@ fn failed_bounds_check_reports_its_rust_location() -> metal_oxide::Result<()> {
             Ok(&lookup),
             LaunchConfig::<4>::for_elements(10)?,
             (&indices, &mut out, 10_u32),
-            |(indices, out, v2)| {
+            |(indices, out, n)| {
                 Ok([
                     Argument::read(indices),
                     Argument::write(out),
-                    Argument::value(*v2)?,
+                    Argument::value(*n)?,
                 ])
             },
         )
@@ -66,7 +66,7 @@ fn failed_bounds_check_reports_its_rust_location() -> metal_oxide::Result<()> {
     Ok(())
 }
 
-/// Launches `lookup` and `fill` in one submission; `indices` decide which lookups fail.
+/// Launches `lookup` and `fill` in one command buffer; `indices` decide which lookups fail.
 fn lookups_and_fills(
     device: &Device,
     module: &Module,
@@ -90,11 +90,11 @@ fn lookups_and_fills(
                 Ok(&lookup),
                 config,
                 (indices, out, 4_u32),
-                |(indices, out, v2)| {
+                |(indices, out, n)| {
                     Ok([
                         Argument::read(indices),
                         Argument::write(out),
-                        Argument::value(*v2)?,
+                        Argument::value(*n)?,
                     ])
                 },
             ))?;
@@ -102,11 +102,11 @@ fn lookups_and_fills(
                 Ok(&fill),
                 config,
                 (&mut filled, value, 4_u32),
-                |(filled, value, v2)| {
+                |(filled, value, n)| {
                     Ok([
                         Argument::write(filled),
                         Argument::value(*value)?,
-                        Argument::value(*v2)?,
+                        Argument::value(*n)?,
                     ])
                 },
             ))?;
@@ -126,7 +126,7 @@ fn lookups_and_fills(
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn a_failed_dispatch_skips_the_rest_of_its_submission() -> metal_oxide::Result<()> {
+fn a_failed_dispatch_skips_the_rest_of_its_command_buffer() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = module(&device)?;
     let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [5, 1])?;
@@ -144,7 +144,7 @@ fn a_failed_dispatch_skips_the_rest_of_its_submission() -> metal_oxide::Result<(
         [early, late, filled],
         [[20; 4], [0; 4], [1; 4]].map(Vec::from)
     );
-    // The next submission starts from clear words.
+    // The next command buffer starts from clear words.
     let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [2, 3])?;
     result?;
     assert_eq!(
@@ -168,12 +168,12 @@ fn overflow_division_and_assertion_messages_match_rust() -> metal_oxide::Result<
                 Ok(&arithmetic),
                 LaunchConfig::<32>::for_elements(values.len() as u32)?,
                 (&values, &mut out, divisor, values.len() as u32),
-                |(values, out, divisor, v3)| {
+                |(values, out, divisor, n)| {
                     Ok([
                         Argument::read(values),
                         Argument::write(out),
                         Argument::value(*divisor)?,
-                        Argument::value(*v3)?,
+                        Argument::value(*n)?,
                     ])
                 },
             )
@@ -251,11 +251,11 @@ fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxi
                     Ok(&lookup),
                     config,
                     (indices, &mut out, 1_u32),
-                    |(indices, out, v2)| {
+                    |(indices, out, n)| {
                         Ok([
                             Argument::read(indices),
                             Argument::write(out),
-                            Argument::value(*v2)?,
+                            Argument::value(*n)?,
                         ])
                     },
                 ))?;
@@ -301,11 +301,11 @@ fn device_log_messages_reach_standard_error() {
                 Ok(&pipeline),
                 LaunchConfig::<3>::new(Dim3::x(1)),
                 (&mut out, 0.1_f32, metal_oxide::F16::from_f32(0.5)),
-                |(out, v1, v2)| {
+                |(out, scale, half)| {
                     Ok([
                         Argument::write(out),
-                        Argument::value(*v1)?,
-                        Argument::value(*v2)?,
+                        Argument::value(*scale)?,
+                        Argument::value(*half)?,
                     ])
                 },
             )

@@ -101,7 +101,7 @@ fn native_handoffs_keep_storage_and_wait_for_cancelled_work() -> metal_oxide::Re
                     Ok(&pipeline),
                     LaunchConfig::<32>::for_elements(n as u32)?,
                     (&mut adopted, n as u32),
-                    |(adopted, v1)| Ok([Argument::read_write(adopted), Argument::value(*v1)?]),
+                    |(adopted, n)| Ok([Argument::read_write(adopted), Argument::value(*n)?]),
                 )
                 .wait()
             },
@@ -115,7 +115,7 @@ fn native_handoffs_keep_storage_and_wait_for_cancelled_work() -> metal_oxide::Re
                 Ok(&other_pipeline),
                 LaunchConfig::<32>::for_elements(n as u32)?,
                 (&mut adopted, n as u32),
-                |(adopted, v1)| Ok([Argument::read_write(adopted), Argument::value(*v1)?]),
+                |(adopted, n)| Ok([Argument::read_write(adopted), Argument::value(*n)?]),
             )
             .wait()?
         };

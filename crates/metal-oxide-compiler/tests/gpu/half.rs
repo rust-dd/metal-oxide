@@ -27,13 +27,13 @@ fn half_storage_preserves_all_patterns_and_widens_exactly() -> metal_oxide::Resu
                 &mut copied,
                 values.len() as u32,
             ),
-            |(input, bits, wide, copied, v4)| {
+            |(input, bits, wide, copied, n)| {
                 Ok([
                     Argument::read(input),
                     Argument::write(bits),
                     Argument::write(wide),
                     Argument::write(copied),
-                    Argument::value(*v4)?,
+                    Argument::value(*n)?,
                 ])
             },
         )
@@ -94,11 +94,11 @@ fn half_conversion_rounds_ties_to_even_and_preserves_special_values() -> metal_o
             Ok(&pipeline),
             LaunchConfig::<256>::for_elements(values.len() as u32)?,
             (&input, &mut output, values.len() as u32),
-            |(input, output, v2)| {
+            |(input, output, n)| {
                 Ok([
                     Argument::read(input),
                     Argument::write(output),
-                    Argument::value(*v2)?,
+                    Argument::value(*n)?,
                 ])
             },
         )
@@ -143,11 +143,11 @@ fn half_record_parameters_and_ctfe_constants_match_their_layout() -> metal_oxide
             Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
             (&mut output, value, F16::from_f32(2.0)),
-            |(output, value, v2)| {
+            |(output, value, scale)| {
                 Ok([
                     Argument::write(output),
                     Argument::value(*value)?,
-                    Argument::value(*v2)?,
+                    Argument::value(*scale)?,
                 ])
             },
         )

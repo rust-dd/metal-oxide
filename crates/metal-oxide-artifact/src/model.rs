@@ -84,10 +84,10 @@ pub struct Kernel {
     pub parameters: Vec<Parameter>,
     pub required_block: Option<[u32; 3]>,
     /// The buffer slot after the parameters: a word that is nonzero once an earlier dispatch
-    /// of the submission has failed, telling this one to skip its work.
+    /// of the command buffer has failed, telling this one to skip its work.
     pub gate_binding: u32,
-    /// The kernel can fail a runtime check; it then also takes the submission's failure word
-    /// in the slot after its gate.
+    /// The kernel can fail a runtime check; it then also takes the command buffer's failure
+    /// word in the slot after its gate.
     pub fallible: bool,
 }
 

@@ -81,11 +81,11 @@ mod tests {
                     Ok(&pipeline),
                     config,
                     (&wrong, &b, &mut out, 0),
-                    |(wrong, b, out, v3)| Ok([
+                    |(wrong, b, out, n)| Ok([
                         Argument::read(wrong),
                         Argument::read(b),
                         Argument::write(out),
-                        Argument::value::<u32>(*v3)?
+                        Argument::value::<u32>(*n)?
                     ])
                 )
                 .wait(),
@@ -96,11 +96,11 @@ mod tests {
                     Ok(&pipeline),
                     config,
                     (&a, &b, &out, 0),
-                    |(a, b, out, v3)| Ok([
+                    |(a, b, out, n)| Ok([
                         Argument::read(a),
                         Argument::read(b),
                         Argument::read(out),
-                        Argument::value::<u32>(*v3)?
+                        Argument::value::<u32>(*n)?
                     ])
                 )
                 .wait(),
@@ -111,11 +111,11 @@ mod tests {
                     Ok(&pipeline),
                     config,
                     (&a, &b, &mut out, 0.0),
-                    |(a, b, out, v3)| Ok([
+                    |(a, b, out, n)| Ok([
                         Argument::read(a),
                         Argument::read(b),
                         Argument::write(out),
-                        Argument::value::<f32>(*v3)?
+                        Argument::value::<f32>(*n)?
                     ])
                 )
                 .wait(),
@@ -125,12 +125,12 @@ mod tests {
                 Ok(&pipeline),
                 config,
                 (&a, &b, &mut out, 0),
-                |(a, b, out, v3)| {
+                |(a, b, out, n)| {
                     Ok([
                         Argument::read(a),
                         Argument::read(b),
                         Argument::write(out),
-                        Argument::value::<u32>(*v3)?,
+                        Argument::value::<u32>(*n)?,
                     ])
                 },
             )
@@ -192,12 +192,12 @@ mod tests {
                 Ok(&pipeline),
                 LaunchConfig::<256>::for_elements(0)?,
                 (&a, &b, &mut out, 0),
-                |(a, b, out, v3)| {
+                |(a, b, out, n)| {
                     Ok([
                         Argument::read(a),
                         Argument::read(b),
                         Argument::write(out),
-                        Argument::value::<u32>(*v3)?,
+                        Argument::value::<u32>(*n)?,
                     ])
                 },
             )

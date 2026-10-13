@@ -111,12 +111,12 @@ fn verify_fusion(device: &Device, module: &Module, mode: MathMode) -> metal_oxid
             Ok(&pipeline),
             LaunchConfig::<1>::new(Dim3::x(1)),
             (&mut output, a, b, -1.0_f32),
-            |(output, a, b, v3)| {
+            |(output, a, b, c)| {
                 Ok([
                     Argument::write(output),
                     Argument::value(*a)?,
                     Argument::value(*b)?,
-                    Argument::value(*v3)?,
+                    Argument::value(*c)?,
                 ])
             },
         )

@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn in_place_fft_buffers_survive_ordered_and_cancelled_submissions() -> metal_oxide::Result<()> {
+fn in_place_fft_buffers_survive_ordered_and_cancelled_operations() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let pipeline = pipeline(
         &device,

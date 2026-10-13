@@ -10,7 +10,7 @@ use metal_oxide::{Argument, Device, Launch, LaunchConfig, Module, Pipeline, sequ
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn constant_bindings_survive_reuse_and_forgotten_submissions() -> metal_oxide::Result<()> {
+fn constant_bindings_survive_reuse_and_forgotten_operations() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = Module::from_source(
         &device,
