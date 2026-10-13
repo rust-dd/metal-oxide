@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#![cfg(all(target_os = "macos", target_arch = "aarch64", not(loom)))]
 
 use std::{
     future::{Future, IntoFuture},
@@ -217,12 +217,13 @@ fn waiting_for_the_gpu_never_blocks_a_current_thread_runtime() -> Result<()> {
         let during_readback = ticks.load(Ordering::Relaxed) - before;
         ticker.abort();
         assert_eq!(values.len(), 32_768);
+        // A blocking wait lets the ticker run at most once; virtual GPUs coarsen its period.
         assert!(
-            during_operation >= 10,
+            during_operation >= 3,
             "{during_operation} ticks while awaiting"
         );
         assert!(
-            during_readback >= 10,
+            during_readback >= 3,
             "{during_readback} ticks during readback"
         );
         Ok(())
