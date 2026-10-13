@@ -45,7 +45,7 @@ impl Constants {
         for (slot, argument) in bindings.enumerate() {
             if let Some(bytes) = argument.value_bytes() {
                 // SAFETY: checked, aligned suballocations are disjoint and within
-                // initialized, idle shared storage, before this GPU submission.
+                // initialized, idle shared storage, before this command buffer commits.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         bytes.as_ptr(),
@@ -78,7 +78,7 @@ pub(super) fn allocate(
     let buffer = device
         .newBufferWithLength_options(length, MTLResourceOptions::StorageModeShared)
         .ok_or(Error::AllocationFailed { bytes: length })?;
-    // SAFETY: fresh shared storage owns length writable bytes and is not submitted.
+    // SAFETY: fresh shared storage owns length writable bytes and is not committed.
     unsafe {
         buffer
             .contents()

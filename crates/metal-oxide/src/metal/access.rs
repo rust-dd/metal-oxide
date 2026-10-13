@@ -77,7 +77,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn buffer_access_waits_for_every_pending_submission() {
+    fn buffer_access_waits_for_every_pending_command_buffer() {
         let access = AccessState::default();
         let first = Arc::new(Completion::default());
         let second = Arc::new(Completion::default());

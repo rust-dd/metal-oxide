@@ -7,7 +7,8 @@ description: Use when changing metal-oxide Metal device, buffer, library, pipeli
 
 Read `AGENTS.md` and, when available locally, `docs/memory-model.md`.
 The runtime is based on `objc2-metal`; its handles are `Send + Sync`. It supports
-synchronous launches and async ordered batches; Rust kernel compilation is separate.
+lazy launch operations that run when awaited or waited; Rust kernel compilation is
+separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
 - Keep classic `MTL*` and Metal 4 execution behind the same public API.
@@ -33,20 +34,22 @@ synchronous launches and async ordered batches; Rust kernel compilation is separ
   codec values. Preserve identity storage, codec, cancellation and residency
   guarantees; dropping a buffer is not a synchronized handoff. Native device
   import creates an independent queue context; it does not adopt pending work.
-- `Device` clones share one ordered queue context; batches committed from several
-  threads execute in commit order. `Batch` holds native encoders and stays inside
-  `Device::submit`. Put `unsafe impl Send/Sync` only on small leaf types that own
+- `Device` clones share one ordered queue context; command buffers committed from
+  several threads execute in commit order, which follows the first poll or `wait` of
+  each operation. `Batch` holds native encoders and lives only inside that poll or
+  `wait`. Put `unsafe impl Send/Sync` only on small leaf types that own
   non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
   protocol that makes them sound; never on `Device` or `Buffer` as a whole.
 - Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
   `metal/loom.rs` cover completion, buffer access and codec mirrors. Run them with
   `RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release loom` after
   changing that state.
-- Input arguments hold shared borrows; writes and read-write access hold exclusive borrows. Submission
-  lifetimes retain captured borrows until wait/await completes or the future is
+- Read arguments are shared borrows, owned buffers or `Arc`s; writes and read-write
+  access need exclusive borrows or ownership. An operation and its future retain the
+  arguments until wait/await completes or the future is
   dropped. Pending buffer access state still synchronizes CPU slices after
   cancellation or `mem::forget`. Keep mutable slices on the host side only.
-- Use `Device::launch` with `LaunchConfig<X, Y, Z>`: const block dimensions and
+- Launch kernels through `Launch` with `LaunchConfig<X, Y, Z>`: const block dimensions and
   a runtime `grid: Dim3`. Y and Z default to one; `for_elements` is a 1D helper.
   Keep the block shape in the type, without a mutable runtime copy. Use
   `DynamicLaunchConfig` for pipeline-derived or runtime-tuned block shapes.
@@ -59,7 +62,7 @@ synchronous launches and async ordered batches; Rust kernel compilation is separ
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
 - Generated kernels bind a gate word after their parameters and, when fallible, the
-  submission's failure word. `Failures` owns pooled words until completion. A zero
+  command buffer's failure word. `Failures` owns pooled words until completion. A zero
   word gates dispatches before the first fallible one, and the failure word gates
   later infallible ones. Before each later fallible dispatch, a one-thread snapshot
   kernel copies the failure word into a fresh gate, since a kernel must not gate on
@@ -87,8 +90,10 @@ configurations when changing launch geometry. Use
 compile-fail examples to verify public borrowing constraints when changing the
 argument API.
 
-`Device::submit` creates an ordered `Batch`; its closure encodes unsafe launches.
-`Submission` implements `Future` and blocking `wait`. Native completion callbacks
+An operation encodes nothing until its first poll or `wait`; then one `Batch` encodes
+the whole operation (a `Launch`, or the operations a `sequence` closure pushes) and
+commits. The futures (`Pending`, `TimedPending`, `Read`, `Write`) never block, and
+`Completion` wakes every distinct waker. Native completion callbacks
 retain buffers, pipelines, queues, and Metal 4 allocation/binding/residency state
 independently of the future. Do not replace this with waiting in `Drop`.
 
@@ -102,7 +107,7 @@ Clear stale threadgroup slots when a reused encoder changes kernels.
 Metal 4 requires dispatch barriers within a batch and queue barriers between batches.
 Do not reset or release a command allocator before GPU completion.
 The context pools the command buffer, allocator, residency set and binding storage
-of up to eight recent batches, so pipelined and concurrent submitters avoid
+of up to eight recent batches, so pipelined and concurrent operations avoid
 allocating them (about 60 µs per batch on M4 Max). Reuse requires completed feedback
 and an empty residency set; reset the allocator only then. Retain constant allocations only up to 4 KiB each, rewrite
 active bindings and clear unused slots. Each dispatch owns distinct immutable

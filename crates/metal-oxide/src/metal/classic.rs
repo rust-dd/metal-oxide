@@ -97,7 +97,7 @@ impl ClassicBatch {
         }
         self.threadgroup_slots = threadgroup_slot;
         for word in words {
-            // SAFETY: the submission's `Failures` retains the word's buffer through completion.
+            // SAFETY: the command buffer's `Failures` retains the word's buffer through completion.
             unsafe { encoder.setBuffer_offset_atIndex(Some(word.buffer), word.offset, word.index) };
         }
         encoder.dispatchThreadgroups_threadsPerThreadgroup(

@@ -47,7 +47,7 @@ a test-only Metal header shim.
 
 These hardware tests select classic Metal and Metal 4 independently, load the
 exact compiler output, and compare results with CPU and MSL references. They also
-test async kernel chains, cancelled submissions, and generated bindings.
+test async kernel chains, cancelled operations, and generated bindings.
 The numerical-mode test compares source, offline and handwritten MSL results,
 then measures matching Box-Muller/Euler workloads. It writes raw GPU timing
 samples to `target/math-modes-{classic,metal4}.json`; these measurements do not
@@ -140,5 +140,5 @@ Compares vec-add, reduction, scan, histogram, particle update and matmul with
 CPU results and matching handwritten MSL on both backends. The JSON report
 separates build/cache, pipeline, host copy/upload/encoding/wait/readback and
 native GPU times. Every sample is checked; unavailable GPU timestamps are null.
-Submit time includes encoding and may overlap execution. Host wait includes
+Submit time is the first poll, which encodes and commits. Host wait includes
 execution and scheduling, so it does not measure queue latency alone.

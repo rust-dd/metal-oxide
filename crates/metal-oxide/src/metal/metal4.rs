@@ -81,7 +81,7 @@ impl CommandStorage {
 // are used by one thread at a time, and the cache returns them only after GPU completion.
 unsafe impl Send for CommandStorage {}
 
-/// Bounds retained command memory while covering pipelined and concurrent submitters.
+/// Bounds retained command memory while covering pipelined and concurrent operations.
 const CACHED_BATCHES: usize = 8;
 
 /// Command storage of recent batches, reused once their GPU work has completed.
@@ -248,7 +248,7 @@ impl Metal4Batch {
             self.residency
                 .addAllocation(ProtocolObject::from_ref(&**word.buffer));
             // SAFETY: the table has this slot; the word stays resident and retained by the
-            // submission's `Failures` through completion.
+            // command buffer's `Failures` through completion.
             unsafe {
                 table
                     .raw

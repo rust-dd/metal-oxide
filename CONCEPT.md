@@ -85,9 +85,10 @@ They avoid handing every GPU thread an exclusive Rust reference to the same
 whole buffer. Read-write handles support in-place algorithms; their host bindings
 borrow the buffer exclusively, while the caller still ensures race-free GPU access.
 
-Primitive scalar buffers expose shared Metal storage directly through `as_slice`
-and `as_mut_slice`, waiting for pending GPU work first. Owned records, arrays, and
-tuples retain explicit `GpuValue` codecs and a CPU mirror. Scalars include `u64`
+Primitive scalar buffers expose shared Metal storage directly through `read` and
+`write`, which wait for pending GPU work first: awaiting them never blocks the thread,
+and `wait` does. Owned records, arrays, and tuples retain explicit `GpuValue` codecs
+and a CPU mirror. Scalars include `u64`
 with eight-byte ABI alignment, wrapping arithmetic and saturating f32 casts.
 
 Thread coordinates, math, and cooperative operations use bodyless
@@ -223,7 +224,7 @@ Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
 neither does `block_idx * B + thread_idx` for a constant `B` up to the block size.
 Metal has no device trap, so each unproved assertion and each literal `panic!` or
 `assert!` becomes a runtime check: a failing thread stores the check in its
-submission's failure word and returns. A check before a barrier or SIMD collective
+command buffer's failure word and returns. A check before a barrier or SIMD collective
 must be proved or uniform, so that no thread waits for one that has returned. `log!`
 lowers to Metal shader logging with typed `printf` specifiers.
 
@@ -344,20 +345,22 @@ attributes. It does not generate our ABI file or Rust wrappers.
 
 ## Generated Rust bindings
 
-`bindings.rs` contains a `Kernels` struct, `load` and `load_bytes`, and synchronous
-and enqueue methods for every entrypoint. Loading validates the complete ABI,
-including its embedded digest, and retains the module and a `Device` handle, so
+`bindings.rs` contains a `Kernels` struct, `load` and `load_bytes`, and one method
+per entrypoint that returns its `Launch` operation. Loading validates the complete
+ABI, including its embedded digest, and retains the module and a `Device` handle, so
 `Kernels` has no lifetime and is `Send + Sync`. Each pipeline is created on its
-first invocation and reused by both invocation methods; concurrent first calls may
-create it twice and keep one. A pipeline failure is returned to that call;
-unrelated entrypoints remain usable.
+first invocation and reused; concurrent first calls may create it twice and keep
+one. A pipeline failure is returned when that operation runs; unrelated entrypoints
+remain usable.
 
-The ABI determines the signature: read buffers take shared borrows, write,
-read-write and atomic buffers take exclusive borrows, and scalar parameters use
-their canonical Rust types. Parameter order determines Metal binding slots.
-The generated `enqueue_vec_add` takes a `Batch` with the same typed arguments,
-so kernels can share one ordered submission. Required block shapes remain
-encoded in the configuration type and checked by the runtime.
+The ABI determines the signature: read buffers accept a shared borrow, an exclusive
+borrow, an owned buffer or an `Arc` (`ReadArgument`); write, read-write and atomic
+buffers accept an exclusive borrow or an owned buffer (`WriteArgument`). Scalar
+parameters use their canonical Rust types. Parameter order determines Metal binding
+slots. The operation returns its arguments in the form they were passed, so owned
+buffers come back after the GPU work. `sequence(|batch| ...)` pushes several
+operations into one ordered command buffer. Required block shapes remain encoded in
+the configuration type and checked by the runtime.
 
 A host can commit the generated bindings, manifest and metallib with its source:
 
@@ -451,7 +454,7 @@ uses the artifact path when loading kernels.
 A minimal macOS host using the generated `vec_add` bindings is:
 
 ```rust
-use metal_oxide::{Device, LaunchConfig};
+use metal_oxide::{Device, LaunchConfig, Operation};
 
 mod kernels {
     include!(env!("METAL_OXIDE_BINDINGS"));
@@ -468,11 +471,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = LaunchConfig::<256>::for_elements(n)?;
 
     // SAFETY: distinct n-element buffers and a 1D launch give one writer per index.
-    unsafe {
-        kernels.vec_add(config, &a, &b, &mut out, n)?;
-    }
+    unsafe { kernels.vec_add(config, &a, &b, &mut out, n) }.wait()?;
 
-    assert!(out.as_slice().iter().all(|&value| value == 3.0));
+    assert!(out.read().wait().iter().all(|&value| value == 3.0));
     Ok(())
 }
 ```
@@ -498,19 +499,20 @@ The runtime performs these steps:
    requirements, verifies the library bytes, and loads those bytes into Metal.
 3. On the first invocation, `Pipeline::new` selects `vec_add`, creates the native
    compute pipeline, and retains that entrypoint's ABI. Later calls reuse it.
-4. The generated `vec_add` wrapper constructs the four ordered arguments.
-5. `Device::launch` calls `Device::submit`, which creates a `Batch`.
-6. `Batch::launch` checks resource context, ABI types/access, block requirements,
-   and dispatch limits, then encodes bindings, a gate word and, for a kernel that can
-   fail a check, the submission's failure word. A kernel tests its gate once, at the
-   latest point that precedes all of its memory accesses, synchronization and logs, and
-   returns once an earlier dispatch has failed. A fallible dispatch after another
-   fallible one gates on a snapshot of the failure word, copied by a one-thread kernel
-   just before it.
-7. The batch commits. `Device::launch` waits for GPU completion and reports
-   command errors, or `Error::KernelFailed` with the kernel, dispatch, Rust location
-   and message of the failed check, before returning.
-8. The host reads the output buffer.
+4. The generated `vec_add` wrapper returns a `Launch` operation that holds the
+   pipeline, the configuration and the arguments; nothing is encoded yet.
+5. `wait` (or the first poll of its future) creates a `Batch`, which binds the four
+   ordered arguments and checks resource context, ABI types/access, block
+   requirements and dispatch limits. It then encodes the bindings, a gate word and,
+   for a kernel that can fail a check, the command buffer's failure word. A kernel
+   tests its gate once, at the latest point that precedes all of its memory accesses,
+   synchronization and logs, and returns once an earlier dispatch has failed. A
+   fallible dispatch after another fallible one gates on a snapshot of the failure
+   word, copied by a one-thread kernel just before it.
+6. The batch commits. `wait` blocks until GPU completion, and the future resolves
+   then; either reports command errors, or `Error::KernelFailed` with the kernel,
+   dispatch, Rust location and message of the failed check.
+7. The host reads the output buffer.
 
 The runtime's `Module` holds a loaded Metal library and ABI metadata.
 `metal_oxide_ir::Module` holds the compiler's program representation.
@@ -539,18 +541,20 @@ CPU views and encoded/pending GPU accesses end. The runtime may retain, release 
 read immutable properties of the native buffer on any thread. Runtime contexts
 remain distinct.
 
-Consuming `Buffer::into_native` waits for pending accesses and encodes dirty custom
-values before returning the native buffer. Primitive buffers preserve their storage
-address; records use their existing canonical codec. Dropping or forgetting a
-submission does not bypass export synchronization. Merely dropping the buffer does
-not complete GPU work. Submission errors remain available through wait/await.
+Consuming `Buffer::into_native` blocks until pending accesses finish and encodes
+dirty custom values before returning the native buffer. Primitive buffers preserve
+their storage address; records use their existing canonical codec. Dropping or
+forgetting a running operation does not bypass export synchronization. Merely
+dropping the buffer does not complete GPU work. Command errors are reported only by
+the operation that ran them.
 
-`Device`, `Module`, `Pipeline`, `Buffer`, `Argument` and `Submission` are
-`Send + Sync`. `Device` is a cheap handle: clones share one ordered queue context,
-and batches committed from different threads execute in commit order. A `Batch`
-holds native encoders and stays inside `Device::submit` on the submitting thread.
-CPU views on any thread wait for every registered GPU access; GPU writes require
-an exclusive borrow, so codec buffers decode a GPU write once even when several
+`Device`, `Module`, `Pipeline`, `Buffer`, `Argument`, `Launch` and the operation
+futures are `Send + Sync` when their arguments are. `Device` and `Pipeline` are cheap
+handles: device clones share one ordered queue context, and command buffers execute
+in commit order, which is the order operations are first polled or waited. A `Batch`
+holds native encoders and stays on the thread that runs the operation. CPU views on
+any thread wait for every registered GPU access; GPU writes require an exclusive
+borrow or ownership, so codec buffers decode a GPU write once even when several
 threads read concurrently. [The threading tests](crates/metal-oxide/tests/threads.rs)
 cover shared devices and pipelines, cross-thread readback, awaiting and dropping.
 
@@ -569,10 +573,10 @@ The selected variant controls pipeline creation and batch encoding:
 | Arguments | `setBuffer`; values up to 4 KiB copied with `setBytes`, larger values retained in buffers | GPU addresses in an immutable `MTL4ArgumentTable`; values packed into aligned, immutable storage per dispatch |
 | Resource residency | Classic resource management | Explicit residency set |
 | Dispatch ordering | Buffer barriers between dispatches | Encoder barriers and a queue barrier |
-| Submission | Command-buffer commit and completion callback | Command-queue commit and feedback callback |
+| Commit | Command-buffer commit and completion callback | Command-queue commit and feedback callback |
 
 Both paths retain native resources until GPU completion and expose the same
-`Device`, `Pipeline`, `Batch`, and `Submission` API.
+`Device`, `Pipeline`, `Launch`, `Batch` and `Operation` API.
 `METAL_OXIDE_BACKEND=classic` or `metal4` forces a path for verification;
 forcing Metal 4 on an unsupported device returns an error.
 
@@ -593,4 +597,4 @@ forcing Metal 4 on an unsupported device returns an error.
 | Committed artifacts in build scripts | [`build/src/artifact.rs`](crates/metal-oxide-build/src/artifact.rs), [`recorded.rs`](crates/metal-oxide-build/src/recorded.rs) |
 | CLI and host build | [`cargo-metal/src/build.rs`](crates/cargo-metal/src/build.rs) |
 | Library loading and launch validation | [`runtime/metal/module.rs`](crates/metal-oxide/src/metal/module.rs), [`pipeline.rs`](crates/metal-oxide/src/metal/pipeline.rs) |
-| Submission and native paths | [`runtime/metal/device.rs`](crates/metal-oxide/src/metal/device.rs), [`batch.rs`](crates/metal-oxide/src/metal/batch.rs), [`backend.rs`](crates/metal-oxide/src/metal/backend.rs) |
+| Operations and native paths | [`runtime/metal/operation.rs`](crates/metal-oxide/src/metal/operation.rs), [`batch.rs`](crates/metal-oxide/src/metal/batch.rs), [`backend.rs`](crates/metal-oxide/src/metal/backend.rs) |

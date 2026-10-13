@@ -31,7 +31,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   recursion, layouts, and conversions must produce diagnostics. Never remove a
   bounds/overflow check without a sound proof or silently change semantics.
 - Unproved assertions and literal panics become runtime checks: the failing thread
-  stores `check + 2` in the submission's failure word and returns; callers of
+  stores `check + 2` in the command buffer's failure word and returns; callers of
   fallible helpers return after them. A check before a barrier or SIMD collective
   must be proved or uniform. Generated kernels take a gate word in the buffer slot
   after their parameters and, when fallible, the failure word in the next one.
@@ -57,8 +57,9 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Validate cooperative participation transitively through helpers. Varying
   branches, early returns, and loops must not bypass required barriers or SIMD
   collectives. Threadgroup allocations have distinct storage per callsite.
-- Emit synchronous and `enqueue_` bindings from the same ABI. Enqueue methods
-  target `Batch`, and enforce the same const block shape and parameter types.
+- Emit one binding per entrypoint that returns its `Launch` operation, generic over
+  the borrowed, owned and `Arc` buffer forms, and enforce the const block shape and
+  parameter types.
 - Keep MSL supported; direct AIR is deferred until measurements justify it.
 
 Run compiler tests and Clippy from `crates/metal-oxide-compiler` with

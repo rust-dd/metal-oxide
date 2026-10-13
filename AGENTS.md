@@ -55,7 +55,9 @@ working features. Add crates and modules when they have an implementation.
 - Use CUDA-style launch semantics: `LaunchConfig<X, Y, Z>` encodes threads per
   block as const generics; `grid: Dim3` counts runtime blocks. Each block maps
   to a Metal threadgroup. `DynamicLaunchConfig` supports runtime block shapes.
-  Public kernel invocation is `Device::launch`; both paths share validation.
+  Public kernel invocation is the lazy `Launch` operation, awaited or waited;
+  `sequence` puts several operations in one command buffer. Both configuration
+  types share validation.
 - Keep const block information in the configuration type. Host const generics
   do not specialize handwritten MSL. Future compiler variants and generated
   bindings must carry and enforce any specialized block-shape requirements.

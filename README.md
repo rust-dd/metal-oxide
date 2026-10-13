@@ -28,7 +28,7 @@ pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, out: WriteBuffer<f
 Host (`host/src/main.rs`):
 
 ```rust
-use metal_oxide::{Device, LaunchConfig};
+use metal_oxide::{Device, LaunchConfig, Operation};
 
 mod kernels {
     include!(env!("METAL_OXIDE_BINDINGS"));
@@ -43,12 +43,25 @@ fn main() -> metal_oxide::Result<()> {
     let config = LaunchConfig::<256>::for_elements(3)?;
 
     // SAFETY: disjoint three-element buffers, 1D launch, one writer per index.
-    unsafe { kernels.vec_add(config, &a, &b, &mut out, 3)? };
+    unsafe { kernels.vec_add(config, &a, &b, &mut out, 3) }.wait()?;
 
-    assert_eq!(out.as_slice(), &[11.0, 22.0, 33.0]);
+    assert_eq!(out.read().wait(), &[11.0, 22.0, 33.0]);
     Ok(())
 }
 ```
+
+A kernel method returns a lazy operation: nothing runs until it is awaited or waited.
+Arguments come back in the form they were passed, so owned and `Arc` buffers make
+`'static` futures for `tokio::spawn`, and `buffer.read().await` waits for the GPU without
+blocking the executor thread:
+
+```rust
+let (a, b, out, _) = unsafe { kernels.vec_add(config, a, b, out, 3) }.await?;
+let values = out.read().await;
+```
+
+`metal_oxide::sequence(|batch| ...)` runs the operations it pushes in one command buffer,
+in order; `operation.timed()` also returns the GPU time.
 
 `cargo-metal` generates the bindings and supplies the build paths.
 Complete Cargo setup: [examples/vec-add](https://github.com/rust-dd/metal-oxide/tree/main/examples/vec-add).
@@ -74,7 +87,7 @@ See [generated bindings](https://github.com/rust-dd/metal-oxide/blob/main/CONCEP
 
 Use `Device::all()?.into_iter().nth(index)` to select a device explicitly.
 `recommended_max_working_set_size()` reports its advisory memory budget.
-Devices, modules, pipelines, buffers, submissions and generated `Kernels` are `Send + Sync`;
+Devices, modules, pipelines, buffers, operations and generated `Kernels` are `Send + Sync`;
 `Device` clones share one ordered queue, and CPU views on any thread wait for pending GPU
 work. Native Metal integration uses
 `Device::from_native`, unsafe `Buffer::from_native`, and consuming `Buffer::into_native`.
@@ -83,13 +96,13 @@ See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CO
 Checks the compiler cannot prove run on the GPU: an out-of-bounds index, an overflow
 under the profile's overflow checks, a division by zero or a literal `assert!`/`panic!`
 stops the thread and returns `Error::KernelFailed` with the kernel, dispatch, Rust location
-and message; later dispatches of the submission do not run. A check before a barrier or SIMD
+and message; later dispatches of its command buffer do not run. A check before a barrier or SIMD
 collective must be proved or uniform. `metal_oxide_device::log!` prints from kernels to
 stderr through Metal shader logging.
 
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Generated bindings take an element count;
-raw launches use `Argument::threadgroup::<T>(elements)`. Both paths validate
+raw `Launch` operations use `Argument::threadgroup::<T>(elements)`. Both paths validate
 combined static/dynamic memory against `Device::max_threadgroup_memory_per_block()`.
 The [spectral example](https://github.com/rust-dd/metal-oxide/tree/main/examples/spectral) uses this for runtime-sized FFT tiles,
 with CPU/native references, seeded stream checks and matched-mode benchmarks.

@@ -47,7 +47,7 @@ impl Chunk {
     }
 
     fn word(&self, index: usize) -> u32 {
-        // SAFETY: the index is inside the chunk, and its submission has completed.
+        // SAFETY: the index is inside the chunk, and its command buffer has completed.
         unsafe { self.0.contents().cast::<u32>().add(index).read() }
     }
 
@@ -62,7 +62,7 @@ impl Chunk {
     }
 }
 
-/// Zeroed chunks of one device, reused after their submission completes.
+/// Zeroed chunks of one device, reused after their command buffer completes.
 #[derive(Default)]
 pub(super) struct FailurePool(Mutex<Vec<Chunk>>);
 
@@ -74,7 +74,7 @@ pub(super) struct KernelChecks {
     pub(super) checks: Arc<[Check]>,
 }
 
-/// A word inside a submission's chunks.
+/// A word inside the chunks of one command buffer.
 #[derive(Clone, Copy)]
 pub(super) struct Slot {
     chunk: usize,
@@ -95,7 +95,7 @@ struct Fallible {
     gate: Slot,
 }
 
-/// The gate and failure words of one submission. Once a dispatch fails, later infallible
+/// The gate and failure words of one command buffer. Once a dispatch fails, later infallible
 /// dispatches gate on the failure word and later fallible ones on a snapshot taken before them.
 pub(super) struct Failures {
     pool: Arc<FailurePool>,
@@ -160,7 +160,7 @@ impl Failures {
         &self.chunks[slot.chunk].0
     }
 
-    /// The failed dispatch, read after the submission completes.
+    /// The failed dispatch, read after the command buffer completes.
     pub(super) fn failure(&self) -> Option<KernelFailure> {
         if self.fallible.is_empty() {
             return None;

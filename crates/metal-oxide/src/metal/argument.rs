@@ -202,7 +202,7 @@ impl<'a> Argument<'a> {
             .value_bytes()
             .expect("threadgroup storage has no device buffer");
         let buffer = super::constants::allocate(device, bytes.len())?;
-        // SAFETY: bytes is live; fresh shared storage covers it and is not yet submitted.
+        // SAFETY: bytes is live; fresh shared storage covers it and is not yet committed.
         unsafe {
             let destination = buffer.contents().cast::<u8>().as_ptr();
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
