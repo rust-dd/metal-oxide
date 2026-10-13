@@ -49,6 +49,26 @@ pub trait Operation: sealed::Sealed + Sized {
 }
 
 /// One kernel dispatch. Its arguments, in the form they were passed, are its output.
+///
+/// A pending operation keeps its borrows, so no CPU view can observe a buffer it writes:
+///
+/// ```compile_fail
+/// use std::future::IntoFuture;
+/// use metal_oxide::{Argument, Buffer, Launch, LaunchConfig, Pipeline};
+/// fn check(pipeline: &Pipeline, output: &mut Buffer<u32>) {
+///     let config = LaunchConfig::<32>::for_elements(32).unwrap();
+///     // SAFETY: never runs; the borrow conflict stops compilation.
+///     let pending = unsafe {
+///         Launch::new(Ok(pipeline), config, (&mut *output,), |(output,)| {
+///             Ok([Argument::write(output)])
+///         })
+///     }
+///     .into_future();
+///     let values = output.read().wait();
+///     drop(pending);
+///     println!("{}", values.len());
+/// }
+/// ```
 #[must_use = "operations do nothing until awaited or waited"]
 pub struct Launch<A, const N: usize> {
     pipeline: Result<Pipeline>,
