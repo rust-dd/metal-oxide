@@ -339,9 +339,11 @@ attributes. It does not generate our ABI file or Rust wrappers.
 
 `bindings.rs` contains a `Kernels` struct, `load` and `load_bytes`, and synchronous
 and enqueue methods for every entrypoint. Loading validates the complete ABI,
-including its embedded digest, and retains the module. Each pipeline is created
-on its first invocation and reused by both invocation methods. A pipeline failure
-is returned to that call; unrelated entrypoints remain usable.
+including its embedded digest, and retains the module and a `Device` handle, so
+`Kernels` has no lifetime and is `Send + Sync`. Each pipeline is created on its
+first invocation and reused by both invocation methods; concurrent first calls may
+create it twice and keep one. A pipeline failure is returned to that call;
+unrelated entrypoints remain usable.
 
 The ABI determines the signature: read buffers take shared borrows, write,
 read-write and atomic buffers take exclusive borrows, and scalar parameters use
@@ -520,7 +522,9 @@ command memory exhaustion is `Error::OutOfMemory` on both backends.
 on the same physical device. It validates the canonical element layout, extent
 and alignment. External GPU work must already be complete, storage must remain
 non-purgeable and non-aliasable, and external aliases must stay idle until runtime
-CPU views and encoded/pending GPU accesses end. Runtime contexts remain distinct.
+CPU views and encoded/pending GPU accesses end. The runtime may retain, release and
+read immutable properties of the native buffer on any thread. Runtime contexts
+remain distinct.
 
 Consuming `Buffer::into_native` waits for pending accesses and encodes dirty custom
 values before returning the native buffer. Primitive buffers preserve their storage
@@ -528,11 +532,14 @@ address; records use their existing canonical codec. Dropping or forgetting a
 submission does not bypass export synchronization. Merely dropping the buffer does
 not complete GPU work. Submission errors remain available through wait/await.
 
-All runtime objects stay on one host thread. A worker can own a cached device,
-pipelines and reusable buffers while channels carry owned jobs/results between
-threads. [The worker test](crates/metal-oxide/tests/worker.rs) demonstrates reuse,
-concurrent callers and cancelled requesters. Process CPU views on the worker when
-returning a copied vector would be unnecessary.
+`Device`, `Module`, `Pipeline`, `Buffer`, `Argument` and `Submission` are
+`Send + Sync`. `Device` is a cheap handle: clones share one ordered queue context,
+and batches committed from different threads execute in commit order. A `Batch`
+holds native encoders and stays inside `Device::submit` on the submitting thread.
+CPU views on any thread wait for every registered GPU access; GPU writes require
+an exclusive borrow, so codec buffers decode a GPU write once even when several
+threads read concurrently. [The threading tests](crates/metal-oxide/tests/threads.rs)
+cover shared devices and pipelines, cross-thread readback, awaiting and dropping.
 
 ## Classic Metal and Metal 4
 

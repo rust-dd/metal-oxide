@@ -74,8 +74,9 @@ See [generated bindings](https://github.com/rust-dd/metal-oxide/blob/main/CONCEP
 
 Use `Device::all()?.into_iter().nth(index)` to select a device explicitly.
 `recommended_max_working_set_size()` reports its advisory memory budget.
-Cached runtime objects stay on one host thread; a [worker](https://github.com/rust-dd/metal-oxide/blob/main/crates/metal-oxide/tests/worker.rs)
-can serve owned requests from multiple threads. Native Metal integration uses
+Devices, modules, pipelines, buffers, submissions and generated `Kernels` are `Send + Sync`;
+`Device` clones share one ordered queue, and CPU views on any thread wait for pending GPU
+work. Native Metal integration uses
 `Device::from_native`, unsafe `Buffer::from_native`, and consuming `Buffer::into_native`.
 See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#native-resource-ownership).
 

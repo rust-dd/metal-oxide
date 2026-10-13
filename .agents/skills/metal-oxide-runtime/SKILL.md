@@ -6,8 +6,8 @@ description: Use when changing metal-oxide Metal device, buffer, library, pipeli
 # Runtime changes
 
 Read `AGENTS.md` and, when available locally, `docs/memory-model.md`.
-The runtime is thread-confined and based on `objc2-metal`. It supports synchronous
-launches and async ordered batches; Rust kernel compilation is separate.
+The runtime is based on `objc2-metal`; its handles are `Send + Sync`. It supports
+synchronous launches and async ordered batches; Rust kernel compilation is separate.
 
 - Keep the runtime buildable with stable Rust and independent of rustc internals.
 - Keep classic `MTL*` and Metal 4 execution behind the same public API.
@@ -23,8 +23,9 @@ launches and async ordered batches; Rust kernel compilation is separate.
   type-identity proof; custom codecs retain their CPU mirror. Layout equality
   alone does not authorize reinterpreting a custom Rust type.
   Atomic elements remain sealed to u32/i32. Validate codec size/alignment against
-  the canonical layout; never reinterpret arbitrary Rust values as GPU bytes. Do not
-  add Clone/Send/Sync without revisiting aliasing and resource ownership.
+  the canonical layout; never reinterpret arbitrary Rust values as GPU bytes.
+  `Buffer` is `Sync` because GPU writes need `&mut` and a codec mirror is decoded
+  under its lock at most once per shared borrow; preserve that protocol.
 - Native buffer import is an unsafe owning handoff of initialized, shared,
   hazard-tracked storage on the same physical device. External work must finish
   before import and external aliases must remain idle through CPU views and
@@ -32,9 +33,15 @@ launches and async ordered batches; Rust kernel compilation is separate.
   codec values. Preserve identity storage, codec, cancellation and residency
   guarantees; dropping a buffer is not a synchronized handoff. Native device
   import creates an independent queue context; it does not adopt pending work.
-- Share a cached context through a worker that creates and keeps all runtime
-  objects on its own thread. Send owned jobs/results and handle cancelled
-  requesters without destroying the cache. Do not add a public worker wrapper.
+- `Device` clones share one ordered queue context; batches committed from several
+  threads execute in commit order. `Batch` holds native encoders and stays inside
+  `Device::submit`. Put `unsafe impl Send/Sync` only on small leaf types that own
+  non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
+  protocol that makes them sound; never on `Device` or `Buffer` as a whole.
+- Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
+  `metal/loom.rs` cover completion, buffer access and codec mirrors. Run them with
+  `RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release loom` after
+  changing that state.
 - Input arguments hold shared borrows; writes and read-write access hold exclusive borrows. Submission
   lifetimes retain captured borrows until wait/await completes or the future is
   dropped. Pending buffer access state still synchronizes CPU slices after
