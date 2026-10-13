@@ -89,9 +89,10 @@ nonzero byte lengths plus static pipeline storage before encoding, including emp
 Clear stale threadgroup slots when a reused encoder changes kernels.
 Metal 4 requires dispatch barriers within a batch and queue barriers between batches.
 Do not reset or release a command allocator before GPU completion.
-The context caches one batch's command buffer, allocator, residency set and binding
-storage. Reuse requires completed feedback and an empty residency set; reset the
-allocator only then. Retain constant allocations only up to 4 KiB each, rewrite
+The context pools the command buffer, allocator, residency set and binding storage
+of up to eight recent batches, so pipelined and concurrent submitters avoid
+allocating them (about 60 µs per batch on M4 Max). Reuse requires completed feedback
+and an empty residency set; reset the allocator only then. Retain constant allocations only up to 4 KiB each, rewrite
 active bindings and clear unused slots. Each dispatch owns distinct immutable
 binding storage through completion. Pending cache eviction and failed encoding
 must remain safe without waiting in Drop.

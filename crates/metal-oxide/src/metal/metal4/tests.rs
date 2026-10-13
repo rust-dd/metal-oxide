@@ -90,8 +90,9 @@ fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()
         }
         .wait()?;
         assert_eq!(output.as_slice(), [14 + (1_u64 << 40)]);
-        let entry = cache.entry();
-        let (storage, _) = entry.as_ref().unwrap();
+        let entries = cache.entries();
+        assert_eq!(entries.len(), 1);
+        let (storage, _) = &entries[0];
         assert_eq!(storage.constants.len(), retained);
         assert!(
             storage
@@ -142,13 +143,44 @@ fn command_storage_reuse_requires_completed_gpu_work() {
     let storage = CommandStorage::new(device.raw()).unwrap();
     let completion = Arc::new(Completion::default());
     let cache = BatchCache::default();
-    *cache.entry() = Some((storage.clone(), Arc::clone(&completion)));
+    cache.put(storage.clone(), Arc::clone(&completion));
     assert!(cache.take().is_none());
     completion.finish(Ok(SubmissionReport::default()));
-    *cache.entry() = Some((storage.clone(), completion));
     let reused = cache.take().unwrap();
     assert!(std::ptr::eq(&*storage.allocator, &*reused.allocator));
     assert!(std::ptr::eq(&*storage.command, &*reused.command));
     assert!(std::ptr::eq(&*storage.residency, &*reused.residency));
+    assert!(cache.take().is_none());
+}
+
+#[test]
+#[ignore = "requires a Metal 4 device on Apple Silicon"]
+fn pipelined_batches_reuse_pooled_command_storage() {
+    let device = crate::Device::system_default().unwrap();
+    if !super::super::backend::Backend::supports_metal4(device.raw()) {
+        return;
+    }
+    let queue = device.raw().newMTL4CommandQueue().unwrap();
+    let cache = BatchCache::default();
+    let mut commands = Vec::new();
+    let completions = (0..3)
+        .map(|_| {
+            let batch = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+            commands.push(batch.command.clone());
+            let completion = Arc::new(Completion::default());
+            batch.commit(Arc::clone(&completion), Vec::new());
+            completion
+        })
+        .collect::<Vec<_>>();
+    assert!(!std::ptr::eq(&*commands[0], &*commands[1]));
+    completions.iter().for_each(|completion| completion.block());
+    for _ in 0..3 {
+        let batch = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+        assert!(
+            commands
+                .iter()
+                .any(|command| std::ptr::eq(&**command, &*batch.command))
+        );
+    }
     assert!(cache.take().is_none());
 }

@@ -79,22 +79,37 @@ impl CommandStorage {
 // are used by one thread at a time, and the cache returns them only after GPU completion.
 unsafe impl Send for CommandStorage {}
 
-/// The command storage of the latest batch, reused once its GPU work has completed.
+/// Bounds retained command memory while covering pipelined and concurrent submitters.
+const CACHED_BATCHES: usize = 8;
+
+/// Command storage of recent batches, reused once their GPU work has completed.
 #[derive(Default)]
-pub(super) struct BatchCache(Mutex<Option<(CommandStorage, Arc<Completion>)>>);
+pub(super) struct BatchCache(Mutex<Vec<(CommandStorage, Arc<Completion>)>>);
 
 impl BatchCache {
     fn take(&self) -> Option<CommandStorage> {
-        let (storage, completion) = self.entry().take()?;
-        if !completion.is_finished() {
-            return None;
-        }
+        let (storage, _) = {
+            let mut entries = self.entries();
+            let index = entries
+                .iter()
+                .position(|(_, completion)| completion.is_finished())?;
+            entries.remove(index)
+        };
         // Commit feedback has confirmed that the GPU no longer reads these commands.
         storage.allocator.reset();
         Some(storage)
     }
 
-    fn entry(&self) -> MutexGuard<'_, Option<(CommandStorage, Arc<Completion>)>> {
+    fn put(&self, storage: CommandStorage, completion: Arc<Completion>) {
+        let mut entries = self.entries();
+        if entries.len() == CACHED_BATCHES {
+            // Evicted pending storage stays alive through its completion callback.
+            entries.remove(0);
+        }
+        entries.push((storage, completion));
+    }
+
+    fn entries(&self) -> MutexGuard<'_, Vec<(CommandStorage, Arc<Completion>)>> {
         self.0.lock().unwrap_or_else(|error| error.into_inner())
     }
 }
@@ -252,7 +267,7 @@ impl<'a> Metal4Batch<'a> {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
-        *self.cache.entry() = Some((
+        self.cache.put(
             CommandStorage {
                 allocator: self.allocator.clone(),
                 command: self.command.clone(),
@@ -261,7 +276,7 @@ impl<'a> Metal4Batch<'a> {
                 tables: self.tables.clone(),
             },
             Arc::clone(&completion),
-        ));
+        );
         let keepalive = (
             self.command.clone(),
             self.allocator.clone(),

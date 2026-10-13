@@ -31,7 +31,8 @@ impl AccessState {
     /// Waits for every GPU access registered before this call.
     pub(super) fn synchronize(&self) {
         let snapshot = {
-            let pending = lock(&self.pending);
+            let mut pending = lock(&self.pending);
+            pending.retain(|completion| !completion.is_finished());
             if pending.is_empty() {
                 return;
             }
