@@ -12,9 +12,10 @@ working features. Add crates and modules when they have an implementation.
 - Do not add co-author trailers, AI attribution, session IDs, tool transcripts,
   or generated-by footers to commits, PRs, code, or project documentation.
 - Write concise English code and documentation. Describe actual behavior.
-- Comments explain safety contracts or non-obvious constraints. Do not add
-  banners, separator lines, edit narration, commented-out code, or prose that
-  repeats the next statement. Keep necessary `SAFETY` comments and rustdoc.
+- Comments explain safety contracts or non-obvious constraints in one or two
+  lines. Do not add banners, separator lines, edit narration, commented-out code,
+  or prose that repeats the next statement. Keep necessary `SAFETY` comments and
+  rustdoc.
 - Keep editor settings local. Commit the compiler's `rustc_private`
   rust-analyzer metadata in its `Cargo.toml`.
 - Keep `docs/` local and ignored. Read its planning notes when present; do not
@@ -45,6 +46,12 @@ working features. Add crates and modules when they have an implementation.
   paths only for a concrete current use case. Keep implementation details private.
 - Prefer one clear way to perform an operation. Avoid wrapper layers and general
   abstractions introduced for hypothetical future needs.
+- Build features to their intended design. When existing code does not fit,
+  refactor it completely, as often as needed, instead of patching around it.
+  Delete what a change replaces: leave no legacy paths, compatibility shims,
+  deprecated aliases, or dead code.
+- Treat performance as a requirement. Support hot-path changes with a
+  measurement or an AIR comparison.
 - Use CUDA-style launch semantics: `LaunchConfig<X, Y, Z>` encodes threads per
   block as const generics; `grid: Dim3` counts runtime blocks. Each block maps
   to a Metal threadgroup. `DynamicLaunchConfig` supports runtime block shapes.
