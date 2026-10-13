@@ -1,4 +1,9 @@
-use crate::{control::StructuredGraph, expressions::type_name, interface::KernelInterfaces};
+use crate::{
+    checks::{CheckTable, FAIL},
+    control::StructuredGraph,
+    expressions::type_name,
+    interface::KernelInterfaces,
+};
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
 use std::fmt::Write;
@@ -7,6 +12,7 @@ pub(crate) struct ModuleEmitter<'a> {
     module: &'a Module,
     interfaces: &'a KernelInterfaces,
     analyses: &'a [FunctionAnalysis],
+    checks: &'a CheckTable,
     math_mode: MathMode,
     output: String,
 }
@@ -16,12 +22,14 @@ impl<'a> ModuleEmitter<'a> {
         module: &'a Module,
         interfaces: &'a KernelInterfaces,
         analyses: &'a [FunctionAnalysis],
+        checks: &'a CheckTable,
         math_mode: MathMode,
     ) -> Self {
         Self {
             module,
             interfaces,
             analyses,
+            checks,
             math_mode,
             output: String::new(),
         }
@@ -30,15 +38,19 @@ impl<'a> ModuleEmitter<'a> {
     pub(crate) fn emit(mut self) -> Result<String, Error> {
         let module = self.module;
         let simd = self.interfaces.simd;
-        self.output
-            .push_str("#include <metal_stdlib>\nusing namespace metal;\n");
+        self.output.push_str("#include <metal_stdlib>\n");
+        if self.interfaces.logging {
+            self.output.push_str("#include <metal_logging>\n");
+        }
+        self.output.push_str("using namespace metal;\n");
         self.output.push_str(match self.math_mode {
             MathMode::Precise => "#pragma METAL fp math_mode(safe)\n#pragma STDC FP_CONTRACT OFF\n",
             MathMode::Fast => {
                 "#pragma METAL fp math_mode(relaxed)\n#pragma METAL fp contract(fast)\n"
             }
         });
-        self.output.push_str("\nstruct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n};\n\n");
+        self.output.push('\n');
+        self.output.push_str("struct metal_oxide_context {\n    uint3 thread_idx;\n    uint3 block_idx;\n    uint3 block_dim;\n    uint3 grid_dim;\n    uint simd_lane;\n    uint simd_size;\n    uint simd_group;\n    uint simd_count;\n    const device uint* gate;\n    device atomic_uint* failure;\n    thread bool* failed;\n};\n\n");
         self.output.push_str(&crate::numeric::helpers(module)?);
         self.output.push_str(&crate::atomics::helpers(module)?);
         for (id, aggregate) in module.types.iter() {
@@ -63,6 +75,9 @@ impl<'a> ModuleEmitter<'a> {
         self.output.push_str(&crate::simd::helpers(module));
         self.output
             .push_str(&crate::floating::helpers(module, self.math_mode));
+        if self.analyses.iter().any(|analysis| analysis.fallible) {
+            self.output.push_str(FAIL);
+        }
         for (id, f) in module.functions.iter().enumerate() {
             if !f.kernel {
                 let signature = self.signature(f, id)?;
@@ -83,21 +98,43 @@ impl<'a> ModuleEmitter<'a> {
                     ));
                 }
             }
+            let used = crate::unused::Used::new(function, &self.analyses[id]);
+            let mut body = String::new();
+            crate::structured::body(
+                crate::structured::Context {
+                    module,
+                    function,
+                    id,
+                    analyses: self.analyses,
+                    checks: self.checks,
+                    math_mode: self.math_mode,
+                },
+                graph,
+                &used,
+                &mut body,
+            )?;
             let signature = self.signature(function, id)?;
             writeln!(self.output, "{signature} {{").unwrap();
-            if function.kernel {
+            if function.kernel && body.contains("metal_oxide_ctx") {
                 let simd_values = if simd {
                     ", metal_oxide_simd_lane, metal_oxide_simd_size, metal_oxide_simd_group, metal_oxide_simd_count"
                 } else {
                     ", 0, 0, 0, 0"
                 };
-                self.output.push_str(&format!("    metal_oxide_context metal_oxide_ctx = {{metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim{simd_values}}};\n"));
+                let failure = if self.analyses[id].fallible {
+                    "metal_oxide_failure"
+                } else {
+                    "nullptr"
+                };
+                self.output
+                    .push_str("    bool metal_oxide_failed = false;\n");
+                self.output.push_str(&format!("    metal_oxide_context metal_oxide_ctx = {{metal_oxide_thread_idx, metal_oxide_block_idx, metal_oxide_block_dim, metal_oxide_grid_dim{simd_values}, metal_oxide_gate, {failure}, &metal_oxide_failed}};\n"));
             }
             for statement in function
                 .blocks
                 .iter()
                 .enumerate()
-                .filter(|(id, _)| graph.cfg.is_reachable(*id))
+                .filter(|(block, _)| self.analyses[id].cfg.is_reachable(*block))
                 .flat_map(|(_, b)| &b.statements)
             {
                 if let Expression::ThreadgroupAlloc {
@@ -120,7 +157,6 @@ impl<'a> ModuleEmitter<'a> {
                     .unwrap();
                 }
             }
-            let used = crate::unused::Used::new(function, graph.cfg);
             for (local, &ty) in function.locals.iter().enumerate() {
                 let parameter = (1..=function.parameters).contains(&local);
                 if matches!(ty, Type::Unit | Type::Never)
@@ -140,15 +176,7 @@ impl<'a> ModuleEmitter<'a> {
                     writeln!(self.output, "    {} v{local};", type_name(ty)).unwrap();
                 }
             }
-            crate::structured::body(
-                module,
-                function,
-                graph,
-                &used,
-                self.analyses,
-                self.math_mode,
-                &mut self.output,
-            )?;
+            self.output.push_str(&body);
             self.output.push_str("}\n\n");
         }
         Ok(self.output)
@@ -213,6 +241,16 @@ impl<'a> ModuleEmitter<'a> {
                 ] {
                     parameters.push(format!("uint metal_oxide_simd_{name} [[{builtin}]]"));
                 }
+            }
+            parameters.push(format!(
+                "const device uint* metal_oxide_gate [[buffer({})]]",
+                kernel.gate_binding
+            ));
+            if kernel.fallible {
+                parameters.push(format!(
+                    "device atomic_uint* metal_oxide_failure [[buffer({})]]",
+                    kernel.gate_binding + 1
+                ));
             }
             Ok(format!(
                 "kernel void {}({})",

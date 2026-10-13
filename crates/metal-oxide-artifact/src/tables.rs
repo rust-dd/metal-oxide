@@ -86,6 +86,8 @@ struct KernelEntry {
     name: String,
     signature: usize,
     required_block: Option<[u32; 3]>,
+    gate_binding: u32,
+    fallible: bool,
 }
 
 impl From<Abi> for AbiTables {
@@ -128,6 +130,8 @@ impl From<Abi> for AbiTables {
                     name: kernel.name,
                     signature: intern(&mut signatures, signature),
                     required_block: kernel.required_block,
+                    gate_binding: kernel.gate_binding,
+                    fallible: kernel.fallible,
                 }
             })
             .collect();
@@ -219,6 +223,8 @@ impl TryFrom<AbiTables> for Abi {
                         .ok_or_else(|| Error("ABI kernel refers to a missing signature".into()))?,
                     name: kernel.name,
                     required_block: kernel.required_block,
+                    gate_binding: kernel.gate_binding,
+                    fallible: kernel.fallible,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;

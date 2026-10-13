@@ -1,4 +1,4 @@
-use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function, FunctionAnalysis};
+use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function, FunctionAnalysis, Terminator};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub(crate) struct Loop {
@@ -156,11 +156,15 @@ impl<'a> StructuredGraph<'a> {
         }
         let mut loops = HashMap::new();
         for (header, members) in loop_members {
+            // Panics return from inside the loop, so only other exits need a break.
             let exits = members
                 .iter()
                 .flat_map(|&id| cfg.successors(id))
                 .copied()
-                .filter(|id| !members.contains(id))
+                .filter(|&id| {
+                    !members.contains(&id)
+                        && !matches!(function.blocks[id].terminator, Terminator::Panic(_))
+                })
                 .collect::<BTreeSet<_>>();
             if exits.is_empty() {
                 return Err(Error::new(

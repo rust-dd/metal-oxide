@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use objc2::{
     rc::{Retained, autoreleasepool},
@@ -13,13 +13,15 @@ use objc2_metal::{
 use crate::{Error, Result};
 
 use super::Device;
-use metal_oxide_artifact::{Abi, ArtifactFile, Manifest};
+use metal_oxide_artifact::{Abi, ArtifactFile, Check, Manifest};
 
 /// A compiled Metal library and its optional kernel ABI.
 pub struct Module {
     pub(super) raw: Retained<ProtocolObject<dyn MTLLibrary>>,
     pub(super) device_id: u64,
     pub(super) abi: Option<Abi>,
+    /// The artifact's runtime checks, indexed by the ids its kernels record.
+    pub(super) checks: Arc<[Check]>,
 }
 
 impl Module {
@@ -41,6 +43,7 @@ impl Module {
             raw,
             device_id: device.id(),
             abi: None,
+            checks: Arc::new([]),
         })
     }
 
@@ -58,6 +61,7 @@ impl Module {
             raw,
             device_id: device.id(),
             abi: None,
+            checks: Arc::new([]),
         })
     }
 
@@ -80,6 +84,9 @@ impl Module {
     fn load_artifact(device: &Device, manifest: Manifest, bytes: &[u8]) -> Result<Self> {
         for feature in &manifest.abi.required_features {
             require(feature, |family| device.raw().supportsFamily(family))?;
+            if feature == "logging" {
+                device.enable_logging()?;
+            }
         }
         manifest.verify_library(bytes)?;
         let raw = autoreleasepool(|_| {
@@ -93,6 +100,7 @@ impl Module {
             raw,
             device_id: device.id(),
             abi: Some(manifest.abi),
+            checks: manifest.checks.into(),
         })
     }
     /// Checks that generated bindings describe this artifact's exact ABI.
@@ -123,9 +131,10 @@ fn require(feature: &str, supports: impl Fn(MTLGPUFamily) -> bool) -> Result<()>
             MTLGPUFamily::Apple1,
             "artifact requires dynamic threadgroup memory",
         ),
+        "logging" => (MTLGPUFamily::Apple6, "artifact requires shader logging"),
         _ => unreachable!("validated artifact capabilities"),
     };
-    // Mac2 includes all three; the paravirtual GPU of a macOS VM reports only Mac2.
+    // Mac2 includes these features; the paravirtual GPU of a macOS VM reports only Mac2.
     if supports(family) || supports(MTLGPUFamily::Mac2) {
         Ok(())
     } else {
@@ -143,7 +152,12 @@ mod tests {
 
     #[test]
     fn apple_or_mac2_families_satisfy_artifact_features() {
-        for feature in ["simd_groups", "int32_atomics", "dynamic_threadgroup_memory"] {
+        for feature in [
+            "simd_groups",
+            "int32_atomics",
+            "dynamic_threadgroup_memory",
+            "logging",
+        ] {
             assert!(require(feature, apple(MTLGPUFamily::Apple7)).is_ok());
             assert!(require(feature, |family| family == MTLGPUFamily::Mac2).is_ok());
             assert!(matches!(

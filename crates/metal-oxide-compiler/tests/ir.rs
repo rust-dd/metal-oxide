@@ -12,7 +12,7 @@ fn invalid_output_flag_returns_failure() {
 #[test]
 fn vec_add_imports_device_access_and_preserves_checks() {
     let (output, directory) = support::emit("examples/vec-add/kernels/src/lib.rs", &[]);
-    support::rejected(output, "MIR assertion");
+    support::checked(output);
     let ir = std::fs::read_to_string(directory.join("kernels.oxide-ir")).unwrap();
     for operation in [
         "BufferLoad",
@@ -22,6 +22,8 @@ fn vec_add_imports_device_access_and_preserves_checks() {
         "ThreadIdx",
         "Assert",
         "enabled: true",
+        "check: Overflow(Mul)",
+        "check: Overflow(Add)",
         "Checked(",
         "Read",
         "Write",
@@ -80,8 +82,8 @@ fn division_checks_stay_enabled_when_overflow_checks_are_off() {
         "crates/metal-oxide-compiler/tests/fixtures/m2_div.rs",
         &["-C", "overflow-checks=off"],
     );
-    support::rejected(output, "MIR assertion");
+    support::checked(output);
     let ir = std::fs::read_to_string(directory.join("kernels.oxide-ir")).unwrap();
-    assert!(ir.contains("Assert"));
-    assert!(ir.contains("enabled: true"));
+    assert!(ir.contains("check: DivisionByZero"), "{ir}");
+    assert!(ir.contains("enabled: true"), "{ir}");
 }

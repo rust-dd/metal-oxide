@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::{MTLComputePipelineState, MTLSize};
+use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLDevice, MTLSize};
 
 use super::{
     Argument, Device, Pipeline, Submission,
@@ -9,6 +9,7 @@ use super::{
     buffer::Resource,
     classic::ClassicBatch,
     completion::{Completion, SubmissionReport},
+    failures::{Failures, Slot},
     metal4::Metal4Batch,
 };
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
@@ -16,6 +17,43 @@ use crate::{Dim3, DynamicLaunchConfig, Error, Result};
 enum NativeBatch<'a> {
     Classic(ClassicBatch),
     Metal4(Metal4Batch<'a>),
+}
+
+impl NativeBatch<'_> {
+    /// # Safety
+    ///
+    /// The dispatch must satisfy `Device::launch`'s contract after `Batch` validation.
+    unsafe fn launch(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        pipeline: &Pipeline,
+        config: DynamicLaunchConfig,
+        arguments: &[Argument<'_>],
+        words: &[Word<'_>],
+        has_previous_dispatch: bool,
+    ) -> Result<()> {
+        // SAFETY: forwarded from the caller.
+        unsafe {
+            match self {
+                Self::Classic(batch) => batch.launch(
+                    device,
+                    pipeline,
+                    config,
+                    arguments,
+                    words,
+                    has_previous_dispatch,
+                ),
+                Self::Metal4(batch) => batch.launch(
+                    device,
+                    pipeline,
+                    config,
+                    arguments,
+                    words,
+                    has_previous_dispatch,
+                ),
+            }
+        }
+    }
 }
 
 /// Kernel commands encoded by `Device::submit` into one ordered GPU batch.
@@ -42,7 +80,27 @@ pub struct Batch<'d> {
     native: NativeBatch<'d>,
     resources: Vec<Resource>,
     pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-    has_dispatches: bool,
+    failures: Failures,
+    dispatches: usize,
+    /// A native dispatch, including an internal snapshot, precedes the next one.
+    encoded: bool,
+}
+
+/// A gate or failure word that a dispatch binds after its parameters.
+pub(super) struct Word<'a> {
+    pub(super) index: usize,
+    pub(super) buffer: &'a Retained<ProtocolObject<dyn MTLBuffer>>,
+    pub(super) offset: usize,
+}
+
+impl<'a> Word<'a> {
+    fn new(failures: &'a Failures, index: usize, slot: Slot) -> Self {
+        Self {
+            index,
+            buffer: failures.buffer(slot),
+            offset: slot.offset,
+        }
+    }
 }
 
 impl<'d> Batch<'d> {
@@ -50,14 +108,21 @@ impl<'d> Batch<'d> {
         Ok(Self {
             device,
             native: match device.backend() {
-                Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(queue)?),
-                Backend::Metal4 { queue, cache, .. } => {
-                    NativeBatch::Metal4(Metal4Batch::new(device.raw(), queue, cache)?)
+                Backend::Classic(queue) => {
+                    NativeBatch::Classic(ClassicBatch::new(queue, device.log_state())?)
                 }
+                Backend::Metal4 { queue, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
+                    device.raw(),
+                    queue,
+                    cache,
+                    device.log_state(),
+                )?),
             },
             resources: Vec::new(),
             pipelines: Vec::new(),
-            has_dispatches: false,
+            failures: Failures::new(Arc::clone(device.failure_pool())),
+            dispatches: 0,
+            encoded: false,
         })
     }
 
@@ -121,33 +186,67 @@ impl<'d> Batch<'d> {
                 }
             }
         }
+        let assignment = match &pipeline.checks {
+            Some(kernel) => Some((
+                kernel.gate_binding as usize,
+                self.failures.assign(self.device.raw(), kernel.fallible)?,
+            )),
+            None => None,
+        };
+        if let Some((_, assignment)) = assignment.as_ref().filter(|(_, a)| a.snapshot) {
+            let snapshot = self.device.snapshot()?;
+            let words = [
+                Word::new(&self.failures, 0, self.failures.failure_slot()),
+                Word::new(&self.failures, 1, assignment.gate),
+            ];
+            self.pipelines.push(snapshot.raw.clone());
+            let previous = std::mem::replace(&mut self.encoded, true);
+            // SAFETY: one thread copies a word between live, retained failure-storage slots.
+            unsafe {
+                self.native.launch(
+                    self.device.raw(),
+                    snapshot,
+                    DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(1)),
+                    &[],
+                    &words,
+                    previous,
+                )?
+            };
+        }
+        let words = assignment
+            .iter()
+            .flat_map(|(binding, assignment)| {
+                std::iter::once((*binding, assignment.gate))
+                    .chain(assignment.failure.map(|failure| (binding + 1, failure)))
+            })
+            .map(|(index, slot)| Word::new(&self.failures, index, slot))
+            .collect::<Vec<_>>();
         self.pipelines.push(pipeline.raw.clone());
+        let previous = std::mem::replace(&mut self.encoded, true);
         // SAFETY: validation passed; the submit caller provides the shader safety contract.
         unsafe {
-            match &mut self.native {
-                NativeBatch::Classic(batch) => batch.launch(
-                    self.device.raw(),
-                    pipeline,
-                    config,
-                    arguments,
-                    self.has_dispatches,
-                )?,
-                NativeBatch::Metal4(batch) => batch.launch(
-                    self.device.raw(),
-                    pipeline,
-                    config,
-                    arguments,
-                    self.has_dispatches,
-                )?,
-            }
+            self.native.launch(
+                self.device.raw(),
+                pipeline,
+                config,
+                arguments,
+                &words,
+                previous,
+            )?
         };
-        self.has_dispatches = true;
+        if let (Some(kernel), Some((_, assignment))) = (&pipeline.checks, &assignment)
+            && kernel.fallible
+        {
+            self.failures
+                .record(kernel, self.dispatches, assignment.gate);
+        }
+        self.dispatches += 1;
         Ok(())
     }
 
     pub(super) fn commit<'a>(self) -> Submission<'a> {
         let completion = Arc::new(Completion::default());
-        if !self.has_dispatches {
+        if self.dispatches == 0 {
             completion.finish(Ok(SubmissionReport::default()));
         } else {
             for resource in &self.resources {
@@ -158,9 +257,11 @@ impl<'d> Batch<'d> {
             }
             match self.native {
                 NativeBatch::Classic(batch) => {
-                    batch.commit(Arc::clone(&completion), self.pipelines)
+                    batch.commit(Arc::clone(&completion), self.pipelines, self.failures)
                 }
-                NativeBatch::Metal4(batch) => batch.commit(Arc::clone(&completion), self.pipelines),
+                NativeBatch::Metal4(batch) => {
+                    batch.commit(Arc::clone(&completion), self.pipelines, self.failures)
+                }
             }
         }
         Submission {

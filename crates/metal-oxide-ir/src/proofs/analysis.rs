@@ -6,10 +6,17 @@ use super::{
 };
 use crate::*;
 
+/// A function analyzed under its kernel's required block and its argument facts.
+type Context = (usize, Option<[u32; 3]>, Vec<Value>);
+
 pub(super) struct Analysis<'a> {
     module: &'a Module,
     pub remaining: usize,
-    results: BTreeMap<(usize, Vec<Value>), Value>,
+    /// The required block of the kernel being analyzed, which bounds launch coordinates.
+    pub block: Option<[u32; 3]>,
+    /// Runtime checks per function, joined over every analyzed calling context.
+    pub checks: Vec<BTreeSet<usize>>,
+    results: BTreeMap<Context, Value>,
     loop_headers: Vec<Vec<bool>>,
     thresholds: Vec<BTreeSet<i128>>,
 }
@@ -19,6 +26,8 @@ impl<'a> Analysis<'a> {
         Self {
             module,
             remaining: 0,
+            block: None,
+            checks: vec![BTreeSet::new(); module.functions.len()],
             results: BTreeMap::new(),
             loop_headers: module
                 .functions
@@ -31,7 +40,7 @@ impl<'a> Analysis<'a> {
     }
 
     pub fn function(&mut self, index: usize, arguments: &[Value]) -> Result<Value, Error> {
-        let key = (index, arguments.to_vec());
+        let key = (index, self.block, arguments.to_vec());
         if let Some(result) = self.results.get(&key) {
             return Ok(result.clone());
         }
@@ -76,8 +85,10 @@ impl<'a> Analysis<'a> {
             for statement in &block.statements {
                 self.statement(&mut state, statement)?;
             }
-            if let Some(Operand::Place(place)) = super::control_operand(&block.terminator) {
-                super::checks::place(&state, place, &block.source)?;
+            for operand in block.terminator.operands() {
+                if let Operand::Place(place) = operand {
+                    super::checks::place(&state, place, &block.source)?;
+                }
             }
             match &block.terminator {
                 Terminator::Goto(target) => pending.push_back((*target, state)),
@@ -86,15 +97,19 @@ impl<'a> Analysis<'a> {
                     expected,
                     enabled,
                     target,
-                    message,
+                    ..
                 } => {
                     if *enabled && state.condition(condition) != Some(*expected) {
-                        return Err(Error::new(
-                            &block.source,
-                            format!("MIR assertion cannot be proved safe: {message}"),
-                        ));
+                        self.checks[index].insert(id);
+                        if state.assume(condition, *expected) {
+                            pending.push_back((*target, state));
+                        }
+                    } else {
+                        pending.push_back((*target, state));
                     }
-                    pending.push_back((*target, state));
+                }
+                Terminator::Panic(_) => {
+                    self.checks[index].insert(id);
                 }
                 Terminator::Branch {
                     condition,

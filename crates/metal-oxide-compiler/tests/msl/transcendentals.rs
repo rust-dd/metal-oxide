@@ -16,7 +16,7 @@ fn rust_transcendentals_execute_with_distinct_operations_and_arguments() {
         for (float &value : out) value = -8192.0f;
         uint n = 3;
         for (uint i = 0; i < 4; ++i)
-            transcendentals(x,y,out,n,{i,0,0},{0,0,0},{4,1,1},{1,1,1});
+            transcendentals(x,y,out,n,{i,0,0},{0,0,0},{4,1,1},{1,1,1}, metal_oxide_gate);
         for (uint i = 0; i < 3; ++i) {
             float want[8] = {std::log(x[i]), std::exp(x[i]), std::sin(x[i]),
                 std::cos(x[i]), std::pow(x[i], y[i]), std::tanh(x[i]),
@@ -54,7 +54,7 @@ fn sin_cos_emits_one_sincos_call_in_each_math_mode() {
             out[16] = -8192.0f;
             uint n = 4;
             for (uint i = 0; i < 5; ++i)
-                sin_cos_pairs(x, out, n, {i,0,0}, {0,0,0}, {5,1,1}, {1,1,1});
+                sin_cos_pairs(x, out, n, {i,0,0}, {0,0,0}, {5,1,1}, {1,1,1}, metal_oxide_gate);
             for (uint i = 0; i < 16; ++i) {
                 float want = i % 2 == 0 ? std::sin(x[i / 4]) : std::cos(x[i / 4]);
                 if (as_type<uint>(out[i]) != as_type<uint>(want)) return 1;
@@ -82,7 +82,7 @@ fn box_muller_helper_and_exponential_step_execute_from_rust() {
         float out[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
         uint n = 3;
         for (uint i = 0; i < 4; ++i)
-            box_muller_step(u,v,out,n,{i,0,0},{0,0,0},{4,1,1},{1,1,1});
+            box_muller_step(u,v,out,n,{i,0,0},{0,0,0},{4,1,1},{1,1,1}, metal_oxide_gate);
         for (uint i = 0; i < 3; ++i) {
             float z = std::sqrt(-2.0f * std::log(u[i])) * std::cos(6.283185307179586f * v[i]);
             float want = 100.0f * std::exp(0.01f + 0.2f * z);
@@ -136,7 +136,7 @@ fn rounding_matches_rust_including_halfway_cases_and_signed_zero() {
             float want[{m}] = {{{want}}};
             float out[{m}];
             uint n = {n};
-            for (uint i = 0; i < n; ++i) rounding(x, out, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}});
+            for (uint i = 0; i < n; ++i) rounding(x, out, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}}, metal_oxide_gate);
             for (uint i = 0; i < {m}; ++i) {{
                 bool same = as_type<uint>(out[i]) == as_type<uint>(want[i]);
                 if (!same && !(std::isnan(out[i]) && std::isnan(want[i]))) {{ std::cout << i; return 1; }}

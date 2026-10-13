@@ -80,6 +80,13 @@ work. Native Metal integration uses
 `Device::from_native`, unsafe `Buffer::from_native`, and consuming `Buffer::into_native`.
 See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#native-resource-ownership).
 
+Checks the compiler cannot prove run on the GPU: an out-of-bounds index, an overflow
+under the profile's overflow checks, a division by zero or a literal `assert!`/`panic!`
+stops the thread and returns `Error::KernelFailed` with the kernel, dispatch, Rust location
+and message; later dispatches of the submission do not run. A check before a barrier or SIMD
+collective must be proved or uniform. `metal_oxide_device::log!` prints from kernels to
+stderr through Metal shader logging.
+
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Generated bindings take an element count;
 raw launches use `Argument::threadgroup::<T>(elements)`. Both paths validate

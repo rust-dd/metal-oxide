@@ -34,23 +34,63 @@ struct Summary {
     participation: Dependencies,
 }
 
+/// Validates uniform participation. A failed check returns from the kernel, so a check that
+/// precedes a cooperative operation must be uniform: then every thread fails it together.
 pub(crate) fn validate(
     module: &Module,
     analyses: &mut [FunctionAnalysis],
     order: &[usize],
 ) -> Result<(), Error> {
+    for &id in order {
+        let function = &module.functions[id];
+        allocations(function, &analyses[id].cfg)?;
+        let cooperative = analyses[id]
+            .cfg
+            .reachable_blocks()
+            .flat_map(|block| &function.blocks[block].statements)
+            .any(|statement| statement.value.is_cooperative(analyses));
+        analyses[id].cooperative = cooperative;
+    }
+    let continuations = continuations(module, analyses, order);
     let mut summaries = vec![Summary::default(); module.functions.len()];
     let kernels = module.functions.iter().any(|function| function.kernel);
     for &id in order {
         let function = &module.functions[id];
         let analysis = &analyses[id];
-        allocations(function, &analysis.cfg)?;
         let (values, control) = flow(function, analysis, &summaries);
         let mut summary = Summary {
             returns: values[0].clone(),
             ..Summary::default()
         };
-        let mut cooperative = false;
+        let mut cooperative = analysis.cooperative;
+        for &block in &analysis.checks {
+            let starts = match &function.blocks[block].terminator {
+                Terminator::Assert { target, .. } => vec![*target],
+                _ => analysis
+                    .cfg
+                    .predecessors(block)
+                    .iter()
+                    .flat_map(|&from| analysis.cfg.successors(from))
+                    .copied()
+                    .collect(),
+            };
+            if !reaches_cooperation(function, analysis, analyses, &starts, continuations[id]) {
+                continue;
+            }
+            let mut required = control[block].clone();
+            if let Terminator::Assert { condition, .. } = &function.blocks[block].terminator {
+                required.merge(&dependencies(condition, &values));
+            }
+            if required.varying || (!kernels && !required.parameters.is_empty()) {
+                return Err(Error::new(
+                    &function.blocks[block].source,
+                    "a check before a barrier or SIMD operation must be proved or uniform; \
+                     a thread that fails it would leave the others waiting",
+                ));
+            }
+            summary.participation.merge(&required);
+            cooperative = true;
+        }
         for (id, block) in function
             .blocks
             .iter()
@@ -61,7 +101,6 @@ pub(crate) fn validate(
                 if !statement.value.is_cooperative(analyses) {
                     continue;
                 }
-                cooperative = true;
                 let mut required = control[id].clone();
                 if let Expression::Call {
                     function,
@@ -92,6 +131,65 @@ pub(crate) fn validate(
         analyses[id].cooperative = cooperative;
     }
     Ok(())
+}
+
+/// Marks functions after whose return a caller may still run a cooperative operation.
+fn continuations(module: &Module, analyses: &[FunctionAnalysis], order: &[usize]) -> Vec<bool> {
+    let mut result = vec![false; module.functions.len()];
+    for &caller in order.iter().rev() {
+        let function = &module.functions[caller];
+        let analysis = &analyses[caller];
+        for block in analysis.cfg.reachable_blocks() {
+            let statements = &function.blocks[block].statements;
+            for (index, statement) in statements.iter().enumerate() {
+                let Expression::Call {
+                    function: callee, ..
+                } = statement.value
+                else {
+                    continue;
+                };
+                result[callee] |= statements[index + 1..]
+                    .iter()
+                    .any(|later| later.value.is_cooperative(analyses))
+                    || reaches_cooperation(
+                        function,
+                        analysis,
+                        analyses,
+                        analysis.cfg.successors(block),
+                        result[caller],
+                    );
+            }
+        }
+    }
+    result
+}
+
+/// Whether a path from `starts` runs a cooperative operation, or returns into a caller that may.
+fn reaches_cooperation(
+    function: &Function,
+    analysis: &FunctionAnalysis,
+    analyses: &[FunctionAnalysis],
+    starts: &[usize],
+    continuation: bool,
+) -> bool {
+    let mut pending = starts.to_vec();
+    let mut visited = BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let block = &function.blocks[id];
+        if (continuation && block.terminator == Terminator::Return)
+            || block
+                .statements
+                .iter()
+                .any(|statement| statement.value.is_cooperative(analyses))
+        {
+            return true;
+        }
+        pending.extend(analysis.cfg.successors(id));
+    }
+    false
 }
 
 fn allocations(function: &Function, graph: &ControlFlowGraph) -> Result<(), Error> {

@@ -2,12 +2,39 @@ use std::fmt;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A runtime check that failed in a kernel thread, reported like a Rust panic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KernelFailure {
+    pub kernel: String,
+    /// Position of the failed dispatch among the submission's dispatches.
+    pub dispatch: usize,
+    pub message: String,
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+impl fmt::Display for KernelFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "kernel `{}` panicked at {}:{}:{}:\n{}",
+            self.kernel, self.file, self.line, self.column, self.message
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum Error {
     DeviceUnavailable,
     UnsupportedDevice(String),
-    AllocationFailed { bytes: usize },
-    BufferTooLarge { bytes: usize, maximum: usize },
+    AllocationFailed {
+        bytes: usize,
+    },
+    BufferTooLarge {
+        bytes: usize,
+        maximum: usize,
+    },
     LengthOverflow,
     InvalidBuffer(&'static str),
     InvalidLaunch(&'static str),
@@ -18,6 +45,8 @@ pub enum Error {
     Pipeline(String),
     Command(String),
     OutOfMemory(String),
+    /// A dispatch failed a runtime check; later dispatches of its submission were skipped.
+    KernelFailed(Box<KernelFailure>),
     InvalidPath,
     Artifact(metal_oxide_artifact::Error),
     Io(std::io::Error),
@@ -49,6 +78,7 @@ impl fmt::Display for Error {
             Self::Pipeline(reason) => write!(f, "Metal pipeline error: {reason}"),
             Self::Command(reason) => write!(f, "Metal command failed: {reason}"),
             Self::OutOfMemory(reason) => write!(f, "Metal command ran out of memory: {reason}"),
+            Self::KernelFailed(failure) => failure.fmt(f),
             Self::InvalidPath => write!(f, "Metal library path is not valid UTF-8"),
             Self::Artifact(error) => write!(f, "kernel artifact error: {error}"),
             Self::Io(error) => error.fmt(f),

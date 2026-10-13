@@ -6,13 +6,22 @@ mod refine;
 mod state;
 mod transfer;
 
+use std::collections::BTreeSet;
+
 use crate::*;
 
-pub(crate) fn prove_numerics(module: &Module, graphs: &[FunctionAnalysis]) -> Result<(), Error> {
+/// Proves numerical checks; returns per function the blocks whose unproved checks run on the
+/// GPU. Their success edges assume the checked condition.
+pub(crate) fn prove_numerics(
+    module: &Module,
+    graphs: &[FunctionAnalysis],
+) -> Result<Vec<BTreeSet<usize>>, Error> {
     let needed = module.functions.iter().any(|function| {
         function.blocks.iter().any(|block| {
-            matches!(block.terminator, Terminator::Assert { enabled: true, .. })
-                || control_operand(&block.terminator).is_some_and(dynamic_operand)
+            matches!(
+                block.terminator,
+                Terminator::Assert { enabled: true, .. } | Terminator::Panic(_)
+            ) || block.terminator.operands().into_iter().any(dynamic_operand)
                 || block.statements.iter().any(|statement| {
                     let division = match &statement.value {
                         Expression::Binary(BinaryOp::Div | BinaryOp::Rem, value, _) => {
@@ -30,7 +39,7 @@ pub(crate) fn prove_numerics(module: &Module, graphs: &[FunctionAnalysis]) -> Re
         })
     });
     if !needed {
-        return Ok(());
+        return Ok(vec![BTreeSet::new(); module.functions.len()]);
     }
     let kernels = module.functions.iter().any(|function| function.kernel);
     let mut analysis = analysis::Analysis::new(module, graphs);
@@ -39,10 +48,11 @@ pub(crate) fn prove_numerics(module: &Module, graphs: &[FunctionAnalysis]) -> Re
             // Completed summaries are keyed by function and argument facts;
             // sharing them is safe, but unrelated roots must not share a budget.
             analysis.remaining = 100_000;
+            analysis.block = function.required_block;
             analysis.function(index, &vec![state::Value::default(); function.parameters])?;
         }
     }
-    Ok(())
+    Ok(analysis.checks)
 }
 
 fn dynamic_operand(operand: &Operand) -> bool {
@@ -54,14 +64,4 @@ fn dynamic(place: &Place) -> bool {
         .projection
         .iter()
         .any(|p| matches!(p, Projection::Index(_)))
-}
-
-fn control_operand(terminator: &Terminator) -> Option<&Operand> {
-    match terminator {
-        Terminator::Branch { condition, .. } | Terminator::Assert { condition, .. } => {
-            Some(condition)
-        }
-        Terminator::Switch { discriminant, .. } => Some(discriminant),
-        _ => None,
-    }
 }

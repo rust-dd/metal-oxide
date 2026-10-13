@@ -43,7 +43,7 @@ fn run(kernel: &str, ty: &str, inputs: &[String], counts: &[u32], values: &[Stri
             {ty} want_values[{values_len}] = {{{value_list}}};
             uint n = {n};
             for (uint i = 0; i < n; ++i)
-                {kernel}(input, shifts, counts, values, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}});
+                {kernel}(input, shifts, counts, values, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}}, metal_oxide_gate);
             for (uint i = 0; i < {counts_len}; ++i) if (counts[i] != want_counts[i]) {{ std::cout << "count " << i; return 1; }}
             for (uint i = 0; i < {values_len}; ++i) if (values[i] != want_values[i]) {{ std::cout << "value " << i; return 2; }}
             std::cout << "ok";

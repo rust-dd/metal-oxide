@@ -4,6 +4,7 @@ mod atomic;
 mod buffer;
 mod half;
 mod intrinsics;
+pub mod log;
 pub mod math;
 pub mod simdgroup;
 mod thread;

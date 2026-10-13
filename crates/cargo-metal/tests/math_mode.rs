@@ -32,7 +32,7 @@ fn build(workspace: &Workspace, mode: Option<MathMode>, cached: bool) -> PathBuf
 
 #[test]
 #[ignore = "requires a Metal device, compiler nightly, rust-src and Metal toolchain"]
-fn numerical_modes_isolate_artifacts_and_match_source_compilation() -> metal_oxide::Result<()> {
+fn numerical_modes_isolate_artifacts_and_match_the_reference() -> metal_oxide::Result<()> {
     let workspace = Workspace::new();
     std::fs::write(
         workspace.0.join("kernels/src/lib.rs"),
@@ -63,19 +63,14 @@ fn numerical_modes_isolate_artifacts_and_match_source_compilation() -> metal_oxi
             assert!(offline.verify_abi(other).is_err());
         }
         abi_hashes.push(abi_hash);
-        let source = Module::from_source(
-            &device,
-            &std::fs::read_to_string(directory.join("kernels.metal"))?,
-        )?;
         let reference = if mode == MathMode::Fast {
             format!("#define METAL_OXIDE_FAST_MATH\n{MSL}")
         } else {
             MSL.into()
         };
         let reference = Module::from_source(&device, &reference)?;
-        verify_fusion(&device, &source, mode)?;
         verify_fusion(&device, &offline, mode)?;
-        let pipelines = [&source, &offline, &reference]
+        let pipelines = [&offline, &reference]
             .map(|module| Pipeline::new(&device, module, "box_muller_step"))
             .into_iter()
             .collect::<metal_oxide::Result<Vec<_>>>()?;
@@ -85,7 +80,7 @@ fn numerical_modes_isolate_artifacts_and_match_source_compilation() -> metal_oxi
         }
         reports.push(serde_json::json!({
             "math_mode": mode, "manifest": manifest, "elements": 1_000_003,
-            "warmup": 5, "variants": ["source", "offline", "reference"],
+            "warmup": 5, "variants": ["offline", "reference"],
             "gpu_samples_ns": timing,
         }));
     }

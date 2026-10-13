@@ -113,21 +113,25 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
     }
     let queue = device.raw().newMTL4CommandQueue().unwrap();
     let cache = BatchCache::default();
-    let mut first = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+    let mut first = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
     let command = first.command.clone();
     let residency = first.residency.clone();
     let buffer = super::super::constants::allocate(device.raw(), 16).unwrap();
     residency.addAllocation(ProtocolObject::from_ref(&*buffer));
     first.bindings.push(buffer);
     let completion = Arc::new(Completion::default());
-    first.commit(Arc::clone(&completion), Vec::new());
+    first.commit(
+        Arc::clone(&completion),
+        Vec::new(),
+        Failures::new(Arc::clone(device.failure_pool())),
+    );
     super::super::Submission {
         completion,
         marker: std::marker::PhantomData,
     }
     .wait()
     .unwrap();
-    let second = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+    let second = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
     assert!(std::ptr::eq(&*command, &*second.command));
     assert!(std::ptr::eq(&*residency, &*second.residency));
     assert_eq!(second.residency.allocationCount(), 0);
@@ -165,17 +169,21 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     let mut commands = Vec::new();
     let completions = (0..3)
         .map(|_| {
-            let batch = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+            let batch = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
             commands.push(batch.command.clone());
             let completion = Arc::new(Completion::default());
-            batch.commit(Arc::clone(&completion), Vec::new());
+            batch.commit(
+                Arc::clone(&completion),
+                Vec::new(),
+                Failures::new(Arc::clone(device.failure_pool())),
+            );
             completion
         })
         .collect::<Vec<_>>();
     assert!(!std::ptr::eq(&*commands[0], &*commands[1]));
     completions.iter().for_each(|completion| completion.block());
     for _ in 0..3 {
-        let batch = Metal4Batch::new(device.raw(), &queue, &cache).unwrap();
+        let batch = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
         assert!(
             commands
                 .iter()

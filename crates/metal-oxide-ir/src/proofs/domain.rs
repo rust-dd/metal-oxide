@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::{BinaryOp, Constant, Scalar};
+use crate::{BinaryOp, Builtin, Constant, Scalar};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Range {
@@ -8,6 +8,15 @@ pub(super) struct Range {
     pub hi: i128,
     /// Sorted, without duplicates.
     pub excluded: Vec<i128>,
+    pub origin: Option<Origin>,
+}
+
+/// The launch quantity a value equals, which bounds products that intervals cannot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Origin {
+    Coordinate(Builtin, u32),
+    /// `block_idx * block_dim` on one axis.
+    BlockStart(u32),
 }
 
 impl Range {
@@ -16,6 +25,24 @@ impl Range {
             lo,
             hi,
             excluded: Vec::new(),
+            origin: None,
+        }
+    }
+
+    /// One axis of a launch coordinate. Launch validation keeps block and grid sizes positive,
+    /// their product within u32, and a kernel's required block size exact.
+    pub fn coordinate(builtin: Builtin, axis: u32, block: Option<u32>) -> Self {
+        let limit = i128::from(u32::MAX);
+        let block = block.map(i128::from);
+        let (lo, hi) = match builtin {
+            Builtin::BlockDim => block.map_or((1, limit), |block| (block, block)),
+            Builtin::ThreadIdx => (0, block.map_or(limit - 1, |block| block - 1)),
+            Builtin::GridDim => (1, limit / block.unwrap_or(1)),
+            Builtin::BlockIdx => (0, limit / block.unwrap_or(1) - 1),
+        };
+        Self {
+            origin: Some(Origin::Coordinate(builtin, axis)),
+            ..Self::new(lo, hi)
         }
     }
 
@@ -64,6 +91,7 @@ impl Range {
 
     pub fn join(&self, other: &Self) -> Self {
         let mut result = Self::new(self.lo.min(other.lo), self.hi.max(other.hi));
+        result.origin = self.origin.filter(|origin| other.origin == Some(*origin));
         result.excluded = self
             .excluded
             .iter()
@@ -128,6 +156,18 @@ pub(super) fn wrap(value: i128, scalar: Scalar) -> i128 {
 }
 
 pub(super) fn arithmetic(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> (Range, Range) {
+    let (value, overflow) = interval(op, a, b, scalar);
+    if overflow.singleton() != Some(0)
+        && !scalar.is_signed()
+        && scalar.bits() >= 32
+        && let Some(value) = launch_arithmetic(op, a.origin, b.origin)
+    {
+        return (value, Range::exact(0));
+    }
+    (value, overflow)
+}
+
+fn interval(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> (Range, Range) {
     use BinaryOp::*;
     let full = Range::full(scalar);
     let bounds = match op {
@@ -206,4 +246,31 @@ pub(super) fn arithmetic(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> 
         _ => full,
     };
     (value, overflow)
+}
+
+/// Launch validation keeps `grid_dim * block_dim` within u32 on every axis, so a block's start
+/// is at most `u32::MAX - block_dim` and a global index at most `u32::MAX - 1`.
+fn launch_arithmetic(op: BinaryOp, a: Option<Origin>, b: Option<Origin>) -> Option<Range> {
+    use Builtin::*;
+    use Origin::*;
+    let ordered = |x: Option<Origin>, y: Option<Origin>| Some((x?, y?));
+    let pair = ordered(a, b).into_iter().chain(ordered(b, a));
+    let limit = i128::from(u32::MAX);
+    match op {
+        BinaryOp::Mul | BinaryOp::MulWithOverflow => pair.into_iter().find_map(|pair| match pair {
+            (Coordinate(BlockIdx, x), Coordinate(BlockDim, y)) if x == y => Some(Range {
+                origin: Some(BlockStart(x)),
+                ..Range::new(0, limit - 1)
+            }),
+            (Coordinate(GridDim, x), Coordinate(BlockDim, y)) if x == y => {
+                Some(Range::new(1, limit))
+            }
+            _ => None,
+        }),
+        BinaryOp::Add | BinaryOp::AddWithOverflow => pair.into_iter().find_map(|pair| match pair {
+            (BlockStart(x), Coordinate(ThreadIdx, y)) if x == y => Some(Range::new(0, limit - 1)),
+            _ => None,
+        }),
+        _ => None,
+    }
 }

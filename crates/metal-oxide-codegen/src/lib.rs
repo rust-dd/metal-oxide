@@ -3,19 +3,23 @@
 mod arithmetic;
 mod atomics;
 mod bindings;
+mod checks;
 mod control;
 mod emit;
 mod expressions;
 mod floating;
+mod gates;
 mod host_types;
 mod integer;
 mod interface;
+mod log;
 mod names;
 mod numeric;
 mod simd;
 mod structured;
 mod unused;
 
+use checks::CheckTable;
 use interface::KernelInterfaces;
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::{Error, FunctionAnalysis, Module};
@@ -28,6 +32,7 @@ pub struct Codegen<'a> {
     module: &'a Module,
     interfaces: KernelInterfaces,
     analyses: Vec<FunctionAnalysis>,
+    checks: CheckTable,
     math_mode: MathMode,
 }
 
@@ -36,7 +41,8 @@ impl<'a> Codegen<'a> {
         let analyses = metal_oxide_ir::validate(module)?;
         Ok(Self {
             module,
-            interfaces: KernelInterfaces::new(module)?,
+            interfaces: KernelInterfaces::new(module, &analyses)?,
+            checks: CheckTable::new(module, &analyses),
             analyses,
             math_mode: MathMode::default(),
         })
@@ -51,15 +57,21 @@ impl<'a> Codegen<'a> {
     /// Emits MSL with explicit numerical pragmas and math function namespaces.
     ///
     /// The default is precise. Offline compilation uses [`MathMode::metal_flags`].
-    /// Assertions require a proof; unsupported operations are errors.
+    /// Unproved assertions become runtime checks; unsupported operations are errors.
     pub fn emit(&self) -> Result<String, Error> {
         emit::ModuleEmitter::new(
             self.module,
             &self.interfaces,
             &self.analyses,
+            &self.checks,
             self.math_mode,
         )
         .emit()
+    }
+
+    /// The runtime checks the emitted MSL reports, indexed by check id.
+    pub fn checks(&self) -> &[metal_oxide_artifact::Check] {
+        &self.checks.entries
     }
 
     pub fn abi(&self) -> Result<metal_oxide_artifact::Abi, metal_oxide_artifact::Error> {

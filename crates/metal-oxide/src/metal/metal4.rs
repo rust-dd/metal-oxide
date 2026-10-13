@@ -10,17 +10,19 @@ use objc2::{
 };
 use objc2_metal::{
     MTL4ArgumentTable, MTL4ArgumentTableDescriptor, MTL4CommandAllocator, MTL4CommandBuffer,
-    MTL4CommandEncoder, MTL4CommandQueue, MTL4CommitFeedback, MTL4CommitOptions,
-    MTL4ComputeCommandEncoder, MTL4VisibilityOptions, MTLBuffer, MTLComputePipelineState,
-    MTLDevice, MTLResidencySet, MTLResidencySetDescriptor, MTLStages,
+    MTL4CommandBufferOptions, MTL4CommandEncoder, MTL4CommandQueue, MTL4CommitFeedback,
+    MTL4CommitOptions, MTL4ComputeCommandEncoder, MTL4VisibilityOptions, MTLBuffer,
+    MTLComputePipelineState, MTLDevice, MTLLogState, MTLResidencySet, MTLResidencySetDescriptor,
+    MTLStages,
 };
 
 use super::{
     Argument, Pipeline,
-    batch::metal_size,
+    batch::{Word, metal_size},
     completion::{Completion, SubmissionReport},
     constants::Constants,
     failure::CommandFailure,
+    failures::Failures,
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -134,6 +136,7 @@ impl<'a> Metal4Batch<'a> {
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
         cache: &'a BatchCache,
+        log: Option<&ProtocolObject<dyn MTLLogState>>,
     ) -> Result<Self> {
         let CommandStorage {
             allocator,
@@ -145,7 +148,9 @@ impl<'a> Metal4Batch<'a> {
             Some(storage) => storage,
             None => CommandStorage::new(device)?,
         };
-        command.beginCommandBufferWithAllocator(&allocator);
+        let options = MTL4CommandBufferOptions::new();
+        options.setLogState(log);
+        command.beginCommandBufferWithAllocator_options(&allocator, &options);
         let Some(encoder) = command.computeCommandEncoder() else {
             command.endCommandBuffer();
             return Err(Error::Command(
@@ -179,21 +184,23 @@ impl<'a> Metal4Batch<'a> {
         pipeline: &Pipeline,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
+        words: &[Word<'_>],
         has_previous_dispatch: bool,
     ) -> Result<()> {
         let buffer_count = arguments
             .iter()
             .filter(|a| a.threadgroup_bytes().is_none())
             .count();
+        let bound = buffer_count + words.len();
         let table = match self
             .reusable_tables
             .pop()
-            .filter(|table| table.capacity >= buffer_count)
+            .filter(|table| table.capacity >= bound)
         {
             Some(table) => table,
-            None => Table::new(device, buffer_count)?,
+            None => Table::new(device, bound)?,
         };
-        for slot in buffer_count..table.capacity {
+        for slot in bound..table.capacity {
             // SAFETY: these valid slots are unused by this dispatch.
             unsafe { table.raw.setAddress_atIndex(0, slot) };
         }
@@ -239,6 +246,17 @@ impl<'a> Metal4Batch<'a> {
             unsafe { encoder.setThreadgroupMemoryLength_atIndex(0, slot) };
         }
         self.threadgroup_slots = threadgroup_slot;
+        for word in words {
+            self.residency
+                .addAllocation(ProtocolObject::from_ref(&**word.buffer));
+            // SAFETY: the table has this slot; the word stays resident and retained by the
+            // submission's `Failures` through completion.
+            unsafe {
+                table
+                    .raw
+                    .setAddress_atIndex(word.buffer.gpuAddress() + word.offset as u64, word.index)
+            };
+        }
         self.residency
             .addAllocation(ProtocolObject::from_ref(&*pipeline.raw));
         if has_previous_dispatch {
@@ -262,6 +280,7 @@ impl<'a> Metal4Batch<'a> {
         mut self,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+        failures: Failures,
     ) {
         self.encoder.take().unwrap().endEncoding();
         self.residency.commit();
@@ -294,10 +313,13 @@ impl<'a> Metal4Batch<'a> {
                     let feedback = unsafe { feedback.as_ref() };
                     match feedback.error() {
                         Some(error) => Err(CommandFailure::from_native(&error)),
-                        None => Ok(SubmissionReport::from_gpu_times(
-                            feedback.GPUStartTime(),
-                            feedback.GPUEndTime(),
-                        )),
+                        None => match failures.failure() {
+                            Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
+                            None => Ok(SubmissionReport::from_gpu_times(
+                                feedback.GPUStartTime(),
+                                feedback.GPUEndTime(),
+                            )),
+                        },
                     }
                 });
                 // The cache becomes reusable only after residency releases this batch's resources.

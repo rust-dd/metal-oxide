@@ -59,11 +59,16 @@ pub fn execute(module: &Module, main: &str) -> String {
     ));
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("metal_stdlib"), include_str!("metal_stdlib")).unwrap();
+    std::fs::write(
+        directory.join("metal_logging"),
+        include_str!("metal_logging"),
+    )
+    .unwrap();
     let msl = metal_oxide_codegen::Codegen::new(module)
         .and_then(|codegen| codegen.emit())
         .unwrap();
     let program = format!(
-        "{msl}\n#include <iostream>\nint main() {{ metal_oxide_context ctx = {{ {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}} }}; {main} }}\n"
+        "#include <iostream>\n{msl}\nint main() {{ uint gate = 0; atomic_uint failure{{0}}; bool failed = false; metal_oxide_context ctx = {{ {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}}, 0, 0, 0, 0, &gate, &failure, &failed }}; {main} }}\n"
     );
     std::fs::write(directory.join("main.cpp"), program).unwrap();
     let output = Command::new("clang++")

@@ -32,6 +32,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         )
         .map_err(|_| (span, "cannot resolve concrete function".into()))?
         .ok_or((span, "cannot resolve concrete function".into()))?;
+        if let Some(Intrinsic::Log) = crate::intrinsics::builtin(self.module.tcx, def) {
+            return self.log(args, args_types, span);
+        }
         let arguments = args
             .iter()
             .map(|a| self.operand(&a.node, a.span))
@@ -48,6 +51,35 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             function,
             arguments,
         })
+    }
+
+    /// `log::write(format, tuple)`: the literal format and one operand per tuple field.
+    fn log(
+        &mut self,
+        args: &[Spanned<mir::Operand<'tcx>>],
+        types: ty::GenericArgsRef<'tcx>,
+        span: Span,
+    ) -> Result<ir::Expression> {
+        let format = super::panics::literal(self.module.tcx, &args[0].node)
+            .ok_or((span, "device log formats must be string literals".into()))?;
+        let ty::Tuple(fields) = types.type_at(0).kind() else {
+            return Err((span, "device log arguments must be a tuple".into()));
+        };
+        let arguments = match self.operand(&args[1].node, args[1].span)? {
+            ir::Operand::Place(place) => (0..fields.len() as u32)
+                .map(|field| {
+                    let mut place = place.clone();
+                    place.projection.push(ir::Projection::Field(field));
+                    ir::Operand::Place(place)
+                })
+                .collect(),
+            ir::Operand::AggregateConstant { fields, .. } => fields,
+            ir::Operand::Constant(ir::Constant::Unit) => Vec::new(),
+            ir::Operand::Constant(_) => {
+                return Err((span, "device log arguments must be a tuple".into()));
+            }
+        };
+        Ok(ir::Expression::Log { format, arguments })
     }
 
     fn intrinsic(
@@ -84,6 +116,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Cast(value, to)
             }
+            Intrinsic::Log => unreachable!("log calls are imported before their operands"),
             Intrinsic::UncheckedFloatToInt => {
                 let [value] = arguments(values, span)?;
                 let ir::Type::Scalar(to) = self.lower_type(types.type_at(0), span)? else {

@@ -170,11 +170,31 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             postdominators: graph.postdominators(),
             cfg: graph,
             cooperative: false,
+            checks: Default::default(),
+            fallible: false,
+            effects: false,
         });
     }
     let order = acyclic_calls(module)?;
+    let checks = crate::proofs::prove_numerics(module, &graphs)?;
+    for (analysis, checks) in graphs.iter_mut().zip(checks) {
+        analysis.checks = checks;
+    }
+    for &id in &order {
+        let blocks = &module.functions[id].blocks;
+        let statements = || {
+            graphs[id]
+                .cfg
+                .reachable_blocks()
+                .flat_map(|block| &blocks[block].statements)
+        };
+        let fallible = !graphs[id].checks.is_empty()
+            || statements().any(|statement| statement.value.is_fallible(&graphs));
+        let effects = statements().any(|statement| statement.value.has_effect(&graphs));
+        graphs[id].fallible = fallible;
+        graphs[id].effects = effects;
+    }
     crate::uniform::validate(module, &mut graphs, &order)?;
-    crate::proofs::prove_numerics(module, &graphs)?;
     Ok(graphs)
 }
 

@@ -9,10 +9,7 @@ fn checked_arithmetic_indices_and_division_match_rust() -> metal_oxide::Result<(
         &["-C", "overflow-checks=on"],
     );
     support::checked(output);
-    let module = Module::from_source(
-        &device,
-        &std::fs::read_to_string(directory.join("kernels.metal"))?,
-    )?;
+    let module = support::artifact::module(&device, &directory)?;
     let division = Pipeline::new(&device, &module, "guarded_division")?;
     let range = Pipeline::new(&device, &module, "checked_range")?;
     let arrays = Pipeline::new(&device, &module, "checked_array_loop")?;

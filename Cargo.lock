@@ -292,6 +292,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
+ "metal-oxide-build",
  "metal-oxide-codegen",
  "metal-oxide-ir",
  "objc2-foundation",

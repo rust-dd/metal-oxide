@@ -218,7 +218,14 @@ The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
 Unsupported operations produce diagnostics. MIR assertions remain in the IR
 until a typed constant or range proof establishes that they cannot fail.
-Unproved assertions are rejected because GPU panic handling is unavailable.
+Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
+`block_idx * block_dim + thread_idx` needs no overflow check; under a required block,
+neither does `block_idx * B + thread_idx` for a constant `B` up to the block size.
+Metal has no device trap, so each unproved assertion and each literal `panic!` or
+`assert!` becomes a runtime check: a failing thread stores the check in its
+submission's failure word and returns. A check before a barrier or SIMD collective
+must be proved or uniform, so that no thread waits for one that has returned. `log!`
+lowers to Metal shader logging with typed `printf` specifiers.
 
 The compiler writes a diagnostic text dump of this structure to
 `kernels.oxide-ir`.
@@ -379,7 +386,7 @@ Apple compiler in two steps:
 
 ```sh
 xcrun -sdk macosx metal \
-    -std=metal3.1 -mmacosx-version-min=15.0 \
+    -std=metal3.2 -mmacosx-version-min=15.0 \
     -fmetal-math-mode=safe -fmetal-math-fp32-functions=precise \
     -ffp-contract=off -O2 \
     -c kernels.metal -o kernels.ir
@@ -494,9 +501,15 @@ The runtime performs these steps:
 4. The generated `vec_add` wrapper constructs the four ordered arguments.
 5. `Device::launch` calls `Device::submit`, which creates a `Batch`.
 6. `Batch::launch` checks resource context, ABI types/access, block requirements,
-   and dispatch limits, then encodes bindings and the dispatch.
+   and dispatch limits, then encodes bindings, a gate word and, for a kernel that can
+   fail a check, the submission's failure word. A kernel tests its gate once, at the
+   latest point that precedes all of its memory accesses, synchronization and logs, and
+   returns once an earlier dispatch has failed. A fallible dispatch after another
+   fallible one gates on a snapshot of the failure word, copied by a one-thread kernel
+   just before it.
 7. The batch commits. `Device::launch` waits for GPU completion and reports
-   command errors before returning.
+   command errors, or `Error::KernelFailed` with the kernel, dispatch, Rust location
+   and message of the failed check, before returning.
 8. The host reads the output buffer.
 
 The runtime's `Module` holds a loaded Metal library and ABI metadata.

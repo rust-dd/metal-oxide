@@ -217,11 +217,21 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                 }
                 atomic_bridge(op)
             }
+            (Intrinsic::Log, &[format, arguments])
+                if output.is_unit()
+                    && matches!(format.kind(), ty::Ref(_, text, Mutability::Not) if text.is_str())
+                    && tcx.generics_of(definition).own_params.len() == 1
+                    && arguments
+                        == ty::GenericArgs::identity_for_item(tcx, definition).type_at(0) =>
+            {
+                "__metal_log"
+            }
             _ => return false,
         }
         .to_owned()
     };
-    if !matches!(operation, Intrinsic::ThreadgroupAlloc(_)) && signature.safety() != Safety::Unsafe
+    if !matches!(operation, Intrinsic::ThreadgroupAlloc(_) | Intrinsic::Log)
+        && signature.safety() != Safety::Unsafe
     {
         return false;
     }
@@ -303,6 +313,13 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
             };
             declaration(tcx, definition, inputs, Unit, Safety::Unsafe)
         }
+        Intrinsic::Log => declaration(
+            tcx,
+            definition,
+            &[read, Usize, read, Usize],
+            Unit,
+            Safety::Unsafe,
+        ),
         Intrinsic::Atomic(op) => {
             use metal_oxide_ir::AtomicOp;
             let (inputs, output): (&[_], _) = match op {

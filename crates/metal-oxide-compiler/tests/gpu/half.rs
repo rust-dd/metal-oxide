@@ -116,13 +116,14 @@ fn half_record_parameters_and_ctfe_constants_match_their_layout() -> metal_oxide
         "crates/metal-oxide-compiler/tests/fixtures/half.rs",
         "half_record",
     )?;
-    let value = (
+    record!(HalfRecord((u8, (F16, F16), [F16; 2])) { tag, pair, samples });
+    let value = HalfRecord((
         7_u8,
         (F16::from_f32(1.0), F16::from_f32(-1.0)),
         [F16::from_bits(1), F16::INFINITY],
-    );
+    ));
     let mut output = device.buffer_zeroed::<f32>(6)?;
-    // SAFETY: the tuple codec matches the ten-byte record layout; one thread owns six output elements.
+    // SAFETY: the value has the kernel's record layout; one thread owns six output elements.
     unsafe {
         device.launch(
             &pipeline,

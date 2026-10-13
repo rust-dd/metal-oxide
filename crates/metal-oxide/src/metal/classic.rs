@@ -6,15 +6,17 @@ use objc2::{
     runtime::ProtocolObject,
 };
 use objc2_metal::{
-    MTLBarrierScope, MTLBuffer, MTLCommandBuffer, MTLCommandBufferStatus, MTLCommandEncoder,
-    MTLCommandQueue, MTLComputeCommandEncoder, MTLComputePipelineState, MTLDevice,
+    MTLBarrierScope, MTLBuffer, MTLCommandBuffer, MTLCommandBufferDescriptor,
+    MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue, MTLComputeCommandEncoder,
+    MTLComputePipelineState, MTLDevice, MTLLogState,
 };
 
 use super::{
     Argument, Pipeline,
-    batch::metal_size,
+    batch::{Word, metal_size},
     completion::{Completion, SubmissionReport},
     failure::CommandFailure,
+    failures::Failures,
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -27,9 +29,14 @@ pub(super) struct ClassicBatch {
 }
 
 impl ClassicBatch {
-    pub(super) fn new(queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>) -> Result<Self> {
+    pub(super) fn new(
+        queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>,
+        log: Option<&ProtocolObject<dyn MTLLogState>>,
+    ) -> Result<Self> {
+        let descriptor = MTLCommandBufferDescriptor::new();
+        descriptor.setLogState(log);
         let command = queue
-            .commandBuffer()
+            .commandBufferWithDescriptor(&descriptor)
             .ok_or_else(|| Error::Command("could not create command buffer".into()))?;
         let encoder = command
             .computeCommandEncoder()
@@ -49,6 +56,7 @@ impl ClassicBatch {
         pipeline: &Pipeline,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
+        words: &[Word<'_>],
         has_previous_dispatch: bool,
     ) -> Result<()> {
         let encoder = self.encoder.as_ref().unwrap();
@@ -88,6 +96,10 @@ impl ClassicBatch {
             unsafe { encoder.setThreadgroupMemoryLength_atIndex(0, slot) };
         }
         self.threadgroup_slots = threadgroup_slot;
+        for word in words {
+            // SAFETY: the submission's `Failures` retains the word's buffer through completion.
+            unsafe { encoder.setBuffer_offset_atIndex(Some(word.buffer), word.offset, word.index) };
+        }
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
             metal_size(config.grid),
             metal_size(config.block),
@@ -99,6 +111,7 @@ impl ClassicBatch {
         mut self,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+        failures: Failures,
     ) {
         self.encoder.take().unwrap().endEncoding();
         let queue = self.queue.clone();
@@ -110,10 +123,13 @@ impl ClassicBatch {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };
                     if command.status() == MTLCommandBufferStatus::Completed {
-                        Ok(SubmissionReport::from_gpu_times(
-                            command.GPUStartTime(),
-                            command.GPUEndTime(),
-                        ))
+                        match failures.failure() {
+                            Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
+                            None => Ok(SubmissionReport::from_gpu_times(
+                                command.GPUStartTime(),
+                                command.GPUEndTime(),
+                            )),
+                        }
                     } else {
                         Err(command
                             .error()

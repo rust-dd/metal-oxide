@@ -19,7 +19,7 @@ fn read_write_buffer_runs_in_place_and_has_exclusive_bindings() {
         float values[6] = {3, 1, -2, 4, 99, 99};
         uint pairs = 2;
         for (uint i = 0; i < 3; ++i)
-            fft_stage(values, pairs, {i,0,0}, {0,0,0}, {3,1,1}, {1,1,1});
+            fft_stage(values, pairs, {i,0,0}, {0,0,0}, {3,1,1}, {1,1,1}, metal_oxide_gate);
         float want[6] = {4, 2, 2, -6, 99, 99};
         for (uint i = 0; i < 6; ++i) if (values[i] != want[i]) return 1;
         std::cout << "ok";

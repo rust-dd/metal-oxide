@@ -50,7 +50,9 @@ pub(super) fn division(
     }
     let left = state.operand_range(a).unwrap();
     let right = state.operand_range(b).unwrap();
-    if right.contains(0) {
+    let nonzero =
+        !right.contains(0) || equality(state, b, 0).is_some_and(|zero| zero.value(state).hi == 0);
+    if !nonzero {
         return Err(Error::new(
             source,
             "integer division/remainder requires a proved nonzero divisor",
@@ -58,16 +60,8 @@ pub(super) fn division(
     }
     let minimum = Range::full(scalar).lo;
     if scalar.is_signed() && left.contains(minimum) && right.contains(-1) {
-        let eq = |operand, value| {
-            let mut a = state.symbol(operand)?;
-            let mut b = Atom::Integer(value);
-            if b < a {
-                std::mem::swap(&mut a, &mut b);
-            }
-            Some(Predicate::Compare(Comparison::Eq, a, b))
-        };
-        let excluded = eq(a, minimum)
-            .zip(eq(b, -1))
+        let excluded = equality(state, a, minimum)
+            .zip(equality(state, b, -1))
             .is_some_and(|(a, b)| Predicate::combine(a, b, true).value(state).hi == 0);
         if !excluded {
             return Err(Error::new(
@@ -77,4 +71,14 @@ pub(super) fn division(
         }
     }
     Ok(())
+}
+
+/// `operand == value` in the canonical atom order that assumed conditions are recorded under.
+fn equality(state: &State<'_>, operand: &Operand, value: i128) -> Option<Predicate> {
+    let mut a = state.symbol(operand)?;
+    let mut b = Atom::Integer(value);
+    if b < a {
+        std::mem::swap(&mut a, &mut b);
+    }
+    Some(Predicate::Compare(Comparison::Eq, a, b))
 }

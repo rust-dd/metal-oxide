@@ -112,6 +112,12 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
     {
         return Some(Intrinsic::Uninit);
     }
+    if tcx.def_kind(definition) == DefKind::Fn
+        && in_module(tcx, definition, "log")
+        && tcx.item_name(definition).as_str() == "write"
+    {
+        return Some(Intrinsic::Log);
+    }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
         ty::TypingEnv::non_body_analysis(tcx, implementation),

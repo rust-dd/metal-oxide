@@ -1,16 +1,18 @@
 use crate::process::{self, Result};
-use metal_oxide_artifact::{ArtifactFile, MathMode};
+use metal_oxide_artifact::{Abi, ArtifactFile, LOGGING_FLAG};
 use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
 
-pub(crate) fn metal_flags(math_mode: MathMode) -> Vec<String> {
-    ["-std=metal3.1", "-mmacosx-version-min=15.0"]
+pub(crate) fn metal_flags(abi: &Abi) -> Vec<String> {
+    let logging = abi.required_features.iter().any(|f| f == "logging");
+    ["-std=metal3.2", "-mmacosx-version-min=15.0"]
         .into_iter()
-        .chain(math_mode.metal_flags())
+        .chain(abi.math_mode.metal_flags())
         .chain(["-O2"])
+        .chain(logging.then_some(LOGGING_FLAG))
         .map(str::to_owned)
         .collect()
 }
@@ -84,10 +86,10 @@ impl Metal {
         command
     }
 
-    pub(crate) fn compile(&self, directory: &Path, math_mode: MathMode) -> Result<()> {
+    pub(crate) fn compile(&self, directory: &Path, abi: &Abi) -> Result<()> {
         let mut compile = self.command();
         compile
-            .args(metal_flags(math_mode))
+            .args(metal_flags(abi))
             .arg("-c")
             .arg(directory.join(ArtifactFile::Msl.name()))
             .arg("-o")

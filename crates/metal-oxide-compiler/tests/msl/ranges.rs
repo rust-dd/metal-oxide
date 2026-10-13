@@ -43,7 +43,7 @@ fn range_loops_cover_empty_reversed_signed_and_extreme_bounds() {
         int want_sums[{n}] = {{{sums}}};
         uint want_counts[{n}] = {{{counts}}};
         for (uint i = 0; i < {n}; ++i)
-            range_sums(bounds, sums, counts, {{i,0,0}}, {{0,0,0}}, {{{n},1,1}}, {{1,1,1}});
+            range_sums(bounds, sums, counts, {{i,0,0}}, {{0,0,0}}, {{{n},1,1}}, {{1,1,1}}, metal_oxide_gate);
         for (uint i = 0; i < {n}; ++i)
             if (sums[i] != want_sums[i] || counts[i] != want_counts[i]) {{ std::cout << i; return 1; }}
         std::cout << "ok";
@@ -71,7 +71,7 @@ fn nested_range_loops_index_a_proved_local_array() {
         uint offset = {offset};
         uint want[16] = {{{table}}};
         for (uint i = 0; i < 2; ++i)
-            nested_ranges(output, offset, {{i,0,0}}, {{0,0,0}}, {{2,1,1}}, {{1,1,1}});
+            nested_ranges(output, offset, {{i,0,0}}, {{0,0,0}}, {{2,1,1}}, {{1,1,1}}, metal_oxide_gate);
         for (uint i = 0; i < 32; ++i) if (output[i] != want[i % 16]) {{ std::cout << i; return 1; }}
         std::cout << "ok";
         "#,
@@ -104,7 +104,7 @@ fn nested_runtime_ranges_prove_guarded_array_indices() {
         uint want[{cells}] = {{{want}}};
         for (uint c = 0; c < {n}; ++c) {{
             uint output[16] = {{}};
-            guarded_ranges(counts[c], 3u, output, {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}});
+            guarded_ranges(counts[c], 3u, output, {{0,0,0}}, {{0,0,0}}, {{1,1,1}}, {{1,1,1}}, metal_oxide_gate);
             for (uint k = 0; k < 16; ++k) if (output[k] != want[16 * c + k]) {{ std::cout << c << ',' << k; return 1; }}
         }}
         std::cout << "ok";
@@ -133,7 +133,7 @@ fn byte_ranges_stop_below_the_type_maximum() {
         uint output[{values}] = {{}};
         uint want[{values}] = {{{want}}};
         for (uint i = 0; i < {n}; ++i)
-            byte_ranges(limits, output, {{i,0,0}}, {{0,0,0}}, {{{n},1,1}}, {{1,1,1}});
+            byte_ranges(limits, output, {{i,0,0}}, {{0,0,0}}, {{{n},1,1}}, {{1,1,1}}, metal_oxide_gate);
         for (uint i = 0; i < {values}; ++i) if (output[i] != want[i]) {{ std::cout << i; return 1; }}
         std::cout << "ok";
         "#,
@@ -154,7 +154,7 @@ fn explicit_next_calls_advance_a_local_range() {
         uint n = {n};
         uint want[{n}] = {{{want}}};
         for (uint i = 0; i < n; ++i)
-            manual_next(output, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}});
+            manual_next(output, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}}, metal_oxide_gate);
         for (uint i = 0; i < n; ++i) if (output[i] != want[i]) {{ std::cout << i; return 1; }}
         std::cout << "ok";
         "#,

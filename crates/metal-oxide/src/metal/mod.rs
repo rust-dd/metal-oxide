@@ -8,6 +8,8 @@ mod completion;
 mod constants;
 mod device;
 mod failure;
+mod failures;
+mod logging;
 #[cfg(all(test, loom))]
 mod loom;
 mod metal4;

@@ -53,9 +53,9 @@ fn unsupported_generated_sources_keep_locations_and_never_panic() {
     let case = support::differential::Case::new(42);
     for (name, body, diagnostic) in [
         (
-            "division",
-            "let x = 9 / n; output.store_unchecked(0, x);",
-            "assertion",
+            "formatted_panic",
+            "if n > 3 { panic!(\"n = {}\", n); } output.store_unchecked(0, n);",
+            "literal message",
         ),
         (
             "pointer",
@@ -63,9 +63,9 @@ fn unsupported_generated_sources_keep_locations_and_never_panic() {
             "unsupported",
         ),
         (
-            "index",
-            "let values = [n; 4]; output.store_unchecked(0, values[n as usize]);",
-            "assertion",
+            "varying_check",
+            "let x = n / metal_oxide_device::thread_idx().x; metal_oxide_device::threadgroup::barrier(); output.store_unchecked(0, x);",
+            "must be proved or uniform",
         ),
     ] {
         let source = case.directory.join(format!("{name}.rs"));
@@ -104,16 +104,12 @@ fn duplicate_entrypoint_names_have_source_diagnostics() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
 fn seeded_rust_matches_cpu_on_gpu() {
-    use metal_oxide::{Argument, Device, LaunchConfig, Module, Pipeline};
+    use metal_oxide::{Argument, Device, LaunchConfig, Pipeline};
     let device = Device::system_default().unwrap();
     for seed in [0, 0xdeadbeef, u32::MAX] {
         let case = support::differential::Case::new(seed);
         let directory = case.compile();
-        let module = Module::from_source(
-            &device,
-            &std::fs::read_to_string(directory.join("kernels.metal")).unwrap(),
-        )
-        .unwrap();
+        let module = support::artifact::module(&device, &directory).unwrap();
         let pipeline = Pipeline::new(&device, &module, "seeded").unwrap();
         let input = device.buffer_from_slice(&case.inputs).unwrap();
         let mut output = device.buffer_zeroed::<u32>(case.inputs.len()).unwrap();

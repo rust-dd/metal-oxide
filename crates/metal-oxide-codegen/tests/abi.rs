@@ -38,8 +38,10 @@ fn buffer_and_threadgroup_tables_have_separate_slot_limits() {
         access: ir::Access::ReadWrite,
         address_space: ir::AddressSpace::Threadgroup,
     };
-    let parameters = (0..31)
+    // The buffer table keeps its last two slots for the gate and failure words.
+    let parameters = (0..29)
         .flat_map(|_| [shared, Type::Scalar(ir::Scalar::U32)])
+        .chain([shared, shared])
         .collect::<Vec<_>>();
     let valid = module(parameters.clone());
     let codegen = metal_oxide_codegen::Codegen::new(&valid).unwrap();
@@ -51,16 +53,21 @@ fn buffer_and_threadgroup_tables_have_separate_slot_limits() {
             .iter()
             .map(|p| p.binding)
             .collect::<Vec<_>>(),
-        (0..31).flat_map(|i| [i, i]).collect::<Vec<_>>()
+        (0..29)
+            .flat_map(|i| [i, i])
+            .chain([29, 30])
+            .collect::<Vec<_>>()
     );
-    for extra in [shared, Type::Scalar(ir::Scalar::U32)] {
+    assert_eq!(abi.kernels[0].gate_binding, 29);
+    assert!(!abi.kernels[0].fallible);
+    for (extra, limit) in [(shared, "31"), (Type::Scalar(ir::Scalar::U32), "29")] {
         let mut invalid = parameters.clone();
         invalid.push(extra);
         assert!(
             metal_oxide_codegen::Codegen::new(&module(invalid))
                 .unwrap_err()
                 .message
-                .contains("31")
+                .contains(limit)
         );
     }
     let mut invalid = abi.clone();
@@ -236,13 +243,47 @@ fn kernel_interfaces_keep_mixed_bindings_independent_from_helpers() {
 
 #[test]
 fn kernel_binding_limit_is_checked_before_emission() {
-    let valid = module(vec![Type::Scalar(ir::Scalar::U32); 31]);
+    let mut valid = module(vec![Type::Scalar(ir::Scalar::U32); 29]);
     let codegen = metal_oxide_codegen::Codegen::new(&valid).unwrap();
-    assert!(codegen.emit().unwrap().contains("[[buffer(30)]]"));
+    let msl = codegen.emit().unwrap();
+    assert!(msl.contains("metal_oxide_arg_29 [[buffer(28)]]"), "{msl}");
+    assert!(msl.contains("metal_oxide_gate [[buffer(29)]]"), "{msl}");
+    assert!(!msl.contains("metal_oxide_failure ["), "{msl}");
     codegen.abi().unwrap().validate().unwrap();
-    let invalid = module(vec![Type::Scalar(ir::Scalar::U32); 32]);
+    let function = &mut valid.functions[0];
+    let source = function.source.clone();
+    function.locals.push(Type::Scalar(ir::Scalar::Bool));
+    function.blocks.insert(
+        0,
+        Block {
+            statements: vec![ir::Statement {
+                destination: ir::Place::local(30),
+                value: ir::Expression::Binary(
+                    ir::BinaryOp::Lt,
+                    ir::Operand::local(29),
+                    ir::Operand::Constant(ir::Constant::U32(5)),
+                ),
+                source: source.clone(),
+            }],
+            terminator: Terminator::Assert {
+                condition: ir::Operand::local(30),
+                expected: true,
+                enabled: true,
+                target: 1,
+                check: ir::Check::Bounds,
+            },
+            source,
+        },
+    );
+    let codegen = metal_oxide_codegen::Codegen::new(&valid).unwrap();
+    let msl = codegen.emit().unwrap();
+    assert!(msl.contains("metal_oxide_failure [[buffer(30)]]"), "{msl}");
+    let abi = codegen.abi().unwrap();
+    assert!(abi.kernels[0].fallible);
+    abi.validate().unwrap();
+    let invalid = module(vec![Type::Scalar(ir::Scalar::U32); 30]);
     let error = metal_oxide_codegen::Codegen::new(&invalid).unwrap_err();
-    assert!(error.message.contains("31"));
+    assert!(error.message.contains("29"));
 }
 
 #[test]

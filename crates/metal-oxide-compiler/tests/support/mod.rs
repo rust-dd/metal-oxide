@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub mod artifact;
 pub mod differential;
 pub mod process;
 
@@ -220,6 +222,18 @@ pub fn rejected(output: Output, expected: &str) {
     assert!(!error.contains("internal compiler error"), "{error}");
 }
 
+/// The id of the runtime check of `kind` at `line`, as the emitted MSL reports it.
+pub fn check(directory: &Path, kind: serde_json::Value, line: u64) -> usize {
+    let checks = serde_json::from_slice::<Vec<serde_json::Value>>(
+        &std::fs::read(directory.join("checks.json")).unwrap(),
+    )
+    .unwrap();
+    checks
+        .iter()
+        .position(|check| check["kind"] == kind && check["location"]["line"] == line)
+        .unwrap_or_else(|| panic!("no {kind} check at line {line}: {checks:?}"))
+}
+
 pub fn emit(source: &str, options: &[&str]) -> (Output, PathBuf) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -240,11 +254,18 @@ pub fn emit_into(source: &str, options: &[&str], output: &Path) -> Output {
 
 pub fn execute_msl(directory: &Path, main: &str) -> String {
     let source = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
-    let program = format!("{source}\n#include <iostream>\nint main() {{ {main} }}\n");
+    let program = format!(
+        "#include <iostream>\n{source}\nint main() {{ uint metal_oxide_gate_word = 0; atomic_uint metal_oxide_failure_word{{0}}; const device uint* metal_oxide_gate = &metal_oxide_gate_word; device atomic_uint* metal_oxide_failure = &metal_oxide_failure_word; {main} }}\n"
+    );
     std::fs::write(directory.join("main.cpp"), program).unwrap();
     std::fs::write(
         directory.join("metal_stdlib"),
         include_str!("../../../metal-oxide-codegen/tests/support/metal_stdlib"),
+    )
+    .unwrap();
+    std::fs::write(
+        directory.join("metal_logging"),
+        include_str!("../../../metal-oxide-codegen/tests/support/metal_logging"),
     )
     .unwrap();
     let mut compiler = Command::new("clang++");

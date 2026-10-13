@@ -83,6 +83,12 @@ pub struct Kernel {
     pub name: String,
     pub parameters: Vec<Parameter>,
     pub required_block: Option<[u32; 3]>,
+    /// The buffer slot after the parameters: a word that is nonzero once an earlier dispatch
+    /// of the submission has failed, telling this one to skip its work.
+    pub gate_binding: u32,
+    /// The kernel can fail a runtime check; it then also takes the submission's failure word
+    /// in the slot after its gate.
+    pub fallible: bool,
 }
 
 /// Serialized with layouts and parameter lists shared across kernels.
@@ -124,6 +130,7 @@ pub struct Files {
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub abi: Abi,
+    pub checks: Vec<crate::Check>,
     pub target: String,
     pub msl_version: String,
     pub files: Files,

@@ -216,6 +216,16 @@ pub(crate) fn expression(
             debug_assert!(!module.functions[*id].kernel);
             format!("metal_oxide_fn_{id}({})", arguments.join(", "))
         }
+        Expression::Log { format, arguments } => {
+            let arguments = arguments
+                .iter()
+                .map(|argument| match ty(argument)? {
+                    Type::Scalar(scalar) => Ok((op(argument), scalar)),
+                    _ => Err(Error::new(source, "log arguments must be scalars")),
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            crate::log::expression(format, &arguments, source)?
+        }
         Expression::Cast(v, to) => crate::arithmetic::cast(&op(v), ty(v)?, *to, source)?,
         Expression::Unary(operation, v) => crate::arithmetic::unary(*operation, &op(v), ty(v)?),
         Expression::Binary(operation, a, b) => {

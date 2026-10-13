@@ -76,6 +76,17 @@ impl Analysis<'_> {
             }
             Expression::Aggregate { fields, .. } => aggregate(state, fields),
             Expression::Dim3(fields) => aggregate(state, fields),
+            Expression::Coordinates(builtin) => {
+                let mut result = Value::default();
+                for axis in 0..3 {
+                    let block = self.block.map(|block| block[axis as usize]);
+                    result.field(
+                        axis,
+                        Value::scalar(Range::coordinate(*builtin, axis, block)),
+                    );
+                }
+                result
+            }
             Expression::Cast(operand, to) if to.is_integer() || *to == Scalar::Bool => {
                 if let Some(from) = range(operand) {
                     let full = Range::full(*to);

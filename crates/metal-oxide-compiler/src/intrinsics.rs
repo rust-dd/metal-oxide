@@ -26,6 +26,7 @@ pub(crate) enum Intrinsic {
     Bitcast(Scalar),
     FloatConvert(Scalar),
     UncheckedFloatToInt,
+    Log,
 }
 
 impl Intrinsic {
@@ -55,8 +56,36 @@ impl Intrinsic {
             Self::Bitcast(_) => "scalar_bitcast",
             Self::FloatConvert(_) => "float_conversion",
             Self::UncheckedFloatToInt => "unchecked_float_to_int",
+            Self::Log => "log",
         }
     }
+}
+
+/// Core entry points of a panic with a literal message; the importer replaces them with a
+/// `Panic` terminator, so their bodies are never imported.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PanicEntry {
+    Panic,
+    PanicFmt,
+    LiteralArguments,
+}
+
+pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEntry> {
+    let items = tcx.lang_items();
+    if items.panic_fn() == Some(definition) {
+        return Some(PanicEntry::Panic);
+    }
+    if items.panic_fmt() == Some(definition) {
+        return Some(PanicEntry::PanicFmt);
+    }
+    let implementation = tcx.inherent_impl_of_assoc(definition)?;
+    let ty = tcx.normalize_erasing_regions(
+        ty::TypingEnv::non_body_analysis(tcx, implementation),
+        tcx.type_of(implementation).instantiate_identity(),
+    );
+    (items.format_arguments() == Some(ty.ty_adt_def()?.did())
+        && tcx.item_name(definition).as_str() == "from_str")
+        .then_some(PanicEntry::LiteralArguments)
 }
 
 /// The element type of `Iterator::next` on `Range<T>`, which the importer expands inline.

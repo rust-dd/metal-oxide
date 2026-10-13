@@ -95,10 +95,13 @@ mod tests {
                 name: "empty".into(),
                 parameters: vec![],
                 required_block: None,
+                gate_binding: 0,
+                fallible: false,
             }],
         };
         let manifest = Manifest {
             abi: abi.clone(),
+            checks: vec![],
             target: DEVICE_TARGET.into(),
             msl_version: MSL_VERSION.into(),
             files: Files {

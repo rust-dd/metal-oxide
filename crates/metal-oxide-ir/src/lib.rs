@@ -2,8 +2,10 @@
 
 mod analysis;
 mod atomic;
+mod check;
 mod control_flow;
 mod dataflow;
+mod log;
 mod model;
 mod proofs;
 mod simd;
@@ -14,7 +16,9 @@ mod validate;
 
 pub use analysis::FunctionAnalysis;
 pub use atomic::AtomicOp;
+pub use check::{Check, OverflowOp};
 pub use control_flow::{ControlFlowGraph, Dominators};
+pub use log::{LogPiece, log_pieces};
 pub use model::*;
 pub use simd::{SimdOp, ballot_type};
 pub use types::{Access, AddressSpace, Aggregate, Element, RecordField, Scalar, Type, TypeTable};

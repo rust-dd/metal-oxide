@@ -131,19 +131,14 @@ pub(crate) fn initialized(
             }
             mark(module, function, &mut initialized, &statement.destination);
         }
-        match &block.terminator {
-            Terminator::Branch { condition, .. }
-            | Terminator::Assert { condition, .. }
-            | Terminator::Switch {
-                discriminant: condition,
-                ..
-            } => check(function, &initialized, condition, &block.source)?,
-            Terminator::Return
-                if function.locals[0] != Type::Unit && !covered(&initialized, &Place::local(0)) =>
-            {
-                return Err(Error::new(&block.source, "uninitialized return value"));
-            }
-            _ => {}
+        for operand in block.terminator.operands() {
+            check(function, &initialized, operand, &block.source)?;
+        }
+        if block.terminator == Terminator::Return
+            && function.locals[0] != Type::Unit
+            && !covered(&initialized, &Place::local(0))
+        {
+            return Err(Error::new(&block.source, "uninitialized return value"));
         }
     }
     Ok(())

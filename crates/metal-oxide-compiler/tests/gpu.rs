@@ -1,9 +1,47 @@
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+/// A host value with a kernel record's layout, encoded through the tuple of its fields.
+macro_rules! record {
+    ($name:ident($tuple:ty) { $($field:ident),* }) => {
+        #[derive(Clone, Copy)]
+        struct $name($tuple);
+
+        impl metal_oxide::GpuValue for $name {
+            const SIZE: usize = <$tuple as metal_oxide::GpuValue>::SIZE;
+            const ALIGNMENT: usize = <$tuple as metal_oxide::GpuValue>::ALIGNMENT;
+
+            fn layout() -> metal_oxide::Result<metal_oxide::Layout> {
+                let metal_oxide::LayoutKind::Tuple { fields } =
+                    <$tuple as metal_oxide::GpuValue>::layout()?.kind
+                else {
+                    unreachable!("record fields form a tuple")
+                };
+                let names = [$(stringify!($field)),*].map(str::to_owned);
+                let fields = names.into_iter().zip(fields).map(|(name, field)| (name, field.layout));
+                Ok(metal_oxide::Layout::record(stringify!($name), fields.collect())?)
+            }
+
+            fn zeroed() -> Self {
+                Self(<$tuple as metal_oxide::GpuValue>::zeroed())
+            }
+
+            fn encode(self, bytes: &mut [u8]) {
+                self.0.encode(bytes)
+            }
+
+            fn decode(bytes: &[u8]) -> Self {
+                Self(<$tuple as metal_oxide::GpuValue>::decode(bytes))
+            }
+        }
+    };
+}
+
 #[path = "gpu/aggregates.rs"]
 mod aggregates;
 #[path = "gpu/atomics.rs"]
 mod atomics;
+#[path = "gpu/checks.rs"]
+mod checks;
 #[path = "gpu/collectives.rs"]
 mod collectives;
 #[path = "gpu/control_flow.rs"]
@@ -71,8 +109,7 @@ fn pipeline_with_math_mode(
         ],
     );
     support::checked(output);
-    let msl = std::fs::read_to_string(directory.join("kernels.metal"))?;
-    let module = Module::from_source(device, &msl)?;
+    let module = support::artifact::module(device, &directory)?;
     eprintln!("{entry}: {} ({})", device.name(), directory.display());
     Pipeline::new(device, &module, entry)
 }

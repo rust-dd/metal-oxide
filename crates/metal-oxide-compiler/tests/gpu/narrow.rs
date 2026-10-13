@@ -174,7 +174,8 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
         assert_eq!(overflow.as_slice(), [ox as u32, oy as u32]);
         let mut record8 = device.buffer_zeroed::<i8>(2)?;
         let mut record16 = device.buffer_zeroed::<i16>(2)?;
-        // SAFETY: the host tuple has the tested eight-byte record layout; one thread owns both outputs.
+        record!(SignedRecord((i8, i16, (i8, u16))) { small, wide, pair });
+        // SAFETY: the value has the kernel's record layout; one thread owns both outputs.
         unsafe {
             device.launch(
                 &records,
@@ -182,7 +183,7 @@ fn signed_narrow_math_and_flags_match_rust() -> metal_oxide::Result<()> {
                 &[
                     Argument::write(&mut record8),
                     Argument::write(&mut record16),
-                    Argument::value((a, b, (-1_i8, 7_u16)))?,
+                    Argument::value(SignedRecord((a, b, (-1_i8, 7_u16))))?,
                 ],
             )?;
         }

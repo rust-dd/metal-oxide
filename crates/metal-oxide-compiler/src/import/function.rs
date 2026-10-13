@@ -1,7 +1,8 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{mir, ty::Instance};
+use rustc_span::Span;
 
-use super::{ModuleImporter, Result, control, location, ranges};
+use super::{ModuleImporter, Result, control, location, panics::Panics, ranges};
 
 pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
@@ -32,11 +33,13 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let body = tcx.instance_mir(self.instance.def);
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
         let used = control::used_locals(body);
+        let panics = Panics::new(tcx, body)?;
         self.constants = super::constants::locals(tcx, self.instance, body);
         self.references = ranges::references(body);
         let discriminants = ranges::discriminants(body);
         for (index, local) in body.local_decls.iter().enumerate() {
-            let ty = if !used[index] || self.references[index].is_some() {
+            let ty = if !used[index] || self.references[index].is_some() || panics.is_literal(index)
+            {
                 ir::Type::Unit
             } else if discriminants[index] {
                 ir::Type::Scalar(ir::Scalar::Bool)
@@ -47,7 +50,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         }
         let mut blocks = Vec::with_capacity(body.basic_blocks.len());
         for block in body.basic_blocks.iter() {
-            blocks.push(self.block(block, body)?);
+            blocks.push(self.block(block, body, &panics)?);
         }
         blocks.append(&mut self.appended);
         Ok(ir::Function {
@@ -73,6 +76,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         &mut self,
         block: &mir::BasicBlockData<'tcx>,
         body: &mir::Body<'tcx>,
+        panics: &Panics,
     ) -> Result<ir::Block> {
         let mut statements = Vec::new();
         for statement in &block.statements {
@@ -103,7 +107,16 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         }
         let term = block.terminator();
         let span = term.source_info.span;
-        let source = location(self.module.tcx, span);
+        // Checks report where Rust's `#[track_caller]` panics would: the outermost macro call.
+        let caller = span.ctxt().outer_expn().expansion_cause().unwrap_or(span);
+        let mut source = location(self.module.tcx, span);
+        if let Some(message) = panics.message(self.module.tcx, &term.kind) {
+            return Ok(ir::Block {
+                statements,
+                terminator: ir::Terminator::Panic(message),
+                source: location(self.module.tcx, caller),
+            });
+        }
         let terminator = match &term.kind {
             mir::TerminatorKind::Goto { target } => ir::Terminator::Goto(target.as_usize()),
             mir::TerminatorKind::Return => ir::Terminator::Return,
@@ -117,16 +130,19 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 msg,
                 target,
                 ..
-            } => ir::Terminator::Assert {
-                condition: self.operand(cond, span)?,
-                expected: *expected,
-                enabled: (self.module.tcx.sess.overflow_checks()
-                    || !msg.is_optional_overflow_check())
-                    && self.operand(cond, span)?
-                        != ir::Operand::Constant(ir::Constant::Bool(*expected)),
-                target: target.as_usize(),
-                message: format!("{msg:?}"),
-            },
+            } => {
+                source = location(self.module.tcx, caller);
+                ir::Terminator::Assert {
+                    condition: self.operand(cond, span)?,
+                    expected: *expected,
+                    enabled: (self.module.tcx.sess.overflow_checks()
+                        || !msg.is_optional_overflow_check())
+                        && self.operand(cond, span)?
+                            != ir::Operand::Constant(ir::Constant::Bool(*expected)),
+                    target: target.as_usize(),
+                    check: check(msg, span)?,
+                }
+            }
             mir::TerminatorKind::Call {
                 func,
                 args,
@@ -173,4 +189,25 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             source,
         })
     }
+}
+
+fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
+    use mir::{AssertKind, BinOp};
+    Ok(match message {
+        AssertKind::BoundsCheck { .. } => ir::Check::Bounds,
+        AssertKind::Overflow(op, ..) => ir::Check::Overflow(match op {
+            BinOp::Add => ir::OverflowOp::Add,
+            BinOp::Sub => ir::OverflowOp::Sub,
+            BinOp::Mul => ir::OverflowOp::Mul,
+            BinOp::Div => ir::OverflowOp::Div,
+            BinOp::Rem => ir::OverflowOp::Rem,
+            BinOp::Shl => ir::OverflowOp::Shl,
+            BinOp::Shr => ir::OverflowOp::Shr,
+            other => return Err((span, format!("unsupported overflow assertion: {other:?}"))),
+        }),
+        AssertKind::OverflowNeg(_) => ir::Check::Overflow(ir::OverflowOp::Neg),
+        AssertKind::DivisionByZero(_) => ir::Check::DivisionByZero,
+        AssertKind::RemainderByZero(_) => ir::Check::RemainderByZero,
+        other => return Err((span, format!("unsupported MIR assertion: {other:?}"))),
+    })
 }

@@ -9,7 +9,7 @@ fn half_storage_and_explicit_conversions_execute() {
     support::checked(output);
     let actual = support::execute_msl(
         &directory,
-        "half input[4]={as_type<half>(ushort(0x3c00)),as_type<half>(ushort(0x8000)),as_type<half>(ushort(1)),as_type<half>(ushort(0x7c00))}; ushort bits[4]={}; float wide[4]={}; half copy[4]={}; for(uint i=0;i<4;i++) half_bits(input,bits,wide,copy,4u,{i,0,0},{},{4,1,1},{1,1,1}); for(uint i=0;i<4;i++) std::cout<<bits[i]<<','<<as_type<uint>(wide[i])<<','<<as_type<ushort>(copy[i])<<';';",
+        "half input[4]={as_type<half>(ushort(0x3c00)),as_type<half>(ushort(0x8000)),as_type<half>(ushort(1)),as_type<half>(ushort(0x7c00))}; ushort bits[4]={}; float wide[4]={}; half copy[4]={}; for(uint i=0;i<4;i++) half_bits(input,bits,wide,copy,4u,{i,0,0},{},{4,1,1},{1,1,1}, metal_oxide_gate); for(uint i=0;i<4;i++) std::cout<<bits[i]<<','<<as_type<uint>(wide[i])<<','<<as_type<ushort>(copy[i])<<';';",
     );
     assert_eq!(
         actual,

@@ -28,8 +28,22 @@ Implement the next acceptance criterion; create crates when their code is needed
   fields; Metal threadgroups implement blocks. Scalar kernel parameters do not
   define launch dimensions automatically.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
-  assertions, recursion, layouts, and conversions must produce diagnostics.
-  Never remove a bounds/overflow check without a sound proof or silently change semantics.
+  recursion, layouts, and conversions must produce diagnostics. Never remove a
+  bounds/overflow check without a sound proof or silently change semantics.
+- Unproved assertions and literal panics become runtime checks: the failing thread
+  stores `check + 2` in the submission's failure word and returns; callers of
+  fallible helpers return after them. A check before a barrier or SIMD collective
+  must be proved or uniform. Generated kernels take a gate word in the buffer slot
+  after their parameters and, when fallible, the failure word in the next one.
+- A kernel tests its gate once, at the latest point that dominates every effect and
+  outside loops. On M3/M4 GPUs a gate at kernel entry, extra gate sites or a richer
+  failure path lower the occupancy of the whole kernel; keep failure recording to one
+  atomic store.
+- Proofs treat launch coordinates as related values: launch validation keeps
+  `grid_dim * block_dim` within `u32` and a kernel's required block exact, so the
+  global index needs no overflow check. Summaries are keyed by the required block.
+- `log!` lowers to MSL `os_log` with typed printf specifiers; artifacts that use it
+  require the `logging` feature, MSL 3.2 and `-fmetal-enable-logging`.
 - `Iterator::next` on `Range<integer>` expands inline into a bounds branch. Its
   `Option` result is an internal (`is_some`, `value`) record that kernels may read
   but not construct; `&mut` borrows are erased only as its argument. A `match` on
@@ -60,9 +74,9 @@ synthetic IR example, or MIR dump does not satisfy that criterion.
 
 Run generated-kernel hardware tests from the compiler directory with
 `cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler
--- --ignored --test-threads=1`. Tests explicitly select wrapping integers;
-preserve enabled/always-on assertions unless a typed proof establishes safety;
-unknown checks remain errors. When available locally, use
+-- --ignored --test-threads=1`. Kernel builds use the release profile, so overflow
+checks follow it; bounds, division and explicit panics are always checked. Tests of
+proofs assert which checks remain in `checks.json`. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
 
 `bash scripts/test-gpu.sh` from the root verifies both native runtime APIs and

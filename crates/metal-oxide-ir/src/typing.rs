@@ -251,6 +251,32 @@ pub(crate) fn expression_type(
             })
         }
         Expression::ThreadgroupBarrier => Ok(Type::Unit),
+        Expression::Log { format, arguments } => {
+            let pieces =
+                crate::log_pieces(format).map_err(|message| Error::new(source, message))?;
+            let placeholders = pieces
+                .iter()
+                .filter(|piece| **piece == crate::LogPiece::Argument)
+                .count();
+            if placeholders != arguments.len() {
+                return Err(Error::new(
+                    source,
+                    format!(
+                        "log format takes {placeholders} arguments, got {}",
+                        arguments.len()
+                    ),
+                ));
+            }
+            for argument in arguments {
+                if !matches!(ty(argument)?, Type::Scalar(scalar) if scalar != Scalar::Bool) {
+                    return Err(Error::new(
+                        source,
+                        "log arguments must be integers, f32 or F16",
+                    ));
+                }
+            }
+            Ok(Type::Unit)
+        }
         Expression::Uninit(ty) => match ty {
             Type::Aggregate(id)
                 if matches!(module.types.get(*id), Some(Aggregate::Array { .. })) =>

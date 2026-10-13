@@ -115,7 +115,7 @@ fn repeated_diamonds_after_early_returns_share_their_continuation() {
         "for (uint selector : {0u, 1u}) for (uint skip : {0u, 1u, 2u}) \
          for (uint bits : {0u, 1u, 0x155555u, 0x3fffffu}) { \
          uint value = 0xffffffffu; \
-         join_cost(&value, selector, skip, bits, {}, {}, {}, {}); \
+         join_cost(&value, selector, skip, bits, {}, {}, {}, {}, metal_oxide_gate); \
          std::cout << value << ','; }",
     );
     let mut expected = Vec::new();
@@ -144,7 +144,8 @@ fn constant_conditions_emit_only_the_taken_arm() {
     );
     support::checked(output);
     let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
-    assert!(!msl.contains("if ("), "{msl}");
+    // Only the gate before the store remains.
+    assert_eq!(msl.matches("if (").count(), 1, "{msl}");
     for absent in [1234.5_f32, 3.0, 7.0] {
         assert!(
             !msl.contains(&format!("0x{:08x}u", absent.to_bits())),
@@ -153,7 +154,7 @@ fn constant_conditions_emit_only_the_taken_arm() {
     }
     let actual = support::execute_msl(
         &directory,
-        "float out[1] = {0.0f}; constant_branches(out, 2.5f, {}, {}, {1,1,1}, {1,1,1}); \
+        "float out[1] = {0.0f}; constant_branches(out, 2.5f, {}, {}, {1,1,1}, {1,1,1}, metal_oxide_gate); \
          std::cout << out[0];",
     );
     assert_eq!(actual, "7.5");
@@ -177,7 +178,7 @@ fn execute<T: std::fmt::Display>(fixture: &str, entry: &str, values: &[T]) -> Ve
     };
     let main = format!(
         "{element} input[] = {{{input}}}; uint output[{}] = {{}}; uint n = {}; \
-         for (uint i = 0; i < n; ++i) {entry}(input,output,n,{{i,0,0}},{{0,0,0}},{{n,1,1}},{{1,1,1}}); \
+         for (uint i = 0; i < n; ++i) {entry}(input,output,n,{{i,0,0}},{{0,0,0}},{{n,1,1}},{{1,1,1}}, metal_oxide_gate); \
          for (uint value : output) std::cout << value << ',';",
         values.len(),
         values.len(),

@@ -41,3 +41,16 @@ pub fn metal_compiler() -> Result<String, Error> {
         .map(|metal| metal.version)
         .map_err(Error)
 }
+
+/// Compiles the MSL of a compiler output directory into its metallib with the Metal flags
+/// its ABI requires, as kernel builds do, and returns those flags.
+pub fn compile_msl(directory: &std::path::Path) -> Result<Vec<String>, Error> {
+    let compile = || -> process::Result<Vec<String>> {
+        let abi = metal_oxide_artifact::Abi::from_json(&std::fs::read_to_string(
+            directory.join(metal_oxide_artifact::ArtifactFile::Abi.name()),
+        )?)?;
+        toolchain::Metal::find()?.compile(directory, &abi)?;
+        Ok(toolchain::metal_flags(&abi))
+    };
+    compile().map_err(Error)
+}

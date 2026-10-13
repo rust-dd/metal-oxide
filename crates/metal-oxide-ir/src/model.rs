@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Access, Aggregate, AtomicOp, Scalar, SimdOp, Type, TypeTable};
+use crate::{Access, Aggregate, AtomicOp, Check, Scalar, SimdOp, Type, TypeTable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
@@ -246,7 +246,7 @@ impl IntegerOp {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Builtin {
     ThreadIdx,
     BlockIdx,
@@ -321,6 +321,11 @@ pub enum Expression {
         function: usize,
         arguments: Vec<Operand>,
     },
+    /// A device log message; `format` keeps Rust's `{}` placeholders.
+    Log {
+        format: String,
+        arguments: Vec<Operand>,
+    },
 }
 
 impl Expression {
@@ -351,6 +356,7 @@ impl Expression {
                 value,
             } => vec![buffer, index, value],
             Self::Call { arguments, .. }
+            | Self::Log { arguments, .. }
             | Self::Math { arguments, .. }
             | Self::Integer { arguments, .. }
             | Self::Simd { arguments, .. }
@@ -377,8 +383,10 @@ pub enum Terminator {
         expected: bool,
         enabled: bool,
         target: usize,
-        message: String,
+        check: Check,
     },
+    /// An explicit panic with its literal message.
+    Panic(String),
     Return,
     Unreachable,
 }
@@ -403,7 +411,19 @@ impl Terminator {
                 }
                 targets
             }
-            Self::Return | Self::Unreachable => vec![],
+            Self::Panic(_) | Self::Return | Self::Unreachable => vec![],
+        }
+    }
+
+    pub fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Self::Branch { condition, .. }
+            | Self::Switch {
+                discriminant: condition,
+                ..
+            }
+            | Self::Assert { condition, .. } => vec![condition],
+            Self::Goto(_) | Self::Panic(_) | Self::Return | Self::Unreachable => vec![],
         }
     }
 }

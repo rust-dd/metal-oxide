@@ -64,17 +64,31 @@ fn scalar_record_helpers_execute_from_generated_msl() {
     support::checked(output);
     let result = support::execute_msl(
         &directory,
-        "float a[1] = {2}; float b[1] = {5}; float sum[1] = {}; float product[1] = {}; uint n=1; record_math(a,b,sum,product,n,{0,0,0},{0,0,0},{1,1,1},{1,1,1}); std::cout << sum[0] << ',' << product[0];",
+        "float a[1] = {2}; float b[1] = {5}; float sum[1] = {}; float product[1] = {}; uint n=1; record_math(a,b,sum,product,n,{0,0,0},{0,0,0},{1,1,1},{1,1,1}, metal_oxide_gate); std::cout << sum[0] << ',' << product[0];",
     );
     assert_eq!(result, "21,31");
 }
 
 #[test]
-fn narrow_overflow_checks_are_preserved() {
+fn narrow_overflow_checks_stop_the_thread_at_the_first_failure() {
     let (output, directory) =
         support::emit("crates/metal-oxide-compiler/tests/fixtures/narrow.rs", &[]);
-    support::rejected(output, "MIR assertion");
-    assert!(!directory.join("kernels.metal").exists());
+    support::checked(output);
+    let add = support::check(&directory, serde_json::json!({"overflow": "add"}), 8);
+    let sub = support::check(&directory, serde_json::json!({"overflow": "sub"}), 9);
+    // a + 255 fits only for a = 0, and a - 255 only for a = 255, so every call fails.
+    let output = support::execute_msl(
+        &directory,
+        r#"
+        for (uchar a : {uchar(0), uchar(255)}) {
+            uchar out8[6] = {7,7,7,7,7,7}; ushort out16[6] = {};
+            atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed);
+            narrow_math(out8, out16, a, 0, 0, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure);
+            std::cout << uint(out8[0]) << ',' << uint(out8[1]) << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';';
+        }
+    "#,
+    );
+    assert_eq!(output, format!("255,7,{};7,7,{};", sub + 2, add + 2));
 }
 
 #[test]
@@ -169,7 +183,7 @@ fn rust_vec_add_generated_source_executes_and_guards_padding() {
         float b[8] = {10,20,30,40,50,60,70,80};
         float out[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
         uint n = 3;
-        for (uint i = 0; i < 8; ++i) vec_add(a,b,out,n,{i%4,0,0},{i/4,0,0},{4,1,1},{2,1,1});
+        for (uint i = 0; i < 8; ++i) vec_add(a,b,out,n,{i%4,0,0},{i/4,0,0},{4,1,1},{2,1,1},metal_oxide_gate);
         for (float value : out) std::cout << value << ',';
     "#,
     );
@@ -188,7 +202,7 @@ fn real_mir_nested_branches_loop_and_early_return_execute() {
         r#"
         uint out[12] = {500,500,500,500,500,500,500,500,500,500,500,500};
         uint n = 8;
-        for (uint i = 0; i < 12; ++i) control_flow(out,n,{i%4,0,0},{i/4,0,0},{4,1,1},{3,1,1});
+        for (uint i = 0; i < 12; ++i) control_flow(out,n,{i%4,0,0},{i/4,0,0},{4,1,1},{3,1,1},metal_oxide_gate);
         for (uint value : out) std::cout << value << ',';
     "#,
     );
@@ -206,7 +220,7 @@ fn concrete_trait_and_const_generic_helpers_execute() {
         &directory,
         r#"
         float f[2] = {-1,-1}; uint i[1] = {999};
-        helpers(f,i,{0,0,0},{0,0,0},{1,1,1},{1,1,1});
+        helpers(f,i,{0,0,0},{0,0,0},{1,1,1},{1,1,1}, metal_oxide_gate);
         std::cout << f[0] << ',' << f[1] << ',' << i[0];
     "#,
     );
@@ -214,20 +228,45 @@ fn concrete_trait_and_const_generic_helpers_execute() {
 }
 
 #[test]
-fn checked_rust_build_does_not_emit_an_unchecked_shader() {
-    let (output, directory) = support::emit("examples/vec-add/kernels/src/lib.rs", &[]);
-    support::rejected(output, "MIR assertion");
-    assert!(!directory.join("kernels.metal").exists());
+fn checked_builds_prove_the_global_index() {
+    let (output, directory) = support::emit(
+        "examples/vec-add/kernels/src/lib.rs",
+        &["-C", "overflow-checks=on"],
+    );
+    support::checked(output);
+    let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
+    let checks = serde_json::from_str::<Vec<serde_json::Value>>(&checks).unwrap();
+    assert!(checks.is_empty(), "{checks:?}");
+    let output = support::execute_msl(
+        &directory,
+        r#"
+        float a[2] = {1,2}; float b[2] = {10,20}; float out[2] = {-1,-1}; uint n = 2;
+        vec_add(a,b,out,n,{1,0,0},{0,0,0},{2,1,1},{1,1,1},metal_oxide_gate);
+        std::cout << out[1];
+    "#,
+    );
+    assert_eq!(output, "22");
 }
 
 #[test]
-fn integer_division_assert_is_rejected_in_wrapping_builds() {
+fn integer_division_by_zero_is_checked_in_wrapping_builds() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/m2_div.rs",
         &["-C", "overflow-checks=off"],
     );
-    support::rejected(output, "MIR assertion");
-    assert!(!directory.join("kernels.metal").exists());
+    support::checked(output);
+    let zero = support::check(&directory, serde_json::json!("division_by_zero"), 6);
+    let output = support::execute_msl(
+        &directory,
+        r#"
+        for (uint n : {5u, 0u}) {
+            uint out[1] = {99};
+            divide(out, n, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure);
+            std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';';
+        }
+    "#,
+    );
+    assert_eq!(output, format!("2,0;99,{};", zero + 2));
 }
 
 #[test]
@@ -239,7 +278,7 @@ fn unit_copy_preserves_helper_side_effects() {
         &directory,
         r#"
         uint out[1] = {0};
-        unit_copy(out,{0,0,0},{0,0,0},{1,1,1},{1,1,1});
+        unit_copy(out,{0,0,0},{0,0,0},{1,1,1},{1,1,1}, metal_oxide_gate);
         std::cout << out[0];
     "#,
     );

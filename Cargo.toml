@@ -74,6 +74,7 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
     "MTLDevice",
     "MTLGPUAddress",
     "MTLLibrary",
+    "MTLLogState",
     "MTLResidencySet",
     "MTLResource",
     "MTLTypes",

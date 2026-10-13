@@ -1,4 +1,4 @@
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use objc2::{
     rc::{Retained, autoreleasepool},
@@ -12,7 +12,7 @@ use objc2_metal::{
 
 use crate::{Error, Result};
 
-use super::{Device, Module, argument::Signature, backend::Backend};
+use super::{Device, Module, argument::Signature, backend::Backend, failures::KernelChecks};
 
 static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
@@ -20,6 +20,8 @@ pub struct Pipeline {
     pub(super) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(super) device_id: u64,
     pub(super) abi: Option<metal_oxide_artifact::Kernel>,
+    /// Present for generated kernels, which bind gate and failure words.
+    pub(super) checks: Option<Arc<KernelChecks>>,
     /// The first argument signature validated for each parameter; others are checked per launch.
     validated: Box<[OnceLock<Signature>]>,
 }
@@ -52,6 +54,14 @@ impl Pipeline {
             validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
                 .map(|_| OnceLock::new())
                 .collect(),
+            checks: abi.as_ref().map(|kernel| {
+                Arc::new(KernelChecks {
+                    name: kernel.name.clone(),
+                    gate_binding: kernel.gate_binding,
+                    fallible: kernel.fallible,
+                    checks: Arc::clone(&module.checks),
+                })
+            }),
             abi,
         })
     }

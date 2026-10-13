@@ -141,7 +141,7 @@ fn main() {{
         let result = super::execute_msl(
             directory,
             &format!(
-                "uint input[] = {{{inputs}}}; uint output[257]; uint n=257; for (uint i=0; i<n; ++i) {{ seeded(input, output, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}}); std::cout << output[i] << '\\n'; }}"
+                "uint input[] = {{{inputs}}}; uint output[257]; uint n=257; for (uint i=0; i<n; ++i) {{ seeded(input, output, n, {{i,0,0}}, {{0,0,0}}, {{n,1,1}}, {{1,1,1}}, metal_oxide_gate); std::cout << output[i] << '\\n'; }}"
             ),
         );
         result.lines().map(|line| line.parse().unwrap()).collect()

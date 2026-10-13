@@ -58,6 +58,18 @@ synchronous launches and async ordered batches; Rust kernel compilation is separ
 - A launch checks queue-context ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
+- Generated kernels bind a gate word after their parameters and, when fallible, the
+  submission's failure word. `Failures` owns pooled words until completion. A zero
+  word gates dispatches before the first fallible one, and the failure word gates
+  later infallible ones. Before each later fallible dispatch, a one-thread snapshot
+  kernel copies the failure word into a fresh gate, since a kernel must not gate on
+  a word its own threads write.
+- The handler reports the last fallible dispatch whose gate stayed zero as
+  `Error::KernelFailed`; command errors take precedence. It then returns the cleared
+  words to the pool. Generated MSL loads only through artifacts: source modules
+  bind no words.
+- Loading a `logging` artifact gives the device a `MTLLogState`; later command
+  buffers carry it, and its handler prints messages to stderr.
 - Artifact loading validates the ABI version, requirements, and library digest.
   Load the verified bytes rather than reopening their path. Check argument types,
   access modes, and any required block shape before encoding a launch.

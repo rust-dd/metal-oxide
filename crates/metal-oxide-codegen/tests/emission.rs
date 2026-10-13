@@ -100,13 +100,24 @@ fn signed_integer_addition_wraps_without_cpp_signed_overflow() {
 }
 
 #[test]
-fn enabled_assertion_is_not_silently_discarded() {
+fn unproved_assertion_records_its_failure_and_returns() {
     let module = assertion(true);
-    let error = metal_oxide_codegen::Codegen::new(&module)
-        .and_then(|codegen| codegen.emit())
-        .unwrap_err();
-    assert_eq!(error.source, support::source());
-    assert!(error.message.contains("assertion"));
+    let codegen = metal_oxide_codegen::Codegen::new(&module).unwrap();
+    assert_eq!(codegen.checks().len(), 1);
+    assert_eq!(codegen.checks()[0].location.line, support::source().line);
+    for (gate, condition, expected) in
+        [(0, "true", "0,0"), (0, "false", "2,1"), (1, "false", "0,1")]
+    {
+        assert_eq!(
+            support::execute(
+                &module,
+                &format!(
+                    "gate = {gate}; metal_oxide_fn_0({condition}, ctx); std::cout << atomic_load_explicit(&failure, memory_order_relaxed) << ',' << failed;"
+                )
+            ),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -145,7 +156,7 @@ fn values_read_only_by_erased_assertions_are_not_emitted() {
                     expected: true,
                     enabled: false,
                     target: 1,
-                    message: "bound".into(),
+                    check: Check::Overflow(OverflowOp::Add),
                 },
             ),
             block(vec![(0, Expression::Use(local(5)))], Terminator::Return),
@@ -179,7 +190,7 @@ fn assertion(enabled: bool) -> Module {
                     expected: true,
                     enabled,
                     target: 1,
-                    message: "overflow".into(),
+                    check: Check::Overflow(OverflowOp::Add),
                 },
             ),
             block(vec![], Terminator::Return),
@@ -371,7 +382,7 @@ fn reserved_msl_kernel_names_have_source_diagnostics() {
 
 #[test]
 fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
-    for (parameters, kernel, valid) in [(31, true, true), (32, true, false), (32, false, true)] {
+    for (parameters, kernel, valid) in [(29, true, true), (30, true, false), (32, false, true)] {
         let mut module = module(
             parameters,
             std::iter::once(Type::Unit)
@@ -385,8 +396,115 @@ fn kernel_bindings_fit_metal_slots_without_limiting_helpers() {
             Err(error) => {
                 assert!(!valid);
                 assert_eq!(error.source, support::source());
-                assert!(error.message.contains("31 bindings per argument table"));
+                assert!(
+                    error
+                        .message
+                        .contains("at most 29 buffer and value parameters")
+                );
             }
         }
     }
+}
+
+/// A kernel that loads and stores under `n < 16`, then stores in a loop; either side can be
+/// left without effects.
+fn gated_kernel(guarded: bool, looped: bool) -> Module {
+    let buffer = |access| Type::Buffer {
+        element: Element::Scalar(Scalar::U32),
+        access,
+        address_space: AddressSpace::Device,
+    };
+    let store = |index| Expression::BufferStore {
+        buffer: local(2),
+        index: local(index),
+        value: local(index),
+    };
+    let guarded = if guarded {
+        vec![
+            (
+                5,
+                Expression::BufferLoad {
+                    buffer: local(1),
+                    index: local(3),
+                },
+            ),
+            (6, store(5)),
+        ]
+    } else {
+        vec![(5, Expression::Use(local(3)))]
+    };
+    let mut looped = if looped { vec![(6, store(7))] } else { vec![] };
+    looped.push((7, Expression::Binary(BinaryOp::Add, local(7), uint(1))));
+    let mut module = module(
+        3,
+        vec![
+            Type::Unit,
+            buffer(Access::Read),
+            buffer(Access::Write),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::Bool),
+            Type::Scalar(Scalar::U32),
+            Type::Unit,
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::Bool),
+        ],
+        vec![
+            block(
+                vec![(4, Expression::Binary(BinaryOp::Lt, local(3), uint(16)))],
+                Terminator::Branch {
+                    condition: local(4),
+                    then_block: 1,
+                    else_block: 2,
+                },
+            ),
+            block(guarded, Terminator::Return),
+            block(vec![(7, Expression::Use(uint(0)))], Terminator::Goto(3)),
+            block(
+                vec![(8, Expression::Binary(BinaryOp::Lt, local(7), local(3)))],
+                Terminator::Branch {
+                    condition: local(8),
+                    then_block: 4,
+                    else_block: 5,
+                },
+            ),
+            block(looped, Terminator::Goto(3)),
+            block(vec![], Terminator::Return),
+        ],
+    );
+    module.functions[0].kernel = true;
+    module.functions[0].name = "gated".into();
+    module
+}
+
+#[test]
+fn kernels_test_their_gate_once_before_every_effect() {
+    for (guarded, looped, before) in [(true, true, "if (v4) {"), (false, true, "while (true) {")] {
+        let lines = gated_lines(guarded, looped);
+        let gates = gates(&lines);
+        assert_eq!(gates.len(), 1, "{lines:#?}");
+        assert_eq!(lines[gates[0] + 1], before, "{lines:#?}");
+    }
+    let lines = gated_lines(true, false);
+    let gates = gates(&lines);
+    assert_eq!(gates.len(), 1, "{lines:#?}");
+    assert_eq!(lines[gates[0] - 1], "if (v4) {", "{lines:#?}");
+}
+
+fn gated_lines(guarded: bool, looped: bool) -> Vec<String> {
+    let msl = metal_oxide_codegen::Codegen::new(&gated_kernel(guarded, looped))
+        .and_then(|codegen| codegen.emit())
+        .unwrap();
+    msl[msl.find("kernel void gated(").unwrap()..]
+        .lines()
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+fn gates(lines: &[String]) -> Vec<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| *line == "if (*metal_oxide_gate != 0u) { return; }")
+        .map(|(index, _)| index)
+        .collect()
 }

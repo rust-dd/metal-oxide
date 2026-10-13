@@ -1,4 +1,4 @@
-use super::{Argument, Device, Dim3, LaunchConfig, Module, Pipeline};
+use super::{Argument, Device, Dim3, LaunchConfig, Pipeline, support};
 use metal_oxide_ir::{
     self as ir, Access, AddressSpace, Aggregate, Block, Constant, Expression, Function, Operand,
     Place, Scalar, SourceLocation, Statement, Terminator, Type, TypeTable,
@@ -9,11 +9,7 @@ use metal_oxide_ir::{
 fn ir_owned_aggregate_values_and_copies_execute_on_metal() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let ir = aggregate_module();
-    let msl = metal_oxide_codegen::Codegen::new(&ir)
-        .unwrap()
-        .emit()
-        .unwrap();
-    let module = Module::from_source(&device, &msl)?;
+    let module = support::artifact::ir_module(&device, &ir)?;
     let pipeline = Pipeline::new(&device, &module, "aggregate_values")?;
     for seed in [0, 17, u32::MAX] {
         let mut integers = device.buffer_zeroed::<u32>(5)?;

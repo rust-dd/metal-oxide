@@ -63,6 +63,10 @@ pub(crate) fn write<'tcx>(
     let abi = abi.to_json()?;
     std::fs::write(directory.join(ArtifactFile::Msl.name()), msl)?;
     std::fs::write(directory.join(ArtifactFile::Abi.name()), abi)?;
+    std::fs::write(
+        directory.join(ArtifactFile::Checks.name()),
+        serde_json::to_vec_pretty(codegen.checks())?,
+    )?;
     std::fs::write(directory.join(ArtifactFile::Bindings.name()), bindings)?;
     std::fs::write(
         directory.join(ArtifactFile::RustcArgs.name()),

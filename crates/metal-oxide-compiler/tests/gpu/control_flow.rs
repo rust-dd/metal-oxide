@@ -53,10 +53,7 @@ fn loop_exits_agree_with_cpu_and_handwritten_msl() -> metal_oxide::Result<()> {
         &["-C", "overflow-checks=off"],
     );
     support::checked(output);
-    let generated = Module::from_source(
-        &device,
-        &std::fs::read_to_string(directory.join("kernels.metal"))?,
-    )?;
+    let generated = support::artifact::module(&device, &directory)?;
     let reference = Module::from_source(&device, REFERENCE)?;
     for (entry, values, expected) in [
         (

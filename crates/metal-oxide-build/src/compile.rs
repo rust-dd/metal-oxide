@@ -96,6 +96,9 @@ impl Kernels {
             .map(|file| std::fs::read(output.join(file.name())))
             .into_iter()
             .collect::<std::io::Result<Vec<_>>>()?;
+        let abi = Abi::from_json(&std::fs::read_to_string(
+            output.join(ArtifactFile::Abi.name()),
+        )?)?;
         let profile = std::env::vars()
             .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
             .collect::<std::collections::BTreeMap<_, _>>();
@@ -108,7 +111,7 @@ impl Kernels {
             std::fs::read(&rust.target)?,
             &metal.version,
             &metal.sdk,
-            metal_flags(self.math_mode),
+            metal_flags(&abi),
             profile,
         ))?;
         let fingerprint = sha256(&identity);
@@ -187,10 +190,11 @@ fn create(
     let abi = Abi::from_json(&std::fs::read_to_string(
         stage.join(ArtifactFile::Abi.name()),
     )?)?;
-    metal.compile(stage, abi.math_mode)?;
-    let flags = metal_flags(abi.math_mode);
+    metal.compile(stage, &abi)?;
+    let flags = metal_flags(&abi);
     let manifest = Manifest {
         abi,
+        checks: serde_json::from_slice(&std::fs::read(stage.join(ArtifactFile::Checks.name()))?)?,
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
         files: Files::from_directory(stage)?,

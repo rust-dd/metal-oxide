@@ -166,6 +166,9 @@ impl<'tcx> Collector<'tcx> {
             return;
         };
         let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
+        if crate::intrinsics::panic_entry(tcx, definition).is_some() {
+            return;
+        }
         if tcx.lang_items().next_fn() == Some(definition) {
             if crate::intrinsics::range_next(tcx, definition, arguments).is_none() {
                 tcx.dcx().span_err(

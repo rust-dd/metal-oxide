@@ -1,8 +1,8 @@
 use metal_oxide_ir::{
-    ControlFlowGraph, Expression, Function, Operand, Place, Projection, Terminator, Type,
+    Expression, Function, FunctionAnalysis, Operand, Place, Projection, Terminator, Type,
 };
 
-/// Statements and locals the emitted MSL needs. Validated assertions emit no code,
+/// Statements and locals the emitted MSL needs. Proven assertions emit no code,
 /// so values that only feed their conditions are dropped with them.
 pub(crate) struct Used {
     statements: Vec<Vec<bool>>,
@@ -10,7 +10,16 @@ pub(crate) struct Used {
 }
 
 impl Used {
-    pub(crate) fn new(function: &Function, cfg: &ControlFlowGraph) -> Self {
+    pub(crate) fn new(function: &Function, analysis: &FunctionAnalysis) -> Self {
+        let cfg = &analysis.cfg;
+        let terminator_reads = |id: usize, visit: &mut dyn FnMut(usize)| {
+            terminator_reads(
+                function,
+                &function.blocks[id].terminator,
+                analysis.checks.contains(&id),
+                visit,
+            )
+        };
         let mut statements = function
             .blocks
             .iter()
@@ -29,7 +38,7 @@ impl Used {
                 });
                 writers[statement.destination.local].push((id, index));
             }
-            terminator_reads(function, &block.terminator, &mut |local| reads[local] += 1);
+            terminator_reads(id, &mut |local| reads[local] += 1);
         }
         let mut pending = (0..reads.len())
             .filter(|&local| reads[local] == 0)
@@ -62,9 +71,7 @@ impl Used {
                     });
                 }
             }
-            terminator_reads(function, &block.terminator, &mut |local| {
-                locals[local] = true
-            });
+            terminator_reads(id, &mut |local| locals[local] = true);
         }
         Self { statements, locals }
     }
@@ -83,6 +90,7 @@ fn removable(value: &Expression) -> bool {
     !matches!(
         value,
         Expression::Call { .. }
+            | Expression::Log { .. }
             | Expression::BufferStore { .. }
             | Expression::Atomic { .. }
             | Expression::Simd { .. }
@@ -91,23 +99,30 @@ fn removable(value: &Expression) -> bool {
     )
 }
 
-fn statement_reads(destination: &Place, value: &Expression, visit: &mut impl FnMut(usize)) {
+fn statement_reads(destination: &Place, value: &Expression, visit: &mut dyn FnMut(usize)) {
     place_indices(destination, visit);
     for operand in value.operands() {
         operand_reads(operand, visit);
     }
 }
 
-fn terminator_reads(function: &Function, terminator: &Terminator, visit: &mut impl FnMut(usize)) {
+fn terminator_reads(
+    function: &Function,
+    terminator: &Terminator,
+    runtime_check: bool,
+    visit: &mut dyn FnMut(usize),
+) {
     match terminator {
-        Terminator::Branch { condition, .. } => operand_reads(condition, visit),
-        Terminator::Switch { discriminant, .. } => operand_reads(discriminant, visit),
+        Terminator::Assert { .. } if !runtime_check => {}
         Terminator::Return if function.locals[0] != Type::Unit => visit(0),
-        _ => {}
+        _ => terminator
+            .operands()
+            .into_iter()
+            .for_each(|operand| operand_reads(operand, visit)),
     }
 }
 
-fn operand_reads(operand: &Operand, visit: &mut impl FnMut(usize)) {
+fn operand_reads(operand: &Operand, visit: &mut dyn FnMut(usize)) {
     match operand {
         Operand::Place(place) => {
             visit(place.local);
@@ -122,7 +137,7 @@ fn operand_reads(operand: &Operand, visit: &mut impl FnMut(usize)) {
     }
 }
 
-fn place_indices(place: &Place, visit: &mut impl FnMut(usize)) {
+fn place_indices(place: &Place, visit: &mut dyn FnMut(usize)) {
     for projection in &place.projection {
         if let Projection::Index(index) = projection {
             visit(*index);

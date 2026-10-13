@@ -1,0 +1,9 @@
+#pragma once
+#include <cstdio>
+struct metal_oxide_os_log {
+    template<class... T> void log(const char* format, T... values) const {
+        std::printf(format, values...);
+        std::printf("\n");
+    }
+};
+inline constexpr metal_oxide_os_log os_log_default{};

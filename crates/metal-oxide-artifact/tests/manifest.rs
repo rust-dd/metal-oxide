@@ -18,8 +18,18 @@ fn manifest() -> Manifest {
                     },
                 }],
                 required_block: None,
+                gate_binding: 1,
+                fallible: true,
             }],
         },
+        checks: vec![Check {
+            kind: CheckKind::Bounds,
+            location: Location {
+                file: "kernels/src/lib.rs".into(),
+                line: 7,
+                column: 13,
+            },
+        }],
         target: DEVICE_TARGET.into(),
         msl_version: MSL_VERSION.into(),
         files: Files {
@@ -81,6 +91,8 @@ fn kernels_share_type_and_signature_tables() {
             name: name.into(),
             parameters: parameters.clone(),
             required_block: None,
+            gate_binding: 2,
+            fallible: false,
         })
         .into();
     let json = manifest.to_json().unwrap();
@@ -165,6 +177,10 @@ fn manifest_mutations_fail_without_panicking() {
             serde_json::json!([256, 0, 1]),
         ),
         ("/abi/required_features", serde_json::json!(["unknown"])),
+        ("/abi/kernels/0/gate_binding", serde_json::json!(0)),
+        ("/abi/kernels/0/gate_binding", serde_json::json!(31)),
+        ("/checks/0/location/line", serde_json::json!(0)),
+        ("/checks/0/kind", serde_json::json!("unknown")),
         ("/files/metallib", serde_json::json!("invalid")),
         ("/build/fingerprint", serde_json::json!("")),
     ] {
@@ -261,4 +277,38 @@ fn structured_layouts_stride_and_old_abi_are_checked() {
     let abi = manifest.abi.to_json().unwrap();
     let error = Abi::from_json(&abi.replacen("\"version\": 4", "\"version\": 5", 1)).unwrap_err();
     assert!(error.to_string().contains("ABI version 5"));
+}
+
+#[test]
+fn check_messages_follow_rust_runtime_panics() {
+    let manifest = manifest();
+    let json = manifest.to_json().unwrap();
+    assert!(json.contains("\"kind\": \"bounds\""), "{json}");
+    assert_eq!(Manifest::from_json(&json).unwrap(), manifest);
+    for (kind, message) in [
+        (CheckKind::Bounds, "index out of bounds"),
+        (
+            CheckKind::Overflow(OverflowOp::Add),
+            "attempt to add with overflow",
+        ),
+        (
+            CheckKind::Overflow(OverflowOp::Rem),
+            "attempt to calculate the remainder with overflow",
+        ),
+        (
+            CheckKind::Overflow(OverflowOp::Shl),
+            "attempt to shift left with overflow",
+        ),
+        (CheckKind::DivisionByZero, "attempt to divide by zero"),
+        (
+            CheckKind::RemainderByZero,
+            "attempt to calculate the remainder with a divisor of zero",
+        ),
+        (
+            CheckKind::Panic("assertion failed: x < n".into()),
+            "assertion failed: x < n",
+        ),
+    ] {
+        assert_eq!(kind.message(), message);
+    }
 }

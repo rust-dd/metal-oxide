@@ -61,18 +61,30 @@ fn invalid_or_repeated_numerical_modes_fail_before_emission() {
 }
 
 #[test]
-fn fast_math_does_not_disable_integer_checks() {
-    for (source, overflow) in [
-        ("examples/vec-add/kernels/src/lib.rs", "on"),
+fn fast_math_keeps_integer_runtime_checks() {
+    for (source, overflow, kind) in [
+        (
+            "crates/metal-oxide-compiler/tests/fixtures/runtime_checks.rs",
+            "on",
+            serde_json::json!({"overflow": "add"}),
+        ),
         (
             "crates/metal-oxide-compiler/tests/fixtures/m2_div.rs",
             "off",
+            serde_json::json!("division_by_zero"),
         ),
     ] {
         let setting = format!("overflow-checks={overflow}");
         let (output, directory) =
             support::emit(source, &["--metal-math-mode", "fast", "-C", &setting]);
-        support::rejected(output, "MIR assertion");
-        assert!(!directory.join("kernels.metal").exists());
+        support::checked(output);
+        let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
+        let checks = serde_json::from_str::<Vec<serde_json::Value>>(&checks).unwrap();
+        assert!(
+            checks.iter().any(|check| check["kind"] == kind),
+            "{checks:?}"
+        );
+        let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+        assert!(msl.contains("metal_oxide_fail(metal_oxide_ctx"), "{msl}");
     }
 }

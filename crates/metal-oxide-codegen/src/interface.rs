@@ -1,20 +1,24 @@
 use metal_oxide_artifact::{self as artifact, ParameterType};
-use metal_oxide_ir::{Access, AddressSpace, Error, Function, Module, Scalar, Type};
+use metal_oxide_ir::{
+    Access, AddressSpace, Error, Function, FunctionAnalysis, Module, Scalar, Type,
+};
 
 #[derive(Debug)]
 pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
     pub(crate) simd: bool,
+    pub(crate) logging: bool,
     atomics: bool,
     dynamic_shared: bool,
 }
 
 impl KernelInterfaces {
-    pub(crate) fn new(module: &Module) -> Result<Self, Error> {
+    pub(crate) fn new(module: &Module, analyses: &[FunctionAnalysis]) -> Result<Self, Error> {
         let kernels = module
             .functions
             .iter()
-            .map(|function| {
+            .zip(analyses)
+            .map(|(function, analysis)| {
                 if !function.kernel {
                     return Ok(None);
                 }
@@ -78,10 +82,18 @@ impl KernelInterfaces {
                         })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
+                if slots[0] > 29 {
+                    return Err(Error::new(
+                        &function.source,
+                        "kernels take at most 29 buffer and value parameters; the next slots carry the gate and failure words",
+                    ));
+                }
                 Ok(Some(artifact::Kernel {
                     name: function.name.clone(),
                     parameters,
                     required_block: function.required_block,
+                    gate_binding: slots[0],
+                    fallible: analysis.fallible,
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -93,7 +105,16 @@ impl KernelInterfaces {
                     .any(|p| matches!(p.ty, ParameterType::Threadgroup { .. }))
             }),
             kernels,
-            simd: uses_simd(module),
+            simd: uses(module, |value| {
+                matches!(
+                    value,
+                    metal_oxide_ir::Expression::SimdCoordinate(_)
+                        | metal_oxide_ir::Expression::Simd { .. }
+                )
+            }),
+            logging: uses(module, |value| {
+                matches!(value, metal_oxide_ir::Expression::Log { .. })
+            }),
             atomics: module
                 .functions
                 .iter()
@@ -121,6 +142,7 @@ impl KernelInterfaces {
                 (self.atomics, "int32_atomics"),
                 (self.simd, "simd_groups"),
                 (self.dynamic_shared, "dynamic_threadgroup_memory"),
+                (self.logging, "logging"),
             ]
             .into_iter()
             .filter(|(required, _)| *required)
@@ -133,19 +155,13 @@ impl KernelInterfaces {
     }
 }
 
-fn uses_simd(module: &Module) -> bool {
+fn uses(module: &Module, operation: impl Fn(&metal_oxide_ir::Expression) -> bool) -> bool {
     module
         .functions
         .iter()
         .flat_map(|f| &f.blocks)
         .flat_map(|b| &b.statements)
-        .any(|s| {
-            matches!(
-                s.value,
-                metal_oxide_ir::Expression::SimdCoordinate(_)
-                    | metal_oxide_ir::Expression::Simd { .. }
-            )
-        })
+        .any(|s| operation(&s.value))
 }
 
 fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error> {

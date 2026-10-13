@@ -64,7 +64,7 @@ fn bounded_loop(name: String, kernel: bool) -> Function {
                     expected: true,
                     enabled: true,
                     target: 3,
-                    message: "loop index is below 64".into(),
+                    check: Check::Overflow(OverflowOp::Add),
                 },
             ),
             block(
@@ -159,7 +159,7 @@ fn cached_helper_proofs_keep_their_argument_facts() {
                     expected: true,
                     enabled: true,
                     target: 1,
-                    message: "argument is below 4".into(),
+                    check: Check::Overflow(OverflowOp::Add),
                 },
             ),
             block(vec![], Terminator::Return),
@@ -175,11 +175,11 @@ fn cached_helper_proofs_keep_their_argument_facts() {
                 caller("second", [(0, vec![constant(if invalid { 4 } else { 3 })])]),
             ],
         };
-        if invalid {
-            let error = validate(&module).unwrap_err();
-            assert!(error.message.contains("argument is below 4"), "{error}");
-        } else {
-            validate(&module).unwrap();
+        // The helper is emitted once, so a context that cannot prove its check makes it fallible.
+        let analyses = validate(&module).unwrap();
+        assert_eq!(analyses[0].checks.contains(&0), invalid);
+        for function in &analyses {
+            assert_eq!(function.fallible, invalid);
         }
     }
 }

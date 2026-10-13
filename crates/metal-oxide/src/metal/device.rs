@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -7,11 +7,15 @@ use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_metal::{MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice};
+use objc2_metal::{MTLCopyAllDevices, MTLCreateSystemDefaultDevice, MTLDevice, MTLLogState};
 
 use crate::{Dim3, DynamicLaunchConfig, Error, GpuValue, Result};
 
-use super::{Argument, Batch, Buffer, Pipeline, Submission, backend::Backend};
+use super::{
+    Argument, Batch, Buffer, Module, Pipeline, Submission,
+    backend::Backend,
+    failures::{FailurePool, SNAPSHOT_KERNEL, SNAPSHOT_SOURCE},
+};
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -26,6 +30,9 @@ struct Context {
     raw: Retained<ProtocolObject<dyn MTLDevice>>,
     backend: Backend,
     id: u64,
+    failures: Arc<FailurePool>,
+    snapshot: OnceLock<Pipeline>,
+    log: OnceLock<Retained<ProtocolObject<dyn MTLLogState>>>,
 }
 
 impl Device {
@@ -64,7 +71,14 @@ impl Device {
             let id = NEXT_DEVICE_ID
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .map_err(|_| Error::Command("device identity space exhausted".into()))?;
-            Ok(Self(Arc::new(Context { raw, backend, id })))
+            Ok(Self(Arc::new(Context {
+                raw,
+                backend,
+                id,
+                failures: Arc::default(),
+                snapshot: OnceLock::new(),
+                log: OnceLock::new(),
+            })))
         })
     }
 
@@ -114,6 +128,34 @@ impl Device {
 
     pub(super) fn id(&self) -> u64 {
         self.0.id
+    }
+
+    pub(super) fn failure_pool(&self) -> &Arc<FailurePool> {
+        &self.0.failures
+    }
+
+    /// The built-in kernel that copies a submission's failure word into a later gate.
+    pub(super) fn snapshot(&self) -> Result<&Pipeline> {
+        if let Some(pipeline) = self.0.snapshot.get() {
+            return Ok(pipeline);
+        }
+        let module = Module::from_source(self, SNAPSHOT_SOURCE)?;
+        let pipeline = Pipeline::new(self, &module, SNAPSHOT_KERNEL)?;
+        Ok(self.0.snapshot.get_or_init(|| pipeline))
+    }
+
+    /// The log state that command buffers carry once a logging artifact is loaded.
+    pub(super) fn log_state(&self) -> Option<&ProtocolObject<dyn MTLLogState>> {
+        self.0.log.get().map(|state| &**state)
+    }
+
+    pub(super) fn enable_logging(&self) -> Result<()> {
+        if self.0.log.get().is_none() {
+            let state = super::logging::log_state(self.raw())?;
+            // A concurrent loader may have installed its state first; either one serves.
+            let _ = self.0.log.set(state);
+        }
+        Ok(())
     }
 
     /// Encodes and commits an ordered batch without waiting for the GPU.

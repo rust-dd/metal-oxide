@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-cargo test -p cargo-metal --locked -- --ignored --test-threads=1 --skip numerical_modes_isolate_artifacts_and_match_source_compilation --skip embedded_artifacts_load_lazily_in_a_relocated_stable_host
+cargo test -p cargo-metal --locked -- --ignored --test-threads=1 --skip numerical_modes_isolate_artifacts_and_match_the_reference --skip embedded_artifacts_load_lazily_in_a_relocated_stable_host
 cargo test -p metal-oxide-build --locked -- --ignored --test-threads=1
 
 # Arguments name the native APIs to test. By default Metal 4 runs from macOS 26 on;

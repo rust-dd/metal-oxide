@@ -5,6 +5,7 @@ use objc2_metal::{MTL4CommandQueueError, MTLCommandBufferError};
 pub(super) enum CommandFailure {
     OutOfMemory(String),
     Other(String),
+    Kernel(Box<crate::KernelFailure>),
 }
 
 impl CommandFailure {
@@ -31,6 +32,7 @@ impl From<CommandFailure> for crate::Error {
         match failure {
             CommandFailure::OutOfMemory(reason) => Self::OutOfMemory(reason),
             CommandFailure::Other(reason) => Self::Command(reason),
+            CommandFailure::Kernel(failure) => Self::KernelFailed(failure),
         }
     }
 }

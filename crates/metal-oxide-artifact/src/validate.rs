@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, MSL_VERSION, Manifest, ParameterType, Scalar,
+    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, MSL_VERSION, Manifest,
+    ParameterType, Scalar,
 };
 
 pub(crate) fn identifier(name: &str) -> bool {
@@ -34,7 +35,7 @@ impl Abi {
         if self.required_features.iter().any(|feature| {
             !matches!(
                 feature.as_str(),
-                "simd_groups" | "int32_atomics" | "dynamic_threadgroup_memory"
+                "simd_groups" | "int32_atomics" | "dynamic_threadgroup_memory" | "logging"
             ) || !features.insert(feature.as_str())
         }) {
             return Err(Error("unsupported or duplicate artifact feature".into()));
@@ -108,6 +109,12 @@ impl Abi {
                     )));
                 }
             }
+            if kernel.gate_binding != slots[0] || slots[0] > 29 {
+                return Err(Error(format!(
+                    "kernel {} must take its gate and failure words in the buffer slots after its parameters",
+                    kernel.name
+                )));
+            }
             if let Some(block) = kernel.required_block
                 && (block.contains(&0)
                     || block
@@ -143,6 +150,12 @@ impl Manifest {
                 ));
             }
         }
+        let logging = self.abi.required_features.iter().any(|f| f == "logging");
+        if logging != self.build.metal_flags.iter().any(|f| f == LOGGING_FLAG) {
+            return Err(Error(
+                "Metal logging flag does not match the artifact features".into(),
+            ));
+        }
         if self
             .build
             .metal_flags
@@ -150,6 +163,13 @@ impl Manifest {
             .any(|flag| matches!(flag.as_str(), "-ffast-math" | "-fno-fast-math"))
         {
             return Err(Error("legacy Metal math flags are unsupported".into()));
+        }
+        if self
+            .checks
+            .iter()
+            .any(|check| check.location.file.is_empty() || check.location.line == 0)
+        {
+            return Err(Error("runtime checks require source locations".into()));
         }
         if self.target != DEVICE_TARGET || self.msl_version != MSL_VERSION {
             return Err(Error("unsupported artifact target or MSL version".into()));

@@ -1,0 +1,307 @@
+use super::*;
+use metal_oxide::{Error, KernelFailure};
+
+const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/runtime_checks.rs";
+
+fn module(device: &Device) -> metal_oxide::Result<Module> {
+    let (output, directory) = support::emit(FIXTURE, &["-C", "overflow-checks=on"]);
+    support::checked(output);
+    support::artifact::module(device, &directory)
+}
+
+/// The fixture line that contains `text`, as a check location reports it.
+fn line(text: &str) -> u32 {
+    let source = include_str!("../fixtures/runtime_checks.rs");
+    source.lines().position(|line| line.contains(text)).unwrap() as u32 + 1
+}
+
+fn failure(result: metal_oxide::Result<()>) -> KernelFailure {
+    match result {
+        Err(Error::KernelFailed(failure)) => *failure,
+        other => panic!("expected a kernel failure, got {other:?}"),
+    }
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn failed_bounds_check_reports_its_rust_location() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let lookup = Pipeline::new(&device, &module(&device)?, "lookup")?;
+    let indices = device.buffer_from_slice(&[0_u32, 1, 2, 3, 2, 1, 0, 3, 9, 1])?;
+    let mut out = device.buffer_from_slice(&[0_u32; 10])?;
+    // SAFETY: both buffers have ten elements and each thread writes its own element.
+    let result = unsafe {
+        device.launch(
+            &lookup,
+            LaunchConfig::<4>::for_elements(10)?,
+            &[
+                Argument::read(&indices),
+                Argument::write(&mut out),
+                Argument::value(10_u32)?,
+            ],
+        )
+    };
+    let failure = failure(result);
+    assert_eq!(failure.kernel, "lookup");
+    assert_eq!(failure.dispatch, 0);
+    assert_eq!(failure.message, "index out of bounds");
+    assert!(
+        failure.file.ends_with("fixtures/runtime_checks.rs"),
+        "{failure}"
+    );
+    assert_eq!(failure.line, line("values[indices"));
+    // Threads that pass their checks finish; the failing thread stops before its store.
+    assert_eq!(out.as_slice(), [10, 20, 30, 40, 30, 20, 10, 40, 0, 20]);
+    assert!(
+        failure
+            .to_string()
+            .starts_with("kernel `lookup` panicked at ")
+    );
+    Ok(())
+}
+
+/// Launches `lookup` and `fill` in one submission; `indices` decide which lookups fail.
+fn lookups_and_fills(
+    device: &Device,
+    module: &Module,
+    indices: [u32; 2],
+) -> metal_oxide::Result<(metal_oxide::Result<()>, [Vec<u32>; 3])> {
+    let lookup = Pipeline::new(device, module, "lookup")?;
+    let fill = Pipeline::new(device, module, "fill")?;
+    let indices = indices.map(|index| device.buffer_from_slice(&[index; 4]));
+    let [first, second] = [&indices[0], &indices[1]].map(|indices| indices.as_ref().unwrap());
+    let mut looked_up = [
+        device.buffer_zeroed::<u32>(4)?,
+        device.buffer_zeroed::<u32>(4)?,
+    ];
+    let mut filled = device.buffer_zeroed::<u32>(4)?;
+    let config = LaunchConfig::<4>::for_elements(4)?;
+    let [early, late] = &mut looked_up;
+    // SAFETY: every buffer covers four elements with one writer per element.
+    let submission = unsafe {
+        device.submit(|batch| {
+            for (indices, out, value) in [(first, early, 1_u32), (second, late, 2)] {
+                batch.launch(
+                    &lookup,
+                    config,
+                    &[
+                        Argument::read(indices),
+                        Argument::write(out),
+                        Argument::value(4_u32)?,
+                    ],
+                )?;
+                batch.launch(
+                    &fill,
+                    config,
+                    &[
+                        Argument::write(&mut filled),
+                        Argument::value(value)?,
+                        Argument::value(4_u32)?,
+                    ],
+                )?;
+            }
+            Ok(())
+        })?
+    };
+    let result = submission.wait().map(|_| ());
+    Ok((
+        result,
+        [
+            looked_up[0].as_slice().to_vec(),
+            looked_up[1].as_slice().to_vec(),
+            filled.as_slice().to_vec(),
+        ],
+    ))
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_failed_dispatch_skips_the_rest_of_its_submission() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let module = module(&device)?;
+    let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [5, 1])?;
+    let first = failure(result);
+    assert_eq!((first.kernel.as_str(), first.dispatch), ("lookup", 0));
+    // Neither the later fill nor the later lookup, which gates on a snapshot, runs.
+    assert_eq!(
+        [early, late, filled],
+        [[0; 4], [0; 4], [0; 4]].map(Vec::from)
+    );
+    let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [1, 5])?;
+    let second = failure(result);
+    assert_eq!((second.kernel.as_str(), second.dispatch), ("lookup", 2));
+    assert_eq!(
+        [early, late, filled],
+        [[20; 4], [0; 4], [1; 4]].map(Vec::from)
+    );
+    // The next submission starts from clear words.
+    let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [2, 3])?;
+    result?;
+    assert_eq!(
+        [early, late, filled],
+        [[30; 4], [40; 4], [2; 4]].map(Vec::from)
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn overflow_division_and_assertion_messages_match_rust() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let arithmetic = Pipeline::new(&device, &module(&device)?, "arithmetic")?;
+    let run = |values: &[u32], divisor: u32| -> metal_oxide::Result<Vec<u32>> {
+        let values = device.buffer_from_slice(values)?;
+        let mut out = device.buffer_zeroed::<u32>(values.len())?;
+        // SAFETY: both buffers cover n elements and each thread writes its own element.
+        unsafe {
+            device.launch(
+                &arithmetic,
+                LaunchConfig::<32>::for_elements(values.len() as u32)?,
+                &[
+                    Argument::read(&values),
+                    Argument::write(&mut out),
+                    Argument::value(divisor)?,
+                    Argument::value(values.len() as u32)?,
+                ],
+            )?;
+        }
+        Ok(out.as_slice().to_vec())
+    };
+    assert_eq!(run(&[1, 5, 9], 2)?, [1, 3, 5]);
+    for (values, divisor, message, text) in [
+        (
+            &[u32::MAX][..],
+            1,
+            "attempt to add with overflow",
+            "(value + 1)",
+        ),
+        (&[3][..], 0, "attempt to divide by zero", "(value + 1)"),
+        (&[1, 7][..], 1, "seven is not allowed", "assert!"),
+    ] {
+        let failure = failure(run(values, divisor).map(|_| ()));
+        assert_eq!(failure.message, message);
+        assert_eq!(failure.line, line(text), "{failure}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_uniform_check_before_a_barrier_stops_every_thread() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let pipeline = Pipeline::new(&device, &module(&device)?, "reverse_scaled")?;
+    let mut out = device.buffer_zeroed::<u32>(128)?;
+    for divisor in [2_u32, 0] {
+        // SAFETY: two 64-thread blocks write their own 64 elements after the barrier.
+        let result = unsafe {
+            device.launch(
+                &pipeline,
+                LaunchConfig::<64>::new(Dim3::x(2)),
+                &[Argument::write(&mut out), Argument::value(divisor)?],
+            )
+        };
+        if divisor == 0 {
+            assert_eq!(failure(result).message, "attempt to divide by zero");
+        } else {
+            result?;
+            let expected = (0..128).map(|i| (63 - i % 64) * 32).collect::<Vec<_>>();
+            assert_eq!(out.as_slice(), expected);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let lookup = Pipeline::new(&device, &module(&device)?, "lookup")?;
+    let valid = device.buffer_from_slice(&[3_u32])?;
+    let invalid = device.buffer_from_slice(&[4_u32])?;
+    let mut out = device.buffer_zeroed::<u32>(1)?;
+    let config = LaunchConfig::<1>::new(Dim3::x(1));
+    // Each fallible dispatch after the first takes a gate word; more than one chunk holds.
+    let dispatches = 1100;
+    for failing in [true, false, true] {
+        // SAFETY: one thread writes the single element in dispatch order.
+        let submission = unsafe {
+            device.submit(|batch| {
+                for dispatch in 0..dispatches {
+                    let indices = if failing && dispatch == dispatches - 1 {
+                        &invalid
+                    } else {
+                        &valid
+                    };
+                    batch.launch(
+                        &lookup,
+                        config,
+                        &[
+                            Argument::read(indices),
+                            Argument::write(&mut out),
+                            Argument::value(1_u32)?,
+                        ],
+                    )?;
+                }
+                Ok(())
+            })?
+        };
+        let result = submission.wait().map(|_| ());
+        if failing {
+            assert_eq!(failure(result).dispatch, dispatches - 1);
+        } else {
+            result?;
+        }
+        assert_eq!(out.as_slice(), [40]);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn device_log_messages_reach_standard_error() {
+    const CHILD: &str = "METAL_OXIDE_LOG_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let device = Device::system_default().unwrap();
+        let (output, directory) =
+            support::emit("crates/metal-oxide-compiler/tests/fixtures/logging.rs", &[]);
+        support::checked(output);
+        let module = support::artifact::module(&device, &directory).unwrap();
+        let pipeline = Pipeline::new(&device, &module, "logging").unwrap();
+        let mut out = device.buffer_zeroed::<u32>(3).unwrap();
+        // SAFETY: three threads write their own elements.
+        unsafe {
+            device
+                .launch(
+                    &pipeline,
+                    LaunchConfig::<3>::new(Dim3::x(1)),
+                    &[
+                        Argument::write(&mut out),
+                        Argument::value(0.1_f32).unwrap(),
+                        Argument::value(metal_oxide::F16::from_f32(0.5)).unwrap(),
+                    ],
+                )
+                .unwrap();
+        }
+        // Metal delivers shader logs asynchronously around completion.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        return;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "checks::device_log_messages_reach_standard_error",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    for thread in 0..3 {
+        let message = format!(
+            "thread {thread} scale 0.100000001 half 0.5 wide 1099511627776 signed -3 {{braces}} 100%"
+        );
+        assert!(stderr.contains(&message), "{stderr}");
+    }
+}
