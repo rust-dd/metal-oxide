@@ -10,6 +10,9 @@ use super::{
 };
 use crate::*;
 
+/// The path element of a shared reference's referent in a [`Value`].
+pub(super) const REFERENT: u32 = u32::MAX;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct Value(pub BTreeMap<Vec<u32>, Range>);
 
@@ -100,25 +103,32 @@ impl<'a> State<'a> {
     }
 
     /// The place with constant indices as fields; `None` behind a pointer or a varying index.
+    /// A local shared reference's referent resolves, since it cannot change while in use.
     pub fn resolve(&self, place: &Place) -> Option<Place> {
         let mut result = Place::local(place.local);
-        for projection in &place.projection {
+        for (position, projection) in place.projection.iter().enumerate() {
             result.projection.push(match *projection {
                 Projection::Field(field) => Projection::Field(field),
                 Projection::Index(index) => Projection::Field(
                     u32::try_from(self.range(&Place::local(index))?.singleton()?).ok()?,
                 ),
+                Projection::Deref if position == 0 && self.shared(place.local) => Projection::Deref,
                 Projection::Deref => return None,
             });
         }
         Some(result)
     }
 
+    /// Whether a local holds a shared reference to one value.
+    fn shared(&self, local: usize) -> bool {
+        self.module
+            .types
+            .pointer(self.function.locals[local])
+            .is_some_and(|pointer| !pointer.mutable && !pointer.slice)
+    }
+
     pub fn range(&self, place: &Place) -> Option<Range> {
         let full = Range::full(self.scalar(place)?);
-        if place.is_indirect() {
-            return Some(full);
-        }
         if let Some(resolved) = self.resolve(place) {
             let own = self.facts.get(&resolved).cloned().unwrap_or(full);
             // An alias holds the same value, so a refinement of its target also bounds it.
@@ -134,6 +144,9 @@ impl<'a> State<'a> {
                 }
             }
             return Some(own);
+        }
+        if place.is_indirect() {
+            return Some(full);
         }
         let position = place
             .projection
@@ -233,11 +246,10 @@ impl<'a> State<'a> {
                             (
                                 field.projection[p.projection.len()..]
                                     .iter()
-                                    .map(|p| {
-                                        let Projection::Field(index) = p else {
-                                            unreachable!()
-                                        };
-                                        *index
+                                    .map(|p| match p {
+                                        Projection::Field(index) => *index,
+                                        Projection::Deref => REFERENT,
+                                        Projection::Index(_) => unreachable!(),
                                     })
                                     .collect(),
                                 range.clone(),
@@ -302,8 +314,13 @@ impl<'a> State<'a> {
                 let mut field = destination.clone();
                 field
                     .projection
-                    .extend(path.into_iter().map(Projection::Field));
-                self.facts.insert(field, range);
+                    .extend(path.into_iter().map(|index| match index {
+                        REFERENT => Projection::Deref,
+                        index => Projection::Field(index),
+                    }));
+                if self.resolve(&field).as_ref() == Some(&field) {
+                    self.facts.insert(field, range);
+                }
             }
         }
     }

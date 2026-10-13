@@ -3,7 +3,7 @@ use super::{
     checks,
     domain::{Range, arithmetic, wrap},
     predicate,
-    state::{State, Value},
+    state::{REFERENT, State, Value},
 };
 use crate::*;
 
@@ -145,6 +145,14 @@ impl Analysis<'_> {
             }
             Expression::Aggregate { fields, .. } => aggregate(state, fields),
             Expression::Dim3(fields) => aggregate(state, fields),
+            Expression::Ref {
+                place,
+                mutable: false,
+            } => {
+                let mut result = Value::default();
+                result.field(REFERENT, value(place));
+                result
+            }
             Expression::Coordinates(builtin) => {
                 let mut result = Value::default();
                 for axis in 0..3 {

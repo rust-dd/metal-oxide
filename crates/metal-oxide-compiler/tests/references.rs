@@ -73,6 +73,12 @@ fn each_thread_writes_its_own_disjoint_element() {
 }
 
 #[test]
+fn thread_index_arithmetic_needs_no_overflow_checks() {
+    let checks = std::fs::read_to_string(emit("chunk_sums").join("checks.json")).unwrap();
+    assert!(!checks.contains("overflow"), "{checks}");
+}
+
+#[test]
 fn slice_iterators_visit_elements_and_chunks_without_runtime_checks() {
     let directory = emit("slice_iterators");
     assert_eq!(

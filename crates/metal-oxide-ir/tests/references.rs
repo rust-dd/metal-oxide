@@ -320,3 +320,87 @@ fn buffer_slices_and_lengths_outside_a_kernel_are_rejected() {
         assert!(error.message.contains("kernel buffer parameter"), "{error}");
     }
 }
+
+/// `x = 1; [10, 20][read(&x)]` where `read` returns its argument's referent.
+fn index_through_reference(mutable: bool) -> Vec<usize> {
+    let mut types = TypeTable::default();
+    let reference_type = pointer(&mut types, USIZE, mutable, false);
+    let array = types.intern(Aggregate::Array {
+        element: U32,
+        length: 2,
+    });
+    let Type::Aggregate(id) = array else {
+        unreachable!()
+    };
+    let read = Function {
+        name: "read".into(),
+        kernel: false,
+        required_block: None,
+        parameters: 1,
+        locals: vec![USIZE, reference_type],
+        blocks: vec![block(
+            vec![assign(0, Expression::Use(Operand::Place(deref(1))))],
+            Terminator::Return,
+        )],
+        source: source(),
+    };
+    let mut module = helper(
+        types,
+        vec![U32, USIZE, reference_type, USIZE, array, BOOL],
+        vec![
+            block(
+                vec![
+                    assign(1, Expression::Use(usize(1))),
+                    assign(2, reference(Place::local(1), mutable)),
+                    assign(
+                        3,
+                        Expression::Call {
+                            function: 1,
+                            arguments: vec![Operand::local(2)],
+                        },
+                    ),
+                    assign(
+                        4,
+                        Expression::Aggregate {
+                            ty: id,
+                            fields: vec![
+                                Operand::Constant(Constant::U32(10)),
+                                Operand::Constant(Constant::U32(20)),
+                            ],
+                        },
+                    ),
+                    assign(
+                        5,
+                        Expression::Binary(BinaryOp::Lt, Operand::local(3), usize(2)),
+                    ),
+                ],
+                Terminator::Assert {
+                    condition: Operand::local(5),
+                    expected: true,
+                    enabled: true,
+                    target: 1,
+                    check: Check::Bounds,
+                },
+            ),
+            block(
+                vec![assign(
+                    0,
+                    Expression::Use(Operand::Place(Place {
+                        local: 4,
+                        projection: vec![Projection::Index(3)],
+                    })),
+                )],
+                Terminator::Return,
+            ),
+        ],
+    );
+    module.functions.push(read);
+    let analyses = validate(&module).unwrap();
+    analyses[0].checks.iter().copied().collect()
+}
+
+#[test]
+fn a_helper_reads_a_shared_referent_with_the_callers_facts() {
+    assert_eq!(index_through_reference(false), []);
+    assert_eq!(index_through_reference(true), [0]);
+}
