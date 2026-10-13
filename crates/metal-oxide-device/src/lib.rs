@@ -11,8 +11,10 @@ mod thread;
 pub mod threadgroup;
 
 pub use atomic::{AtomicBuffer, AtomicThreadgroupBuffer};
-pub use buffer::{ReadBuffer, ReadWriteBuffer, WriteBuffer};
+pub use buffer::{DisjointBuffer, ReadBuffer, ReadWriteBuffer, WriteBuffer};
 pub use half::F16;
 pub use metal_oxide_macros::kernel;
-pub use thread::{Dim3, block_dim, block_idx, grid_dim, thread_idx, uninit_array};
+pub use thread::{
+    Dim3, ThreadIndex, block_dim, block_idx, grid_dim, thread_idx, thread_index, uninit_array,
+};
 pub use threadgroup::{DynamicThreadgroupBuffer, ThreadgroupBuffer};

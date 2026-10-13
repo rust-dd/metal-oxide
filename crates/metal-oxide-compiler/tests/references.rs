@@ -54,3 +54,17 @@ fn buffer_slices_read_the_bound_lengths_without_runtime_checks() {
     let checks = std::fs::read_to_string(directory.join("checks.json")).unwrap();
     assert_eq!(checks.trim(), "[]", "{checks}");
 }
+
+#[test]
+fn each_thread_writes_its_own_disjoint_element() {
+    let directory = emit("disjoint");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float a[3] = {1, 2, 3}; float b[3] = {10, 20, 30}; float out[3] = {}; ulong bound[3] = {3, 3, 3}; \
+             for (uint x = 0; x < 4; x++) add(a, b, out, {x % 2, 0, 0}, {x / 2, 0, 0}, {2, 1, 1}, {2, 1, 1}, metal_oxide_gate, metal_oxide_failure, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "11 22 33 "
+    );
+}

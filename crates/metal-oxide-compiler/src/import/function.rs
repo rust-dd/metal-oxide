@@ -195,8 +195,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 ..
             } if self.buffer_query(func, body, span)?.is_some() => {
                 let query = self.buffer_query(func, body, span)?.unwrap();
-                self.buffer(&mut statements, query, args, destination, span)?;
-                ir::Terminator::Goto(target.as_usize())
+                self.buffer(
+                    &mut statements,
+                    query,
+                    args,
+                    destination,
+                    target.as_usize(),
+                    body,
+                    span,
+                )?
             }
             mir::TerminatorKind::Call {
                 func,

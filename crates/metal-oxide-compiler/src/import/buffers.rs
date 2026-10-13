@@ -18,21 +18,24 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         })
     }
 
-    /// Expands `len`, `is_empty` or `as_slice` on a kernel buffer parameter, whose length the
-    /// launch binds.
+    /// Expands `len`, `is_empty`, `as_slice` or `get_mut` on a kernel buffer parameter, whose
+    /// length the launch binds. Returns the terminator of the current block.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn buffer(
         &mut self,
         statements: &mut Vec<ir::Statement>,
         query: BufferQuery,
         args: &[Spanned<mir::Operand<'tcx>>],
         destination: &mir::Place<'tcx>,
+        target: usize,
+        body: &mir::Body<'tcx>,
         span: Span,
-    ) -> Result<()> {
-        let [receiver] = args else {
+    ) -> Result<ir::Terminator> {
+        let Some(receiver) = args.first() else {
             return Err((span, "invalid buffer query arguments".into()));
         };
         let buffer = ir::Operand::local(self.buffer_parameter(&receiver.node, span)?);
-        let destination = self.place(destination, span)?;
+        let (destination, destination_type) = self.typed_place(destination, span)?;
         let source = location(self.module.tcx, span);
         let statement = |destination, value| ir::Statement {
             destination,
@@ -61,8 +64,139 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     ),
                 ));
             }
+            BufferQuery::Element => {
+                let [_, index] = args else {
+                    return Err((span, "invalid buffer element arguments".into()));
+                };
+                let index = self.operand(&index.node, index.span)?;
+                return self.element(
+                    statements,
+                    buffer,
+                    index,
+                    (destination, destination_type),
+                    target,
+                    body,
+                    &source,
+                );
+            }
         }
-        Ok(())
+        Ok(ir::Terminator::Goto(target))
+    }
+
+    /// `Some(&mut buffer[index])` when the thread's index is below the buffer length, else
+    /// `None`.
+    #[allow(clippy::too_many_arguments)]
+    fn element(
+        &mut self,
+        statements: &mut Vec<ir::Statement>,
+        buffer: ir::Operand,
+        index: ir::Operand,
+        (option, option_type): (ir::Place, ir::Type),
+        target: usize,
+        body: &mir::Body<'tcx>,
+        source: &ir::SourceLocation,
+    ) -> Result<ir::Terminator> {
+        let span = rustc_span::DUMMY_SP;
+        let table = self.module.types.table();
+        let (ir::Type::Aggregate(option_id), Some(pointer)) =
+            (option_type, table.field(option_type, 1))
+        else {
+            return Err((span, "invalid buffer element result".into()));
+        };
+        let element = table
+            .pointer(pointer)
+            .ok_or((span, "invalid buffer element result".into()))?;
+        let slice = self.module.types.intern_pointer(ir::Pointer {
+            slice: true,
+            ..element
+        });
+        let ir::Operand::Place(index) = index else {
+            return Err((span, "invalid thread index".into()));
+        };
+        let statement = |destination, value| ir::Statement {
+            destination,
+            value,
+            source: source.clone(),
+        };
+        let position = self.temporary(ir::Type::Scalar(ir::Scalar::Usize));
+        let view = self.temporary(slice);
+        let length = self.temporary(ir::Type::Scalar(ir::Scalar::Usize));
+        let inside = self.temporary(ir::Type::Scalar(ir::Scalar::Bool));
+        let mut field = index;
+        field
+            .projection
+            .extend([ir::Projection::Deref, ir::Projection::Field(0)]);
+        statements.extend([
+            statement(
+                ir::Place::local(position),
+                ir::Expression::Use(ir::Operand::Place(field)),
+            ),
+            statement(ir::Place::local(view), ir::Expression::Slice(buffer)),
+            statement(
+                ir::Place::local(length),
+                ir::Expression::Len(ir::Operand::local(view)),
+            ),
+            statement(
+                ir::Place::local(inside),
+                ir::Expression::Binary(
+                    ir::BinaryOp::Lt,
+                    ir::Operand::local(position),
+                    ir::Operand::local(length),
+                ),
+            ),
+        ]);
+        let reference = self.temporary(pointer);
+        let some = vec![
+            statement(
+                ir::Place::local(reference),
+                ir::Expression::Ref {
+                    place: ir::Operand::Place(ir::Place {
+                        local: view,
+                        projection: vec![ir::Projection::Deref, ir::Projection::Index(position)],
+                    }),
+                    mutable: true,
+                },
+            ),
+            statement(
+                option.clone(),
+                ir::Expression::Aggregate {
+                    ty: option_id,
+                    fields: vec![
+                        ir::Operand::Constant(ir::Constant::Bool(true)),
+                        ir::Operand::local(reference),
+                    ],
+                },
+            ),
+        ];
+        let ir::Type::Pointer(null) = pointer else {
+            unreachable!()
+        };
+        let none = vec![statement(
+            option,
+            ir::Expression::Aggregate {
+                ty: option_id,
+                fields: vec![
+                    ir::Operand::Constant(ir::Constant::Bool(false)),
+                    ir::Operand::Constant(ir::Constant::Null(null)),
+                ],
+            },
+        )];
+        let mut branch = |statements| {
+            self.append(
+                body,
+                ir::Block {
+                    statements,
+                    terminator: ir::Terminator::Goto(target),
+                    source: source.clone(),
+                },
+            )
+        };
+        let (then_block, else_block) = (branch(some), branch(none));
+        Ok(ir::Terminator::Branch {
+            condition: ir::Operand::local(inside),
+            then_block,
+            else_block,
+        })
     }
 
     /// The kernel buffer parameter that a `&buffer` receiver borrows.
@@ -84,15 +218,18 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         ))
     }
 
-    /// The slice type of a read buffer parameter.
+    /// The slice type of a buffer parameter: shared for a read buffer, mutable otherwise.
     pub(super) fn buffer_slice_type(&mut self, parameter: usize, span: Span) -> Result<ir::Type> {
-        let ir::Type::Buffer { element, .. } = self.locals[parameter] else {
+        let ir::Type::Buffer {
+            element, access, ..
+        } = self.locals[parameter]
+        else {
             return Err((span, "buffer slices require a buffer".into()));
         };
         Ok(self.module.types.intern_pointer(ir::Pointer {
             target: element.ty(),
             space: ir::AddressSpace::Device,
-            mutable: false,
+            mutable: access != ir::Access::Read,
             slice: true,
         }))
     }

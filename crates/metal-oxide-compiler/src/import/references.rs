@@ -231,9 +231,20 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
-        if let Some(Intrinsic::Buffer(BufferQuery::Slice)) = callee.intrinsic {
+        if let Some(Intrinsic::Buffer(query @ (BufferQuery::Slice | BufferQuery::Element))) =
+            callee.intrinsic
+        {
             let parameter = self.buffer_parameter(&args[0].node, span)?;
-            return self.buffer_slice_type(parameter, span).map(Some);
+            let slice = self.buffer_slice_type(parameter, span)?;
+            if query == BufferQuery::Slice {
+                return Ok(Some(slice));
+            }
+            let element = self.module.types.table().pointer(slice).unwrap();
+            let reference = self.module.types.intern_pointer(ir::Pointer {
+                slice: false,
+                ..element
+            });
+            return Ok(Some(self.module.types.optional(reference)));
         }
         let mut types = Vec::with_capacity(args.len());
         for argument in args {
@@ -299,9 +310,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let space = self
             .module
             .types
-            .table()
-            .pointer(ty)
-            .map(|pointer| pointer.space)
+            .reference_space(ty)
             .ok_or((span, format!("unsupported reference type: {rust}")))?;
         if self.module.types.reference(rust, space, span)? != ty {
             return Err((span, format!("unsupported reference type: {rust}")));

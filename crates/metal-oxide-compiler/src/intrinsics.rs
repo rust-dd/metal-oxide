@@ -43,6 +43,8 @@ pub(crate) enum BufferQuery {
     Length,
     IsEmpty,
     Slice,
+    /// `DisjointBuffer::get_mut` with the calling thread's index.
+    Element,
 }
 
 impl Intrinsic {
@@ -79,6 +81,7 @@ impl Intrinsic {
             Self::Buffer(BufferQuery::Length) => "buffer_length",
             Self::Buffer(BufferQuery::IsEmpty) => "buffer_is_empty",
             Self::Buffer(BufferQuery::Slice) => "buffer_slice",
+            Self::Buffer(BufferQuery::Element) => "disjoint_element",
         }
     }
 }

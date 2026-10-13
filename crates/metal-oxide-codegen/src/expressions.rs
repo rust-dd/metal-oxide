@@ -148,6 +148,10 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
             Constant::U64(v) | Constant::Usize(v) => format!("{v}ul"),
+            Constant::Null(pointer) => match module.types.pointer(Type::Pointer(*pointer)) {
+                Some(Pointer { slice: true, .. }) => format!("metal_oxide_pointer_{pointer}{{}}"),
+                _ => "nullptr".into(),
+            },
         },
     }
 }

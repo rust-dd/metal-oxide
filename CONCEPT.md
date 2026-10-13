@@ -85,7 +85,9 @@ They avoid handing every GPU thread an exclusive Rust reference to the same
 whole buffer. Read-write handles support in-place algorithms; their host bindings
 borrow the buffer exclusively, while the caller still ensures race-free GPU access.
 Inside the kernel entrypoint, a buffer parameter's `len()` is the element count the host
-bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`.
+bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`. A `DisjointBuffer`
+hands each thread `&mut` to only its own element: `get_mut(&thread_index())` returns it,
+or `None` past the end, and the index cannot be forged, copied or cloned.
 
 Primitive scalar buffers expose shared Metal storage directly through `read` and
 `write`, which wait for pending GPU work first: awaiting them never blocks the thread,

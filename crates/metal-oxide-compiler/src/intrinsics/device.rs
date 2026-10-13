@@ -11,6 +11,7 @@ use super::{BufferQuery, Intrinsic};
 pub(crate) enum DeviceType {
     ReadBuffer,
     WriteBuffer,
+    DisjointBuffer,
     ReadWriteBuffer,
     AtomicBuffer,
     AtomicThreadgroupBuffer,
@@ -27,6 +28,7 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
     let (module, kind) = match tcx.item_name(definition).as_str() {
         "ReadBuffer" => ("buffer", DeviceType::ReadBuffer),
         "WriteBuffer" => ("buffer", DeviceType::WriteBuffer),
+        "DisjointBuffer" => ("buffer", DeviceType::DisjointBuffer),
         "ReadWriteBuffer" => ("buffer", DeviceType::ReadWriteBuffer),
         "AtomicThreadgroupBuffer" => ("atomic", DeviceType::AtomicThreadgroupBuffer),
         "AtomicBuffer" => ("atomic", DeviceType::AtomicBuffer),
@@ -144,14 +146,22 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             | DeviceType::DynamicThreadgroupBuffer,
             "store_unchecked",
         ) => Some(Intrinsic::BufferStore),
-        (DeviceType::ReadBuffer | DeviceType::WriteBuffer | DeviceType::ReadWriteBuffer, "len") => {
-            Some(Intrinsic::Buffer(BufferQuery::Length))
-        }
         (
-            DeviceType::ReadBuffer | DeviceType::WriteBuffer | DeviceType::ReadWriteBuffer,
+            DeviceType::ReadBuffer
+            | DeviceType::WriteBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::DisjointBuffer,
+            "len",
+        ) => Some(Intrinsic::Buffer(BufferQuery::Length)),
+        (
+            DeviceType::ReadBuffer
+            | DeviceType::WriteBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::DisjointBuffer,
             "is_empty",
         ) => Some(Intrinsic::Buffer(BufferQuery::IsEmpty)),
         (DeviceType::ReadBuffer, "as_slice") => Some(Intrinsic::Buffer(BufferQuery::Slice)),
+        (DeviceType::DisjointBuffer, "get_mut") => Some(Intrinsic::Buffer(BufferQuery::Element)),
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load_relaxed" => AtomicOp::Load,

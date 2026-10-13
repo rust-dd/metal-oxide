@@ -99,7 +99,7 @@ impl<'tcx> TypeLowering<'tcx> {
             if self.tcx.lang_items().option_type() == Some(definition.did())
                 && let Some(element) = scalar(args.type_at(0)).filter(|s| s.is_integer())
             {
-                return Ok(self.option(element));
+                return Ok(self.option(ir::Type::Scalar(element)));
             }
             if definition.is_struct() {
                 if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
@@ -133,7 +133,7 @@ impl<'tcx> TypeLowering<'tcx> {
     }
 
     /// `Option<T>` as an `is_some` flag and a value that is meaningful only when it is set.
-    fn option(&mut self, element: ir::Scalar) -> ir::Type {
+    fn option(&mut self, value: ir::Type) -> ir::Type {
         let ty = self.types.intern(ir::Aggregate::Record {
             name: "Option".into(),
             fields: vec![
@@ -143,7 +143,7 @@ impl<'tcx> TypeLowering<'tcx> {
                 },
                 ir::RecordField {
                     name: "value".into(),
-                    ty: ir::Type::Scalar(element),
+                    ty: value,
                 },
             ],
         });
@@ -153,13 +153,20 @@ impl<'tcx> TypeLowering<'tcx> {
         ty
     }
 
-    /// A reference or slice reference into `space`; its target must be an owned value.
+    /// A reference or slice reference into `space`, or an `Option` of one; the target must be
+    /// an owned value.
     pub(crate) fn reference(
         &mut self,
         ty: Ty<'tcx>,
         space: ir::AddressSpace,
         span: Span,
     ) -> Result<ir::Type, (Span, String)> {
+        if let ty::Adt(definition, arguments) = ty.kind()
+            && self.tcx.lang_items().option_type() == Some(definition.did())
+        {
+            let value = self.reference(arguments.type_at(0), space, span)?;
+            return Ok(self.option(value));
+        }
         let (ty::Ref(_, target, mutability) | ty::RawPtr(target, mutability)) = *ty.kind() else {
             return Err((span, format!("unsupported device type: {ty}")));
         };
@@ -178,6 +185,20 @@ impl<'tcx> TypeLowering<'tcx> {
 
     pub(crate) fn intern_pointer(&mut self, pointer: ir::Pointer) -> ir::Type {
         self.types.intern_pointer(pointer)
+    }
+
+    pub(crate) fn optional(&mut self, value: ir::Type) -> ir::Type {
+        self.option(value)
+    }
+
+    /// The address space of a reference, or of the reference an `Option` holds.
+    pub(crate) fn reference_space(&self, ty: ir::Type) -> Option<ir::AddressSpace> {
+        let pointer = if self.is_option(ty) {
+            self.types.field(ty, 1)?
+        } else {
+            ty
+        };
+        self.types.pointer(pointer).map(|pointer| pointer.space)
     }
 
     fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
@@ -224,7 +245,7 @@ fn buffer<'tcx>(
     let kind = device_type(tcx, definition.did())?;
     let access = match kind {
         DeviceType::ReadBuffer => ir::Access::Read,
-        DeviceType::WriteBuffer => ir::Access::Write,
+        DeviceType::WriteBuffer | DeviceType::DisjointBuffer => ir::Access::Write,
         DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer => ir::Access::Atomic,
         DeviceType::ThreadgroupBuffer
         | DeviceType::DynamicThreadgroupBuffer

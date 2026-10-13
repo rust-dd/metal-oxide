@@ -83,6 +83,8 @@ pub enum Constant {
     I8(i8),
     I16(i16),
     Usize(u64),
+    /// The null pointer of an interned pointer type; only an absent `Option` holds it.
+    Null(usize),
 }
 
 impl Constant {
@@ -100,6 +102,7 @@ impl Constant {
             Self::I8(_) => Type::Scalar(Scalar::I8),
             Self::I16(_) => Type::Scalar(Scalar::I16),
             Self::Usize(_) => Type::Scalar(Scalar::Usize),
+            Self::Null(pointer) => Type::Pointer(pointer),
         }
     }
 }

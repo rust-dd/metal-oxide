@@ -124,6 +124,7 @@ fn buffer_element<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(DeviceType, 
         DeviceType::ReadBuffer
         | DeviceType::WriteBuffer
         | DeviceType::ReadWriteBuffer
+        | DeviceType::DisjointBuffer
         | DeviceType::AtomicBuffer
         | DeviceType::AtomicThreadgroupBuffer
         | DeviceType::DynamicThreadgroupBuffer
@@ -232,6 +233,7 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                             && matches!(output.kind(), ty::Ref(_, slice, Mutability::Not)
                                 if matches!(slice.kind(), ty::Slice(item) if *item == element))
                     }
+                    BufferQuery::Element => false,
                 };
                 if !valid
                     || !matches!(
@@ -239,8 +241,30 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                         DeviceType::ReadBuffer
                             | DeviceType::WriteBuffer
                             | DeviceType::ReadWriteBuffer
+                            | DeviceType::DisjointBuffer
                     )
                 {
+                    return false;
+                }
+                "__metal_buffer_length"
+            }
+            (Intrinsic::Buffer(BufferQuery::Element), &[receiver, index]) => {
+                let ty::Ref(_, buffer, Mutability::Mut) = receiver.kind() else {
+                    return false;
+                };
+                let Some((DeviceType::DisjointBuffer, element)) = buffer_element(tcx, *buffer)
+                else {
+                    return false;
+                };
+                let thread_index = matches!(index.kind(), ty::Ref(_, index, Mutability::Not)
+                    if matches!(index.kind(), ty::Adt(definition, _)
+                        if tcx.item_name(definition.did()).as_str() == "ThreadIndex"
+                            && device::in_module(tcx, definition.did(), "thread")));
+                let option = matches!(output.kind(), ty::Adt(definition, arguments)
+                    if tcx.lang_items().option_type() == Some(definition.did())
+                        && matches!(arguments.type_at(0).kind(),
+                            ty::Ref(_, item, Mutability::Mut) if *item == element));
+                if !thread_index || !option {
                     return false;
                 }
                 "__metal_buffer_length"

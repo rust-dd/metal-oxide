@@ -1,3 +1,5 @@
+use crate::ThreadIndex;
+
 /// A read-only device buffer handle supplied by the kernel launch bindings.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -144,6 +146,51 @@ impl<T: Copy> ReadWriteBuffer<T> {
                 (&raw const value).cast(),
                 core::mem::size_of::<T>(),
             );
+        }
+    }
+}
+
+/// A writable buffer whose elements threads reach only through their own [`ThreadIndex`], so
+/// writes of different threads never overlap.
+///
+/// ```compile_fail,E0382
+/// fn copy(out: metal_oxide_device::DisjointBuffer<f32>) -> [metal_oxide_device::DisjointBuffer<f32>; 2] {
+///     [out, out]
+/// }
+/// ```
+///
+/// ```compile_fail,E0499
+/// use metal_oxide_device::{DisjointBuffer, ThreadIndex};
+/// fn twice(out: &mut DisjointBuffer<f32>, index: &ThreadIndex) {
+///     let first = out.get_mut(index);
+///     let second = out.get_mut(index);
+///     drop((first, second));
+/// }
+/// ```
+#[repr(transparent)]
+pub struct DisjointBuffer<T> {
+    ptr: *mut T,
+}
+
+impl<T: Copy> DisjointBuffer<T> {
+    /// The number of elements the host bound; kernel buffer parameters only.
+    pub fn len(&self) -> usize {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        // SAFETY: the launch binds the length of every kernel buffer parameter.
+        unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }
+    }
+
+    /// The calling thread's element, or `None` past the end of the buffer.
+    pub fn get_mut(&mut self, index: &ThreadIndex) -> Option<&mut T> {
+        let index = index.get();
+        // SAFETY: the index is below the bound length, and no other thread has it.
+        unsafe {
+            (index < crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()))
+                .then(|| &mut *self.ptr.add(index))
         }
     }
 }

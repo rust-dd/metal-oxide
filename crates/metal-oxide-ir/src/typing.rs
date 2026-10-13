@@ -436,12 +436,12 @@ pub fn expression_type(
             let slice = match ty(data)? {
                 Type::Buffer {
                     element,
-                    access: access @ (Access::Read | Access::ReadWrite),
+                    access: access @ (Access::Read | Access::Write | Access::ReadWrite),
                     address_space: AddressSpace::Device,
                 } => Pointer {
                     target: element.ty(),
                     space: AddressSpace::Device,
-                    mutable: access == Access::ReadWrite,
+                    mutable: access != Access::Read,
                     slice: true,
                 },
                 array => match module.types.pointer(array) {
