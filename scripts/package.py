@@ -14,6 +14,13 @@ import tomllib
 ROOT = Path(__file__).resolve().parent.parent
 
 
+# Repository-level notices that the registry packages of these projects omit.
+UPSTREAM_NOTICES = {
+    "https://github.com/madsmtm/objc2": "objc2.md",
+    "https://github.com/tokio-rs/valuable": "valuable.md",
+}
+
+
 def run(args, cwd=ROOT):
     return subprocess.check_output(list(map(str, args)), cwd=cwd, text=True).strip()
 
@@ -32,8 +39,8 @@ def licenses(bundle, toolchain):
                  and p.name.lower().startswith(("license", "copying", "notice", "copyright"))]
         if package.get("license_file"):
             files.append(directory / package["license_file"])
-        if not files and package["repository"] == "https://github.com/madsmtm/objc2":
-            files.append(ROOT / "licenses/objc2.md")
+        if not files and package["repository"] in UPSTREAM_NOTICES:
+            files.append(ROOT / "licenses" / UPSTREAM_NOTICES[package["repository"]])
         if not files:
             raise ValueError(f"missing license text for {package['name']}")
         destination = bundle / "licenses" / f"{package['name']}-{package['version']}"
