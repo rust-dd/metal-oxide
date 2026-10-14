@@ -289,8 +289,10 @@ in-memory ABI.
 MSL is Apple's shader language. The generated source declares buffer address
 spaces, binding slots, and builtin coordinates.
 
-The emitter retains extra locals and a builtin context. With those copy-only
-locals collapsed and identifiers shortened, `vec_add` is equivalent to:
+The emitter retains extra locals and a builtin context, and precedes statements with
+`#line` directives, so Apple's compiler diagnostics and GPU debuggers name the Rust
+source line; generated declarations keep their `kernels.metal` lines. With the copy-only
+locals and directives removed and identifiers shortened, `vec_add` is equivalent to:
 
 ```cpp
 #include <metal_stdlib>

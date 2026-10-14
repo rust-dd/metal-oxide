@@ -9,6 +9,23 @@ use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::*;
 use std::fmt::Write;
 
+/// Marks where generated code resumes after a body attributed to Rust lines.
+const RESET: &str = "#line 0 \"metal_oxide_reset\"\n";
+
+/// Points each reset at the MSL line that follows it.
+fn resolve_resets(output: String) -> String {
+    let file = metal_oxide_artifact::ArtifactFile::Msl.name();
+    let mut resolved = String::with_capacity(output.len());
+    for (index, line) in output.split_inclusive('\n').enumerate() {
+        if line == RESET {
+            writeln!(resolved, "#line {} \"{file}\"", index + 2).unwrap();
+        } else {
+            resolved.push_str(line);
+        }
+    }
+    resolved
+}
+
 pub(crate) struct ModuleEmitter<'a> {
     module: &'a Module,
     interfaces: &'a KernelInterfaces,
@@ -211,9 +228,13 @@ impl<'a> ModuleEmitter<'a> {
                 }
             }
             self.output.push_str(&body);
-            self.output.push_str("}\n\n");
+            self.output.push_str("}\n");
+            if body.contains("#line ") {
+                self.output.push_str(RESET);
+            }
+            self.output.push('\n');
         }
-        Ok(self.output)
+        Ok(resolve_resets(self.output))
     }
 
     fn signature(&self, function: &Function, id: usize) -> Result<String, Error> {

@@ -497,6 +497,7 @@ fn gated_lines(guarded: bool, looped: bool) -> Vec<String> {
     msl[msl.find("kernel void gated(").unwrap()..]
         .lines()
         .map(|line| line.trim().to_string())
+        .filter(|line| !line.starts_with("#line "))
         .collect()
 }
 

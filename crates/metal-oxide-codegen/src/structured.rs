@@ -45,6 +45,7 @@ pub(crate) fn body(
         output,
         visits: HashMap::new(),
         indent: 1,
+        presumed: None,
     }
     .path(0, function.blocks.len(), &[], None)
 }
@@ -62,11 +63,32 @@ struct Emitter<'a> {
     output: &'a mut String,
     visits: HashMap<usize, usize>,
     indent: usize,
+    /// The Rust file and line Metal attributes to the next MSL line, after a `#line`.
+    presumed: Option<(&'a str, u32)>,
 }
 
-impl Emitter<'_> {
+impl<'a> Emitter<'a> {
     fn line(&mut self, value: &str) {
         writeln!(self.output, "{}{value}", "    ".repeat(self.indent)).unwrap();
+        if let Some((_, line)) = &mut self.presumed {
+            *line += 1;
+        }
+    }
+
+    /// Writes a line that Metal's diagnostics and debuggers attribute to `source`.
+    fn line_at(&mut self, value: &str, source: &'a SourceLocation) {
+        let at = (source.file.as_str(), source.line);
+        match self.presumed {
+            Some(presumed) if presumed == at => {}
+            // The preprocessor keeps the file name of the previous directive.
+            Some((file, _)) if file == at.0 => writeln!(self.output, "#line {}", at.1).unwrap(),
+            _ => {
+                let file = at.0.replace('\\', "\\\\").replace('"', "\\\"");
+                writeln!(self.output, "#line {} \"{file}\"", at.1).unwrap();
+            }
+        }
+        self.presumed = Some(at);
+        self.line(value);
     }
 
     /// Leaves the function after a failed check; helpers return a zero value their callers ignore.
@@ -110,7 +132,8 @@ impl Emitter<'_> {
         } else {
             condition
         };
-        self.line(&format!("if ({failed}) {{"));
+        let function = self.function;
+        self.line_at(&format!("if ({failed}) {{"), &function.blocks[block].source);
         self.indent += 1;
         self.fail(block);
         self.indent -= 1;
@@ -119,7 +142,8 @@ impl Emitter<'_> {
 
     /// Emits a block's statements; a call to a fallible helper is followed by an early exit.
     fn statements(&mut self, current: usize) -> Result<(), Error> {
-        let block = &self.function.blocks[current];
+        let function = self.function;
+        let block = &function.blocks[current];
         let visits = self.visits.entry(current).or_default();
         *visits += 1;
         if *visits > 8
@@ -152,13 +176,12 @@ impl Emitter<'_> {
             )?;
             if self.function.locals[statement.destination.local] == Type::Unit {
                 if !value.is_empty() {
-                    self.line(&format!("{value};"));
+                    self.line_at(&format!("{value};"), &statement.source);
                 }
             } else {
-                self.line(&format!(
-                    "{} = {value};",
-                    crate::expressions::place(self.module, self.function, &statement.destination)
-                ));
+                let destination =
+                    crate::expressions::place(self.module, self.function, &statement.destination);
+                self.line_at(&format!("{destination} = {value};"), &statement.source);
             }
             if statement.value.is_fallible(self.analyses) {
                 let exit = self.exit();
@@ -217,7 +240,8 @@ impl Emitter<'_> {
                 continue;
             }
             self.statements(current)?;
-            let block = &self.function.blocks[current];
+            let function = self.function;
+            let block = &function.blocks[current];
             match &block.terminator {
                 Terminator::Goto(target) => current = *target,
                 Terminator::Assert { target, .. } => {
@@ -227,11 +251,12 @@ impl Emitter<'_> {
                     current = *target;
                 }
                 Terminator::Return => {
-                    if self.function.locals[0] == Type::Unit {
-                        self.line("return;");
+                    let value = if self.function.locals[0] == Type::Unit {
+                        "return;"
                     } else {
-                        self.line("return v0;");
-                    }
+                        "return v0;"
+                    };
+                    self.line_at(value, &block.source);
                     return Ok(());
                 }
                 Terminator::Branch {
@@ -245,6 +270,7 @@ impl Emitter<'_> {
                         *else_block,
                         join,
                         contexts,
+                        Some(&block.source),
                     )?;
                     current = join;
                 }
@@ -311,7 +337,7 @@ impl Emitter<'_> {
                         })
                         .collect::<Vec<_>>();
                     // If-chains keep break and continue bound to their enclosing loop.
-                    self.branches(&branches, otherwise, join, contexts)?;
+                    self.branches(&branches, otherwise, join, contexts, Some(&block.source))?;
                     current = join;
                 }
                 _ => return Err(Error::new(&block.source, "unsupported terminator")),
@@ -339,10 +365,15 @@ impl Emitter<'_> {
         otherwise: usize,
         join: usize,
         contexts: &[usize],
+        source: Option<&'a SourceLocation>,
     ) -> Result<(), Error> {
         for (index, (condition, target)) in branches.iter().enumerate() {
             let prefix = if index == 0 { "if" } else { "else if" };
-            self.line(&format!("{prefix} ({condition}) {{"));
+            let line = format!("{prefix} ({condition}) {{");
+            match source.filter(|_| index == 0) {
+                Some(source) => self.line_at(&line, source),
+                None => self.line(&line),
+            }
             self.indent += 1;
             self.path(*target, join, contexts, None)?;
             self.indent -= 1;
@@ -373,7 +404,8 @@ impl Emitter<'_> {
         if exits.len() > 1 {
             self.line(&format!("uint metal_oxide_exit_{header} = 0u;"));
         }
-        self.line("while (true) {");
+        let function = self.function;
+        self.line_at("while (true) {", &function.blocks[header].source);
         self.indent += 1;
         let mut inner = contexts.to_vec();
         inner.push(header);
@@ -392,7 +424,7 @@ impl Emitter<'_> {
             .iter()
             .map(|&target| (format!("metal_oxide_exit_{header} == {target}u"), target))
             .collect::<Vec<_>>();
-        self.branches(&branches, *exits.last().unwrap(), join, contexts)?;
+        self.branches(&branches, *exits.last().unwrap(), join, contexts, None)?;
         Ok(join)
     }
 }

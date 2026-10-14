@@ -29,6 +29,8 @@ Implement the next acceptance criterion; create crates when their code is needed
   define launch dimensions automatically. `thread_index()` is
   `thread_position_in_grid.x`; a kernel that reads it, directly or through a helper,
   records `one_dimensional` in its ABI, and the runtime rejects other launches.
+- Precede emitted statements with `#line` directives for their Rust source (short form within
+  one file) and reset to `kernels.metal` after each body; directives never change AIR.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
   recursion, layouts, and conversions must produce diagnostics. Never remove a
   bounds/overflow check without a sound proof or silently change semantics.

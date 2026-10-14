@@ -66,6 +66,8 @@ mod integer_bits;
 mod ir_aggregates;
 #[path = "gpu/lengths.rs"]
 mod lengths;
+#[path = "gpu/lines.rs"]
+mod lines;
 #[path = "gpu/narrow.rs"]
 mod narrow;
 #[path = "gpu/native.rs"]
