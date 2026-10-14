@@ -203,6 +203,20 @@ fn interval(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> (Range, Range
             };
             Some((result, result))
         }
+        // Both shifts are monotone in each operand, so the extremes lie at the corners.
+        Shl | Shr if b.lo >= 0 && b.hi < i128::from(scalar.bits()) => {
+            let shift = |value: i128, by: i128| if op == Shl { value << by } else { value >> by };
+            let corners = [
+                shift(a.lo, b.lo),
+                shift(a.lo, b.hi),
+                shift(a.hi, b.lo),
+                shift(a.hi, b.hi),
+            ];
+            Some((
+                *corners.iter().min().unwrap(),
+                *corners.iter().max().unwrap(),
+            ))
+        }
         Div | Rem if !b.contains(0) => {
             if let (Some(a), Some(b)) = (a.singleton(), b.singleton()) {
                 Some(if op == Div {

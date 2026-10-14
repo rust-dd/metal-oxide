@@ -80,10 +80,10 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
 
 #[test]
 fn a_rejected_rebuild_leaves_no_stale_outputs() {
-    let (output, mut cargo) = cargo_kernel("reduction-kernels", "reduction_kernels");
+    let (output, mut cargo) = cargo_kernel("matmul-kernels", "matmul_kernels");
     support::checked(cargo.output().unwrap());
     assert!(output.join("kernels.metal").exists());
-    // The lane offset can overflow on some threads before the block's barrier.
+    // The tile offset can overflow on some threads before the block's barrier.
     cargo.env("RUSTFLAGS", "-Zunstable-options -Coverflow-checks=on");
     support::rejected(cargo.output().unwrap(), "must be proved or uniform");
     for name in ["kernels.metal", "abi.json", "checks.json", "bindings.rs"] {

@@ -465,3 +465,48 @@ fn the_thread_index_stays_below_u32_max_in_a_one_dimensional_launch() {
     assert_eq!(scaled_thread_index(1 << 32), (vec![], vec![true, true]));
     assert_eq!(scaled_thread_index(1 << 33).0, [0]);
 }
+
+/// `((thread_idx.x >> 24) << shift) + addend` with rustc's overflow assertion.
+fn shifted_index(shift: u32, addend: u32) -> Vec<usize> {
+    let constant = |value| Operand::Constant(Constant::U32(value));
+    let kernel = function(
+        true,
+        0,
+        vec![Type::Unit, Type::Dim3, U32, U32, Type::Checked(Scalar::U32)],
+        vec![
+            block(
+                vec![
+                    assign(1, Expression::Coordinates(Builtin::ThreadIdx)),
+                    assign(
+                        2,
+                        Expression::Binary(BinaryOp::Shr, axis(1, 0), constant(24)),
+                    ),
+                    assign(
+                        3,
+                        Expression::Binary(BinaryOp::Shl, Operand::local(2), constant(shift)),
+                    ),
+                    assign(
+                        4,
+                        Expression::Binary(
+                            BinaryOp::AddWithOverflow,
+                            Operand::local(3),
+                            constant(addend),
+                        ),
+                    ),
+                ],
+                overflow(4, OverflowOp::Add, 1),
+            ),
+            block(vec![], Terminator::Return),
+        ],
+    );
+    let analyses = validate(&module(vec![kernel])).unwrap();
+    analyses[0].checks.iter().copied().collect()
+}
+
+#[test]
+fn shifts_of_bounded_values_bound_later_arithmetic() {
+    assert_eq!(shifted_index(4, u32::MAX - 4080), []);
+    assert_eq!(shifted_index(4, u32::MAX - 4079), [0]);
+    assert_eq!(shifted_index(24, 0x00ff_ffff), []);
+    assert_eq!(shifted_index(25, 1), [0]);
+}
