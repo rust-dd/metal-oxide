@@ -20,11 +20,18 @@ pub(super) struct Analysis<'a> {
     pub checks: Vec<BTreeSet<usize>>,
     results: BTreeMap<Context, Value>,
     loop_headers: Vec<Vec<bool>>,
+    joins: Vec<Vec<bool>>,
     thresholds: Vec<BTreeSet<i128>>,
 }
 
 impl<'a> Analysis<'a> {
     pub fn new(module: &'a Module, graphs: &[FunctionAnalysis], aliasing: &'a [Aliasing]) -> Self {
+        let loop_headers = module
+            .functions
+            .iter()
+            .zip(graphs)
+            .map(|(function, graph)| loop_headers(function, graph))
+            .collect::<Vec<_>>();
         Self {
             module,
             aliasing,
@@ -32,12 +39,13 @@ impl<'a> Analysis<'a> {
             block: None,
             checks: vec![BTreeSet::new(); module.functions.len()],
             results: BTreeMap::new(),
-            loop_headers: module
+            joins: module
                 .functions
                 .iter()
-                .zip(graphs)
-                .map(|(function, graph)| loop_headers(function, graph))
+                .zip(&loop_headers)
+                .map(|(function, headers)| joins(function, headers))
                 .collect(),
+            loop_headers,
             thresholds: module.functions.iter().map(thresholds).collect(),
         }
     }
@@ -71,7 +79,7 @@ impl<'a> Analysis<'a> {
                     continue;
                 }
                 state = inputs[id][0].clone();
-            } else if inputs[id].len() >= 64 {
+            } else if inputs[id].len() >= 64 && self.joins[index][id] {
                 for input in &inputs[id] {
                     state.merge(input, None);
                 }
@@ -175,6 +183,33 @@ fn loop_headers(function: &Function, graph: &FunctionAnalysis) -> Vec<bool> {
                 .iter()
                 .any(|&from| graph.dominators.dominates(id, from))
         })
+        .collect()
+}
+
+/// Loop headers and blocks with several incoming edges. Only these merge their states, so that
+/// no merge separates a check from the operation that relies on it.
+fn joins(function: &Function, loop_headers: &[bool]) -> Vec<bool> {
+    let mut edges = vec![0_usize; function.blocks.len()];
+    for block in &function.blocks {
+        // A switch sends a state along each case, also when cases share a target.
+        let targets = match &block.terminator {
+            Terminator::Switch {
+                cases, otherwise, ..
+            } => cases
+                .iter()
+                .map(|(_, target)| *target)
+                .chain([*otherwise])
+                .collect(),
+            terminator => terminator.successors(),
+        };
+        for target in targets {
+            edges[target] += 1;
+        }
+    }
+    edges
+        .iter()
+        .zip(loop_headers)
+        .map(|(&edges, &header)| header || edges > 1)
         .collect()
 }
 

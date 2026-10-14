@@ -118,3 +118,47 @@ fn signed_division_by_constant_operands_keeps_the_overflow_check() {
         format!("-1073741824,0;7,{};0,0;7,{};", dividend + 2, divisor + 2)
     );
 }
+
+/// The kernel of `proofs_merged_division.rs`, or `None` where Rust panics.
+fn merged_division(input: u32) -> Option<i16> {
+    let offset = if input & 1 == 0 { 2 } else { 5 };
+    let mut value = 1_i16;
+    for _ in 0..4 {
+        value = value.wrapping_add(value.checked_div(input as i16)?);
+        value = match value & 3 {
+            0 => i16::MAX / (value | 1),
+            1 => value.wrapping_add(value),
+            2 => i16::MIN,
+            _ => 1,
+        }
+        .wrapping_shl(3);
+    }
+    Some(value.wrapping_add(offset))
+}
+
+#[test]
+fn facts_of_a_check_reach_its_operation_when_many_paths_merge() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/proofs_merged_division.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let zero = support::check(&directory, serde_json::json!("division_by_zero"), 10);
+    let inputs = [7_u32, 0, 65535, 2, 3];
+    let expected = inputs
+        .map(|input| match merged_division(input) {
+            Some(value) => format!("{value},0;"),
+            None => format!("99,{};", zero + 2),
+        })
+        .concat();
+    let inputs = inputs.map(|input| format!("{input}u")).join(", ");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            &format!(
+                "for (uint input : {{{inputs}}}) {{ short out[1] = {{99}}; merged_division(out, input, {{}}, {{}}, {{}}, {{}}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); }}"
+            )
+        ),
+        expected
+    );
+}
