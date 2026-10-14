@@ -106,3 +106,60 @@ fn a_reference_into_two_address_spaces_is_rejected_where_the_second_begins() {
     assert!(error.contains("reference_spaces.rs:8:48"), "{error}");
     assert!(!directory.join("kernels.metal").exists());
 }
+
+#[test]
+fn tuples_and_records_hold_references_into_their_own_address_spaces() {
+    let directory = emit("aggregate_references");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float a[3] = {1, 2, 3}; float b[3] = {10, 20, 30}; float out[3] = {}; ulong bound[3] = {3, 3, 3}; \
+             for (uint x = 0; x < 3; x++) tuple_slices(a, b, out, {x, 0, 0}, {0, 0, 0}, {3, 1, 1}, {1, 1, 1}, {x, 0, 0}, metal_oxide_gate, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "11.5 23.5 35.5 "
+    );
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float re[2] = {3, 1}; float im[2] = {4, 2}; float out[2] = {}; ulong bound[3] = {2, 2, 2}; \
+             for (uint x = 0; x < 2; x++) record_slices(re, im, out, {x, 0, 0}, {0, 0, 0}, {2, 1, 1}, {1, 1, 1}, {x, 0, 0}, metal_oxide_gate, metal_oxide_failure, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "25 5 "
+    );
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float a[3] = {1, 2, 3}; float b[3] = {10, 20, 30}; float out[3] = {}; ulong bound[3] = {3, 3, 3}; \
+             for (uint x = 0; x < 3; x++) reference_arrays(a, b, out, {x, 0, 0}, {0, 0, 0}, {3, 1, 1}, {1, 1, 1}, {x, 0, 0}, metal_oxide_gate, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "16 47 42 "
+    );
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float a[2] = {1.5, 4}; float out[3] = {9, 9, 9}; ulong bound[2] = {2, 3}; \
+             for (uint x = 0; x < 3; x++) indexed_tuple(a, out, {x, 0, 0}, {0, 0, 0}, {3, 1, 1}, {1, 1, 1}, {x, 0, 0}, metal_oxide_gate, bound); \
+             for (float x : out) std::cout << x << ' ';",
+        ),
+        "3 8 9 "
+    );
+    // The guards prove the tuple's indices; the helper's stay checked.
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    let fallible = |name: &str| {
+        abi.kernels
+            .iter()
+            .find(|kernel| kernel.name == name)
+            .unwrap()
+            .fallible
+    };
+    assert!(!fallible("tuple_slices"));
+    assert!(!fallible("reference_arrays"));
+    assert!(!fallible("indexed_tuple"));
+    assert!(fallible("record_slices"));
+}

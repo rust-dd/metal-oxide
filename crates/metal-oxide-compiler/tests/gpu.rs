@@ -36,6 +36,8 @@ macro_rules! record {
     };
 }
 
+#[path = "gpu/aggregate_references.rs"]
+mod aggregate_references;
 #[path = "gpu/aggregates.rs"]
 mod aggregates;
 #[path = "gpu/atomics.rs"]

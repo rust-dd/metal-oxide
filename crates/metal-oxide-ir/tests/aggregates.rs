@@ -230,7 +230,7 @@ fn non_value_components_are_rejected_in_nested_storage() {
         let mut types = TypeTable::default();
         let record = types.intern(Aggregate::record("Record", vec![component]));
         let error = validate(&identity(types, record)).unwrap_err();
-        assert!(error.message.contains("owned value components"));
+        assert!(error.message.contains("requires value components"));
     }
 }
 

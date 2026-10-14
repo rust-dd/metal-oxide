@@ -105,13 +105,10 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                         .is_some_and(|local| self.handles[local.as_usize()].is_some()) => {}
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
+                    let (destination, ty) = self.typed_place(destination, span)?;
                     statements.push(ir::Statement {
-                        destination: self.place(destination, span)?,
-                        value: self.expression(
-                            value,
-                            destination.ty(&body.local_decls, self.module.tcx).ty,
-                            span,
-                        )?,
+                        destination,
+                        value: self.expression(value, ty, span)?,
                         source: location(self.module.tcx, span),
                     });
                 }

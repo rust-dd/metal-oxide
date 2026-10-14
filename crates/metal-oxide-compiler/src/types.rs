@@ -67,14 +67,7 @@ impl<'tcx> TypeLowering<'tcx> {
             });
         }
         if let ty::Array(element, length) = ty.kind() {
-            let length = length
-                .try_to_target_usize(self.tcx)
-                .and_then(|n| u32::try_from(n).ok())
-                .filter(|&n| n != 0)
-                .ok_or((
-                    span,
-                    "array length must be a nonzero concrete u32-sized constant".into(),
-                ))?;
+            let length = self.array_length(*length, span)?;
             let element = self.owned(*element, span)?;
             return Ok(self.types.intern(ir::Aggregate::Array { element, length }));
         }
@@ -132,6 +125,17 @@ impl<'tcx> TypeLowering<'tcx> {
         Err((span, format!("unsupported device type: {ty}")))
     }
 
+    fn array_length(&self, length: ty::Const<'tcx>, span: Span) -> Result<u32, (Span, String)> {
+        length
+            .try_to_target_usize(self.tcx)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|&n| n != 0)
+            .ok_or((
+                span,
+                "array length must be a nonzero concrete u32-sized constant".into(),
+            ))
+    }
+
     /// `Option<T>` as an `is_some` flag and a value that is meaningful only when it is set.
     fn option(&mut self, value: ir::Type) -> ir::Type {
         let ty = self.types.intern(ir::Aggregate::Record {
@@ -153,24 +157,60 @@ impl<'tcx> TypeLowering<'tcx> {
         ty
     }
 
-    /// A reference or slice reference into `space`, or an `Option` of one; the target must be
-    /// an owned value.
-    pub(crate) fn reference(
+    /// `ty` with the address spaces of its references, taken in the order a walk over its
+    /// components meets them: a reference before its target, fields in order, an array's
+    /// element once.
+    pub(crate) fn with_spaces(
         &mut self,
         ty: Ty<'tcx>,
-        space: ir::AddressSpace,
+        spaces: &mut dyn Iterator<Item = ir::AddressSpace>,
         span: Span,
     ) -> Result<ir::Type, (Span, String)> {
-        if let ty::Adt(definition, arguments) = ty.kind()
-            && self.tcx.lang_items().option_type() == Some(definition.did())
-        {
-            let value = self.reference(arguments.type_at(0), space, span)?;
+        if !has_reference(self.tcx, ty) {
+            return self.owned(ty, span);
+        }
+        let mut space = || {
+            spaces
+                .next()
+                .ok_or((span, format!("unsupported reference type: {ty}")))
+        };
+        match *ty.kind() {
+            ty::Ref(_, target, mutability) | ty::RawPtr(target, mutability) => {
+                let space = space()?;
+                let (target, slice) = match target.kind() {
+                    ty::Slice(element) => (*element, true),
+                    _ => (target, false),
+                };
+                let target = self.with_spaces(target, spaces, span)?;
+                return Ok(self.types.intern_pointer(ir::Pointer {
+                    target,
+                    space,
+                    mutable: mutability.is_mut(),
+                    slice,
+                }));
+            }
+            ty::Tuple(fields) => {
+                let fields = fields
+                    .iter()
+                    .map(|field| self.with_spaces(field, spaces, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(self.types.intern(ir::Aggregate::Tuple(fields)));
+            }
+            ty::Array(element, length) => {
+                let length = self.array_length(length, span)?;
+                let element = self.with_spaces(element, spaces, span)?;
+                return Ok(self.types.intern(ir::Aggregate::Array { element, length }));
+            }
+            _ => {}
+        }
+        let ty::Adt(definition, arguments) = ty.kind() else {
+            return Err((span, format!("unsupported reference type: {ty}")));
+        };
+        if self.tcx.lang_items().option_type() == Some(definition.did()) {
+            let value = self.with_spaces(arguments.type_at(0), spaces, span)?;
             return Ok(self.option(value));
         }
         if let Some(iterator) = SliceIterator::of(self.tcx, ty) {
-            let ty::Adt(_, arguments) = ty.kind() else {
-                unreachable!()
-            };
             let element = arguments
                 .types()
                 .next()
@@ -186,23 +226,46 @@ impl<'tcx> TypeLowering<'tcx> {
                 Ty::new_slice(self.tcx, element),
                 mutability,
             );
-            let rest = self.reference(slice, space, span)?;
+            let rest = self.with_spaces(slice, spaces, span)?;
             return Ok(self.iterator(iterator, rest));
         }
-        let (ty::Ref(_, target, mutability) | ty::RawPtr(target, mutability)) = *ty.kind() else {
-            return Err((span, format!("unsupported device type: {ty}")));
-        };
-        let (target, slice) = match target.kind() {
-            ty::Slice(element) => (*element, true),
-            _ => (target, false),
-        };
-        let target = self.owned(target, span)?;
-        Ok(self.types.intern_pointer(ir::Pointer {
-            target,
-            space,
-            mutable: mutability.is_mut(),
-            slice,
+        if !definition.is_struct() {
+            return Err((span, format!("unsupported reference type: {ty}")));
+        }
+        let fields = definition
+            .non_enum_variant()
+            .fields
+            .iter()
+            .map(|field| {
+                let ty = self.tcx.normalize_erasing_regions(
+                    TypingEnv::fully_monomorphized(),
+                    field.ty(self.tcx, arguments),
+                );
+                Ok(ir::RecordField {
+                    name: field.name.to_string(),
+                    ty: self.with_spaces(ty, spaces, span)?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.types.intern(ir::Aggregate::Record {
+            name: self.tcx.item_name(definition.did()).to_string(),
+            fields,
         }))
+    }
+
+    /// The address spaces of the references in `ty`, in the order of `with_spaces`.
+    pub(crate) fn spaces(&self, ty: ir::Type, spaces: &mut Vec<ir::AddressSpace>) {
+        if let Some(pointer) = self.types.pointer(ty) {
+            spaces.push(pointer.space);
+            return self.spaces(pointer.target, spaces);
+        }
+        if let ir::Type::Aggregate(id) = ty
+            && let Some(aggregate) = self.types.get(id)
+        {
+            for component in aggregate.component_types() {
+                self.spaces(component, spaces);
+            }
+        }
     }
 
     pub(crate) fn intern_pointer(&mut self, pointer: ir::Pointer) -> ir::Type {
@@ -236,26 +299,13 @@ impl<'tcx> TypeLowering<'tcx> {
         })
     }
 
-    /// The address space of a reference, or of the first reference a record holds.
-    pub(crate) fn reference_space(&self, ty: ir::Type) -> Option<ir::AddressSpace> {
-        if let Some(pointer) = self.types.pointer(ty) {
-            return Some(pointer.space);
-        }
-        let ir::Type::Aggregate(id) = ty else {
-            return None;
-        };
-        self.types
-            .get(id)?
-            .component_types()
-            .find_map(|component| self.reference_space(component))
+    pub(crate) fn intern(&mut self, aggregate: ir::Aggregate) -> ir::Type {
+        self.types.intern(aggregate)
     }
 
     fn owned(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
-        if matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..)) {
-            return Err((
-                span,
-                "references cannot be stored in records, tuples or arrays".into(),
-            ));
+        if has_reference(self.tcx, ty) {
+            return Err((span, format!("unsupported type with references: {ty}")));
         }
         let ty = self.lower(ty, span)?;
         if matches!(
@@ -343,12 +393,24 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
 }
 
 /// Whether `ty` holds a reference, raw pointer or slice iterator, whose address space its uses
-/// determine.
+/// determine. Device buffer handles hold their own address space.
 pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
-    ty.walk().any(|argument| {
-        argument.as_type().is_some_and(|ty| {
-            matches!(ty.kind(), ty::Ref(..) | ty::RawPtr(..))
-                || SliceIterator::of(tcx, ty).is_some()
-        })
-    })
+    match ty.kind() {
+        ty::Ref(..) | ty::RawPtr(..) => true,
+        _ if SliceIterator::of(tcx, ty).is_some() => true,
+        ty::Tuple(fields) => fields.iter().any(|field| has_reference(tcx, field)),
+        ty::Array(element, _) | ty::Slice(element) => has_reference(tcx, *element),
+        ty::Adt(definition, arguments) if device_type(tcx, definition.did()).is_none() => {
+            definition.all_fields().any(|field| {
+                has_reference(
+                    tcx,
+                    tcx.normalize_erasing_regions(
+                        TypingEnv::fully_monomorphized(),
+                        field.ty(tcx, arguments),
+                    ),
+                )
+            })
+        }
+        _ => false,
+    }
 }

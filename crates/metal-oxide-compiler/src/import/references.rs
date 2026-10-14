@@ -183,11 +183,21 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let (_, array) = self.typed_place(place, span)?;
                 return self.array_slice(array, span).map(Some);
             }
-            mir::Rvalue::Aggregate(..) => {
+            mir::Rvalue::Use(mir::Operand::Constant(_), _) => {
                 return Err((
                     span,
-                    "references cannot be stored in records, tuples or arrays".into(),
+                    "a reference to a constant is unsupported; borrow a local copy".into(),
                 ));
+            }
+            mir::Rvalue::Aggregate(kind, operands) => {
+                let mut components = Vec::with_capacity(operands.len());
+                for operand in operands {
+                    match self.argument_type(operand, pending, span)? {
+                        Some(ty) => components.push(ty),
+                        None => return Ok(None),
+                    }
+                }
+                return self.aggregate_type(kind, components, span).map(Some);
             }
             _ => return Err((span, "unsupported reference value".into())),
         };
@@ -205,6 +215,55 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             mutable,
             slice,
         })))
+    }
+
+    /// The type of an aggregate built from `components`, whose references keep their spaces.
+    fn aggregate_type(
+        &mut self,
+        kind: &mir::AggregateKind<'tcx>,
+        components: Vec<ir::Type>,
+        span: Span,
+    ) -> Result<ir::Type> {
+        let aggregate = match kind {
+            mir::AggregateKind::Tuple => ir::Aggregate::Tuple(components),
+            mir::AggregateKind::Array(_) => {
+                let element = components[0];
+                if components.iter().any(|component| *component != element) {
+                    return Err((
+                        span,
+                        "the references of an array must point into one address space".into(),
+                    ));
+                }
+                ir::Aggregate::Array {
+                    element,
+                    length: components.len() as u32,
+                }
+            }
+            mir::AggregateKind::Adt(definition, ..) => {
+                let definition = self.module.tcx.adt_def(*definition);
+                if !definition.is_struct() {
+                    return Err((
+                        span,
+                        "enum values cannot be constructed in Metal kernels".into(),
+                    ));
+                }
+                ir::Aggregate::Record {
+                    name: self.module.tcx.item_name(definition.did()).to_string(),
+                    fields: definition
+                        .non_enum_variant()
+                        .fields
+                        .iter()
+                        .zip(components)
+                        .map(|(field, ty)| ir::RecordField {
+                            name: field.name.to_string(),
+                            ty,
+                        })
+                        .collect(),
+                }
+            }
+            _ => return Err((span, "unsupported reference value".into())),
+        };
+        Ok(self.module.types.intern(aggregate))
     }
 
     /// The slice an array reference coerces to.
@@ -324,12 +383,11 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<ir::Type> {
         let rust = self.normalize_type(body.local_decls[mir::Local::from_usize(local)].ty);
-        let space = self
-            .module
-            .types
-            .reference_space(ty)
-            .ok_or((span, format!("unsupported reference type: {rust}")))?;
-        if self.module.types.reference(rust, space, span)? != ty {
+        let mut spaces = Vec::new();
+        self.module.types.spaces(ty, &mut spaces);
+        let mut spaces = spaces.into_iter();
+        if self.module.types.with_spaces(rust, &mut spaces, span)? != ty || spaces.next().is_some()
+        {
             return Err((span, format!("unsupported reference type: {rust}")));
         }
         Ok(ty)

@@ -53,7 +53,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     pub(super) fn expression(
         &mut self,
         value: &mir::Rvalue<'tcx>,
-        destination: Ty<'tcx>,
+        destination: ir::Type,
         span: Span,
     ) -> Result<ir::Expression> {
         match value {
@@ -67,7 +67,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ))
             }
             mir::Rvalue::Aggregate(_, fields) => {
-                let ty = self.lower_type(destination, span)?;
+                let ty = destination;
                 let fields = fields
                     .iter()
                     .map(|value| self.operand(value, span))
@@ -97,7 +97,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 }
             }
             mir::Rvalue::Repeat(value, _) => {
-                let ir::Type::Aggregate(ty) = self.lower_type(destination, span)? else {
+                let ir::Type::Aggregate(ty) = destination else {
                     unreachable!()
                 };
                 let count = self.module.types.table().get(ty).unwrap().len();

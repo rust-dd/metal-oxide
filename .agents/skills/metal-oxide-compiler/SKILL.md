@@ -56,8 +56,11 @@ Implement the next acceptance criterion; create crates when their code is needed
   references are rejected.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
-- Device records contain owned scalar fields; keep their internal shape separate
-  from the host ABI. Cross-crate helpers require matching encoded MIR. Preserve
+- Records, tuples and arrays inside kernels may hold references. Each reference keeps the
+  address space of the value it was built from, inferred like reference locals; an IR type
+  lists its spaces in walk order (a reference before its target, fields in order, an
+  array's element once), and helpers are instantiated per argument type. Only owned values
+  cross the ABI; keep their internal shape separate from the host ABI. Cross-crate helpers require matching encoded MIR. Preserve
   concrete type/const instances instead of emitting their generic definitions.
 - Validate cooperative participation transitively through helpers. Varying
   branches, early returns, and loops must not bypass required barriers or SIMD

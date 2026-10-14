@@ -46,7 +46,7 @@ fn atomic_operations_compile_with_device_and_threadgroup_memory() {
 }
 
 #[test]
-fn records_with_references_are_rejected() {
+fn references_to_constants_are_rejected_where_they_are_taken() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
         &[],
@@ -54,9 +54,9 @@ fn records_with_references_are_rejected() {
     let error = String::from_utf8_lossy(&output.stderr).into_owned();
     support::rejected(
         output,
-        "references cannot be stored in records, tuples or arrays",
+        "a reference to a constant is unsupported; borrow a local copy",
     );
-    assert!(error.contains("record_pointer.rs:6:9"), "{error}");
+    assert!(error.contains("record_pointer.rs:6:35"), "{error}");
     assert!(!directory.join("kernels.metal").exists());
 }
 

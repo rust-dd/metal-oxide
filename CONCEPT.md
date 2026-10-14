@@ -211,6 +211,7 @@ The importer also replaces recognized calls:
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
 | `slice.iter()`, `iter_mut()`, `chunks_exact(n)` and their `next` | the remaining slice in a record; `next` takes its first element or chunk |
+| A tuple, record or array of references | an aggregate whose pointers keep the address spaces of the values that built it |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.

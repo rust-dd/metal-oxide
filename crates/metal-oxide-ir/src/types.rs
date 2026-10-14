@@ -304,29 +304,24 @@ impl TypeTable {
                             format!("aggregate type {id} must reference earlier definitions"),
                         ));
                     }
-                    Type::Pointer(pointer)
-                        if pointer < self.pointers.len()
-                            && !matches!(aggregate, Aggregate::Array { .. }) => {}
+                    Type::Pointer(pointer) if pointer < self.pointers.len() => {}
                     _ => {
                         return Err(Error::new(
                             source,
-                            format!("aggregate type {id} requires owned value components"),
+                            format!("aggregate type {id} requires value components"),
                         ));
                     }
                 }
             }
         }
         for pointer in &self.pointers {
-            let target = pointer.target;
-            let valid = match target {
+            let valid = match pointer.target {
                 Type::Aggregate(id) => id < self.aggregates.len(),
-                _ => !matches!(target, Type::Unit | Type::Never | Type::Buffer { .. }),
+                Type::Pointer(target) => target < self.pointers.len(),
+                target => !matches!(target, Type::Unit | Type::Never | Type::Buffer { .. }),
             };
-            if !valid || !self.is_owned(target) {
-                return Err(Error::new(
-                    source,
-                    "pointers must target owned values without references",
-                ));
+            if !valid {
+                return Err(Error::new(source, "pointers must target values"));
             }
         }
         Ok(())
