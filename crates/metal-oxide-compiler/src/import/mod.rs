@@ -5,6 +5,7 @@ mod control;
 mod function;
 mod iterators;
 mod literals;
+mod messages;
 mod panics;
 mod places;
 mod ranges;
@@ -23,11 +24,18 @@ use function::FunctionImporter;
 
 type Result<T> = std::result::Result<T, (Span, String)>;
 
+type FunctionKey<'tcx> = (
+    Instance<'tcx>,
+    Vec<ir::Type>,
+    Vec<Option<String>>,
+    Option<ir::SourceLocation>,
+);
+
 pub(crate) struct ModuleImporter<'tcx> {
     tcx: TyCtxt<'tcx>,
-    /// Functions by instance and parameter types: a helper is imported once per address-space
-    /// signature of its reference parameters.
-    ids: HashMap<(Instance<'tcx>, Vec<ir::Type>), usize>,
+    /// Functions by instance, parameter types, the literals of message parameters and, for a
+    /// `#[track_caller]` function, the caller its checks report.
+    ids: HashMap<FunctionKey<'tcx>, usize>,
     /// Empty while the function is being imported.
     functions: Vec<Option<ir::Function>>,
     types: TypeLowering<'tcx>,
@@ -64,7 +72,8 @@ impl<'tcx> ModuleImporter<'tcx> {
                     self.types.lower(ty, declaration.source_info.span)
                 })
                 .collect::<Result<Vec<_>>>()?;
-            self.function(entry, parameters, true)?;
+            let messages = vec![None; parameters.len()];
+            self.function(entry, parameters, messages, None, true)?;
         }
         Ok(ir::Module {
             functions: called(self.functions.into_iter().map(Option::unwrap).collect()),
@@ -72,21 +81,24 @@ impl<'tcx> ModuleImporter<'tcx> {
         })
     }
 
-    /// The function for `instance` called with `parameters`, imported on first use.
+    /// The function for `instance` called with `parameters`, the literals of its message
+    /// parameters and the caller a `#[track_caller]` function reports, imported on first use.
     fn function(
         &mut self,
         instance: Instance<'tcx>,
         parameters: Vec<ir::Type>,
+        messages: Vec<Option<String>>,
+        caller: Option<ir::SourceLocation>,
         kernel: bool,
     ) -> Result<usize> {
-        let key = (instance, parameters);
+        let key = (instance, parameters, messages, caller);
         if let Some(&id) = self.ids.get(&key) {
             return Ok(id);
         }
         let id = self.functions.len();
         self.functions.push(None);
         self.ids.insert(key.clone(), id);
-        let function = FunctionImporter::new(self, instance, key.1).import(kernel)?;
+        let function = FunctionImporter::new(self, instance, key.1, key.2, key.3).import(kernel)?;
         self.functions[id] = Some(function);
         Ok(id)
     }

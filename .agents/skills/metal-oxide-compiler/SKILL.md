@@ -55,6 +55,13 @@ Implement the next acceptance criterion; create crates when their code is needed
   discriminants are supported, and enums never cross the ABI. A variant field projects
   onto its slot, a discriminant reads the tag, and an exhaustive `match` lets its last case
   take the unreachable default.
+- `&str` and `&dyn Trait` values have no device representation. A message argument
+  specializes its callee per literal, so `expect` reaches core's `expect_failed` with a
+  known message; core's `unwrap_failed`, `expect_failed` and `result::unwrap_failed` end
+  the caller's block with a check. A `#[track_caller]` function is instantiated per
+  caller, and its checks report the caller's `fn_span`, as Rust does.
+- Uninhabited types lower to `Never`; a variant with an uninhabited field has no payload,
+  so `?` on `Result` builds its `Result<Infallible, E>` residual.
 - `Iterator::next` on `Range<integer>` expands inline into a bounds branch that builds its
   `Option`; `&mut` borrows are erased only as its argument. A `match` on the result
   branches straight to its arms. Other iterators are rejected.

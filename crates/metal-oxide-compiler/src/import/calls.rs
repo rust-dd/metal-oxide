@@ -8,6 +8,13 @@ use rustc_span::{Span, Spanned};
 use super::{Result, function::FunctionImporter};
 use crate::intrinsics::Intrinsic;
 
+/// What a call passes: argument types, and for each message argument its literal, which
+/// specializes the callee in place of a value.
+pub(super) struct Signature {
+    pub types: Vec<ir::Type>,
+    pub messages: Vec<Option<String>>,
+}
+
 /// A resolved call target.
 pub(super) struct Callee<'tcx> {
     pub instance: Instance<'tcx>,
@@ -49,35 +56,90 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         })
     }
 
+    /// A call at `span`; `fn_span` covers its function and arguments, the location Rust's
+    /// `#[track_caller]` reports.
     pub(super) fn call(
         &mut self,
         func: &mir::Operand<'tcx>,
         args: &[Spanned<mir::Operand<'tcx>>],
         body: &mir::Body<'tcx>,
         span: Span,
+        fn_span: Span,
     ) -> Result<ir::Expression> {
         let callee = self.callee(func, body, span)?;
         if let Some(Intrinsic::Log) = callee.intrinsic {
             return self.log(args, callee.arguments, span);
         }
-        let arguments = args
-            .iter()
-            .map(|a| self.operand(&a.node, a.span))
-            .collect::<Result<Vec<_>>>()?;
         if let Some(intrinsic) = callee.intrinsic {
+            let arguments = args
+                .iter()
+                .map(|a| self.operand(&a.node, a.span))
+                .collect::<Result<Vec<_>>>()?;
             return self.intrinsic(intrinsic, callee.arguments, arguments, span);
         }
-        let mut types = Vec::with_capacity(args.len());
-        for argument in args {
-            types.push(
-                self.argument_type(&argument.node, &[], argument.span)?
-                    .expect("inferred references are known"),
-            );
-        }
+        let Signature { types, messages } = self
+            .signature(args, body, &[])?
+            .expect("inferred references are known");
+        let arguments = args
+            .iter()
+            .zip(&types)
+            .map(|(argument, ty)| match ty {
+                ir::Type::Unit => Ok(ir::Operand::Constant(ir::Constant::Unit)),
+                _ => self.operand(&argument.node, argument.span),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let caller = self.caller_of(&callee, fn_span);
         Ok(ir::Expression::Call {
-            function: self.module.function(callee.instance, types, false)?,
+            function: self
+                .module
+                .function(callee.instance, types, messages, caller, false)?,
             arguments,
         })
+    }
+
+    /// The location a `#[track_caller]` callee's checks report: this function's own caller
+    /// when it tracks one too, otherwise the call's `fn_span`.
+    pub(super) fn caller_of(
+        &self,
+        callee: &Callee<'tcx>,
+        fn_span: Span,
+    ) -> Option<ir::SourceLocation> {
+        callee
+            .instance
+            .def
+            .requires_caller_location(self.module.tcx)
+            .then(|| self.check_location(fn_span))
+    }
+
+    /// What a call passes, unless an argument reads a reference whose type is still
+    /// `pending`.
+    pub(super) fn signature(
+        &mut self,
+        args: &[Spanned<mir::Operand<'tcx>>],
+        body: &mir::Body<'tcx>,
+        pending: &[bool],
+    ) -> Result<Option<Signature>> {
+        let tcx = self.module.tcx;
+        let mut types = Vec::with_capacity(args.len());
+        let mut messages = Vec::with_capacity(args.len());
+        for argument in args {
+            let rust = self.normalize_type(argument.node.ty(&body.local_decls, tcx));
+            if super::messages::is_message(rust) {
+                types.push(ir::Type::Unit);
+                messages.push(super::messages::message(
+                    tcx,
+                    &argument.node,
+                    &self.messages,
+                ));
+                continue;
+            }
+            match self.argument_type(&argument.node, pending, argument.span)? {
+                Some(ty) => types.push(ty),
+                None => return Ok(None),
+            }
+            messages.push(None);
+        }
+        Ok(Some(Signature { types, messages }))
     }
 
     /// `log::write(format, tuple)`: the literal format and one operand per tuple field.

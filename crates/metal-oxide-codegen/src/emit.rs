@@ -243,16 +243,20 @@ impl<'a> ModuleEmitter<'a> {
         if function.locals[0] == Type::Never
             || function.locals[1..=function.parameters]
                 .iter()
-                .any(|t| matches!(t, Type::Unit | Type::Never))
+                .any(|t| *t == Type::Never || (kernel.is_some() && *t == Type::Unit))
         {
             return Err(Error::new(
                 &function.source,
-                "unit/never parameters and diverging functions are unsupported",
+                "never parameters, unit kernel parameters and diverging functions are unsupported",
             ));
         }
         let mut parameters = Vec::new();
         for local in 1..=function.parameters {
             let ty = function.locals[local];
+            // A helper's unit parameter, such as a message, passes nothing.
+            if ty == Type::Unit {
+                continue;
+            }
             parameters.push(if let Some(kernel) = kernel {
                 let name = format!("metal_oxide_arg_{local}");
                 let binding_kind = if matches!(

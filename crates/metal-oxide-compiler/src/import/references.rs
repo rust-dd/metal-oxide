@@ -126,12 +126,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 func,
                 args,
                 destination,
+                fn_span,
                 ..
             } = &terminator.kind
                 && let Some(local) = destination.as_local()
                 && inferred[local.as_usize()]
-                && let Some(ty) =
-                    self.call_result(func, args, body, pending, terminator.source_info.span)?
+                && let Some(ty) = self.call_result(
+                    func,
+                    args,
+                    body,
+                    pending,
+                    terminator.source_info.span,
+                    *fn_span,
+                )?
             {
                 definitions.push((local.as_usize(), terminator.source_info.span, ty));
             }
@@ -336,6 +343,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         body: &mir::Body<'tcx>,
         pending: &[bool],
         span: Span,
+        fn_span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
         if let Some(iterator) =
@@ -364,13 +372,11 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             });
             return Ok(Some(self.module.types.option(reference)));
         }
-        let mut types = Vec::with_capacity(args.len());
-        for argument in args {
-            match self.argument_type(&argument.node, pending, argument.span)? {
-                Some(ty) => types.push(ty),
-                None => return Ok(None),
-            }
-        }
+        let Some(super::calls::Signature { types, messages }) =
+            self.signature(args, body, pending)?
+        else {
+            return Ok(None);
+        };
         match callee.intrinsic {
             Some(Intrinsic::Identity) => Ok(types.first().copied()),
             Some(Intrinsic::Subslice) => {
@@ -392,7 +398,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 format!("{} does not return a reference", intrinsic.name()),
             )),
             None => {
-                let id = self.module.function(callee.instance, types, false)?;
+                let caller = self.caller_of(&callee, fn_span);
+                let id = self
+                    .module
+                    .function(callee.instance, types, messages, caller, false)?;
                 Ok(Some(self.module.return_type(id)))
             }
         }

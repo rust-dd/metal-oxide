@@ -2,13 +2,19 @@ use metal_oxide_ir as ir;
 use rustc_middle::{mir, ty::Instance};
 use rustc_span::Span;
 
-use super::{ModuleImporter, Result, control, location, panics::Panics, ranges, references};
+use super::{
+    ModuleImporter, Result, control, location, messages, panics::Panics, ranges, references,
+};
 
 pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
     pub(super) instance: Instance<'tcx>,
     /// The kernel's lowered signature, or the argument types of the helper's callers.
     parameters: Vec<ir::Type>,
+    /// The literal of each local that holds a message, starting from the parameters'.
+    pub(super) messages: Vec<Option<String>>,
+    /// Where the checks of a `#[track_caller]` function report: its outermost caller.
+    pub(super) caller: Option<ir::SourceLocation>,
     pub(super) kernel: bool,
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
@@ -23,11 +29,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         module: &'a mut ModuleImporter<'tcx>,
         instance: Instance<'tcx>,
         parameters: Vec<ir::Type>,
+        messages: Vec<Option<String>>,
+        caller: Option<ir::SourceLocation>,
     ) -> Self {
         Self {
             module,
             instance,
             parameters,
+            messages,
+            caller,
             kernel: false,
             locals: Vec::new(),
             allocations: 0,
@@ -43,7 +53,8 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         let body = tcx.instance_mir(self.instance.def);
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
         let used = control::used_locals(body);
-        let panics = Panics::new(tcx, body)?;
+        self.messages = messages::messages(tcx, body, &self.messages);
+        let panics = Panics::new(tcx, body, self.messages.clone())?;
         self.constants = super::constants::locals(tcx, self.instance, body);
         self.handles = references::handles(tcx, body, |ty| self.normalize_type(ty));
         let discriminants = ranges::discriminants(body);
@@ -55,6 +66,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 || self.handles[index].is_some()
                 || panics.is_literal(index)
                 || discriminants[index].is_some()
+                || messages::is_message(self.normalize_type(local.ty))
             {
                 ir::Type::Unit
             } else if crate::types::has_reference(tcx, self.normalize_type(local.ty)) {
@@ -105,6 +117,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         })
     }
 
+    /// Where a check at `span` reports, as Rust's `#[track_caller]` panics would: the caller of
+    /// a `#[track_caller]` function, otherwise the outermost macro call that expanded to it.
+    pub(super) fn check_location(&self, span: rustc_span::Span) -> ir::SourceLocation {
+        self.caller.clone().unwrap_or_else(|| {
+            let span = span.ctxt().outer_expn().expansion_cause().unwrap_or(span);
+            location(self.module.tcx, span)
+        })
+    }
+
     fn block(
         &mut self,
         block: &mir::BasicBlockData<'tcx>,
@@ -115,11 +136,13 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         for statement in &block.statements {
             let span = statement.source_info.span;
             match &statement.kind {
+                // Handles, messages and uninhabited values need no device statements.
                 mir::StatementKind::Assign(assignment)
-                    if assignment
-                        .0
-                        .as_local()
-                        .is_some_and(|local| self.handles[local.as_usize()].is_some()) => {}
+                    if assignment.0.as_local().is_some_and(|local| {
+                        self.handles[local.as_usize()].is_some()
+                            || messages::is_message(self.normalize_type(body.local_decls[local].ty))
+                            || self.locals[local.as_usize()] == ir::Type::Never
+                    }) => {}
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
                     let (destination, ty) = self.typed_place(destination, span)?;
@@ -155,14 +178,13 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         }
         let term = block.terminator();
         let span = term.source_info.span;
-        // Checks report where Rust's `#[track_caller]` panics would: the outermost macro call.
-        let caller = span.ctxt().outer_expn().expansion_cause().unwrap_or(span);
+        let reported = self.check_location(span);
         let mut source = location(self.module.tcx, span);
         if let Some(message) = panics.message(self.module.tcx, &term.kind) {
             return Ok(ir::Block {
                 statements,
                 terminator: ir::Terminator::Panic(message),
-                source: location(self.module.tcx, caller),
+                source: reported,
             });
         }
         let terminator = match &term.kind {
@@ -179,7 +201,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 target,
                 ..
             } => {
-                source = location(self.module.tcx, caller);
+                source = reported;
                 ir::Terminator::Assert {
                     condition: self.operand(cond, span)?,
                     expected: *expected,
@@ -217,7 +239,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 destination,
                 target.as_usize(),
                 body,
-                caller,
+                span,
             )?,
             mir::TerminatorKind::Call {
                 func,
@@ -234,7 +256,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                     destination,
                     target.as_usize(),
                     body,
-                    caller,
+                    span,
                 )?
             }
             mir::TerminatorKind::Call {
@@ -278,11 +300,12 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 args,
                 destination,
                 target: Some(target),
+                fn_span,
                 ..
             } => {
                 statements.push(ir::Statement {
                     destination: self.place(destination, span)?,
-                    value: self.call(func, args, body, span)?,
+                    value: self.call(func, args, body, span, *fn_span)?,
                     source: source.clone(),
                 });
                 ir::Terminator::Goto(target.as_usize())

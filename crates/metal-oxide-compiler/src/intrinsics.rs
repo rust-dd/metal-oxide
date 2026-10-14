@@ -127,6 +127,10 @@ pub(crate) enum PanicEntry {
     Panic,
     PanicFmt,
     LiteralArguments,
+    /// A core helper that panics with the message of its argument at this index.
+    Argument(usize),
+    /// A core helper that panics with this message.
+    Fixed(&'static str),
 }
 
 pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEntry> {
@@ -136,6 +140,18 @@ pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEnt
     }
     if items.panic_fmt() == Some(definition) {
         return Some(PanicEntry::PanicFmt);
+    }
+    // The cold helpers of `unwrap` and `expect`; a `Result`'s error is not formatted.
+    match tcx.def_path_str(definition).as_str() {
+        "core::option::unwrap_failed" => {
+            return Some(PanicEntry::Fixed(
+                "called `Option::unwrap()` on a `None` value",
+            ));
+        }
+        "core::option::expect_failed" | "core::result::unwrap_failed" => {
+            return Some(PanicEntry::Argument(0));
+        }
+        _ => {}
     }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(

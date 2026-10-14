@@ -3,18 +3,24 @@ use rustc_middle::{
     ty::{TyCtxt, TypeVisitableExt},
 };
 
-use super::Result;
+use super::{Result, messages::message};
 use crate::intrinsics::{PanicEntry, panic_entry};
 
-/// Literal panic messages of one body: `panic("..")` calls, and `Arguments::from_str("..")`
-/// values whose call returns directly into `panic_fmt`.
+/// Literal panic messages of one body: `panic("..")` calls, `Arguments::from_str("..")`
+/// values whose call returns directly into `panic_fmt`, and the cold helpers of `unwrap` and
+/// `expect`, whose message may come from the caller through `messages`.
 pub(super) struct Panics {
     literals: Vec<Option<String>>,
+    messages: Vec<Option<String>>,
 }
 
 impl Panics {
     /// Rejects formatted panics before their argument locals would fail type lowering.
-    pub(super) fn new<'tcx>(tcx: TyCtxt<'tcx>, body: &mir::Body<'tcx>) -> Result<Self> {
+    pub(super) fn new<'tcx>(
+        tcx: TyCtxt<'tcx>,
+        body: &mir::Body<'tcx>,
+        messages: Vec<Option<String>>,
+    ) -> Result<Self> {
         let mut literals = vec![None; body.local_decls.len()];
         for block in body.basic_blocks.iter() {
             if let mir::TerminatorKind::Call {
@@ -34,10 +40,10 @@ impl Panics {
                 && entry(tcx, next) == Some(PanicEntry::PanicFmt)
                 && forwarded[0].node.place().and_then(|place| place.as_local()) == Some(local)
             {
-                literals[local.as_usize()] = literal(tcx, &args[0].node);
+                literals[local.as_usize()] = message(tcx, &args[0].node, &messages);
             }
         }
-        let panics = Self { literals };
+        let panics = Self { literals, messages };
         for block in body.basic_blocks.iter() {
             let terminator = block.terminator();
             if let mir::TerminatorKind::Call { func, .. } = &terminator.kind
@@ -78,9 +84,11 @@ impl Panics {
         let local =
             |place: Option<mir::Place<'tcx>>| self.literals[place?.as_local()?.as_usize()].clone();
         match entry(tcx, func)? {
-            PanicEntry::Panic => literal(tcx, &args[0].node),
+            PanicEntry::Panic => message(tcx, &args[0].node, &self.messages),
             PanicEntry::PanicFmt => local(args[0].node.place()),
             PanicEntry::LiteralArguments => local(Some(*destination)),
+            PanicEntry::Argument(index) => message(tcx, &args[index].node, &self.messages),
+            PanicEntry::Fixed(text) => Some(text.into()),
         }
     }
 }

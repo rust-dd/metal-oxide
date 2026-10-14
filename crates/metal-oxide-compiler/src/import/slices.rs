@@ -2,7 +2,7 @@ use metal_oxide_ir as ir;
 use rustc_middle::{mir, ty};
 use rustc_span::{Span, Spanned};
 
-use super::{Result, function::FunctionImporter, location};
+use super::{Result, function::FunctionImporter};
 use crate::intrinsics::Intrinsic;
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
@@ -39,7 +39,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .expect("inferred references are known");
         let receiver = self.operand(&slice.node, slice.span)?;
         let range = self.operand(&range.node, range.span)?;
-        let source = location(tcx, span);
+        let source = self.check_location(span);
         let statement = |destination: ir::Place, value| ir::Statement {
             destination,
             value,

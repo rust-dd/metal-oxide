@@ -259,9 +259,11 @@ Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
 neither does `block_idx * B + thread_idx` for a constant `B` up to the block size.
 `ThreadIndex` is Metal's `thread_position_in_grid.x`; the runtime launches a kernel
 that reads it only in one dimension, where no two threads share it.
-Metal has no device trap, so each unproved assertion and each literal `panic!` or
-`assert!` becomes a runtime check: a failing thread stores the check in its
-dispatch's failure word and returns. A check before a barrier or SIMD collective
+Metal has no device trap, so each unproved assertion, each literal `panic!` or
+`assert!` and each `unwrap` or `expect` becomes a runtime check: a failing thread stores
+the check in its dispatch's failure word and returns. Checks report Rust's location, the
+caller of a `#[track_caller]` function included, and Rust's message; a `Result`'s error
+is not formatted. A check before a barrier or SIMD collective
 must be proved or uniform, so that no thread waits for one that has returned. `log!`
 lowers to Metal shader logging with typed `printf` specifiers.
 

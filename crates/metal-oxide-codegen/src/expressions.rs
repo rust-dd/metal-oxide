@@ -315,10 +315,15 @@ pub(crate) fn expression(
             function: id,
             arguments,
         } => {
-            let mut arguments = arguments.iter().map(op).collect::<Vec<_>>();
-            arguments.push("metal_oxide_ctx".into());
+            let mut emitted = Vec::with_capacity(arguments.len() + 1);
+            for argument in arguments {
+                if ty(argument)? != Type::Unit {
+                    emitted.push(op(argument));
+                }
+            }
+            emitted.push("metal_oxide_ctx".into());
             debug_assert!(!module.functions[*id].kernel);
-            format!("metal_oxide_fn_{id}({})", arguments.join(", "))
+            format!("metal_oxide_fn_{id}({})", emitted.join(", "))
         }
         Expression::Log { format, arguments } => {
             let arguments = arguments

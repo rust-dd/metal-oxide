@@ -32,7 +32,7 @@ impl<'tcx> TypeLowering<'tcx> {
         if ty.is_unit() {
             return Ok(ir::Type::Unit);
         }
-        if ty.is_never() {
+        if ty.is_privately_uninhabited(self.tcx, TypingEnv::fully_monomorphized()) {
             return Ok(ir::Type::Never);
         }
         if let ty::Tuple(types) = ty.kind()
@@ -170,9 +170,6 @@ impl<'tcx> TypeLowering<'tcx> {
         let ty::Adt(definition, arguments) = ty.kind() else {
             unreachable!("only enum types are enumerations")
         };
-        if definition.variants().is_empty() {
-            return Err((span, format!("uninhabited enums are unsupported: {ty}")));
-        }
         if definition
             .discriminants(self.tcx)
             .any(|(index, discriminant)| discriminant.val != index.as_u32() as u128)
@@ -185,23 +182,32 @@ impl<'tcx> TypeLowering<'tcx> {
         if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
             return Err((span, "destructors cannot be imported".into()));
         }
-        let variants = definition
-            .variants()
-            .iter()
-            .map(|variant| {
-                variant
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        let ty = self.tcx.normalize_erasing_regions(
-                            TypingEnv::fully_monomorphized(),
-                            field.ty(self.tcx, arguments),
-                        );
-                        self.with_spaces(ty, spaces, span)
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut variants = Vec::with_capacity(definition.variants().len());
+        for variant in definition.variants() {
+            let fields = variant
+                .fields
+                .iter()
+                .map(|field| {
+                    self.tcx.normalize_erasing_regions(
+                        TypingEnv::fully_monomorphized(),
+                        field.ty(self.tcx, arguments),
+                    )
+                })
+                .collect::<Vec<_>>();
+            // A variant with an uninhabited field never exists, so it needs no payload.
+            if fields.iter().any(|field| {
+                field.is_privately_uninhabited(self.tcx, TypingEnv::fully_monomorphized())
+            }) {
+                variants.push(Vec::new());
+                continue;
+            }
+            variants.push(
+                fields
+                    .into_iter()
+                    .map(|field| self.with_spaces(field, spaces, span))
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
         Ok(self.types.intern(ir::Aggregate::enumeration(
             self.tcx.item_name(definition.did()).to_string(),
             variants,

@@ -2,7 +2,7 @@ use metal_oxide_ir as ir;
 use rustc_middle::mir;
 use rustc_span::{Span, Spanned};
 
-use super::{Result, function::FunctionImporter, location, ranges::matched};
+use super::{Result, function::FunctionImporter, ranges::matched};
 use crate::intrinsics::{Intrinsic, SliceIterator};
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
@@ -125,7 +125,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         for argument in args {
             fields.push(self.operand(&argument.node, argument.span)?);
         }
-        let source = location(self.module.tcx, span);
+        let source = self.check_location(span);
         let create = ir::Statement {
             destination,
             value: ir::Expression::Aggregate { ty: id, fields },
@@ -196,7 +196,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         if self.module.types.option_value(option_type) != Some(item) {
             return Err((span, "invalid iterator result".into()));
         }
-        let source = location(self.module.tcx, span);
+        let source = self.check_location(span);
         let statement = |destination: ir::Place, value| ir::Statement {
             destination,
             value,
