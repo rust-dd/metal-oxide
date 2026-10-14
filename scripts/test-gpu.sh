@@ -25,9 +25,9 @@ for backend in $backends; do
         cargo test --features rustc-private --locked --target-dir ../../target/compiler --test gpu --test differential -- --ignored --test-threads=1
     )
     for package in cooperation vec-add saxpy reduction matmul pipeline particle-update; do
-        cargo run -p cargo-metal --locked -- test -p "$package" --locked --validate -- --ignored --test-threads=1
+        cargo run -p cargo-metal --locked -- test --validate -p "$package" --locked -- --ignored --test-threads=1
     done
     for features in "" fast; do
-        cargo run -p cargo-metal --locked -- test -p spectral --release --locked ${features:+--features "$features"} --validate -- --ignored --test-threads=1
+        cargo run -p cargo-metal --locked -- test --validate -p spectral --release --locked ${features:+--features "$features"} -- --ignored --test-threads=1
     done
 done

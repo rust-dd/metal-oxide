@@ -71,7 +71,7 @@ jobs:
         working-directory: .
         run: |
           for package in vec-add saxpy reduction matmul pipeline; do
-            cargo run -p cargo-metal --locked -- inspect -p "$package" --locked --emit msl
+            cargo run -p cargo-metal --locked -- inspect --emit msl -p "$package" --locked
           done
 
   setup:

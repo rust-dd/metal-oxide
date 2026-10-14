@@ -39,6 +39,7 @@ version = "0.1.0-alpha.1"
 
 [workspace.dependencies]
 block2 = "0.6.2"
+clap = { version = "4.6.7", default-features = false, features = ["derive", "error-context", "help", "std", "usage"] }
 dispatch2 = "0.3.1"
 half = { version = "2.7.1", default-features = false }
 loom = "0.7.2"

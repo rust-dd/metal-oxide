@@ -6,15 +6,14 @@ pub(crate) fn cargo() -> Command {
     Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
 }
 
-/// Runs `cargo run` or `cargo test` with the environment that Metal debugging needs; the
-/// kernel macros build capture runs with line tables.
+/// Runs `cargo run` or `cargo test`, as `subcommand` names, with the environment that Metal
+/// debugging needs; the kernel macros build capture runs with line tables.
 pub(crate) fn execute(
+    subcommand: &str,
     options: &Cargo,
 ) -> Result<ExitCode, Box<dyn std::error::Error + Send + Sync>> {
     let mut command = cargo();
-    command
-        .arg(if options.test { "test" } else { "run" })
-        .args(&options.arguments);
+    command.arg(subcommand).args(options.arguments());
     if options.validate {
         command
             .env("MTL_DEBUG_LAYER", "1")

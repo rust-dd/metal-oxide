@@ -89,7 +89,7 @@ fn captures_record_gpu_work_with_rust_line_tables() {
     // A relative trace path starts where cargo metal runs.
     checked(
         project
-            .metal(&["run", "--quiet", "--capture", "add.gputrace"])
+            .metal(&["run", "--capture", "add.gputrace", "--quiet"])
             .current_dir(&directory)
             .output()
             .unwrap(),
@@ -155,7 +155,7 @@ fn validation_runs_the_host_under_metal_validation() {
     let project = Project::new(ADD);
     checked(
         project
-            .metal(&["run", "--quiet", "--validate"])
+            .metal(&["run", "--validate", "--quiet"])
             .output()
             .unwrap(),
     );
