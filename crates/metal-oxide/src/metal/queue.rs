@@ -175,6 +175,7 @@ mod tests {
             queue,
             signal: None,
             write,
+            failures: None,
         }
     }
 

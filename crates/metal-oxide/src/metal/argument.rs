@@ -176,15 +176,12 @@ impl<'a> Argument<'a> {
     }
 
     pub(super) fn resource(&self) -> Option<Resource> {
-        match &self.value {
-            Value::Buffer(buffer) => {
-                let mut resource = buffer.resource();
-                resource.written = matches!(
-                    self.signature.kind,
-                    Kind::Buffer(Access::Write | Access::ReadWrite | Access::Atomic)
-                );
-                Some(resource)
-            }
+        match (&self.value, self.signature.kind) {
+            (Value::Buffer(buffer), Kind::Buffer(access)) => Some(Resource {
+                access: Arc::clone(buffer.access()),
+                read: access != Access::Write,
+                written: access != Access::Read,
+            }),
             _ => None,
         }
     }

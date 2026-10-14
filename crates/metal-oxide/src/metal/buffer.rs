@@ -16,8 +16,10 @@ mod views;
 pub(super) use mirror::{Location, Mirror};
 pub use views::{Read, Write};
 
+/// A buffer argument's access state and how the kernel uses it.
 pub(super) struct Resource {
     pub(super) access: Arc<AccessState>,
+    pub(super) read: bool,
     pub(super) written: bool,
 }
 
@@ -39,7 +41,7 @@ impl Storage {
 pub(super) trait BufferBinding: Sync {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>>;
     fn len(&self) -> usize;
-    fn resource(&self) -> Resource;
+    fn access(&self) -> &Arc<AccessState>;
     fn device_id(&self) -> u64;
     fn prepare(&self, access: Access);
 }
@@ -185,11 +187,8 @@ impl<T: GpuValue> BufferBinding for Buffer<T> {
     fn device_id(&self) -> u64 {
         self.device_id
     }
-    fn resource(&self) -> Resource {
-        Resource {
-            access: Arc::clone(&self.access),
-            written: false,
-        }
+    fn access(&self) -> &Arc<AccessState> {
+        &self.access
     }
     fn prepare(&self, access: Access) {
         if let Some(mirror) = &self.mirror {

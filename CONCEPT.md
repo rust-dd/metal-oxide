@@ -564,7 +564,9 @@ The runtime performs these steps:
    per word sets after the previous barrier.
 7. `wait` blocks until GPU completion, and the future resolves then; either reports
    command errors, or `Error::KernelFailed` with the kernel, dispatch, Rust location
-   and message of the failed check.
+   and message of the failed check. A batch that reads buffers written by operations
+   still running when it commits gates its generated kernels on their words as well,
+   and reports their failure as `Error::DependencyFailed`.
 8. The host reads the output buffer.
 
 The runtime's `Module` holds a loaded Metal library and ABI metadata.

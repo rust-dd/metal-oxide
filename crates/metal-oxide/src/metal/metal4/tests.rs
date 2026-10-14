@@ -154,7 +154,7 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
         &cache,
         Arc::clone(&completion),
         Vec::new(),
-        Failures::new(Arc::clone(device.failure_pool())),
+        Arc::new(Failures::new(Arc::clone(device.failure_pool()))),
         &[],
         Finish::new(Arc::new(std::sync::atomic::AtomicUsize::new(1)), None),
     );
@@ -204,7 +204,7 @@ fn pipelined_batches_reuse_pooled_command_storage() {
                 &cache,
                 Arc::clone(&completion),
                 Vec::new(),
-                Failures::new(Arc::clone(device.failure_pool())),
+                Arc::new(Failures::new(Arc::clone(device.failure_pool()))),
                 &[],
                 Finish::new(Arc::new(std::sync::atomic::AtomicUsize::new(1)), None),
             );

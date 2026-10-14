@@ -155,6 +155,116 @@ fn a_failed_dispatch_skips_the_dispatches_ordered_after_it() -> metal_oxide::Res
     Ok(())
 }
 
+/// Commits `lookup` of `indices` into `looked_up` beside a long kernel in one command buffer
+/// and drops its future, so the command buffer still runs when the caller commits more work.
+fn detached_lookup(
+    device: &Device,
+    module: &Module,
+    indices: &metal_oxide::Buffer<u32>,
+    looked_up: &mut metal_oxide::Buffer<u32>,
+) -> metal_oxide::Result<()> {
+    let spin = Pipeline::new(device, module, "spin")?;
+    let lookup = Pipeline::new(device, module, "lookup")?;
+    let mut slow = device.buffer_zeroed::<u32>(256)?;
+    let slow_config = LaunchConfig::<256>::for_elements(256)?;
+    let config = LaunchConfig::<4>::for_elements(4)?;
+    // SAFETY: each thread writes its own element of buffers that cover the grids.
+    drop(started(sequence(|batch| unsafe {
+        batch.push(Launch::new(
+            Ok(&spin),
+            slow_config,
+            (&mut slow, 3_000_000_u32),
+            |(slow, rounds)| Ok([Argument::write(slow), Argument::value(*rounds)?]),
+        ))?;
+        batch.push(Launch::new(
+            Ok(&lookup),
+            config,
+            (indices, &mut *looked_up, 4_u32),
+            |(indices, out, n)| {
+                Ok([
+                    Argument::read(indices),
+                    Argument::write(out),
+                    Argument::value(*n)?,
+                ])
+            },
+        ))?;
+        Ok(())
+    })));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_failure_skips_the_running_reads_of_its_writes() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let module = module(&device)?;
+    let arithmetic = Pipeline::new(&device, &module, "arithmetic")?;
+    let fill = Pipeline::new(&device, &module, "fill")?;
+    let config = LaunchConfig::<4>::for_elements(4)?;
+    let invalid = device.buffer_from_slice(&[5_u32; 4])?;
+    let valid = device.buffer_from_slice(&[2_u32; 4])?;
+    let mut looked_up = device.buffer_zeroed::<u32>(4)?;
+    let mut out = device.buffer_zeroed::<u32>(4)?;
+    // SAFETY: four threads each read and write their own element of four-element buffers.
+    let increment = |looked_up: &metal_oxide::Buffer<u32>, out: &mut metal_oxide::Buffer<u32>| unsafe {
+        Launch::new(
+            Ok(&arithmetic),
+            config,
+            (looked_up, out, 1_u32, 4_u32),
+            |(values, out, divisor, n)| {
+                Ok([
+                    Argument::read(values),
+                    Argument::write(out),
+                    Argument::value(*divisor)?,
+                    Argument::value(*n)?,
+                ])
+            },
+        )
+        .wait()
+        .map(drop)
+    };
+
+    detached_lookup(&device, &module, &invalid, &mut looked_up)?;
+    let failure = match increment(&looked_up, &mut out) {
+        Err(Error::DependencyFailed(failure)) => *failure,
+        other => panic!("expected a dependency failure, got {other:?}"),
+    };
+    assert_eq!(
+        (
+            failure.kernel.as_str(),
+            failure.dispatch,
+            failure.message.as_str()
+        ),
+        ("lookup", 1, "index out of bounds")
+    );
+    assert_eq!(out.read().wait(), [0; 4]);
+
+    // An overwrite does not read the failed writes.
+    detached_lookup(&device, &module, &invalid, &mut looked_up)?;
+    // SAFETY: four threads each write their own element of a four-element buffer.
+    unsafe {
+        Launch::new(
+            Ok(&fill),
+            config,
+            (&mut looked_up, 3_u32, 4_u32),
+            |(out, value, n)| {
+                Ok([
+                    Argument::write(out),
+                    Argument::value(*value)?,
+                    Argument::value(*n)?,
+                ])
+            },
+        )
+        .wait()?
+    };
+    assert_eq!(looked_up.read().wait(), [3; 4]);
+
+    detached_lookup(&device, &module, &valid, &mut looked_up)?;
+    increment(&looked_up, &mut out)?;
+    assert_eq!(out.read().wait(), [31; 4]);
+    Ok(())
+}
+
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn overflow_division_and_assertion_messages_match_rust() -> metal_oxide::Result<()> {

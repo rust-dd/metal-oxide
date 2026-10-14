@@ -47,3 +47,13 @@ pub unsafe fn reverse_scaled(out: WriteBuffer<u32>, divisor: u32) {
         out.store_unchecked(block_idx().x * 64 + lane, shared.load_unchecked(63 - lane));
     }
 }
+
+#[kernel]
+pub unsafe fn spin(out: WriteBuffer<u32>, rounds: u32) {
+    let i = index();
+    let mut x = i;
+    for _ in 0..rounds {
+        x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+    }
+    unsafe { out.store_unchecked(i, x) };
+}

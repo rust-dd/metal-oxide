@@ -145,7 +145,7 @@ impl ClassicBatch {
         mut self,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-        failures: Failures,
+        failures: Arc<Failures>,
         signal: &Signal,
         finish: Finish,
     ) {
@@ -160,9 +160,10 @@ impl ClassicBatch {
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };
+                    let failed = failures.finish();
                     if command.status() == MTLCommandBufferStatus::Completed {
-                        match failures.failure() {
-                            Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
+                        match failed {
+                            Some(failed) => Err(CommandFailure::from(failed)),
                             None => Ok(gpu_time(command.GPUStartTime(), command.GPUEndTime())),
                         }
                     } else {

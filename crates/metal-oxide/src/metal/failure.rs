@@ -1,11 +1,23 @@
 use objc2_foundation::NSError;
 use objc2_metal::{MTL4CommandQueueError, MTLCommandBufferError};
 
+use super::failures::Failed;
+
 #[derive(Clone)]
 pub(super) enum CommandFailure {
     OutOfMemory(String),
     Other(String),
     Kernel(Box<crate::KernelFailure>),
+    Dependency(Box<crate::KernelFailure>),
+}
+
+impl From<Failed> for CommandFailure {
+    fn from(failed: Failed) -> Self {
+        match failed {
+            Failed::Kernel(failure) => Self::Kernel(Box::new(failure)),
+            Failed::Dependency(failure) => Self::Dependency(Box::new(failure)),
+        }
+    }
 }
 
 impl CommandFailure {
@@ -33,6 +45,7 @@ impl From<CommandFailure> for crate::Error {
             CommandFailure::OutOfMemory(reason) => Self::OutOfMemory(reason),
             CommandFailure::Other(reason) => Self::Command(reason),
             CommandFailure::Kernel(failure) => Self::KernelFailed(failure),
+            CommandFailure::Dependency(failure) => Self::DependencyFailed(failure),
         }
     }
 }

@@ -1,4 +1,7 @@
-use std::{ops::Range, sync::Arc};
+use std::{
+    ops::Range,
+    sync::{Arc, Weak},
+};
 
 use super::{
     Argument, Pipeline,
@@ -6,6 +9,7 @@ use super::{
     argument::Binding,
     buffer::Resource,
     completion::Completion,
+    failures::Failures,
     queue::Signal,
 };
 use crate::DynamicLaunchConfig;
@@ -78,7 +82,7 @@ impl Recording {
             );
         }
         for resource in resources {
-            let written = resource.written;
+            let (read, written) = (resource.read, resource.written);
             let index = match self
                 .tracked
                 .iter()
@@ -95,6 +99,7 @@ impl Recording {
                 }
             };
             let tracked = &mut self.tracked[index];
+            tracked.resource.read |= read;
             if written {
                 tracked.resource.written = true;
                 tracked.write = level;
@@ -126,16 +131,33 @@ impl Recording {
         self.dispatches.iter().map(|dispatch| dispatch.level).max() == Some(self.dispatches.len())
     }
 
-    /// The unfinished accesses of other batches that this batch must follow.
-    pub(super) fn conflicts(&self) -> Vec<Access> {
+    /// The unfinished accesses of other batches that this batch must follow, and the failure
+    /// words of those whose writes it reads.
+    pub(super) fn conflicts(&self) -> (Vec<Access>, Vec<Arc<Failures>>) {
         let mut conflicts = Vec::new();
+        let mut upstream = Vec::<Arc<Failures>>::new();
         for tracked in &self.tracked {
+            let start = conflicts.len();
             tracked
                 .resource
                 .access
                 .conflicts(tracked.resource.written, &mut conflicts);
+            if !tracked.resource.read {
+                continue;
+            }
+            for access in &conflicts[start..] {
+                if let Some(failures) = access
+                    .failures
+                    .as_ref()
+                    .filter(|_| access.write)
+                    .and_then(Weak::upgrade)
+                    && !upstream.iter().any(|known| Arc::ptr_eq(known, &failures))
+                {
+                    upstream.push(failures);
+                }
+            }
         }
-        conflicts
+        (conflicts, upstream)
     }
 
     /// Records the batch's accesses, so CPU views and later batches wait for its command buffer.
@@ -144,13 +166,17 @@ impl Recording {
         completion: &Arc<Completion>,
         queue: usize,
         signal: Option<&Signal>,
+        failures: &Arc<Failures>,
     ) {
+        let failures = failures.has_words().then(|| Arc::downgrade(failures));
         for tracked in &self.tracked {
+            let write = tracked.resource.written;
             tracked.resource.access.register(Access {
                 completion: Arc::clone(completion),
                 queue,
                 signal: signal.cloned(),
-                write: tracked.resource.written,
+                write,
+                failures: failures.clone().filter(|_| write),
             });
             if tracked.resource.written {
                 tracked.resource.access.mark_written();

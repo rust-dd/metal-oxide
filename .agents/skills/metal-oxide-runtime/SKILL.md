@@ -80,7 +80,14 @@ separate.
   after the previous barrier when several earlier words may be set.
 - The handler reports the earliest-pushed fallible dispatch whose failure word is set as
   `Error::KernelFailed`; command errors take precedence. It then returns the cleared
-  words to the pool. Generated MSL loads only through artifacts: source modules
+  words to the pool.
+- A batch that reads a buffer written by in-flight batches gates its generated dispatches
+  on their words: before its first level, a snapshot covers every word of those batches,
+  their snapshot gates included, so a failure propagates down a chain. An access entry
+  holds a weak reference to its writer's `Failures`; the reader upgrades it at commit and
+  keeps it until its own handler records the root failure, which releases the upstream.
+  Without an own failure the handler reports the upstream root as
+  `Error::DependencyFailed`. Finished writers do not propagate: their operations report. Generated MSL loads only through artifacts: source modules
   bind no words.
 - Loading a `logging` artifact gives the device a `MTLLogState`; later command
   buffers carry it, and its handler prints messages to stderr.

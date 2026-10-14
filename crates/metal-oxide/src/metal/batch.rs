@@ -9,7 +9,7 @@ use super::{
     backend::Backend,
     classic::ClassicBatch,
     completion::Completion,
-    failures::{Failures, Gate, Slot},
+    failures::{Failures, Gate, Segment, Slot},
     metal4::Metal4Batch,
     queue::{Finish, Placement, Signal},
     record::Recording,
@@ -88,16 +88,24 @@ impl Batch {
         let completion = Arc::new(Completion::default());
         match self.device {
             Some(device) if !self.recording.dispatches.is_empty() => {
-                let placement =
-                    Placement::new(&device.backend().running(), self.recording.conflicts());
-                let encoder = Encoder::new(&device, &self.recording, &placement)?;
+                let (conflicts, upstream) = self.recording.conflicts();
+                let placement = Placement::new(&device.backend().running(), conflicts);
+                let encoder = Encoder::new(&device, &self.recording, &placement, upstream)?;
                 let signal = match device.backend() {
                     Backend::Classic { signals, .. } => Some(signals.take(device.raw())?),
                     Backend::Metal4 { .. } => None,
                 };
+                let failures = Arc::new(encoder.failures);
                 self.recording
-                    .register(&completion, placement.queue, signal.as_ref());
-                encoder.commit(&device, &completion, &placement, signal);
+                    .register(&completion, placement.queue, signal.as_ref(), &failures);
+                encoder.native.commit(
+                    &device,
+                    &completion,
+                    &placement,
+                    signal,
+                    encoder.pipelines,
+                    failures,
+                );
             }
             _ => completion.finish(Ok(None)),
         }
@@ -150,8 +158,13 @@ enum NativeBatch {
 
 impl Encoder {
     /// Encodes the recorded dispatches level by level, with a barrier between levels, on the
-    /// queue of `placement`.
-    fn new(device: &Device, recording: &Recording, placement: &Placement) -> Result<Self> {
+    /// queue of `placement`, after the command buffers in `upstream` whose writes they read.
+    fn new(
+        device: &Device,
+        recording: &Recording,
+        placement: &Placement,
+        upstream: Vec<Arc<Failures>>,
+    ) -> Result<Self> {
         let native = match device.backend() {
             Backend::Classic { queues, .. } => {
                 let mut waits = Vec::<Signal>::new();
@@ -186,6 +199,11 @@ impl Encoder {
             failures: Failures::new(Arc::clone(device.failure_pool())),
             pipelines: Vec::new(),
         };
+        if let Some(Gate::Snapshot { gate, sources }) =
+            encoder.failures.follow(device.raw(), upstream)?
+        {
+            encoder.snapshot(device, gate, &sources)?;
+        }
         let schedule = recording.schedule();
         for (position, level) in schedule
             .chunk_by(|first, second| first.level == second.level)
@@ -246,19 +264,30 @@ impl Encoder {
 
     /// The gate of a level's generated dispatches, set by snapshots if it covers several words.
     fn gate(&mut self, device: &Device) -> Result<Slot> {
-        let (gate, sources) = match self.failures.gate(device.raw())? {
-            Gate::Word(slot) => return Ok(slot),
-            Gate::Snapshot { gate, sources } => (gate, sources),
-        };
+        match self.failures.gate(device.raw())? {
+            Gate::Word(slot) => Ok(slot),
+            Gate::Snapshot { gate, sources } => {
+                self.snapshot(device, gate, &sources)?;
+                Ok(gate)
+            }
+        }
+    }
+
+    /// Sets `gate` when any word of `sources` is set, before every later dispatch.
+    fn snapshot(&mut self, device: &Device, gate: Slot, sources: &[Segment]) -> Result<()> {
         let snapshot = device.snapshot()?;
-        for segment in &sources {
+        for segment in sources {
             let words = [
-                Word::new(&self.failures, 0, segment.start),
+                Word {
+                    index: 0,
+                    buffer: &segment.buffer,
+                    offset: segment.offset,
+                },
                 Word::new(&self.failures, 1, gate),
             ];
             let config = DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(segment.count as u32));
-            // SAFETY: each thread reads one word that ended levels wrote, and may set the
-            // fresh gate; both stay retained by `Failures` through completion.
+            // SAFETY: each thread reads one word of finished work and may set the fresh gate;
+            // `Failures` retains both chunks through completion.
             unsafe {
                 self.native
                     .launch(device, snapshot, config, &[], &[], &words)?
@@ -266,29 +295,27 @@ impl Encoder {
         }
         self.pipelines.push(snapshot.clone());
         self.native.barrier();
-        Ok(gate)
+        Ok(())
     }
+}
 
+impl NativeBatch {
     fn commit(
         self,
         device: &Device,
         completion: &Arc<Completion>,
         placement: &Placement,
         signal: Option<Signal>,
+        pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+        failures: Arc<Failures>,
     ) {
-        match (self.native, device.backend(), signal) {
+        match (self, device.backend(), signal) {
             (NativeBatch::Classic(batch), Backend::Classic { queues, signals }, Some(signal)) => {
                 let finish = Finish::new(
                     queues[placement.queue].start(),
                     Some((signal.clone(), Arc::clone(signals))),
                 );
-                batch.commit(
-                    Arc::clone(completion),
-                    self.pipelines,
-                    self.failures,
-                    &signal,
-                    finish,
-                )
+                batch.commit(Arc::clone(completion), pipelines, failures, &signal, finish)
             }
             (NativeBatch::Metal4(batch), Backend::Metal4 { queues, cache, .. }, None) => {
                 let mut remote = placement
@@ -306,8 +333,8 @@ impl Encoder {
                 batch.commit(
                     cache,
                     Arc::clone(completion),
-                    self.pipelines,
-                    self.failures,
+                    pipelines,
+                    failures,
                     &waits,
                     finish,
                 )
@@ -315,9 +342,7 @@ impl Encoder {
             _ => unreachable!("a device keeps its native command path"),
         }
     }
-}
 
-impl NativeBatch {
     /// # Safety
     ///
     /// The dispatch must satisfy the launch contract after `validate`.

@@ -1,4 +1,7 @@
-use std::{ops::Range, sync::Arc};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 use metal_oxide_artifact::Check;
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -103,9 +106,10 @@ pub(super) struct Slot {
     pub(super) offset: usize,
 }
 
-/// Consecutive words in one chunk that one snapshot dispatch reads.
+/// Consecutive words of a command buffer's chunk that one snapshot dispatch reads.
 pub(super) struct Segment {
-    pub(super) start: Slot,
+    pub(super) buffer: Retained<ProtocolObject<dyn MTLBuffer>>,
+    pub(super) offset: usize,
     pub(super) count: usize,
 }
 
@@ -159,6 +163,14 @@ struct Fallible {
     word: usize,
 }
 
+/// Why a command buffer's kernels did not all complete.
+pub(super) enum Failed {
+    /// One of its own dispatches failed a check.
+    Kernel(KernelFailure),
+    /// A command buffer whose writes it read failed first.
+    Dependency(KernelFailure),
+}
+
 /// The gate, failure and length words of one command buffer.
 ///
 /// Every fallible dispatch sets its own failure word. The dispatches between two barriers form
@@ -174,6 +186,10 @@ pub(super) struct Failures {
     gate: Option<usize>,
     /// Words before this index were written by levels that have ended.
     closed: usize,
+    /// The command buffers whose writes this one reads, kept until it knows its failure.
+    upstream: Mutex<Vec<Arc<Failures>>>,
+    /// The failure behind this command buffer, once its completion handler has read it.
+    root: OnceLock<Option<KernelFailure>>,
 }
 
 impl Failures {
@@ -186,7 +202,39 @@ impl Failures {
             fallible: Vec::new(),
             gate: None,
             closed: 0,
+            upstream: Mutex::new(Vec::new()),
+            root: OnceLock::new(),
         }
+    }
+
+    /// Gates every dispatch on the words of the command buffers in `upstream`, which this one
+    /// reads from: before the first level, snapshots set a fresh gate when any of them is set.
+    pub(super) fn follow(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        upstream: Vec<Arc<Failures>>,
+    ) -> Result<Option<Gate>> {
+        let sources = upstream
+            .iter()
+            .flat_map(|failures| failures.segments(0..failures.words.used))
+            .collect::<Vec<_>>();
+        *lock(&self.upstream) = upstream;
+        if sources.is_empty() {
+            return Ok(None);
+        }
+        self.reserve_zero(device)?;
+        let index = self.allocate_word(device)?;
+        self.gate = Some(index);
+        self.closed = self.words.used;
+        Ok(Some(Gate::Snapshot {
+            gate: self.words.slot(index),
+            sources,
+        }))
+    }
+
+    /// Whether a word besides zero exists that a later command buffer could gate on.
+    pub(super) fn has_words(&self) -> bool {
+        self.words.used > ZERO + 1
     }
 
     /// Ends the current level: its failure words become sources of later gates.
@@ -215,21 +263,28 @@ impl Failures {
         let index = self.allocate_word(device)?;
         self.gate = Some(index);
         self.closed = self.words.used;
+        Ok(Gate::Snapshot {
+            gate: self.words.slot(index),
+            sources: self.segments(sources),
+        })
+    }
+
+    /// The words in `range`, split by chunk and snapshot width.
+    fn segments(&self, range: Range<usize>) -> Vec<Segment> {
         let mut segments = Vec::new();
-        let mut start = sources.start;
-        while start < sources.end {
+        let mut start = range.start;
+        while start < range.end {
             let chunk_end = (start / CHUNK_WORDS + 1) * CHUNK_WORDS;
-            let end = sources.end.min(chunk_end).min(start + SNAPSHOT_WIDTH);
+            let end = range.end.min(chunk_end).min(start + SNAPSHOT_WIDTH);
+            let slot = self.words.slot(start);
             segments.push(Segment {
-                start: self.words.slot(start),
+                buffer: self.chunks[slot.chunk].0.clone(),
+                offset: slot.offset,
                 count: end - start,
             });
             start = end;
         }
-        Ok(Gate::Snapshot {
-            gate: self.words.slot(index),
-            sources: segments,
-        })
+        segments
     }
 
     /// The word that the failing threads of a fallible dispatch set.
@@ -267,8 +322,39 @@ impl Failures {
         &self.chunks[slot.chunk].0
     }
 
+    /// Why the command buffer failed, read once by its completion handler. Records the root
+    /// failure for later command buffers and releases the upstream ones.
+    pub(super) fn finish(&self) -> Option<Failed> {
+        let mut upstream = lock(&self.upstream);
+        let failed = match self.failure() {
+            Some(failure) => Some(Failed::Kernel(failure)),
+            None => upstream
+                .iter()
+                .find_map(|failures| failures.root())
+                .map(Failed::Dependency),
+        };
+        let root = failed
+            .as_ref()
+            .map(|(Failed::Kernel(failure) | Failed::Dependency(failure))| failure.clone());
+        // Set before the upstream goes, so `root` never sees neither.
+        let _ = self.root.set(root);
+        upstream.clear();
+        failed
+    }
+
+    /// The failure that a command buffer reading from this one reports, after this one's GPU
+    /// work has completed.
+    fn root(&self) -> Option<KernelFailure> {
+        let upstream = lock(&self.upstream);
+        if let Some(root) = self.root.get() {
+            return root.clone();
+        }
+        self.failure()
+            .or_else(|| upstream.iter().find_map(|failures| failures.root()))
+    }
+
     /// The failed dispatch pushed first, read after the command buffer completes.
-    pub(super) fn failure(&self) -> Option<KernelFailure> {
+    fn failure(&self) -> Option<KernelFailure> {
         self.fallible
             .iter()
             .filter_map(|fallible| {

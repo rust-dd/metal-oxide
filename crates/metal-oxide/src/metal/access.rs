@@ -1,10 +1,11 @@
 use std::{
-    sync::{Arc, atomic::Ordering},
+    sync::{Arc, Weak, atomic::Ordering},
     task::{Context, Poll},
 };
 
 use super::{
     completion::Completion,
+    failures::Failures,
     queue::Signal,
     sync::{AtomicBool, Mutex, lock},
 };
@@ -17,6 +18,8 @@ pub(super) struct Access {
     /// The event a classic command buffer sets when its work finishes.
     pub(super) signal: Option<Signal>,
     pub(super) write: bool,
+    /// The failure words of a write, which later readers gate on while it runs.
+    pub(super) failures: Option<Weak<Failures>>,
 }
 
 /// GPU work registered on one buffer, tracked independently of the futures that observe it.
@@ -105,6 +108,7 @@ pub(super) fn write(completion: &Arc<Completion>) -> Access {
         queue: 0,
         signal: None,
         write: true,
+        failures: None,
     }
 }
 

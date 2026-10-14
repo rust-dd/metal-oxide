@@ -295,7 +295,7 @@ impl Metal4Batch {
         cache: &BatchCache,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-        failures: Failures,
+        failures: Arc<Failures>,
         waits: &[(&ProtocolObject<dyn MTLSharedEvent>, u64)],
         finish: Finish,
     ) {
@@ -326,10 +326,11 @@ impl Metal4Batch {
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes live feedback after this commit's GPU workload completes.
                     let feedback = unsafe { feedback.as_ref() };
+                    let failed = failures.finish();
                     match feedback.error() {
                         Some(error) => Err(CommandFailure::from_native(&error)),
-                        None => match failures.failure() {
-                            Some(failure) => Err(CommandFailure::Kernel(Box::new(failure))),
+                        None => match failed {
+                            Some(failed) => Err(CommandFailure::from(failed)),
                             None => Ok(gpu_time(feedback.GPUStartTime(), feedback.GPUEndTime())),
                         },
                     }

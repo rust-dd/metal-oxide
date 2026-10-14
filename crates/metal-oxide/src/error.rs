@@ -48,6 +48,9 @@ pub enum Error {
     /// A dispatch failed a runtime check; the dispatches of its command buffer that wait for
     /// it were skipped.
     KernelFailed(Box<KernelFailure>),
+    /// An operation still running when this one committed, whose writes this one reads, failed
+    /// a runtime check; this operation's generated kernels were skipped.
+    DependencyFailed(Box<KernelFailure>),
     InvalidPath,
     Artifact(metal_oxide_artifact::Error),
     Io(std::io::Error),
@@ -80,6 +83,9 @@ impl fmt::Display for Error {
             Self::Command(reason) => write!(f, "Metal command failed: {reason}"),
             Self::OutOfMemory(reason) => write!(f, "Metal command ran out of memory: {reason}"),
             Self::KernelFailed(failure) => failure.fmt(f),
+            Self::DependencyFailed(failure) => {
+                write!(f, "an operation this one reads from failed: {failure}")
+            }
             Self::InvalidPath => write!(f, "Metal library path is not valid UTF-8"),
             Self::Artifact(error) => write!(f, "kernel artifact error: {error}"),
             Self::Io(error) => error.fmt(f),

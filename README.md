@@ -106,9 +106,11 @@ See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CO
 Checks the compiler cannot prove run on the GPU: an out-of-bounds index, an overflow
 under the profile's overflow checks, a division by zero or a literal `assert!`/`panic!`
 stops the thread and returns `Error::KernelFailed` with the kernel, dispatch, Rust location
-and message; the dispatches that wait for it in its command buffer do not run. A check
-before a barrier or SIMD collective must be proved or uniform. `metal_oxide_device::log!`
-prints from kernels to stderr through Metal shader logging.
+and message; the dispatches that wait for it in its command buffer do not run. An
+operation committed while it ran that reads its writes skips its generated kernels and
+returns `Error::DependencyFailed` with the same failure. A check before a barrier or SIMD
+collective must be proved or uniform. `metal_oxide_device::log!` prints from kernels to
+stderr through Metal shader logging.
 
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Generated bindings take an element count;
