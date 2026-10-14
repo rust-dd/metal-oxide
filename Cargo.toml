@@ -51,7 +51,7 @@ metal-oxide-device = { path = "crates/metal-oxide-device", version = "=0.1.0-alp
 metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha.1" }
 metal-oxide-macros = { path = "crates/metal-oxide-macros", version = "=0.1.0-alpha.1" }
 # Metal's capture layer forwards messages that objc2's debug assertions reject as unknown.
-objc2 = { version = "0.6.4", features = ["disable-encoding-assertions"] }
+objc2 = { version = "0.6.5", features = ["disable-encoding-assertions"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }
 objc2-metal = { version = "0.3.2", default-features = false, features = [
     "MTL4ArgumentTable",
