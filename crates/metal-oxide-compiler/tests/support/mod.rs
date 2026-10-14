@@ -17,8 +17,27 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// This process's output directory. The first call removes the directories of earlier runs,
+/// keeping those changed within the hour, which a concurrent run may still use.
 fn directory() -> PathBuf {
-    root().join(format!("target/frontend-tests/{}", std::process::id()))
+    static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+    DIRECTORY
+        .get_or_init(|| {
+            let parent = root().join("target/frontend-tests");
+            for entry in std::fs::read_dir(&parent).into_iter().flatten().flatten() {
+                let stale = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age > std::time::Duration::from_secs(3600));
+                if stale {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+            parent.join(std::process::id().to_string())
+        })
+        .clone()
 }
 
 fn compiler(source: &Path, name: &str, emit: &str) -> Command {
