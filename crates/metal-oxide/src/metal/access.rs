@@ -11,7 +11,6 @@ use super::{
 };
 
 /// A committed GPU access to a buffer.
-#[derive(Clone)]
 pub(super) struct Access {
     pub(super) completion: Arc<Completion>,
     pub(super) queue: usize,
@@ -19,6 +18,15 @@ pub(super) struct Access {
     pub(super) signal: Option<Signal>,
     pub(super) write: bool,
     /// The failure words of a write, which later readers gate on while it runs.
+    pub(super) failures: Option<Weak<Failures>>,
+}
+
+/// What a new access needs from an earlier one it conflicts with.
+#[derive(Clone)]
+pub(super) struct Conflict {
+    pub(super) queue: usize,
+    pub(super) write: bool,
+    pub(super) signal: Option<Signal>,
     pub(super) failures: Option<Weak<Failures>>,
 }
 
@@ -47,14 +55,19 @@ impl AccessState {
 
     /// The unfinished accesses that a new access must follow: every one before a write, the
     /// writes before a read.
-    pub(super) fn conflicts(&self, write: bool, conflicts: &mut Vec<Access>) {
+    pub(super) fn conflicts(&self, write: bool, conflicts: &mut Vec<Conflict>) {
         let mut pending = lock(&self.pending);
         pending.retain(|access| !access.completion.is_finished());
         conflicts.extend(
             pending
                 .iter()
                 .filter(|access| write || access.write)
-                .cloned(),
+                .map(|access| Conflict {
+                    queue: access.queue,
+                    write: access.write,
+                    signal: access.signal.clone(),
+                    failures: access.failures.clone(),
+                }),
         );
     }
 

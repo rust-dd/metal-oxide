@@ -74,10 +74,10 @@ impl Backend {
     }
 
     /// The number of batches in flight on each queue.
-    pub(super) fn running(&self) -> Vec<usize> {
+    pub(super) fn running(&self) -> [usize; QUEUES] {
         match self {
-            Self::Classic { queues, .. } => queues.iter().map(Queue::running).collect(),
-            Self::Metal4 { queues, .. } => queues.iter().map(Queue::running).collect(),
+            Self::Classic { queues, .. } => std::array::from_fn(|queue| queues[queue].running()),
+            Self::Metal4 { queues, .. } => std::array::from_fn(|queue| queues[queue].running()),
         }
     }
 

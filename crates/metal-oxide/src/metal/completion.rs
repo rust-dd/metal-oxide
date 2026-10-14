@@ -1,11 +1,12 @@
 use std::{
+    sync::atomic::Ordering,
     task::{Context, Poll, Waker},
     time::Duration,
 };
 
 use super::{
     failure::CommandFailure,
-    sync::{Condvar, Mutex, MutexGuard, lock},
+    sync::{AtomicBool, Condvar, Mutex, MutexGuard, lock},
 };
 use crate::{Error, Result};
 
@@ -23,6 +24,8 @@ struct State {
 pub(super) struct Completion {
     state: Mutex<State>,
     ready: Condvar,
+    /// Set once the result is published, so checks need not lock.
+    finished: AtomicBool,
 }
 
 impl Completion {
@@ -33,6 +36,7 @@ impl Completion {
                 return;
             }
             state.result = Some(result);
+            self.finished.store(true, Ordering::Release);
             std::mem::take(&mut state.wakers)
         };
         self.ready.notify_all();
@@ -43,7 +47,7 @@ impl Completion {
     }
 
     pub(super) fn is_finished(&self) -> bool {
-        lock(&self.state).result.is_some()
+        self.finished.load(Ordering::Acquire)
     }
 
     /// Blocks until the native callback has published the result.

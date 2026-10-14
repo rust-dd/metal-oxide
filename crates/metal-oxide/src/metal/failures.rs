@@ -214,6 +214,9 @@ impl Failures {
         device: &ProtocolObject<dyn MTLDevice>,
         upstream: Vec<Arc<Failures>>,
     ) -> Result<Option<Gate>> {
+        if upstream.is_empty() {
+            return Ok(None);
+        }
         let sources = upstream
             .iter()
             .flat_map(|failures| failures.segments(0..failures.words.used))

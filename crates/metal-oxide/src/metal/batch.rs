@@ -89,7 +89,7 @@ impl Batch {
         match self.device {
             Some(device) if !self.recording.dispatches.is_empty() => {
                 let (conflicts, upstream) = self.recording.conflicts();
-                let placement = Placement::new(&device.backend().running(), conflicts);
+                let placement = Placement::new(&device.backend().running(), &conflicts);
                 let encoder = Encoder::new(&device, &self.recording, &placement, upstream)?;
                 let signal = match device.backend() {
                     Backend::Classic { signals, .. } => Some(signals.take(device.raw())?),
@@ -168,8 +168,8 @@ impl Encoder {
         let native = match device.backend() {
             Backend::Classic { queues, .. } => {
                 let mut waits = Vec::<Signal>::new();
-                for access in &placement.remote {
-                    let signal = access
+                for conflict in &placement.remote {
+                    let signal = conflict
                         .signal
                         .as_ref()
                         .expect("classic accesses carry a signal");
@@ -321,7 +321,7 @@ impl NativeBatch {
                 let mut remote = placement
                     .remote
                     .iter()
-                    .map(|access| access.queue)
+                    .map(|conflict| conflict.queue)
                     .collect::<Vec<_>>();
                 remote.sort_unstable();
                 remote.dedup();

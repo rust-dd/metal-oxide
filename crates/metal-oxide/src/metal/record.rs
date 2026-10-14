@@ -5,7 +5,7 @@ use std::{
 
 use super::{
     Argument, Pipeline,
-    access::{Access, AccessState},
+    access::{Access, AccessState, Conflict},
     argument::Binding,
     buffer::Resource,
     completion::Completion,
@@ -133,7 +133,7 @@ impl Recording {
 
     /// The unfinished accesses of other batches that this batch must follow, and the failure
     /// words of those whose writes it reads.
-    pub(super) fn conflicts(&self) -> (Vec<Access>, Vec<Arc<Failures>>) {
+    pub(super) fn conflicts(&self) -> (Vec<Conflict>, Vec<Arc<Failures>>) {
         let mut conflicts = Vec::new();
         let mut upstream = Vec::<Arc<Failures>>::new();
         for tracked in &self.tracked {
@@ -145,11 +145,11 @@ impl Recording {
             if !tracked.resource.read {
                 continue;
             }
-            for access in &conflicts[start..] {
-                if let Some(failures) = access
+            for conflict in &conflicts[start..] {
+                if let Some(failures) = conflict
                     .failures
                     .as_ref()
-                    .filter(|_| access.write)
+                    .filter(|_| conflict.write)
                     .and_then(Weak::upgrade)
                     && !upstream.iter().any(|known| Arc::ptr_eq(known, &failures))
                 {

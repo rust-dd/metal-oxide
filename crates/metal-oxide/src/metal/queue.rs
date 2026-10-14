@@ -7,7 +7,7 @@ use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTL4CommandQueue, MTLDevice, MTLSharedEvent};
 
 use super::{
-    access::Access,
+    access::Conflict,
     sync::{Mutex, lock},
 };
 use crate::{Error, Result};
@@ -47,30 +47,29 @@ pub(super) struct Placement {
     /// Conflicting work runs on the batch's own queue.
     pub(super) local: bool,
     /// Conflicting accesses on other queues.
-    pub(super) remote: Vec<Access>,
+    pub(super) remote: Vec<Conflict>,
 }
 
 impl Placement {
     /// The queue with the most conflicting accesses, where the queue itself orders them, or
     /// without conflicts the queue with the fewest batches in flight.
-    pub(super) fn new(running: &[usize], conflicts: Vec<Access>) -> Self {
-        let mut counts = vec![0_usize; running.len()];
-        for access in &conflicts {
-            counts[access.queue] += 1;
+    pub(super) fn new(running: &[usize; QUEUES], conflicts: &[Conflict]) -> Self {
+        let mut counts = [0_usize; QUEUES];
+        for conflict in conflicts {
+            counts[conflict.queue] += 1;
         }
-        let queue = match counts.iter().enumerate().max_by_key(|(_, count)| **count) {
-            Some((queue, count)) if *count > 0 => queue,
-            _ => (0..running.len())
-                .min_by_key(|queue| running[*queue])
-                .unwrap_or(0),
+        let queue = match (0..QUEUES).max_by_key(|queue| counts[*queue]) {
+            Some(queue) if counts[queue] > 0 => queue,
+            _ => (0..QUEUES).min_by_key(|queue| running[*queue]).unwrap_or(0),
         };
-        let (local, remote) = conflicts
-            .into_iter()
-            .partition::<Vec<_>, _>(|access| access.queue == queue);
         Self {
             queue,
-            local: !local.is_empty(),
-            remote,
+            local: counts[queue] > 0,
+            remote: conflicts
+                .iter()
+                .filter(|conflict| conflict.queue != queue)
+                .cloned()
+                .collect(),
         }
     }
 }
@@ -167,26 +166,24 @@ impl Metal4Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metal::completion::Completion;
 
-    fn access(queue: usize, write: bool) -> Access {
-        Access {
-            completion: Arc::new(Completion::default()),
+    fn conflict(queue: usize, write: bool) -> Conflict {
+        Conflict {
             queue,
-            signal: None,
             write,
+            signal: None,
             failures: None,
         }
     }
 
     #[test]
     fn dependent_batches_join_the_queue_of_their_conflicts() {
-        let placement = Placement::new(&[3, 0, 0, 0], vec![access(2, true), access(2, false)]);
+        let placement = Placement::new(&[3, 0, 0, 0], &[conflict(2, true), conflict(2, false)]);
         assert_eq!((placement.queue, placement.local), (2, true));
         assert!(placement.remote.is_empty());
         let placement = Placement::new(
             &[0, 0, 0, 0],
-            vec![access(1, true), access(3, false), access(3, true)],
+            &[conflict(1, true), conflict(3, false), conflict(3, true)],
         );
         assert_eq!((placement.queue, placement.local), (3, true));
         assert_eq!(
@@ -201,10 +198,10 @@ mod tests {
 
     #[test]
     fn independent_batches_go_to_the_least_busy_queue() {
-        let placement = Placement::new(&[2, 1, 0, 1], Vec::new());
+        let placement = Placement::new(&[2, 1, 0, 1], &[]);
         assert_eq!((placement.queue, placement.local), (2, false));
         assert!(placement.remote.is_empty());
-        assert_eq!(Placement::new(&[0, 0, 0, 0], Vec::new()).queue, 0);
+        assert_eq!(Placement::new(&[0, 0, 0, 0], &[]).queue, 0);
     }
 
     #[test]
