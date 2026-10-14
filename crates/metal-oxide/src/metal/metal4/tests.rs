@@ -219,3 +219,30 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     }
     assert!(cache.take().is_none());
 }
+
+#[test]
+#[ignore = "requires a Metal 4 device on Apple Silicon"]
+fn a_full_command_storage_pool_waits_for_its_oldest_batch() {
+    let device = crate::Device::system_default().unwrap();
+    if !super::super::backend::Backend::supports_metal4(device.raw()) {
+        return;
+    }
+    let cache = BatchCache::default();
+    let pending = (0..MAX_BATCHES)
+        .map(|_| {
+            let storage = CommandStorage::new(device.raw()).unwrap();
+            let completion = Arc::new(Completion::default());
+            cache.put(storage.clone(), Arc::clone(&completion));
+            (storage, completion)
+        })
+        .collect::<Vec<_>>();
+    let oldest = Arc::clone(&pending[0].1);
+    let finisher = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        oldest.finish(Ok(None));
+    });
+    let reused = cache.take().unwrap();
+    finisher.join().unwrap();
+    assert!(std::ptr::eq(&*pending[0].0.allocator, &*reused.allocator));
+    assert_eq!(cache.entries().len(), MAX_BATCHES - 1);
+}

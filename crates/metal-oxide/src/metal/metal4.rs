@@ -81,34 +81,39 @@ impl CommandStorage {
 // are used by one thread at a time, and the cache returns them only after GPU completion.
 unsafe impl Send for CommandStorage {}
 
-/// Bounds retained command memory while covering pipelined and concurrent operations.
-const CACHED_BATCHES: usize = 8;
+/// The committed batches whose storage a device keeps, like the command buffers a classic
+/// queue keeps in flight. A fresh allocator costs a kernel call on its first encoder.
+const MAX_BATCHES: usize = 64;
 
-/// Command storage of recent batches, reused once their GPU work has completed.
+/// Command storage of committed batches, reused once their GPU work has completed.
 #[derive(Default)]
 pub(super) struct BatchCache(Mutex<Vec<(CommandStorage, Arc<Completion>)>>);
 
 impl BatchCache {
+    /// Finished storage, or `None` while new storage may be created. Once `MAX_BATCHES`
+    /// batches are running, waits for the oldest instead.
     fn take(&self) -> Option<CommandStorage> {
-        let (storage, _) = {
+        let (storage, completion) = {
             let mut entries = self.entries();
-            let index = entries
+            let index = match entries
                 .iter()
-                .position(|(_, completion)| completion.is_finished())?;
+                .position(|(_, completion)| completion.is_finished())
+            {
+                Some(index) => index,
+                None if entries.len() >= MAX_BATCHES => 0,
+                None => return None,
+            };
             entries.remove(index)
         };
+        completion.block();
         // Commit feedback has confirmed that the GPU no longer reads these commands.
         storage.allocator.reset();
         Some(storage)
     }
 
+    /// Keeps the storage of a committed batch.
     fn put(&self, storage: CommandStorage, completion: Arc<Completion>) {
-        let mut entries = self.entries();
-        if entries.len() == CACHED_BATCHES {
-            // Evicted pending storage stays alive through its completion callback.
-            entries.remove(0);
-        }
-        entries.push((storage, completion));
+        self.entries().push((storage, completion));
     }
 
     fn entries(&self) -> MutexGuard<'_, Vec<(CommandStorage, Arc<Completion>)>> {
@@ -285,16 +290,14 @@ impl Metal4Batch {
         self.residency.commit();
         self.command.useResidencySet(&self.residency);
         self.command.endCommandBuffer();
-        cache.put(
-            CommandStorage {
-                allocator: self.allocator.clone(),
-                command: self.command.clone(),
-                residency: self.residency.clone(),
-                constants: std::mem::take(&mut self.constants),
-                tables: self.tables.clone(),
-            },
-            Arc::clone(&completion),
-        );
+        let storage = CommandStorage {
+            allocator: self.allocator.clone(),
+            command: self.command.clone(),
+            residency: self.residency.clone(),
+            constants: std::mem::take(&mut self.constants),
+            tables: self.tables.clone(),
+        };
+        let stored = Arc::clone(&completion);
         let keepalive = (
             self.command.clone(),
             self.allocator.clone(),
@@ -333,6 +336,8 @@ impl Metal4Batch {
             self.queue
                 .commit_count_options(NonNull::from(&mut command), 1, &options);
         }
+        // Only committed work is cached, so a waiting `take` always finishes.
+        cache.put(storage, stored);
     }
 }
 
