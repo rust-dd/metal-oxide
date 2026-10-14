@@ -19,6 +19,14 @@ pub enum Expr {
     /// fail the bounds check.
     Index(Box<Expr>, Box<Expr>, Option<u32>),
     Aggregate(Type, Vec<Expr>),
+    /// A variant constructor: `Some(value)`, `None::<T>` or `E0::V1(a, b)`.
+    Variant(String, Vec<Expr>),
+    /// A `match` whose patterns bind payloads that their arms use, as `Some(b3) => b3`.
+    MatchVariant(Box<Expr>, Vec<(String, Expr)>),
+    /// `matches!(value, pattern)`.
+    Matches(Box<Expr>, String),
+    /// `value?` in a helper that returns an `Option` or a `Result`.
+    Try(Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +129,23 @@ impl Printer<'_> {
                     _ => unreachable!("scalars are not aggregates"),
                 }
             }
+            Expr::Variant(name, payload) if payload.is_empty() => name.clone(),
+            Expr::Variant(name, payload) => {
+                let payload = payload
+                    .iter()
+                    .map(|value| self.expr(value))
+                    .collect::<Vec<_>>();
+                format!("{name}({})", payload.join(", "))
+            }
+            Expr::MatchVariant(scrutinee, arms) => {
+                let arms = arms
+                    .iter()
+                    .map(|(pattern, arm)| format!("{pattern} => {}", self.expr(arm)))
+                    .collect::<Vec<_>>();
+                format!("(match {} {{ {} }})", self.expr(scrutinee), arms.join(", "))
+            }
+            Expr::Matches(value, pattern) => format!("matches!({}, {pattern})", self.expr(value)),
+            Expr::Try(value) => format!("({}?)", self.expr(value)),
         }
     }
 

@@ -7,10 +7,11 @@ mod builder;
 mod expressions;
 mod random;
 mod types;
+mod variants;
 
 use ast::{Function, Printer};
 use builder::Builder;
-use types::Record;
+use types::{Enum, Record};
 
 /// How the oracle compares one output word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +27,7 @@ pub struct Program {
     /// Whether the program builds with `-C overflow-checks=on`.
     pub overflow_checks: bool,
     records: Vec<Record>,
+    enums: Vec<Enum>,
     helpers: Vec<Function>,
     run: Function,
     pub words: Vec<Word>,
@@ -36,8 +38,12 @@ impl Program {
         let mut builder = Builder::new(seed);
         builder.fallible = builder.random.chance(1, 2);
         let overflow_checks = builder.random.chance(1, 2);
-        for _ in 0..builder.random.below(3) {
-            builder.record();
+        for _ in 0..builder.random.below(5) {
+            if builder.random.chance(1, 2) {
+                builder.record();
+            } else {
+                builder.enumeration();
+            }
         }
         for _ in 0..builder.random.below(4) {
             builder.helper();
@@ -48,6 +54,7 @@ impl Program {
             seed,
             overflow_checks,
             records: builder.records,
+            enums: builder.enums,
             helpers: builder.helpers,
             run,
             words,
@@ -73,6 +80,27 @@ impl Program {
                 "#[derive(Clone, Copy)]\nstruct {} {{ {} }}\n\n",
                 record.name,
                 fields.join(", ")
+            ));
+        }
+        for (index, definition) in self.enums.iter().enumerate() {
+            let variants = definition
+                .variants
+                .iter()
+                .enumerate()
+                .map(|(variant, payload)| match payload.as_slice() {
+                    [] => format!("V{variant}"),
+                    payload => {
+                        let payload = payload
+                            .iter()
+                            .map(|ty| types::render(ty, &self.records))
+                            .collect::<Vec<_>>();
+                        format!("V{variant}({})", payload.join(", "))
+                    }
+                })
+                .collect::<Vec<_>>();
+            printer.text.push_str(&format!(
+                "#[derive(Clone, Copy)]\nenum E{index} {{ {} }}\n\n",
+                variants.join(", ")
             ));
         }
         for helper in &self.helpers {

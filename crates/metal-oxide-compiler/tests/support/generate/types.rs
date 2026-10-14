@@ -81,6 +81,11 @@ pub enum Type {
     Tuple(Vec<Type>),
     /// An index into the program's records.
     Record(usize),
+    /// An index into the program's enums.
+    Enum(usize),
+    Option(Box<Type>),
+    /// A result whose error is a scalar, which `unwrap` can format.
+    Result(Box<Type>, Box<Type>),
 }
 
 impl Type {
@@ -92,6 +97,11 @@ impl Type {
 pub struct Record {
     pub name: String,
     pub fields: Vec<(String, Type)>,
+}
+
+/// An enum `E{index}` whose variants `V0, V1, ...` carry the given payloads.
+pub struct Enum {
+    pub variants: Vec<Vec<Type>>,
 }
 
 pub fn render(ty: &Type, records: &[Record]) -> String {
@@ -108,6 +118,12 @@ pub fn render(ty: &Type, records: &[Record]) -> String {
             format!("({},)", fields.join(", "))
         }
         Type::Record(index) => records[*index].name.clone(),
+        Type::Enum(index) => format!("E{index}"),
+        Type::Option(value) => format!("Option<{}>", render(value, records)),
+        Type::Result(value, error) => {
+            let (value, error) = (render(value, records), render(error, records));
+            format!("Result<{value}, {error}>")
+        }
     }
 }
 

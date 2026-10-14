@@ -17,6 +17,9 @@ impl Builder {
         {
             return call;
         }
+        if self.random.chance(1, 10) {
+            return self.unpack(scope, ty, depth - 1);
+        }
         match ty {
             Type::Int(int) => self.int(scope, *int, depth - 1),
             Type::Float => self.float(scope, depth - 1),
@@ -87,6 +90,9 @@ impl Builder {
                 .iter()
                 .map(|(_, ty)| ty.clone())
                 .collect(),
+            Type::Enum(_) | Type::Option(_) | Type::Result(..) => {
+                return self.variant(scope, ty, depth);
+            }
             _ => unreachable!("scalars have literals"),
         };
         let values = fields
@@ -242,6 +248,17 @@ impl Builder {
         Expr::Cast(Box::new(Expr::Local(name)), Type::Int(int))
     }
 
+    /// A comparison of a value of the thread with a literal, which holds for some threads.
+    pub fn varying_condition(&mut self, scope: &Scope) -> Expr {
+        let int = *self.random.pick(&INTS);
+        let value = self.expr(scope, &Type::Int(int), 2);
+        let varying = self.varying(scope, int);
+        let mixed = Expr::Binary(Box::new(value), "^", Box::new(varying));
+        let comparison = self.random.pick(&["!=", "!=", "<", ">="]);
+        let literal = Expr::Literal(int.literal(&mut self.random));
+        Expr::Binary(Box::new(mixed), comparison, Box::new(literal))
+    }
+
     fn any_int(&mut self, scope: &Scope, depth: u32) -> Expr {
         let int = *self.random.pick(&INTS);
         self.expr(scope, &Type::Int(int), depth)
@@ -270,7 +287,7 @@ impl Builder {
     }
 
     fn boolean(&mut self, scope: &Scope, depth: u32) -> Expr {
-        match self.random.below(5) {
+        match self.random.below(6) {
             0 | 1 => {
                 let ty = if self.random.chance(1, 4) {
                     Type::Float
@@ -286,6 +303,7 @@ impl Builder {
                 )
             }
             2 => Expr::Unary("!", Box::new(self.expr(scope, &Type::Bool, depth))),
+            5 => self.tested(scope, depth),
             3 => {
                 let left = self.expr(scope, &Type::Bool, depth);
                 let right = self.expr(scope, &Type::Bool, depth);

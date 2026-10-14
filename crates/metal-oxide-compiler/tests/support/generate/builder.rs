@@ -2,7 +2,7 @@ use super::{
     Word,
     ast::{Expr, Function, Projection, Stmt},
     random::Random,
-    types::{INTS, Int, Record, Type},
+    types::{Enum, INTS, Int, Record, Type},
 };
 
 const U32: Type = Type::Int(Int {
@@ -13,6 +13,7 @@ const U32: Type = Type::Int(Int {
 pub struct Builder {
     pub random: Random,
     pub records: Vec<Record>,
+    pub enums: Vec<Enum>,
     pub helpers: Vec<Function>,
     /// Emits checked operations on values of the thread that fail for some of them: indices past
     /// the length, plain arithmetic and division, and assertions.
@@ -35,9 +36,31 @@ pub struct Scope {
     pub generic: Option<String>,
     /// Integer parameters, whose values differ between threads.
     pub varying: Vec<String>,
+    /// The enclosing helper's `Option` or `Result` result, into which `?` propagates.
+    pub question: Option<Type>,
 }
 
 impl Scope {
+    /// This scope with the given immutable bindings, as a match arm sees it.
+    pub fn bind(&self, bindings: &[(String, Type)]) -> Self {
+        let mut scope = self.clone();
+        scope.locals.extend(bindings.iter().map(|(name, ty)| Local {
+            name: name.clone(),
+            ty: ty.clone(),
+            mutable: false,
+        }));
+        scope
+    }
+
+    /// The locals of enum, `Option` and `Result` types.
+    pub fn variants(&self) -> Vec<(String, Type)> {
+        self.locals
+            .iter()
+            .filter(|local| matches!(local.ty, Type::Enum(_) | Type::Option(_) | Type::Result(..)))
+            .map(|local| (local.name.clone(), local.ty.clone()))
+            .collect()
+    }
+
     /// The locals and their projections of `ty`; index operands are placeholders.
     pub fn places(&self, records: &[Record], ty: &Type) -> Vec<Expr> {
         let mut found = Vec::new();
@@ -128,20 +151,21 @@ impl Builder {
         Self {
             random: Random::new(seed),
             records: Vec::new(),
+            enums: Vec::new(),
             helpers: Vec::new(),
             fallible: false,
             names: 0,
         }
     }
 
-    fn fresh(&mut self, prefix: &str) -> String {
+    pub fn fresh(&mut self, prefix: &str) -> String {
         self.names += 1;
         format!("{prefix}{}", self.names)
     }
 
     /// A type that nests aggregates at most `depth` levels.
     pub fn ty(&mut self, depth: u32) -> Type {
-        match self.random.below(12) {
+        match self.random.below(15) {
             0..=4 => Type::Int(*self.random.pick(&INTS)),
             5 | 6 => Type::Float,
             7 => Type::Bool,
@@ -156,11 +180,24 @@ impl Builder {
             10 | 11 if depth > 0 && !self.records.is_empty() => {
                 Type::Record(self.random.below(self.records.len() as u64) as usize)
             }
+            12 if depth > 0 && !self.enums.is_empty() => {
+                Type::Enum(self.random.below(self.enums.len() as u64) as usize)
+            }
+            13 if depth > 0 => Type::Option(Box::new(self.ty(depth - 1))),
+            14 if depth > 0 => Type::Result(Box::new(self.ty(depth - 1)), Box::new(self.ty(0))),
             _ => Type::Int(*self.random.pick(&INTS)),
         }
     }
 
-    /// A record whose fields may hold the records before it.
+    /// An enum whose payloads may hold the records and enums before it.
+    pub fn enumeration(&mut self) {
+        let variants = (0..1 + self.random.below(4))
+            .map(|_| (0..self.random.below(3)).map(|_| self.ty(1)).collect())
+            .collect();
+        self.enums.push(Enum { variants });
+    }
+
+    /// A record whose fields may hold the records and enums before it.
     pub fn record(&mut self) {
         let fields = (0..1 + self.random.below(3))
             .map(|index| (format!("f{index}"), self.ty(1)))
@@ -255,19 +292,13 @@ impl Builder {
         Stmt::Exit(condition, kind, label)
     }
 
-    /// An assertion, mostly one that compares a value of the thread with a literal, so that it
-    /// fails for some threads only.
+    /// An assertion, mostly of a condition on a value of the thread, so that it fails for some
+    /// threads only.
     fn assertion(&mut self, scope: &Scope) -> Stmt {
         if self.random.chance(1, 4) {
             return Stmt::Assert(self.expr(scope, &Type::Bool, 2));
         }
-        let int = *self.random.pick(&INTS);
-        let value = self.expr(scope, &Type::Int(int), 2);
-        let varying = self.varying(scope, int);
-        let mixed = Expr::Binary(Box::new(value), "^", Box::new(varying));
-        let comparison = self.random.pick(&["!=", "!=", "<", ">="]);
-        let literal = Expr::Literal(int.literal(&mut self.random));
-        Stmt::Assert(Expr::Binary(Box::new(mixed), comparison, Box::new(literal)))
+        Stmt::Assert(self.varying_condition(scope))
     }
 
     /// A helper that the helpers after it and `run` may call; it calls only earlier ones.
@@ -280,6 +311,7 @@ impl Builder {
         let result = self.ty(1);
         let mut scope = Scope {
             generic: generic.clone(),
+            question: matches!(result, Type::Option(_) | Type::Result(..)).then(|| result.clone()),
             varying: parameters
                 .iter()
                 .filter(|(_, ty)| matches!(ty, Type::Int(_)))
