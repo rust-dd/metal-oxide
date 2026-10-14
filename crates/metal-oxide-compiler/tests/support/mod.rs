@@ -4,6 +4,7 @@
 pub mod artifact;
 pub mod differential;
 pub mod generate;
+pub mod oracle;
 pub mod process;
 
 use std::{
@@ -14,7 +15,7 @@ use std::{
 
 const COMPILER: &str = env!("CARGO_BIN_EXE_metal-oxide-compiler");
 
-fn root() -> PathBuf {
+pub fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
@@ -76,13 +77,19 @@ fn dependency(command: &mut Command, name: &str) {
 }
 
 pub fn checked(output: Output) -> String {
-    assert!(
-        output.status.success(),
+    succeeded(output).unwrap_or_else(|failure| panic!("{failure}"))
+}
+
+/// The output's stdout, or its stdout and stderr when the process failed.
+pub fn succeeded(output: Output) -> Result<String, String> {
+    if output.status.success() {
+        return Ok(String::from_utf8(output.stdout).unwrap());
+    }
+    Err(format!(
         "stdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
+    ))
 }
 
 fn prepare_dependencies() {
@@ -281,6 +288,11 @@ pub fn emit_into(source: &str, options: &[&str], output: &Path) -> Output {
 }
 
 pub fn execute_msl(directory: &Path, main: &str) -> String {
+    run_msl(directory, main).unwrap_or_else(|failure| panic!("{failure}"))
+}
+
+/// The output of `main` built for the host with the emitted MSL, or why the build or run failed.
+pub fn run_msl(directory: &Path, main: &str) -> Result<String, String> {
     let source = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
     let program = format!(
         "#include <iostream>\n{source}\nint main() {{ uint metal_oxide_gate_word = 0; atomic_uint metal_oxide_failure_word{{0}}; const device uint* metal_oxide_gate = &metal_oxide_gate_word; device atomic_uint* metal_oxide_failure = &metal_oxide_failure_word; {main} }}\n"
@@ -304,13 +316,13 @@ pub fn execute_msl(directory: &Path, main: &str) -> String {
         .arg(directory.join("main.cpp"))
         .arg("-o")
         .arg(directory.join("run"));
-    let output = process::output(&mut compiler, std::time::Duration::from_secs(60)).unwrap();
-    checked(output);
-    checked(
-        process::output(
-            &mut Command::new(directory.join("run")),
-            std::time::Duration::from_secs(5),
-        )
-        .unwrap(),
+    let output = process::output(&mut compiler, std::time::Duration::from_secs(60))
+        .map_err(|error| format!("clang++: {error}"))?;
+    succeeded(output)?;
+    let run = process::output(
+        &mut Command::new(directory.join("run")),
+        std::time::Duration::from_secs(5),
     )
+    .map_err(|error| format!("the host build: {error}"))?;
+    succeeded(run)
 }

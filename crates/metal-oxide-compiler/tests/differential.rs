@@ -3,7 +3,7 @@
 mod support;
 
 use std::{process::Command, time::Duration};
-use support::differential::Outcome;
+use support::{differential::Outcome, generate::Program, oracle::Failure};
 
 #[test]
 fn differential_process_deadline_stops_nonterminating_programs() {
@@ -25,14 +25,12 @@ fn differential_process_deadline_stops_nonterminating_programs() {
 fn generated_programs_match_cpu_and_emitted_msl() {
     for seed in support::differential::SEEDS {
         let case = support::differential::Case::generated(seed);
-        let generated = case.compile();
-        let source = case.source.display();
-        if let Some(mismatch) = case.mismatch(&case.cpu(), &case.msl(&generated)) {
-            panic!("seed {seed:#x}, {source}: {mismatch}");
-        }
+        let (_, generated) = case
+            .check()
+            .unwrap_or_else(|failure| panic!("{}: {failure}", case.source.display()));
         let original = metal_oxide_artifact::COMPILER_OUTPUTS
             .map(|file| std::fs::read(generated.join(file.name())).unwrap());
-        let rebuilt = case.compile();
+        let rebuilt = case.compile().unwrap();
         for (file, expected) in metal_oxide_artifact::COMPILER_OUTPUTS
             .into_iter()
             .zip(original)
@@ -52,7 +50,7 @@ fn a_kernel_that_writes_other_words_is_reported() {
     let (case, expected) = (5..)
         .map(|seed| {
             let case = support::differential::Case::generated(seed);
-            let expected = case.cpu();
+            let expected = case.cpu().unwrap();
             (case, expected)
         })
         .find(|(_, expected)| {
@@ -65,14 +63,53 @@ fn a_kernel_that_writes_other_words_is_reported() {
     let changed = source.replacen("words[0]);", "words[0] ^ 1);", 1);
     assert_ne!(changed, source);
     std::fs::write(&case.source, changed).unwrap();
-    let generated = case.compile();
-    assert!(case.mismatch(&expected, &case.msl(&generated)).is_some());
+    assert!(matches!(case.check(), Err(Failure::Msl(_))));
+    let generated = case.compile().unwrap();
+    assert!(
+        case.mismatch(&expected, &case.msl(&generated).unwrap())
+            .is_some()
+    );
+}
+
+#[test]
+fn compiler_failures_match_by_their_first_diagnostic_wherever_it_points() {
+    let rejected = |location: &str| {
+        Failure::Compiler(format!(
+            "stdout:\nstderr:\nerror: {location}: integer division/remainder requires a proved nonzero divisor\n"
+        ))
+    };
+    assert!(rejected("/a/case.rs:20:138").same_as(&rejected("/b/case.rs:3:9")));
+    let other = Failure::Compiler("stderr:\nerror: unsupported device type: &&()\n".into());
+    assert!(!rejected("/a/case.rs:1:1").same_as(&other));
+    assert!(Failure::Msl("thread 3".into()).same_as(&Failure::Msl("thread 9".into())));
+    assert!(!Failure::Msl("thread 3".into()).same_as(&Failure::Gpu("thread 3".into())));
+}
+
+#[test]
+fn shrinking_keeps_what_fails_and_drops_the_rest() {
+    let fails = |program: &Program| program.source(&[]).contains("\"generated assertion\"");
+    let program = (0..).map(Program::generate).find(fails).unwrap();
+    let size = program.source(&[]).len();
+    let shrunk = program.shrink(fails);
+    assert!(fails(&shrunk));
+    let source = shrunk.source(&[]);
+    assert!(source.len() < size / 2, "{source}");
+}
+
+/// Minimized programs that once failed, which must keep matching the CPU.
+#[test]
+fn generated_fixtures_match_cpu_and_emitted_msl() {
+    for case in support::differential::fixtures() {
+        if let Err(failure) = case.check() {
+            panic!("{}: {failure}", case.source.display());
+        }
+    }
 }
 
 #[test]
 fn failures_are_compared_by_location_and_completed_threads_by_words() {
     let case = support::differential::Case::generated(0);
-    let words = case.program.words.len();
+    let words = case.words.len();
     let panic = Outcome::Panic { line: 9, column: 5 };
     let expected = [Outcome::Words(vec![0; words]), panic.clone()];
     let zeros = vec![0; 2 * words];
@@ -284,47 +321,15 @@ fn duplicate_entrypoint_names_have_source_diagnostics() {
 #[test]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
-fn generated_programs_match_cpu_on_gpu() {
-    use metal_oxide::{Argument, Device, Error, Launch, LaunchConfig, Operation, Pipeline};
-    let device = Device::system_default().unwrap();
-    for seed in support::differential::SEEDS {
-        let case = support::differential::Case::generated(seed);
-        let directory = case.compile();
-        let module = support::artifact::module(&device, &directory).unwrap();
-        let pipeline = Pipeline::new(&device, &module, "generated").unwrap();
-        let words = case.program.words.len();
-        let input = device.buffer_from_slice(&case.inputs).unwrap();
-        let mut output = device
-            .buffer_zeroed::<u32>(case.inputs.len() * words)
-            .unwrap();
-        let n = case.inputs.len() as u32;
-        // SAFETY: the buffers are disjoint; padded threads are guarded and thread i alone
-        // writes the words at i * words.
-        let result = unsafe {
-            Launch::new(
-                Ok(&pipeline),
-                LaunchConfig::<64>::for_elements(n).unwrap(),
-                (&input, &mut output, n),
-                |(input, output, n)| {
-                    Ok([
-                        Argument::read(input),
-                        Argument::write(output),
-                        Argument::value(*n)?,
-                    ])
-                },
-            )
-            .wait()
-        };
-        let failure = match result {
-            Ok(_) => None,
-            Err(Error::KernelFailed(failure)) => Some(Outcome::Panic {
-                line: failure.line,
-                column: failure.column,
-            }),
-            Err(error) => panic!("seed {seed:#x}: {error}"),
-        };
-        if let Some(mismatch) = case.gpu_mismatch(&case.cpu(), failure, output.read().wait()) {
-            panic!("seed {seed:#x}, {}: {mismatch}", case.source.display());
+fn generated_programs_and_fixtures_match_cpu_on_gpu() {
+    let device = metal_oxide::Device::system_default().unwrap();
+    let seeds = support::differential::SEEDS.map(support::differential::Case::generated);
+    for case in seeds.into_iter().chain(support::differential::fixtures()) {
+        let result = case
+            .check()
+            .and_then(|(expected, generated)| case.check_gpu(&device, &expected, &generated));
+        if let Err(failure) = result {
+            panic!("{}: {failure}", case.source.display());
         }
     }
 }

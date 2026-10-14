@@ -96,12 +96,14 @@ pub enum Type {
     Closure(Vec<Type>, Box<Type>),
 }
 
+#[derive(Clone)]
 pub struct Record {
     pub name: String,
     pub fields: Vec<(String, Type)>,
 }
 
 /// An enum `E{index}` whose variants `V0, V1, ...` carry the given payloads.
+#[derive(Clone)]
 pub struct Enum {
     pub variants: Vec<Vec<Type>>,
 }

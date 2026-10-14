@@ -13,7 +13,8 @@ pub fn module(device: &Device, directory: &Path) -> metal_oxide::Result<Module> 
 
 /// The manifest and library of generated kernels, compiled offline.
 pub fn manifest(directory: &Path) -> metal_oxide::Result<(Manifest, Vec<u8>)> {
-    let metal_flags = metal_oxide_build::compile_msl(directory).unwrap();
+    let metal_flags = metal_oxide_build::compile_msl(directory)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
     let read = |file: ArtifactFile| std::fs::read(directory.join(file.name())).unwrap();
     let manifest = Manifest {
         abi: Abi::from_json(&String::from_utf8(read(ArtifactFile::Abi)).unwrap())?,
