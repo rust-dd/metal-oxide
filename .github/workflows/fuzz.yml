@@ -1,0 +1,42 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Generated programs (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    defaults:
+      run:
+        working-directory: crates/metal-oxide-compiler
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install compiler and workspace toolchains
+        run: |
+          rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
+          rustup toolchain install 1.99.0 --profile minimal
+      - name: Compare generated programs on the CPU, the host and classic Metal
+        # The hosted Apple Paravirtual device lacks the Metal 4 family.
+        env:
+          METAL_OXIDE_BACKEND: classic
+          METAL_OXIDE_FUZZ_GPU: "1"
+          METAL_OXIDE_FUZZ_SECONDS: "2700"
+        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler --test fuzz -- --ignored --nocapture
+      - name: Upload failing programs and their minimized forms
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fuzz-${{ matrix.os }}
+          path: target/fuzz
+          if-no-files-found: ignore
