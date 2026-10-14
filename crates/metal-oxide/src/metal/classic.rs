@@ -17,6 +17,7 @@ use super::{
     completion::{Completion, gpu_time},
     failure::CommandFailure,
     failures::Failures,
+    queue::{Finish, Signal},
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -29,18 +30,22 @@ pub(super) struct ClassicBatch {
 }
 
 impl ClassicBatch {
-    /// A command buffer with one compute encoder: serial when every dispatch waits for the
-    /// previous one, which beats barriers in a concurrent encoder for such chains.
+    /// A command buffer that first waits for `waits`, with one compute encoder: serial when every
+    /// dispatch waits for the previous one, which beats barriers in a concurrent encoder there.
     pub(super) fn new(
         queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
         serial: bool,
+        waits: &[Signal],
     ) -> Result<Self> {
         let descriptor = MTLCommandBufferDescriptor::new();
         descriptor.setLogState(log);
         let command = queue
             .commandBufferWithDescriptor(&descriptor)
             .ok_or_else(|| Error::Command("could not create command buffer".into()))?;
+        for wait in waits {
+            command.encodeWaitForEvent_value(ProtocolObject::from_ref(&*wait.event), wait.value);
+        }
         let dispatch = if serial {
             MTLDispatchType::Serial
         } else {
@@ -135,13 +140,18 @@ impl ClassicBatch {
             .memoryBarrierWithScope(MTLBarrierScope::Buffers);
     }
 
+    /// Commits the command buffer, which sets `signal` when its work finishes.
     pub(super) fn commit(
         mut self,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
         failures: Failures,
+        signal: &Signal,
+        finish: Finish,
     ) {
         self.encoder.take().unwrap().endEncoding();
+        self.command
+            .encodeSignalEvent_value(ProtocolObject::from_ref(&*signal.event), signal.value);
         let queue = self.queue.clone();
         let bindings = std::mem::take(&mut self.bindings);
         let handler = RcBlock::new(
@@ -167,6 +177,7 @@ impl ClassicBatch {
                             }))
                     }
                 });
+                finish.run();
                 completion.finish(result);
             },
         );

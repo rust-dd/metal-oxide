@@ -11,6 +11,7 @@ use super::{
     completion::Completion,
     failures::{Failures, Gate, Slot},
     metal4::Metal4Batch,
+    queue::{Finish, Placement, Signal},
     record::Recording,
 };
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
@@ -87,9 +88,16 @@ impl Batch {
         let completion = Arc::new(Completion::default());
         match self.device {
             Some(device) if !self.recording.dispatches.is_empty() => {
-                let encoder = Encoder::new(&device, &self.recording)?;
-                self.recording.register(&completion);
-                encoder.commit(&device, &completion);
+                let placement =
+                    Placement::new(&device.backend().running(), self.recording.conflicts());
+                let encoder = Encoder::new(&device, &self.recording, &placement)?;
+                let signal = match device.backend() {
+                    Backend::Classic { signals, .. } => Some(signals.take(device.raw())?),
+                    Backend::Metal4 { .. } => None,
+                };
+                self.recording
+                    .register(&completion, placement.queue, signal.as_ref());
+                encoder.commit(&device, &completion, &placement, signal);
             }
             _ => completion.finish(Ok(None)),
         }
@@ -141,19 +149,36 @@ enum NativeBatch {
 }
 
 impl Encoder {
-    /// Encodes the recorded dispatches level by level, with a barrier between levels.
-    fn new(device: &Device, recording: &Recording) -> Result<Self> {
+    /// Encodes the recorded dispatches level by level, with a barrier between levels, on the
+    /// queue of `placement`.
+    fn new(device: &Device, recording: &Recording, placement: &Placement) -> Result<Self> {
         let native = match device.backend() {
-            Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(
-                queue,
-                device.log_state(),
-                recording.is_chain(),
-            )?),
-            Backend::Metal4 { queue, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
+            Backend::Classic { queues, .. } => {
+                let mut waits = Vec::<Signal>::new();
+                for access in &placement.remote {
+                    let signal = access
+                        .signal
+                        .as_ref()
+                        .expect("classic accesses carry a signal");
+                    if !waits.iter().any(|wait| {
+                        std::ptr::eq(&*wait.event, &*signal.event) && wait.value == signal.value
+                    }) {
+                        waits.push(signal.clone());
+                    }
+                }
+                NativeBatch::Classic(ClassicBatch::new(
+                    &queues[placement.queue].native,
+                    device.log_state(),
+                    recording.is_chain(),
+                    &waits,
+                )?)
+            }
+            Backend::Metal4 { queues, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
                 device.raw(),
-                queue,
+                &queues[placement.queue].native.raw,
                 cache,
                 device.log_state(),
+                placement.local,
             )?),
         };
         let mut encoder = Self {
@@ -244,17 +269,50 @@ impl Encoder {
         Ok(gate)
     }
 
-    fn commit(self, device: &Device, completion: &Arc<Completion>) {
-        match (self.native, device.backend()) {
-            (NativeBatch::Classic(batch), _) => {
-                batch.commit(Arc::clone(completion), self.pipelines, self.failures)
+    fn commit(
+        self,
+        device: &Device,
+        completion: &Arc<Completion>,
+        placement: &Placement,
+        signal: Option<Signal>,
+    ) {
+        match (self.native, device.backend(), signal) {
+            (NativeBatch::Classic(batch), Backend::Classic { queues, signals }, Some(signal)) => {
+                let finish = Finish::new(
+                    queues[placement.queue].start(),
+                    Some((signal.clone(), Arc::clone(signals))),
+                );
+                batch.commit(
+                    Arc::clone(completion),
+                    self.pipelines,
+                    self.failures,
+                    &signal,
+                    finish,
+                )
             }
-            (NativeBatch::Metal4(batch), Backend::Metal4 { cache, .. }) => {
-                batch.commit(cache, Arc::clone(completion), self.pipelines, self.failures)
+            (NativeBatch::Metal4(batch), Backend::Metal4 { queues, cache, .. }, None) => {
+                let mut remote = placement
+                    .remote
+                    .iter()
+                    .map(|access| access.queue)
+                    .collect::<Vec<_>>();
+                remote.sort_unstable();
+                remote.dedup();
+                let waits = remote
+                    .into_iter()
+                    .map(|queue| queues[queue].native.signal())
+                    .collect::<Vec<_>>();
+                let finish = Finish::new(queues[placement.queue].start(), None);
+                batch.commit(
+                    cache,
+                    Arc::clone(completion),
+                    self.pipelines,
+                    self.failures,
+                    &waits,
+                    finish,
+                )
             }
-            (NativeBatch::Metal4(_), Backend::Classic(_)) => {
-                unreachable!("a device keeps its native command path")
-            }
+            _ => unreachable!("a device keeps its native command path"),
         }
     }
 }

@@ -127,7 +127,7 @@ fn loom_polled_readback_is_ready_only_after_a_registered_write() {
     loom::model(|| {
         let access = Arc::new(AccessState::default());
         let write = Arc::new(Completion::default());
-        access.register(&write);
+        access.register(super::access::write(&write));
         let finisher = finish(&write);
         let flag = Arc::new(Flag(AtomicBool::new(false)));
         let waker = Waker::from(Arc::clone(&flag));
@@ -147,7 +147,7 @@ fn loom_concurrent_readers_wait_for_a_registered_write() {
     loom::model(|| {
         let access = Arc::new(AccessState::default());
         let write = Arc::new(Completion::default());
-        access.register(&write);
+        access.register(super::access::write(&write));
         let finisher = finish(&write);
         let reader = {
             let (access, write) = (Arc::clone(&access), Arc::clone(&write));

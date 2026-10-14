@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Argument, Operation};
+use crate::{Argument, Operation, metal::queue::Finish};
 
 #[test]
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
@@ -143,7 +143,7 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
     }
     let queue = device.raw().newMTL4CommandQueue().unwrap();
     let cache = BatchCache::default();
-    let mut first = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
+    let mut first = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
     let command = first.command.clone();
     let residency = first.residency.clone();
     let buffer = super::super::constants::allocate(device.raw(), 16).unwrap();
@@ -155,9 +155,11 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
         Arc::clone(&completion),
         Vec::new(),
         Failures::new(Arc::clone(device.failure_pool())),
+        &[],
+        Finish::new(Arc::new(std::sync::atomic::AtomicUsize::new(1)), None),
     );
     completion.wait().unwrap();
-    let second = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
+    let second = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
     assert!(std::ptr::eq(&*command, &*second.command));
     assert!(std::ptr::eq(&*residency, &*second.residency));
     assert_eq!(second.residency.allocationCount(), 0);
@@ -195,7 +197,7 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     let mut commands = Vec::new();
     let completions = (0..3)
         .map(|_| {
-            let batch = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
+            let batch = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
             commands.push(batch.command.clone());
             let completion = Arc::new(Completion::default());
             batch.commit(
@@ -203,6 +205,8 @@ fn pipelined_batches_reuse_pooled_command_storage() {
                 Arc::clone(&completion),
                 Vec::new(),
                 Failures::new(Arc::clone(device.failure_pool())),
+                &[],
+                Finish::new(Arc::new(std::sync::atomic::AtomicUsize::new(1)), None),
             );
             completion
         })
@@ -210,7 +214,7 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     assert!(!std::ptr::eq(&*commands[0], &*commands[1]));
     completions.iter().for_each(|completion| completion.block());
     for _ in 0..3 {
-        let batch = Metal4Batch::new(device.raw(), &queue, &cache, None).unwrap();
+        let batch = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
         assert!(
             commands
                 .iter()

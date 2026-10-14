@@ -22,8 +22,9 @@ use super::{
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
-/// A Metal device and its ordered command queue. Clones share the queue, any thread may use
-/// them, and operations run in the order they commit.
+/// A Metal device and its command queues; clones share them, and any thread may use them.
+/// An operation runs after the operations committed before it that use its buffers; the others
+/// may run concurrently on other queues and finish independently.
 #[derive(Clone)]
 pub struct Device(Arc<Context>);
 
@@ -42,7 +43,7 @@ impl Device {
         Self::from_native(raw)
     }
 
-    /// Opens an independent ordered context for each available device in native enumeration order.
+    /// Opens an independent context for each available device in native enumeration order.
     /// Returns an error if any device cannot be initialized. The order is not a persistent identity.
     pub fn all() -> Result<Vec<Self>> {
         MTLCopyAllDevices()
@@ -51,7 +52,7 @@ impl Device {
             .collect()
     }
 
-    /// Retains a native device and creates a new independent ordered queue context.
+    /// Retains a native device and creates new, independent command queues.
     /// Existing native queues and their pending work are not imported.
     pub fn from_native(raw: Retained<ProtocolObject<dyn MTLDevice>>) -> Result<Self> {
         // Artifacts target macOS 15, and source compilation sets its math options.

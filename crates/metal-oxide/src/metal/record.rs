@@ -1,8 +1,12 @@
 use std::{ops::Range, sync::Arc};
 
 use super::{
-    Argument, Pipeline, access::AccessState, argument::Binding, buffer::Resource,
+    Argument, Pipeline,
+    access::{Access, AccessState},
+    argument::Binding,
+    buffer::Resource,
     completion::Completion,
+    queue::Signal,
 };
 use crate::DynamicLaunchConfig;
 
@@ -122,10 +126,32 @@ impl Recording {
         self.dispatches.iter().map(|dispatch| dispatch.level).max() == Some(self.dispatches.len())
     }
 
-    /// Makes CPU access to every buffer of the batch wait for its command buffer.
-    pub(super) fn register(&self, completion: &Arc<Completion>) {
+    /// The unfinished accesses of other batches that this batch must follow.
+    pub(super) fn conflicts(&self) -> Vec<Access> {
+        let mut conflicts = Vec::new();
         for tracked in &self.tracked {
-            tracked.resource.access.register(completion);
+            tracked
+                .resource
+                .access
+                .conflicts(tracked.resource.written, &mut conflicts);
+        }
+        conflicts
+    }
+
+    /// Records the batch's accesses, so CPU views and later batches wait for its command buffer.
+    pub(super) fn register(
+        &self,
+        completion: &Arc<Completion>,
+        queue: usize,
+        signal: Option<&Signal>,
+    ) {
+        for tracked in &self.tracked {
+            tracked.resource.access.register(Access {
+                completion: Arc::clone(completion),
+                queue,
+                signal: signal.cloned(),
+                write: tracked.resource.written,
+            });
             if tracked.resource.written {
                 tracked.resource.access.mark_written();
             }

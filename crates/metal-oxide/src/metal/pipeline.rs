@@ -162,7 +162,7 @@ pub(super) fn compile(
             .newFunctionWithName(&NSString::from_str(entrypoint))
             .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))?;
         match device.backend() {
-            Backend::Classic(_) => device
+            Backend::Classic { .. } => device
                 .raw()
                 .newComputePipelineStateWithFunction_error(&function),
             Backend::Metal4 { compiler, .. } => {

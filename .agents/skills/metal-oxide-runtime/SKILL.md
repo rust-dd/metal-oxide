@@ -33,10 +33,17 @@ separate.
   encoded/pending runtime accesses. Consuming export waits and encodes dirty
   codec values. Preserve identity storage, codec, cancellation and residency
   guarantees; dropping a buffer is not a synchronized handoff. Native device
-  import creates an independent queue context; it does not adopt pending work.
-- `Device` clones share one queue context; operations that use the same buffer run in
-  the order of their first poll or `wait`. `Batch` records dispatches and lives only
-  inside that poll or `wait`. Put `unsafe impl Send/Sync` only on small leaf types that own
+  import creates independent queues; it does not adopt pending work.
+- `Device` clones share its 4 command queues. A batch goes to the queue holding most of the
+  in-flight accesses it conflicts with (writes before its reads, any access before its
+  writes), else to the least busy queue. Completion arrives in commit order per queue, so
+  independent work on other queues finishes independently (5.2 ms to 0.1 ms behind a long
+  kernel on M4 Max). Classic tracked hazards do not order command buffers across queues:
+  every classic command buffer sets a pooled event when its work finishes, and a batch waits
+  for the events of conflicting work on other queues. Metal 4 signals a queue's timeline on
+  demand after the work committed to it, and starts a batch with a queue barrier only when
+  conflicting work runs on its own queue. `Batch` records dispatches and lives only
+  inside the first poll or `wait` of its operation. Put `unsafe impl Send/Sync` only on small leaf types that own
   non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
   protocol that makes them sound; never on `Device` or `Buffer` as a whole.
 - Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
@@ -109,8 +116,8 @@ Keep both size boundaries and cancellation/reuse covered when changing binding.
 Dynamic threadgroup arguments have a separate 31-slot namespace; check rounded
 nonzero byte lengths plus static pipeline storage before encoding, including empty grids.
 Clear stale threadgroup slots when a reused encoder changes kernels.
-Metal 4 requires encoder barriers between dependent dispatches and queue barriers
-between batches.
+Metal 4 requires encoder barriers between dependent dispatches and a queue barrier before a
+batch that follows work on its queue.
 Do not reset or release a command allocator before GPU completion.
 The context pools the command buffer, allocator, residency set and binding storage
 of up to 64 committed batches, like a classic queue's in-flight command buffers. A fresh

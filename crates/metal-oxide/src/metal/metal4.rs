@@ -13,7 +13,7 @@ use objc2_metal::{
     MTL4CommandBufferOptions, MTL4CommandEncoder, MTL4CommandQueue, MTL4CommitFeedback,
     MTL4CommitOptions, MTL4ComputeCommandEncoder, MTL4VisibilityOptions, MTLBuffer,
     MTLComputePipelineState, MTLDevice, MTLLogState, MTLResidencySet, MTLResidencySetDescriptor,
-    MTLStages,
+    MTLSharedEvent, MTLStages,
 };
 
 use super::{
@@ -23,6 +23,7 @@ use super::{
     constants::Constants,
     failure::CommandFailure,
     failures::Failures,
+    queue::Finish,
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -136,11 +137,14 @@ pub(super) struct Metal4Batch {
 }
 
 impl Metal4Batch {
+    /// A command buffer that starts with a queue barrier when `ordered`, so it follows the
+    /// conflicting work committed before it to the same queue.
     pub(super) fn new(
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
         cache: &BatchCache,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
+        ordered: bool,
     ) -> Result<Self> {
         let CommandStorage {
             allocator,
@@ -161,11 +165,13 @@ impl Metal4Batch {
                 "could not create Metal 4 compute encoder".into(),
             ));
         };
-        encoder.barrierAfterQueueStages_beforeStages_visibilityOptions(
-            MTLStages::Dispatch,
-            MTLStages::Dispatch,
-            MTL4VisibilityOptions::Device,
-        );
+        if ordered {
+            encoder.barrierAfterQueueStages_beforeStages_visibilityOptions(
+                MTLStages::Dispatch,
+                MTLStages::Dispatch,
+                MTL4VisibilityOptions::Device,
+            );
+        }
         Ok(Self {
             command,
             allocator,
@@ -283,12 +289,15 @@ impl Metal4Batch {
             );
     }
 
+    /// Commits the command buffer after the queue has waited for each event value in `waits`.
     pub(super) fn commit(
         mut self,
         cache: &BatchCache,
         completion: Arc<Completion>,
         pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
         failures: Failures,
+        waits: &[(&ProtocolObject<dyn MTLSharedEvent>, u64)],
+        finish: Finish,
     ) {
         self.encoder.take().unwrap().endEncoding();
         self.residency.commit();
@@ -328,11 +337,16 @@ impl Metal4Batch {
                 // The cache becomes reusable only after residency releases this batch's resources.
                 keepalive.3.removeAllAllocations();
                 keepalive.3.commit();
+                finish.run();
                 completion.finish(result);
             },
         );
         let options = MTL4CommitOptions::new();
         let mut command = NonNull::from(&*self.command);
+        for (event, value) in waits {
+            self.queue
+                .waitForEvent_value(ProtocolObject::from_ref(*event), *value);
+        }
         // SAFETY: Metal copies the callback; the one-element command array is valid for this call.
         // The callback retains all immutable native state until completion, independently of the future.
         unsafe {

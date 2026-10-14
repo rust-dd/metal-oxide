@@ -97,8 +97,9 @@ See [generated bindings](https://github.com/rust-dd/metal-oxide/blob/main/CONCEP
 Use `Device::all()?.into_iter().nth(index)` to select a device explicitly.
 `recommended_max_working_set_size()` reports its advisory memory budget.
 Devices, modules, pipelines, buffers, operations and generated `Kernels` are `Send + Sync`;
-`Device` clones share one ordered queue, and CPU views on any thread wait for pending GPU
-work. Native Metal integration uses
+`Device` clones share its command queues: an operation runs after the earlier operations
+that use its buffers, independent ones run on other queues and finish independently, and CPU
+views on any thread wait for pending GPU work. Native Metal integration uses
 `Device::from_native`, unsafe `Buffer::from_native`, and consuming `Buffer::into_native`.
 See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#native-resource-ownership).
 

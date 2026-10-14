@@ -583,7 +583,7 @@ select one with `into_iter().nth(index)`. The order is not a persistent identity
 free memory. Buffer allocation failure is `Error::AllocationFailed`; terminal
 command memory exhaustion is `Error::OutOfMemory` on both backends.
 
-`Device::from_native` retains an `objc2-metal` device and creates an ordered queue.
+`Device::from_native` retains an `objc2-metal` device and creates its command queues.
 `as_native` borrows that device for external resource creation. Unsafe
 `Buffer::from_native` consumes retained, initialized, shared, hazard-tracked storage
 on the same physical device. It validates the canonical element layout, extent
@@ -602,9 +602,12 @@ the operation that ran them.
 
 `Device`, `Module`, `Pipeline`, `Buffer`, `Argument`, `Launch` and the operation
 futures are `Send + Sync` when their arguments are. `Device` and `Pipeline` are cheap
-handles: device clones share one queue context, and operations that use the same buffer
-run in the order they are first polled or waited. A `Batch` records its dispatches and
-encodes them when its operation commits. CPU views on
+handles: device clones share its four command queues. An operation commits when it is first
+polled or waited and runs after the operations committed before it that use its buffers: it
+joins the queue of that work, and waits for work on other queues through events. Without such
+work it takes the least busy queue. Completion arrives in commit order per queue, so
+independent work is not held behind long work on another queue. A `Batch` records its
+dispatches and encodes them when its operation commits. CPU views on
 any thread wait for every registered GPU access; GPU writes require an exclusive
 borrow or ownership, so codec buffers decode a GPU write once even when several
 threads read concurrently. [The threading tests](crates/metal-oxide/tests/threads.rs)
@@ -624,7 +627,8 @@ The selected variant controls pipeline creation and batch encoding:
 | Command encoding | `MTLComputeCommandEncoder` | `MTL4ComputeCommandEncoder` and command allocator |
 | Arguments | `setBuffer`; values up to 4 KiB copied with `setBytes`, larger values retained in buffers | GPU addresses in an immutable `MTL4ArgumentTable`; values packed into aligned, immutable storage per dispatch |
 | Resource residency | Classic resource management | Explicit residency set |
-| Dispatch ordering | A serial encoder for a chain; otherwise a concurrent encoder with buffer barriers between phases | Encoder barriers between phases and a queue barrier per batch |
+| Dispatch ordering | A serial encoder for a chain; otherwise a concurrent encoder with buffer barriers between phases | Encoder barriers between phases; a queue barrier when the batch follows work on its queue |
+| Work on other queues | Each command buffer sets a pooled event when it finishes; dependents wait for it | The queue signals a timeline event after its committed work on demand; dependents wait for it |
 | Commit | Command-buffer commit and completion callback | Command-queue commit and feedback callback |
 
 Both paths retain native resources until GPU completion and expose the same

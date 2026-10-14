@@ -16,6 +16,7 @@ mod metal4;
 mod module;
 mod operation;
 mod pipeline;
+mod queue;
 mod record;
 mod sync;
 
