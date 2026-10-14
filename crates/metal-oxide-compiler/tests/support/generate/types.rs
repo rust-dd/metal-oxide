@@ -7,6 +7,8 @@ pub struct Int {
     pub signed: bool,
 }
 
+pub const U32: Type = Type::Int(Int::unsigned(32));
+
 pub const INTS: [Int; 7] = [
     Int::unsigned(8),
     Int::unsigned(16),
@@ -86,12 +88,12 @@ pub enum Type {
     Option(Box<Type>),
     /// A result whose error is a scalar, which `unwrap` can format.
     Result(Box<Type>, Box<Type>),
-}
-
-impl Type {
-    pub fn is_scalar(&self) -> bool {
-        matches!(self, Self::Int(_) | Self::Float | Self::Bool)
-    }
+    /// `&T`, or `&mut T` when set; only helper parameters are references.
+    Ref(Box<Type>, bool),
+    /// `&[T]`, or `&mut [T]` when set, borrowing part of an array local.
+    Slice(Box<Type>, bool),
+    /// A closure local, or a helper's `impl Fn` parameter, with its parameter and result types.
+    Closure(Vec<Type>, Box<Type>),
 }
 
 pub struct Record {
@@ -124,7 +126,28 @@ pub fn render(ty: &Type, records: &[Record]) -> String {
             let (value, error) = (render(value, records), render(error, records));
             format!("Result<{value}, {error}>")
         }
+        Type::Ref(target, mutable) => {
+            format!("&{}{}", mutability(*mutable), render(target, records))
+        }
+        Type::Slice(element, mutable) => {
+            format!("&{}[{}]", mutability(*mutable), render(element, records))
+        }
+        Type::Closure(parameters, result) => {
+            let parameters = parameters
+                .iter()
+                .map(|ty| render(ty, records))
+                .collect::<Vec<_>>();
+            format!(
+                "impl Fn({}) -> {}",
+                parameters.join(", "),
+                render(result, records)
+            )
+        }
     }
+}
+
+pub fn mutability(mutable: bool) -> &'static str {
+    if mutable { "mut " } else { "" }
 }
 
 /// A float literal: an integer or a quarter, in parentheses when negative.

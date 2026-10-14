@@ -3,9 +3,13 @@
 //! must agree on.
 
 mod ast;
+mod borrows;
 mod builder;
+mod closures;
 mod expressions;
+mod iterators;
 mod random;
+mod scope;
 mod types;
 mod variants;
 

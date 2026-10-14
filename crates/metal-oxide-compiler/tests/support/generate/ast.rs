@@ -1,4 +1,4 @@
-use super::types::{Record, Type, render as render_type};
+use super::types::{Record, Type, mutability, render as render_type};
 
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -27,24 +27,84 @@ pub enum Expr {
     Matches(Box<Expr>, String),
     /// `value?` in a helper that returns an `Option` or a `Result`.
     Try(Box<Expr>),
+    /// `(*reference)`.
+    Deref(Box<Expr>),
+    /// `&place`, or `&mut place` when set.
+    Borrow(Box<Expr>, bool),
+    /// An element of a slice; the index is taken modulo the length when set.
+    Element(Box<Expr>, Box<Expr>, bool),
+    /// `&array[start..end]`, or `&mut array[start..end]` when set.
+    Subslice(Box<Expr>, Bound, Bound, bool),
+    /// `move |parameters| -> result { body }`.
+    Closure(Vec<(String, Type)>, Type, Box<Expr>),
 }
 
+/// A subslice bound: a constant, or an index modulo the given value.
+#[derive(Clone, Debug)]
+pub enum Bound {
+    Constant(u32),
+    Varying(Box<Expr>, u32),
+}
+
+impl Expr {
+    /// Whether the expression names the local `name`.
+    pub fn mentions(&self, name: &str) -> bool {
+        let any = |values: &[Expr]| values.iter().any(|value| value.mentions(name));
+        match self {
+            Expr::Literal(_) => false,
+            Expr::Local(local) => local == name,
+            Expr::Unary(_, value)
+            | Expr::Cast(value, _)
+            | Expr::Field(value, _)
+            | Expr::Matches(value, _)
+            | Expr::Try(value)
+            | Expr::Deref(value)
+            | Expr::Borrow(value, _) => value.mentions(name),
+            Expr::Binary(left, _, right)
+            | Expr::Index(left, right, _)
+            | Expr::Element(left, right, _) => left.mentions(name) || right.mentions(name),
+            Expr::Method(receiver, _, arguments) => receiver.mentions(name) || any(arguments),
+            Expr::If(condition, then, otherwise) => {
+                condition.mentions(name) || then.mentions(name) || otherwise.mentions(name)
+            }
+            Expr::Match(scrutinee, arms) => scrutinee.mentions(name) || any(&arms[..]),
+            Expr::Call(callee, _, values) => callee == name || any(values),
+            Expr::Aggregate(_, values) | Expr::Variant(_, values) => any(values),
+            Expr::MatchVariant(scrutinee, arms) => {
+                scrutinee.mentions(name) || arms.iter().any(|(_, arm)| arm.mentions(name))
+            }
+            Expr::Subslice(array, start, end, _) => {
+                let bound = |bound: &Bound| matches!(bound, Bound::Varying(index, _) if index.mentions(name));
+                array.mentions(name) || bound(start) || bound(end)
+            }
+            Expr::Closure(_, _, body) => body.mentions(name),
+        }
+    }
+}
+
+/// A step from a local to a place inside it; indices are taken modulo the length.
 #[derive(Clone, Debug)]
 pub enum Projection {
     Field(String),
-    Index(Expr, u32),
+    Index(u32),
+    Deref,
+    Element,
 }
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
     Let(String, Type, Expr),
-    Assign(String, Vec<Projection>, Expr),
+    Assign(Expr, Expr),
     If(Expr, Vec<Stmt>, Vec<Stmt>),
-    /// `for counter in 0..bound`, under a label that nested exits may name.
-    For(String, String, u32, Vec<Stmt>),
+    /// `for binding in iterable`, under a label that nested exits may name.
+    For(String, String, Expr, Vec<Stmt>),
     /// `if condition { break|continue 'label; }`
     Exit(Expr, &'static str, String),
     Assert(Expr),
+    /// A call whose result is unused, for the effects of its `&mut` arguments.
+    Call(Expr),
+    /// `let name = closure;`
+    Closure(String, Expr),
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +116,16 @@ pub struct Function {
     pub result: Type,
     pub body: Vec<Stmt>,
     pub value: Expr,
+}
+
+impl Function {
+    /// Whether the function takes a `&mut` reference or slice; only statements call it, so that
+    /// no other part of an expression can name what it borrows.
+    pub fn mutates(&self) -> bool {
+        self.parameters
+            .iter()
+            .any(|(_, ty)| matches!(ty, Type::Ref(_, true) | Type::Slice(_, true)))
+    }
 }
 
 pub struct Printer<'a> {
@@ -146,6 +216,45 @@ impl Printer<'_> {
             }
             Expr::Matches(value, pattern) => format!("matches!({}, {pattern})", self.expr(value)),
             Expr::Try(value) => format!("({}?)", self.expr(value)),
+            Expr::Deref(reference) => format!("(*{})", self.expr(reference)),
+            Expr::Borrow(place, mutable) => {
+                format!("&{}{}", mutability(*mutable), self.expr(place))
+            }
+            Expr::Element(slice, index, true) => {
+                let (slice, index) = (self.expr(slice), self.expr(index));
+                format!("{slice}[({index} as usize) % {slice}.len()]")
+            }
+            Expr::Element(slice, index, false) => {
+                format!("{}[{} as usize]", self.expr(slice), self.expr(index))
+            }
+            Expr::Closure(parameters, result, body) => {
+                let parameters = parameters
+                    .iter()
+                    .map(|(name, ty)| format!("{name}: {}", render_type(ty, self.records)))
+                    .collect::<Vec<_>>();
+                let result = render_type(result, self.records);
+                let body = self.expr(body);
+                format!(
+                    "(move |{}| -> {result} {{ {body} }})",
+                    parameters.join(", ")
+                )
+            }
+            Expr::Subslice(array, start, end, mutable) => format!(
+                "&{}{}[{}..{}]",
+                mutability(*mutable),
+                self.expr(array),
+                self.bound(start),
+                self.bound(end)
+            ),
+        }
+    }
+
+    fn bound(&self, bound: &Bound) -> String {
+        match bound {
+            Bound::Constant(value) => value.to_string(),
+            Bound::Varying(index, modulus) => {
+                format!("(({} as usize) % {modulus})", self.expr(index))
+            }
         }
     }
 
@@ -163,18 +272,8 @@ impl Printer<'_> {
                     let value = self.expr(value);
                     self.line(indent, &format!("let mut {name}: {ty} = {value};"));
                 }
-                Stmt::Assign(name, projections, value) => {
-                    let mut place = name.clone();
-                    for projection in projections {
-                        match projection {
-                            Projection::Field(field) => place = format!("{place}.{field}"),
-                            Projection::Index(index, length) => {
-                                place =
-                                    format!("{place}[({} as usize) % {length}]", self.expr(index));
-                            }
-                        }
-                    }
-                    let value = self.expr(value);
+                Stmt::Assign(place, value) => {
+                    let (place, value) = (self.expr(place), self.expr(value));
                     self.line(indent, &format!("{place} = {value};"));
                 }
                 Stmt::If(condition, then, otherwise) => {
@@ -189,17 +288,23 @@ impl Printer<'_> {
                         self.line(indent, "}");
                     }
                 }
-                Stmt::For(label, counter, bound, body) => {
-                    self.line(
-                        indent,
-                        &format!("'{label}: for {counter} in 0..{bound}_u32 {{"),
-                    );
+                Stmt::For(label, binding, iterable, body) => {
+                    let iterable = self.expr(iterable);
+                    self.line(indent, &format!("'{label}: for {binding} in {iterable} {{"));
                     self.stmts(body, indent + 1);
                     self.line(indent, "}");
                 }
                 Stmt::Exit(condition, kind, label) => {
                     let condition = self.expr(condition);
                     self.line(indent, &format!("if {condition} {{ {kind} '{label}; }}"));
+                }
+                Stmt::Closure(name, closure) => {
+                    let closure = self.expr(closure);
+                    self.line(indent, &format!("let {name} = {closure};"));
+                }
+                Stmt::Call(call) => {
+                    let call = self.expr(call);
+                    self.line(indent, &format!("{call};"));
                 }
                 Stmt::Assert(condition) => {
                     let condition = self.expr(condition);

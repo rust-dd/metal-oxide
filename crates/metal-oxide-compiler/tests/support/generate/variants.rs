@@ -1,6 +1,7 @@
 use super::{
     ast::Expr,
-    builder::{Builder, Scope},
+    builder::Builder,
+    scope::Scope,
     types::{Type, render},
 };
 

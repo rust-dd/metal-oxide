@@ -1,14 +1,10 @@
 use super::{
     Word,
-    ast::{Expr, Function, Projection, Stmt},
+    ast::{Expr, Function, Stmt},
     random::Random,
-    types::{Enum, INTS, Int, Record, Type},
+    scope::{Local, Scope},
+    types::{Enum, INTS, Record, Type, U32},
 };
-
-const U32: Type = Type::Int(Int {
-    bits: 32,
-    signed: false,
-});
 
 pub struct Builder {
     pub random: Random,
@@ -19,131 +15,6 @@ pub struct Builder {
     /// the length, plain arithmetic and division, and assertions.
     pub fallible: bool,
     names: usize,
-}
-
-#[derive(Clone)]
-struct Local {
-    name: String,
-    ty: Type,
-    mutable: bool,
-}
-
-/// The locals, loop labels and const parameter that code at one point can name.
-#[derive(Clone, Default)]
-pub struct Scope {
-    locals: Vec<Local>,
-    labels: Vec<String>,
-    pub generic: Option<String>,
-    /// Integer parameters, whose values differ between threads.
-    pub varying: Vec<String>,
-    /// The enclosing helper's `Option` or `Result` result, into which `?` propagates.
-    pub question: Option<Type>,
-}
-
-impl Scope {
-    /// This scope with the given immutable bindings, as a match arm sees it.
-    pub fn bind(&self, bindings: &[(String, Type)]) -> Self {
-        let mut scope = self.clone();
-        scope.locals.extend(bindings.iter().map(|(name, ty)| Local {
-            name: name.clone(),
-            ty: ty.clone(),
-            mutable: false,
-        }));
-        scope
-    }
-
-    /// The locals of enum, `Option` and `Result` types.
-    pub fn variants(&self) -> Vec<(String, Type)> {
-        self.locals
-            .iter()
-            .filter(|local| matches!(local.ty, Type::Enum(_) | Type::Option(_) | Type::Result(..)))
-            .map(|local| (local.name.clone(), local.ty.clone()))
-            .collect()
-    }
-
-    /// The locals and their projections of `ty`; index operands are placeholders.
-    pub fn places(&self, records: &[Record], ty: &Type) -> Vec<Expr> {
-        let mut found = Vec::new();
-        for local in &self.locals {
-            collect(
-                records,
-                Expr::Local(local.name.clone()),
-                &local.ty,
-                ty,
-                &mut found,
-            );
-        }
-        found
-    }
-
-    /// Places of mutable locals that an assignment can target, with their types.
-    fn targets(&self, records: &[Record]) -> Vec<(String, Vec<Projection>, Type)> {
-        let mut found = Vec::new();
-        for local in self.locals.iter().filter(|local| local.mutable) {
-            projections(records, &local.name, Vec::new(), &local.ty, &mut found);
-        }
-        found
-    }
-}
-
-fn collect(records: &[Record], place: Expr, ty: &Type, wanted: &Type, found: &mut Vec<Expr>) {
-    if ty == wanted {
-        found.push(place.clone());
-    }
-    match ty {
-        Type::Array(element, length) => {
-            let zero = Box::new(Expr::Literal("0".into()));
-            let index = Expr::Index(Box::new(place), zero, Some(*length));
-            collect(records, index, element, wanted, found);
-        }
-        Type::Tuple(fields) => {
-            for (index, field) in fields.iter().enumerate() {
-                let projected = Expr::Field(Box::new(place.clone()), index.to_string());
-                collect(records, projected, field, wanted, found);
-            }
-        }
-        Type::Record(index) => {
-            for (name, field) in &records[*index].fields {
-                let projected = Expr::Field(Box::new(place.clone()), name.clone());
-                collect(records, projected, field, wanted, found);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn projections(
-    records: &[Record],
-    name: &str,
-    path: Vec<Projection>,
-    ty: &Type,
-    found: &mut Vec<(String, Vec<Projection>, Type)>,
-) {
-    found.push((name.to_owned(), path.clone(), ty.clone()));
-    let mut child = |projection: Projection, ty: &Type| {
-        let mut path = path.clone();
-        path.push(projection);
-        projections(records, name, path, ty, found);
-    };
-    match ty {
-        Type::Array(element, length) => {
-            child(
-                Projection::Index(Expr::Literal("0".into()), *length),
-                element,
-            );
-        }
-        Type::Tuple(fields) => {
-            for (index, field) in fields.iter().enumerate() {
-                child(Projection::Field(index.to_string()), field);
-            }
-        }
-        Type::Record(index) => {
-            for (field, ty) in &records[*index].fields {
-                child(Projection::Field(field.clone()), ty);
-            }
-        }
-        _ => {}
-    }
 }
 
 impl Builder {
@@ -207,15 +78,25 @@ impl Builder {
     }
 
     /// `count` statements; `nesting` bounds the depth of nested ifs and loops.
-    fn block(&mut self, scope: &mut Scope, count: u64, nesting: u32) -> Vec<Stmt> {
+    pub fn block(&mut self, scope: &mut Scope, count: u64, nesting: u32) -> Vec<Stmt> {
         let mut stmts = Vec::new();
         for _ in 0..count {
-            let stmt = match self.random.below(11) {
+            let stmt = match self.random.below(15) {
                 4..=6 => self.assign(scope),
                 7 if nesting > 0 => Some(self.branch(scope, nesting)),
                 8 if nesting > 0 => Some(self.repeat(scope, nesting)),
                 9 if !scope.labels.is_empty() => Some(self.exit(scope)),
                 10 if self.fallible => Some(self.assertion(scope)),
+                13 => Some(self.declare_closure(scope)),
+                14 if nesting > 0 => Some(self.iterate(scope, nesting)),
+                11 | 12 => {
+                    let mutation = self.mutation(scope);
+                    if !mutation.is_empty() {
+                        stmts.extend(mutation);
+                        continue;
+                    }
+                    None
+                }
                 _ => None,
             };
             stmts.push(stmt.unwrap_or_else(|| self.declare(scope)));
@@ -223,9 +104,30 @@ impl Builder {
         stmts
     }
 
+    /// A local holding a call's result, of a type that a helper borrows, or of a random type.
     fn declare(&mut self, scope: &mut Scope) -> Stmt {
-        let ty = self.ty(2);
+        let call = match self.random.below(6) {
+            0 | 1 => self.call_closure(scope, None, 2),
+            2 => self.helper_result(scope),
+            _ => None,
+        };
+        if let Some((ty, call)) = call {
+            return self.local(scope, ty, call);
+        }
+        let parameters = self
+            .helpers
+            .iter()
+            .flat_map(|helper| helper.parameters.iter().map(|(_, ty)| ty.clone()))
+            .collect::<Vec<_>>();
+        let ty = match self.borrowable(&parameters) {
+            Some(ty) if self.random.chance(1, 3) => ty,
+            _ => self.ty(2),
+        };
         let value = self.expr(scope, &ty, 3);
+        self.local(scope, ty, value)
+    }
+
+    fn local(&mut self, scope: &mut Scope, ty: Type, value: Expr) -> Stmt {
         let name = self.fresh("l");
         scope.locals.push(Local {
             name: name.clone(),
@@ -235,25 +137,51 @@ impl Builder {
         Stmt::Let(name, ty, value)
     }
 
+    /// A call to a helper that only reads its arguments, and its result type.
+    fn helper_result(&mut self, scope: &Scope) -> Option<(Type, Expr)> {
+        let callees = self
+            .helpers
+            .iter()
+            .enumerate()
+            .filter(|(_, helper)| !helper.mutates())
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if callees.is_empty() {
+            return None;
+        }
+        let index = *self.random.pick(&callees);
+        let call = self.invoke(scope, index, 2)?;
+        Some((self.helpers[index].result.clone(), call))
+    }
+
+    /// The type of a local that one of `parameters` can borrow, if one is a reference or a
+    /// slice.
+    fn borrowable(&mut self, parameters: &[Type]) -> Option<Type> {
+        let length = 1 + self.random.below(4) as u32;
+        let borrowed = parameters
+            .iter()
+            .filter_map(|ty| match ty {
+                Type::Ref(target, _) => Some((**target).clone()),
+                Type::Slice(element, _) => Some(Type::Array(element.clone(), length)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if borrowed.is_empty() {
+            return None;
+        }
+        Some(self.random.pick(&borrowed).clone())
+    }
+
     fn assign(&mut self, scope: &Scope) -> Option<Stmt> {
         let targets = scope.targets(&self.records);
         if targets.is_empty() {
             return None;
         }
-        let (name, projections, ty) =
-            targets[self.random.below(targets.len() as u64) as usize].clone();
-        let projections = projections
-            .into_iter()
-            .map(|projection| match projection {
-                Projection::Index(_, length) => {
-                    let int = *self.random.pick(&INTS);
-                    Projection::Index(self.expr(scope, &Type::Int(int), 1), length)
-                }
-                field => field,
-            })
-            .collect();
+        let target = self.random.pick(&targets).clone();
+        let ty = target.2.clone();
+        let place = self.target(scope, target);
         let value = self.expr(scope, &ty, 3);
-        Some(Stmt::Assign(name, projections, value))
+        Some(Stmt::Assign(place, value))
     }
 
     fn branch(&mut self, scope: &Scope, nesting: u32) -> Stmt {
@@ -279,10 +207,15 @@ impl Builder {
             mutable: false,
         });
         inner.labels.push(label.clone());
-        let bound = 1 + self.random.below(4) as u32;
+        let bound = 1 + self.random.below(4);
         let count = 1 + self.random.below(4);
         let body = self.block(&mut inner, count, nesting - 1);
-        Stmt::For(label, counter, bound, body)
+        Stmt::For(
+            label,
+            counter,
+            Expr::Literal(format!("0..{bound}_u32")),
+            body,
+        )
     }
 
     fn exit(&mut self, scope: &Scope) -> Stmt {
@@ -301,12 +234,60 @@ impl Builder {
         Stmt::Assert(self.varying_condition(scope))
     }
 
+    /// A call statement to a helper that writes through `&mut` arguments, after declarations of
+    /// locals for it to borrow when the scope has none.
+    fn mutation(&mut self, scope: &mut Scope) -> Vec<Stmt> {
+        let callees = self
+            .helpers
+            .iter()
+            .enumerate()
+            .filter(|(_, helper)| helper.mutates())
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if callees.is_empty() {
+            return Vec::new();
+        }
+        let index = *self.random.pick(&callees);
+        let parameters = self.helpers[index]
+            .parameters
+            .iter()
+            .map(|(_, ty)| ty.clone())
+            .collect::<Vec<_>>();
+        let mut stmts = Vec::new();
+        for _ in 0..3 {
+            if let Some(call) = self.invoke(scope, index, 2) {
+                stmts.push(Stmt::Call(call));
+                break;
+            }
+            let Some(ty) = self.borrowable(&parameters) else {
+                break;
+            };
+            let value = self.expr(scope, &ty, 3);
+            stmts.push(self.local(scope, ty, value));
+        }
+        stmts
+    }
+
+    /// A helper parameter: mostly a value, else a reference or a slice, which may be `&mut`, or
+    /// an `impl Fn`.
+    fn parameter(&mut self) -> Type {
+        match self.random.below(9) {
+            0 => Type::Ref(Box::new(self.ty(1)), self.random.chance(1, 2)),
+            1 => Type::Slice(Box::new(self.ty(1)), self.random.chance(1, 2)),
+            2 => {
+                let parameters = (0..self.random.below(3)).map(|_| self.ty(1)).collect();
+                Type::Closure(parameters, Box::new(self.ty(1)))
+            }
+            _ => self.ty(1),
+        }
+    }
+
     /// A helper that the helpers after it and `run` may call; it calls only earlier ones.
     pub fn helper(&mut self) {
         let name = format!("h{}", self.helpers.len());
         let generic = self.random.chance(1, 4).then(|| "K".to_owned());
         let parameters = (0..1 + self.random.below(3))
-            .map(|index| (format!("p{index}"), self.ty(1)))
+            .map(|index| (format!("p{index}"), self.parameter()))
             .collect::<Vec<_>>();
         let result = self.ty(1);
         let mut scope = Scope {

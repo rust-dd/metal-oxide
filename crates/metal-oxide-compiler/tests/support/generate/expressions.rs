@@ -1,6 +1,7 @@
 use super::{
     ast::Expr,
-    builder::{Builder, Scope},
+    builder::Builder,
+    scope::Scope,
     types::{INTS, Int, Type, float_literal},
 };
 
@@ -17,8 +18,16 @@ impl Builder {
         {
             return call;
         }
+        if self.random.chance(1, 4)
+            && let Some((_, call)) = self.call_closure(scope, Some(ty), depth - 1)
+        {
+            return call;
+        }
         if self.random.chance(1, 10) {
             return self.unpack(scope, ty, depth - 1);
+        }
+        if self.random.chance(1, 12) {
+            return self.iterated(scope, ty, depth - 1);
         }
         match ty {
             Type::Int(int) => self.int(scope, *int, depth - 1),
@@ -59,9 +68,20 @@ impl Builder {
     }
 
     /// Fills the index operands that [`Scope::places`] leaves empty.
-    fn indexed(&mut self, scope: &Scope, expr: Expr) -> Expr {
+    pub fn indexed(&mut self, scope: &Scope, expr: Expr) -> Expr {
         match expr {
             Expr::Field(value, field) => Expr::Field(Box::new(self.indexed(scope, *value)), field),
+            Expr::Deref(value) => Expr::Deref(Box::new(self.indexed(scope, *value))),
+            Expr::Element(slice, _, _) => {
+                let int = *self.random.pick(&INTS);
+                let (index, masked) = if self.fallible && self.random.chance(1, 4) {
+                    (self.varying(scope, int), false)
+                } else {
+                    (self.leaf(scope, &Type::Int(int)), true)
+                };
+                let slice = Box::new(self.indexed(scope, *slice));
+                Expr::Element(slice, Box::new(index), masked)
+            }
             Expr::Index(value, _, modulus) => {
                 let int = *self.random.pick(&INTS);
                 let (index, modulus) = match modulus {
@@ -107,32 +127,40 @@ impl Builder {
             .helpers
             .iter()
             .enumerate()
-            .filter(|(_, helper)| helper.result == *ty)
+            .filter(|(_, helper)| helper.result == *ty && !helper.mutates())
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
         if callees.is_empty() {
             return None;
         }
         let index = *self.random.pick(&callees);
-        let (name, generic, parameters) = {
-            let helper = &self.helpers[index];
-            (
-                helper.name.clone(),
-                helper.generic.is_some(),
-                helper.parameters.clone(),
-            )
-        };
+        self.invoke(scope, index, depth - 1)
+    }
+
+    /// A call to the helper at `index`, or `None` when the scope has nothing to borrow for it.
+    pub fn invoke(&mut self, scope: &Scope, index: usize, depth: u32) -> Option<Expr> {
+        let helper = &self.helpers[index];
+        let (name, generic, parameters) = (
+            helper.name.clone(),
+            helper.generic.is_some(),
+            helper.parameters.clone(),
+        );
         let generic = generic.then(|| self.random.below(64) as u32);
-        let arguments = parameters
-            .iter()
-            .map(|(_, ty)| self.expr(scope, ty, depth - 1))
-            .collect();
+        let arguments = self.arguments(scope, &parameters, depth)?;
         Some(Expr::Call(name, generic, arguments))
     }
 
     fn int(&mut self, scope: &Scope, int: Int, depth: u32) -> Expr {
         let ty = Type::Int(int);
         let operand = |this: &mut Self| Box::new(this.expr(scope, &ty, depth));
+        let slices = scope.slices();
+        if !slices.is_empty() && self.random.chance(1, 12) {
+            let slice = Expr::Local(self.random.pick(&slices).clone());
+            return Expr::Cast(
+                Box::new(Expr::Method(Box::new(slice), "len", Vec::new())),
+                ty,
+            );
+        }
         if self.fallible && self.random.chance(1, 10) {
             let varying = Box::new(self.varying(scope, int));
             if int.signed && self.random.chance(1, 8) {
