@@ -60,6 +60,10 @@ Implement the next acceptance criterion; create crates when their code is needed
   known message; core's `unwrap_failed`, `expect_failed` and `result::unwrap_failed` end
   the caller's block with a check. A `#[track_caller]` function is instantiated per
   caller, and its checks report the caller's `fn_span`, as Rust does.
+- A closure is a record of its captures (unit when it captures nothing); captured
+  references keep their address spaces like any aggregate's. `Fn`, `FnMut` and `FnOnce`
+  calls use the `rust-call` ABI: the call spreads its argument tuple into the body's
+  parameters. `FnOnce` calls of other closures go through rustc's closure-once shim.
 - Uninhabited types lower to `Never`; a variant with an uninhabited field has no payload,
   so `?` on `Result` builds its `Result<Infallible, E>` residual.
 - `Iterator::next` on `Range<integer>` expands inline into a bounds branch that builds its

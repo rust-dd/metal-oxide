@@ -113,10 +113,6 @@ fn unsupported_reachable_calls_are_reported() {
         ),
         ("recursion", "recursion is not supported in Metal kernels"),
         (
-            "closure",
-            "closures and callable shims are not supported in Metal kernels",
-        ),
-        (
             "destructor",
             "destructors are not supported in Metal kernels",
         ),

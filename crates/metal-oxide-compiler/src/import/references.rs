@@ -233,6 +233,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     ) -> Result<Option<ir::Type>> {
         let aggregate = match kind {
             mir::AggregateKind::Tuple => ir::Aggregate::Tuple(components),
+            mir::AggregateKind::Closure(..) => ir::Aggregate::record("closure", components),
             mir::AggregateKind::Array(_) => {
                 let element = components[0];
                 if components.iter().any(|component| *component != element) {
@@ -372,8 +373,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             });
             return Ok(Some(self.module.types.option(reference)));
         }
+        let args = self.spread(func, args, body)?;
         let Some(super::calls::Signature { types, messages }) =
-            self.signature(args, body, pending)?
+            self.signature(&args, body, pending)?
         else {
             return Ok(None);
         };

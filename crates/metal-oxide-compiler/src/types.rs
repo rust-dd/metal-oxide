@@ -69,6 +69,13 @@ impl<'tcx> TypeLowering<'tcx> {
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(self.types.intern(ir::Aggregate::Tuple(fields)));
         }
+        if let ty::Closure(_, arguments) = ty.kind() {
+            return self.closure(
+                arguments.as_closure().upvar_tys(),
+                &mut std::iter::empty(),
+                span,
+            );
+        }
         if let ty::Adt(definition, args) = ty.kind() {
             // `slice[..]` passes a field-less `RangeFull`, which needs no storage.
             if self.tcx.lang_items().range_full_struct() == Some(definition.did()) {
@@ -258,6 +265,9 @@ impl<'tcx> TypeLowering<'tcx> {
                 let element = self.with_spaces(element, spaces, span)?;
                 return Ok(self.types.intern(ir::Aggregate::Array { element, length }));
             }
+            ty::Closure(_, arguments) => {
+                return self.closure(arguments.as_closure().upvar_tys(), spaces, span);
+            }
             _ => {}
         }
         let ty::Adt(definition, arguments) = ty.kind() else {
@@ -307,6 +317,24 @@ impl<'tcx> TypeLowering<'tcx> {
             name: self.tcx.item_name(definition.did()).to_string(),
             fields,
         }))
+    }
+
+    /// A closure's captures as a record, or unit when it captures nothing; captured references
+    /// take spaces from `spaces`.
+    fn closure(
+        &mut self,
+        upvars: &'tcx ty::List<Ty<'tcx>>,
+        spaces: &mut dyn Iterator<Item = ir::AddressSpace>,
+        span: Span,
+    ) -> Result<ir::Type, (Span, String)> {
+        if upvars.is_empty() {
+            return Ok(ir::Type::Unit);
+        }
+        let fields = upvars
+            .iter()
+            .map(|upvar| self.with_spaces(upvar, spaces, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.types.intern(ir::Aggregate::record("closure", fields)))
     }
 
     /// The address spaces of the references in `ty`, in the order of `with_spaces`; an enum's
@@ -461,6 +489,11 @@ pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
         ty::Ref(..) | ty::RawPtr(..) => true,
         _ if SliceIterator::of(tcx, ty).is_some() => true,
         ty::Tuple(fields) => fields.iter().any(|field| has_reference(tcx, field)),
+        ty::Closure(_, arguments) => arguments
+            .as_closure()
+            .upvar_tys()
+            .iter()
+            .any(|upvar| has_reference(tcx, upvar)),
         ty::Array(element, _) | ty::Slice(element) => has_reference(tcx, *element),
         ty::Adt(definition, arguments) if device_type(tcx, definition.did()).is_none() => {
             definition.all_fields().any(|field| {

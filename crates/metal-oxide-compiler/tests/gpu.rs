@@ -44,6 +44,8 @@ mod aggregates;
 mod atomics;
 #[path = "gpu/checks.rs"]
 mod checks;
+#[path = "gpu/closures.rs"]
+mod closures;
 #[path = "gpu/collectives.rs"]
 mod collectives;
 #[path = "gpu/control_flow.rs"]

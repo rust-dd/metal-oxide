@@ -214,6 +214,7 @@ The importer also replaces recognized calls:
 | A tuple, record or array of references | an aggregate whose pointers keep the address spaces of the values that built it |
 | An enum value, such as `Some(x)` | `Variant`: its tag and fields in payload slots that variants share by type |
 | `match` on an enum | the tag, then a `Switch` |
+| A closure and its calls | a record of its captures, unit without any; `Fn*` calls reach its body with the argument tuple spread |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.

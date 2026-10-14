@@ -43,9 +43,11 @@ impl<'tcx> Collector<'tcx> {
         if !self.seen.insert(instance) {
             return;
         }
-        if !matches!(instance.def, ty::InstanceKind::Item(_))
-            && !(matches!(instance.def, ty::InstanceKind::Intrinsic(_))
-                && crate::intrinsics::builtin(tcx, instance.def_id()).is_some())
+        if !matches!(
+            instance.def,
+            ty::InstanceKind::Item(_) | ty::InstanceKind::Shim(ty::ShimKind::ClosureOnce { .. })
+        ) && !(matches!(instance.def, ty::InstanceKind::Intrinsic(_))
+            && crate::intrinsics::builtin(tcx, instance.def_id()).is_some())
         {
             tcx.dcx()
                 .span_err(span, format!("unsupported function instance: {instance}"));
@@ -53,18 +55,14 @@ impl<'tcx> Collector<'tcx> {
         }
         if !matches!(
             tcx.def_kind(instance.def_id()),
-            DefKind::Fn | DefKind::AssocFn
+            DefKind::Fn | DefKind::AssocFn | DefKind::Closure
         ) {
             tcx.dcx().span_err(
                 span,
-                "closures and callable shims are not supported in Metal kernels",
+                "coroutines and other callable shims are not supported in Metal kernels",
             );
             return;
         }
-        let signature = tcx
-            .fn_sig(instance.def_id())
-            .instantiate(tcx, instance.args)
-            .skip_binder();
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
             crate::trace(|| {
                 println!("instance: {instance}");
@@ -80,7 +78,10 @@ impl<'tcx> Collector<'tcx> {
             });
             return;
         }
-        if !signature.abi().is_rustic_abi() || tcx.is_foreign_item(instance.def_id()) {
+        // Closures always use the Rust call ABI; `fn_sig` is only defined for other functions.
+        let ty = instance.ty(tcx, TypingEnv::fully_monomorphized());
+        let rustic = ty.is_closure() || ty.fn_sig(tcx).skip_binder().abi().is_rustic_abi();
+        if !rustic || tcx.is_foreign_item(instance.def_id()) {
             tcx.dcx()
                 .span_err(span, "foreign ABI calls are not supported in Metal kernels");
             return;

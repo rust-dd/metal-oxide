@@ -77,6 +77,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 .collect::<Result<Vec<_>>>()?;
             return self.intrinsic(intrinsic, callee.arguments, arguments, span);
         }
+        let args = self.spread(func, args, body)?;
+        let args = args.as_slice();
         let Signature { types, messages } = self
             .signature(args, body, &[])?
             .expect("inferred references are known");
@@ -95,6 +97,50 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 .function(callee.instance, types, messages, caller, false)?,
             arguments,
         })
+    }
+
+    /// The arguments a call passes to its callee's parameters. A `rust-call` call, such as a
+    /// closure call, passes the fields of its last argument's tuple as separate parameters.
+    pub(super) fn spread(
+        &self,
+        func: &mir::Operand<'tcx>,
+        args: &[Spanned<mir::Operand<'tcx>>],
+        body: &mir::Body<'tcx>,
+    ) -> Result<Vec<Spanned<mir::Operand<'tcx>>>> {
+        let tcx = self.module.tcx;
+        let ty::FnDef(definition, _) = *self.normalize_type(func.ty(&body.local_decls, tcx)).kind()
+        else {
+            return Ok(args.to_vec());
+        };
+        let Some((last, rest)) = args.split_last().filter(|_| {
+            tcx.fn_sig(definition).skip_binder().abi() == rustc_abi::ExternAbi::RustCall
+        }) else {
+            return Ok(args.to_vec());
+        };
+        let (place, moved) = match last.node {
+            mir::Operand::Copy(place) => (place, false),
+            mir::Operand::Move(place) => (place, true),
+            _ => return Err((last.span, "closure arguments must be in a local".into())),
+        };
+        let ty::Tuple(fields) = *self
+            .normalize_type(place.ty(&body.local_decls, tcx).ty)
+            .kind()
+        else {
+            return Err((last.span, "closure arguments must be a tuple".into()));
+        };
+        let mut spread = rest.to_vec();
+        for (index, field) in fields.iter().enumerate() {
+            let place = tcx.mk_place_field(place, rustc_abi::FieldIdx::from_usize(index), field);
+            spread.push(Spanned {
+                node: if moved {
+                    mir::Operand::Move(place)
+                } else {
+                    mir::Operand::Copy(place)
+                },
+                span: last.span,
+            });
+        }
+        Ok(spread)
     }
 
     /// The location a `#[track_caller]` callee's checks report: this function's own caller
