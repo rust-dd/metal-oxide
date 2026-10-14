@@ -30,6 +30,20 @@ fn run(trace: &Path, enabled: bool) -> (bool, String) {
     (output.status.success(), text.into_owned())
 }
 
+/// The files of a trace bundle, whose layout differs between macOS versions.
+fn files(directory: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            found.extend(files(&path)?);
+        } else {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
 fn record(trace: &Path) -> metal_oxide::Result<()> {
     {
         let device = Device::system_default()?;
@@ -75,8 +89,14 @@ fn the_first_device_records_a_trace_until_it_drops() -> metal_oxide::Result<()> 
 
     let (success, text) = run(&trace, true);
     assert!(success, "{text}");
-    let recorded = std::fs::read(trace.join("capture"))?;
-    assert!(recorded.windows(13).any(|name| name == b"captured_fill"));
+    let files = files(&trace)?;
+    let names = |file: &PathBuf| {
+        std::fs::read(file).is_ok_and(|bytes| bytes.windows(13).any(|w| w == b"captured_fill"))
+    };
+    assert!(
+        files.iter().any(names),
+        "no file of the trace names the kernel: {files:?}"
+    );
 
     // Metal does not replace an earlier trace.
     let (success, text) = run(&trace, true);
