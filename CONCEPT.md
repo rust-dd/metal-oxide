@@ -212,6 +212,8 @@ The importer also replaces recognized calls:
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
 | `slice.iter()`, `iter_mut()`, `chunks_exact(n)` and their `next` | the remaining slice in a record; `next` takes its first element or chunk |
 | A tuple, record or array of references | an aggregate whose pointers keep the address spaces of the values that built it |
+| An enum value, such as `Some(x)` | `Variant`: its tag and fields in payload slots that variants share by type |
+| `match` on an enum | the tag, then a `Switch` |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.

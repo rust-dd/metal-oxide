@@ -30,13 +30,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         body: &mir::Body<'tcx>,
         span: Span,
     ) -> Result<ir::Terminator> {
-        let cases = targets.iter().collect::<Vec<_>>();
-        let otherwise = targets.otherwise().as_usize();
+        let mut cases = targets.iter().collect::<Vec<_>>();
+        let mut otherwise = targets.otherwise().as_usize();
+        // An exhaustive `match` leaves the default unreachable; its last case can take it.
+        if body.basic_blocks[targets.otherwise()].is_empty_unreachable()
+            && let Some((_, last)) = cases.pop()
+        {
+            otherwise = last.as_usize();
+        }
         if cases.is_empty() {
             return Ok(ir::Terminator::Goto(otherwise));
         }
         let operand = self.operand(discriminant, span)?;
-        // A local's imported type also covers `Option` flags, whose Rust type is `isize`.
+        // A discriminant local has its enum's tag type, while its Rust type is `isize`.
         let ty = match discriminant.place().and_then(|place| place.as_local()) {
             Some(local) => self.locals[local.as_usize()],
             None => self.lower_type(discriminant.ty(&body.local_decls, self.module.tcx), span)?,

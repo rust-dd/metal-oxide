@@ -86,7 +86,7 @@ impl<'a> ModuleEmitter<'a> {
             let shape = layout::shape(module, id);
             writeln!(self.output, "struct metal_oxide_aggregate_{id} {{").unwrap();
             match aggregate {
-                Aggregate::Record { .. } | Aggregate::Tuple(_) => {
+                Aggregate::Record { .. } | Aggregate::Tuple(_) | Aggregate::Enum { .. } => {
                     for (position, member) in shape.members.iter().enumerate() {
                         match *member {
                             Member::Field(field) => writeln!(

@@ -45,7 +45,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let mut located = ir::Located::Value(self.locals[local]);
         let mut space = ir::AddressSpace::Thread;
         let mut projection = Vec::new();
-        let mut some = false;
+        let mut variant = None;
         for element in place.projection.iter() {
             let array = match located {
                 ir::Located::Value(ir::Type::Aggregate(id)) => match table.get(id) {
@@ -55,23 +55,26 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 _ => None,
             };
             let next = match element {
-                // `Some`'s only field is the record's value; `None` has no fields to project.
-                mir::ProjectionElem::Downcast(_, variant)
-                    if variant.as_u32() == 1
-                        && !some
-                        && matches!(located, ir::Located::Value(ty) if self.module.types.is_option(ty)) =>
-                {
-                    some = true;
+                // A variant's fields live in the enum's payload slots.
+                mir::ProjectionElem::Downcast(_, index) if variant.is_none() => {
+                    variant = Some(index.as_u32());
                     continue;
                 }
-                mir::ProjectionElem::Field(field, _) if some => {
-                    if field.as_u32() != 0 {
-                        return Err((span, "invalid Option field projection".into()));
+                mir::ProjectionElem::Field(field, _) => match variant.take() {
+                    Some(index) => {
+                        let payload = match located {
+                            ir::Located::Value(ir::Type::Aggregate(id)) => table
+                                .get(id)
+                                .and_then(|aggregate| aggregate.payload(index, field.as_u32())),
+                            _ => None,
+                        };
+                        ir::Projection::Field(
+                            payload
+                                .ok_or((span, "invalid enum variant field projection".into()))?,
+                        )
                     }
-                    some = false;
-                    ir::Projection::Field(1)
-                }
-                mir::ProjectionElem::Field(field, _) => ir::Projection::Field(field.as_u32()),
+                    None => ir::Projection::Field(field.as_u32()),
+                },
                 mir::ProjectionElem::Deref => ir::Projection::Deref,
                 mir::ProjectionElem::Index(index) => {
                     match (array, self.constants[index.as_usize()]) {
@@ -137,7 +140,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .ok_or((span, "invalid aggregate field, index or dereference".into()))?;
             projection.push(next);
         }
-        if some {
+        if variant.is_some() {
             return Err((span, "unsupported MIR place projection".into()));
         }
         Ok(LocatedPlace {

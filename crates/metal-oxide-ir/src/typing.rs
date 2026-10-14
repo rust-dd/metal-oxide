@@ -271,8 +271,30 @@ pub fn expression_type(
             if fields.len() != types.len() {
                 return Err(Error::new(source, "aggregate field count mismatch"));
             }
+            if matches!(types, Aggregate::Enum { .. }) {
+                return Err(Error::new(source, "an enum value names its variant"));
+            }
             for (index, value) in fields.iter().enumerate() {
                 require(ty(value)?, types.field(index as u32).unwrap())?;
+            }
+            Ok(Type::Aggregate(*id))
+        }
+        Expression::Variant {
+            ty: id,
+            variant,
+            fields,
+        } => {
+            let Some(Aggregate::Enum { variants, .. }) = module.types.get(*id) else {
+                return Err(Error::new(source, "a variant requires an enum type"));
+            };
+            let expected = variants
+                .get(*variant as usize)
+                .ok_or_else(|| Error::new(source, "invalid enum variant"))?;
+            if fields.len() != expected.len() {
+                return Err(Error::new(source, "variant field count mismatch"));
+            }
+            for (value, expected) in fields.iter().zip(expected) {
+                require(ty(value)?, *expected)?;
             }
             Ok(Type::Aggregate(*id))
         }

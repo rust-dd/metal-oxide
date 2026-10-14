@@ -99,7 +99,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let span = rustc_span::DUMMY_SP;
         let table = self.module.types.table();
         let (ir::Type::Aggregate(option_id), Some(pointer)) =
-            (option_type, table.field(option_type, 1))
+            (option_type, self.module.types.option_value(option_type))
         else {
             return Err((span, "invalid buffer element result".into()));
         };
@@ -159,26 +159,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             ),
             statement(
                 option.clone(),
-                ir::Expression::Aggregate {
+                ir::Expression::Variant {
                     ty: option_id,
-                    fields: vec![
-                        ir::Operand::Constant(ir::Constant::Bool(true)),
-                        ir::Operand::local(reference),
-                    ],
+                    variant: 1,
+                    fields: vec![ir::Operand::local(reference)],
                 },
             ),
         ];
-        let ir::Type::Pointer(null) = pointer else {
-            unreachable!()
-        };
         let none = vec![statement(
             option,
-            ir::Expression::Aggregate {
+            ir::Expression::Variant {
                 ty: option_id,
-                fields: vec![
-                    ir::Operand::Constant(ir::Constant::Bool(false)),
-                    ir::Operand::Constant(ir::Constant::Null(null)),
-                ],
+                variant: 0,
+                fields: Vec::new(),
             },
         )];
         let mut branch = |statements| {

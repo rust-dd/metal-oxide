@@ -42,15 +42,15 @@ pub(super) fn matched<'tcx>(
     Some((discriminant, arm(1), arm(0)))
 }
 
-/// Locals assigned an enum discriminant, which only `Option` flags provide.
-pub(super) fn discriminants(body: &mir::Body<'_>) -> Vec<bool> {
-    let mut discriminants = vec![false; body.local_decls.len()];
+/// For each local assigned an enum discriminant, the enum place it reads.
+pub(super) fn discriminants<'tcx>(body: &mir::Body<'tcx>) -> Vec<Option<mir::Place<'tcx>>> {
+    let mut discriminants = vec![None; body.local_decls.len()];
     for statement in body.basic_blocks.iter().flat_map(|block| &block.statements) {
         if let mir::StatementKind::Assign(assignment) = &statement.kind
-            && let (destination, mir::Rvalue::Discriminant(_)) = assignment.as_ref()
+            && let (destination, mir::Rvalue::Discriminant(place)) = assignment.as_ref()
             && let Some(local) = destination.as_local()
         {
-            discriminants[local.as_usize()] = true;
+            discriminants[local.as_usize()].get_or_insert(*place);
         }
     }
     discriminants
@@ -93,11 +93,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         .as_usize();
         let (option, option_type) = self.typed_place(destination, span)?;
         let table = self.module.types.table();
-        let (Some(ir::Type::Scalar(element)), ir::Type::Aggregate(option_id), true) = (
-            table.field(option_type, 1),
-            option_type,
-            self.module.types.is_option(option_type),
-        ) else {
+        let (Some(ir::Type::Scalar(element)), ir::Type::Aggregate(option_id)) =
+            (self.module.types.option_value(option_type), option_type)
+        else {
             return Err((span, "invalid range iterator result".into()));
         };
         let ir::Type::Aggregate(range_id) = self.locals[range] else {
@@ -116,7 +114,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let (Some(start), Some(end)) = (field("start"), field("end")) else {
             return Err((span, "invalid range iterator bounds".into()));
         };
-        let (Some(zero), Some(one)) = (integer(element, 0), integer(element, 1)) else {
+        let Some(one) = integer(element, 1) else {
             return Err((span, "range iteration requires an integer element".into()));
         };
         // The bound check reads a scalar copy, so numeric proofs refine the yielded value.
@@ -128,12 +126,13 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             value,
             source: source.clone(),
         };
-        let yielded = |is_some, value| {
+        let yielded = |fields: Vec<ir::Operand>| {
             statement(
                 &option,
-                ir::Expression::Aggregate {
+                ir::Expression::Variant {
                     ty: option_id,
-                    fields: vec![ir::Operand::Constant(ir::Constant::Bool(is_some)), value],
+                    variant: fields.len() as u32,
+                    fields,
                 },
             )
         };
@@ -150,7 +149,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             ),
         ));
         let mut some = vec![
-            yielded(true, ir::Operand::Place(current.clone())),
+            yielded(vec![ir::Operand::Place(current.clone())]),
             statement(
                 &start,
                 ir::Expression::Binary(
@@ -160,20 +159,18 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ),
             ),
         ];
-        let mut none = vec![yielded(false, ir::Operand::Constant(zero))];
+        let mut none = vec![yielded(Vec::new())];
         // A `for` or `while let` then switches on the discriminant; branching to its arms
         // directly keeps the loop as lean as a counted `while`.
         let (some_target, none_target) = match matched(body, target, destination) {
             Some((discriminant, some_target, none_target)) => {
                 let flag = ir::Place::local(discriminant.as_usize());
-                some.push(statement(
-                    &flag,
-                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(true))),
-                ));
-                none.push(statement(
-                    &flag,
-                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(false))),
-                ));
+                for (statements, variant) in [(&mut some, 1), (&mut none, 0)] {
+                    statements.push(statement(
+                        &flag,
+                        ir::Expression::Use(ir::Operand::Constant(ir::Constant::U8(variant))),
+                    ));
+                }
                 (some_target.as_usize(), none_target.as_usize())
             }
             None => (target, target),

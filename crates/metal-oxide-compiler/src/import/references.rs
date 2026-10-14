@@ -197,7 +197,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         None => return Ok(None),
                     }
                 }
-                return self.aggregate_type(kind, components, span).map(Some);
+                return self.aggregate_type(kind, components, span);
             }
             _ => return Err((span, "unsupported reference value".into())),
         };
@@ -223,7 +223,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         kind: &mir::AggregateKind<'tcx>,
         components: Vec<ir::Type>,
         span: Span,
-    ) -> Result<ir::Type> {
+    ) -> Result<Option<ir::Type>> {
         let aggregate = match kind {
             mir::AggregateKind::Tuple => ir::Aggregate::Tuple(components),
             mir::AggregateKind::Array(_) => {
@@ -239,14 +239,13 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     length: components.len() as u32,
                 }
             }
+            mir::AggregateKind::Adt(definition, variant, arguments, ..)
+                if self.module.tcx.adt_def(*definition).is_enum() =>
+            {
+                return self.variant_type(*definition, *variant, arguments, components, span);
+            }
             mir::AggregateKind::Adt(definition, ..) => {
                 let definition = self.module.tcx.adt_def(*definition);
-                if !definition.is_struct() {
-                    return Err((
-                        span,
-                        "enum values cannot be constructed in Metal kernels".into(),
-                    ));
-                }
                 ir::Aggregate::Record {
                     name: self.module.tcx.item_name(definition.did()).to_string(),
                     fields: definition
@@ -263,7 +262,51 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             _ => return Err((span, "unsupported reference value".into())),
         };
-        Ok(self.module.types.intern(aggregate))
+        Ok(Some(self.module.types.intern(aggregate)))
+    }
+
+    /// The enum type of a variant built from `components`, or `None` when another variant's
+    /// references leave spaces that this value does not show.
+    fn variant_type(
+        &mut self,
+        definition: rustc_span::def_id::DefId,
+        built: rustc_abi::VariantIdx,
+        arguments: ty::GenericArgsRef<'tcx>,
+        components: Vec<ir::Type>,
+        span: Span,
+    ) -> Result<Option<ir::Type>> {
+        let tcx = self.module.tcx;
+        let enumeration = tcx.adt_def(definition);
+        let ty::Adt(_, arguments) = *self
+            .normalize_type(ty::Ty::new_adt(tcx, enumeration, arguments))
+            .kind()
+        else {
+            unreachable!("an enum type stays an enum when normalized")
+        };
+        let mut built_fields = Some(components);
+        let mut variants = Vec::with_capacity(enumeration.variants().len());
+        for (index, variant) in enumeration.variants().iter_enumerated() {
+            if index == built {
+                variants.push(built_fields.take().unwrap());
+                continue;
+            }
+            let mut fields = Vec::with_capacity(variant.fields.len());
+            for field in &variant.fields {
+                let ty = tcx.normalize_erasing_regions(
+                    ty::TypingEnv::fully_monomorphized(),
+                    field.ty(tcx, arguments),
+                );
+                if crate::types::has_reference(tcx, ty) {
+                    return Ok(None);
+                }
+                fields.push(self.lower_type(ty, span)?);
+            }
+            variants.push(fields);
+        }
+        Ok(Some(self.module.types.intern(ir::Aggregate::enumeration(
+            tcx.item_name(definition).to_string(),
+            variants,
+        ))))
     }
 
     /// The slice an array reference coerces to.
@@ -319,7 +362,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 slice: false,
                 ..element
             });
-            return Ok(Some(self.module.types.optional(reference)));
+            return Ok(Some(self.module.types.option(reference)));
         }
         let mut types = Vec::with_capacity(args.len());
         for argument in args {

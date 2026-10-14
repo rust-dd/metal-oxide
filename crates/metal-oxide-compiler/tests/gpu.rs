@@ -56,6 +56,8 @@ mod cooperative;
 mod disjoint;
 #[path = "gpu/dynamic_shared.rs"]
 mod dynamic_shared;
+#[path = "gpu/enums.rs"]
+mod enums;
 #[path = "gpu/fast_math.rs"]
 mod fast_math;
 #[path = "gpu/float.rs"]

@@ -78,11 +78,15 @@ impl Analysis<'_> {
                     state.extent_range(&statement.destination, length);
                 }
             }
-            Expression::Aggregate { fields, .. } => {
+            Expression::Aggregate { fields, .. } | Expression::Variant { fields, .. } => {
                 for (index, field) in fields.iter().enumerate() {
                     if let Operand::Place(source) = field {
                         let mut destination = statement.destination.clone();
-                        destination.projection.push(Projection::Field(index as u32));
+                        destination.projection.push(Projection::Field(component(
+                            state,
+                            &statement.value,
+                            index,
+                        )));
                         state.copy(&destination, source);
                         if pointer(state, source) {
                             state.reborrow(&destination, source);
@@ -144,6 +148,16 @@ impl Analysis<'_> {
                 result
             }
             Expression::Aggregate { fields, .. } => aggregate(state, fields),
+            Expression::Variant {
+                variant, fields, ..
+            } => {
+                let mut result = Value::default();
+                result.field(0, Value::scalar(Range::exact(i128::from(*variant))));
+                for (index, operand) in fields.iter().enumerate() {
+                    result.field(component(state, expression, index), value(operand));
+                }
+                result
+            }
             Expression::Dim3(fields) => aggregate(state, fields),
             Expression::Ref {
                 place,
@@ -237,6 +251,19 @@ impl Analysis<'_> {
                 .map_or_else(Value::default, Value::scalar),
             _ => Value::default(),
         })
+    }
+}
+
+/// The field of the aggregate that `expression` builds which holds its operand `index`.
+fn component(state: &State<'_>, expression: &Expression, index: usize) -> u32 {
+    match expression {
+        Expression::Variant { ty, variant, .. } => state
+            .module
+            .types
+            .get(*ty)
+            .and_then(|aggregate| aggregate.payload(*variant, index as u32))
+            .expect("typed variants have payload slots"),
+        _ => index as u32,
     }
 }
 

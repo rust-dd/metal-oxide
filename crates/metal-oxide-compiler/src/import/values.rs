@@ -57,14 +57,23 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         span: Span,
     ) -> Result<ir::Expression> {
         match value {
-            mir::Rvalue::Aggregate(kind, _)
+            mir::Rvalue::Aggregate(kind, fields)
                 if matches!(**kind, mir::AggregateKind::Adt(definition, ..)
                     if self.module.tcx.adt_def(definition).is_enum()) =>
             {
-                Err((
-                    span,
-                    "enum values cannot be constructed in Metal kernels".into(),
-                ))
+                let (mir::AggregateKind::Adt(_, variant, ..), ir::Type::Aggregate(ty)) =
+                    (&**kind, destination)
+                else {
+                    return Err((span, "an enum value requires an enum place".into()));
+                };
+                Ok(ir::Expression::Variant {
+                    ty,
+                    variant: variant.as_u32(),
+                    fields: fields
+                        .iter()
+                        .map(|value| self.operand(value, span))
+                        .collect::<Result<Vec<_>>>()?,
+                })
             }
             mir::Rvalue::Aggregate(_, fields) => {
                 let ty = destination;
@@ -138,8 +147,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             mir::Rvalue::Discriminant(place) => {
                 let (mut place, ty) = self.typed_place(place, span)?;
-                if !self.module.types.is_option(ty) {
-                    return Err((span, "only Option discriminants are supported".into()));
+                if self.module.types.tag(ty).is_none() {
+                    return Err((span, "discriminants require an enum".into()));
                 }
                 place.projection.push(ir::Projection::Field(0));
                 Ok(ir::Expression::Use(ir::Operand::Place(place)))

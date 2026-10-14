@@ -132,6 +132,17 @@ pub enum Aggregate {
         element: Type,
         length: u32,
     },
+    /// A tag numbering the variants, then the payload slots: each variant's fields take the
+    /// first slots of their type it does not use yet, so variants share storage. Its fields
+    /// are the tag, then the slots.
+    Enum {
+        name: String,
+        /// Each variant's field types; a variant's discriminant is its index.
+        variants: Vec<Vec<Type>>,
+        slots: Vec<Type>,
+        /// The slot of each variant's fields.
+        payload: Vec<Vec<u32>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,11 +166,63 @@ impl Aggregate {
         }
     }
 
+    /// An enum whose variants hold `variants`' field types.
+    pub fn enumeration(name: impl Into<String>, variants: Vec<Vec<Type>>) -> Self {
+        let mut slots = Vec::<Type>::new();
+        let payload = variants
+            .iter()
+            .map(|fields| {
+                let mut used = Vec::<u32>::new();
+                fields
+                    .iter()
+                    .map(|&ty| {
+                        let slot = (0..slots.len() as u32)
+                            .find(|slot| slots[*slot as usize] == ty && !used.contains(slot))
+                            .unwrap_or_else(|| {
+                                slots.push(ty);
+                                slots.len() as u32 - 1
+                            });
+                        used.push(slot);
+                        slot
+                    })
+                    .collect()
+            })
+            .collect();
+        Self::Enum {
+            name: name.into(),
+            variants,
+            slots,
+            payload,
+        }
+    }
+
+    /// The narrowest unsigned integer that numbers an enum's variants.
+    pub fn tag(&self) -> Option<Scalar> {
+        let Self::Enum { variants, .. } = self else {
+            return None;
+        };
+        Some(match variants.len() {
+            0..=256 => Scalar::U8,
+            257..=65536 => Scalar::U16,
+            _ => Scalar::U32,
+        })
+    }
+
+    /// The field that holds field `field` of an enum's `variant`.
+    pub fn payload(&self, variant: u32, field: u32) -> Option<u32> {
+        let Self::Enum { payload, .. } = self else {
+            return None;
+        };
+        let slot = payload.get(variant as usize)?.get(field as usize)?;
+        Some(slot + 1)
+    }
+
     pub fn len(&self) -> usize {
         match self {
             Self::Record { fields, .. } => fields.len(),
             Self::Tuple(fields) => fields.len(),
             Self::Array { length, .. } => *length as usize,
+            Self::Enum { slots, .. } => slots.len() + 1,
         }
     }
 
@@ -172,6 +235,10 @@ impl Aggregate {
             Self::Record { fields, .. } => fields.get(index as usize).map(|field| field.ty),
             Self::Tuple(fields) => fields.get(index as usize).copied(),
             Self::Array { element, length } => (index < *length).then_some(*element),
+            Self::Enum { slots, .. } => match index {
+                0 => self.tag().map(Type::Scalar),
+                _ => slots.get(index as usize - 1).copied(),
+            },
         }
     }
 
@@ -275,6 +342,7 @@ impl TypeTable {
             Type::Scalar(scalar) => !matches!(scalar, Scalar::Bool | Scalar::Usize),
             Type::Aggregate(id) => self.get(id).is_some_and(|aggregate| {
                 !aggregate.is_empty()
+                    && !matches!(aggregate, Aggregate::Enum { .. })
                     && aggregate.component_types().all(|child| {
                         (!matches!(child, Type::Aggregate(child_id) if child_id >= id))
                             && self.is_abi_value(child)

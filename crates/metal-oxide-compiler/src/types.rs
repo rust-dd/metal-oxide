@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::Span;
@@ -9,7 +7,6 @@ use crate::intrinsics::{DeviceType, SliceIterator, device_type};
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
     types: ir::TypeTable,
-    options: HashSet<usize>,
 }
 
 impl<'tcx> TypeLowering<'tcx> {
@@ -17,13 +14,7 @@ impl<'tcx> TypeLowering<'tcx> {
         Self {
             tcx,
             types: ir::TypeTable::default(),
-            options: HashSet::new(),
         }
-    }
-
-    /// Whether `ty` is the internal `Option` record of range iteration.
-    pub(crate) fn is_option(&self, ty: ir::Type) -> bool {
-        matches!(ty, ir::Type::Aggregate(id) if self.options.contains(&id))
     }
 
     pub(crate) fn table(&self) -> &ir::TypeTable {
@@ -89,10 +80,8 @@ impl<'tcx> TypeLowering<'tcx> {
             if device_type(self.tcx, definition.did()) == Some(DeviceType::Dim3) {
                 return Ok(ir::Type::Dim3);
             }
-            if self.tcx.lang_items().option_type() == Some(definition.did())
-                && let Some(element) = scalar(args.type_at(0)).filter(|s| s.is_integer())
-            {
-                return Ok(self.option(ir::Type::Scalar(element)));
+            if definition.is_enum() {
+                return self.enumeration(ty, &mut std::iter::empty(), span);
             }
             if definition.is_struct() {
                 if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
@@ -136,25 +125,87 @@ impl<'tcx> TypeLowering<'tcx> {
             ))
     }
 
-    /// `Option<T>` as an `is_some` flag and a value that is meaningful only when it is set.
-    fn option(&mut self, value: ir::Type) -> ir::Type {
-        let ty = self.types.intern(ir::Aggregate::Record {
-            name: "Option".into(),
-            fields: vec![
-                ir::RecordField {
-                    name: "is_some".into(),
-                    ty: ir::Type::Scalar(ir::Scalar::Bool),
-                },
-                ir::RecordField {
-                    name: "value".into(),
-                    ty: value,
-                },
-            ],
-        });
-        if let ir::Type::Aggregate(id) = ty {
-            self.options.insert(id);
+    /// The tag type of an enum type.
+    pub(crate) fn tag(&self, ty: ir::Type) -> Option<ir::Scalar> {
+        let ir::Type::Aggregate(id) = ty else {
+            return None;
+        };
+        self.types.get(id)?.tag()
+    }
+
+    /// The `T` of an `Option<T>` type.
+    pub(crate) fn option_value(&self, ty: ir::Type) -> Option<ir::Type> {
+        let ir::Type::Aggregate(id) = ty else {
+            return None;
+        };
+        match self.types.get(id)? {
+            ir::Aggregate::Enum { name, variants, .. }
+                if name == "Option" && variants.len() == 2 && variants[0].is_empty() =>
+            {
+                variants[1]
+                    .first()
+                    .copied()
+                    .filter(|_| variants[1].len() == 1)
+            }
+            _ => None,
         }
-        ty
+    }
+
+    /// `Option<T>`: the core enum, whose `None` comes first.
+    pub(crate) fn option(&mut self, value: ir::Type) -> ir::Type {
+        self.types.intern(ir::Aggregate::enumeration(
+            "Option",
+            vec![Vec::new(), vec![value]],
+        ))
+    }
+
+    /// A field-holding enum; references in its fields take spaces from `spaces`. Variants keep
+    /// their declaration order, so a discriminant is its variant's index.
+    fn enumeration(
+        &mut self,
+        ty: Ty<'tcx>,
+        spaces: &mut dyn Iterator<Item = ir::AddressSpace>,
+        span: Span,
+    ) -> Result<ir::Type, (Span, String)> {
+        let ty::Adt(definition, arguments) = ty.kind() else {
+            unreachable!("only enum types are enumerations")
+        };
+        if definition.variants().is_empty() {
+            return Err((span, format!("uninhabited enums are unsupported: {ty}")));
+        }
+        if definition
+            .discriminants(self.tcx)
+            .any(|(index, discriminant)| discriminant.val != index.as_u32() as u128)
+        {
+            return Err((
+                span,
+                format!("explicit enum discriminants are unsupported: {ty}"),
+            ));
+        }
+        if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
+            return Err((span, "destructors cannot be imported".into()));
+        }
+        let variants = definition
+            .variants()
+            .iter()
+            .map(|variant| {
+                variant
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        let ty = self.tcx.normalize_erasing_regions(
+                            TypingEnv::fully_monomorphized(),
+                            field.ty(self.tcx, arguments),
+                        );
+                        self.with_spaces(ty, spaces, span)
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(self.types.intern(ir::Aggregate::enumeration(
+            self.tcx.item_name(definition.did()).to_string(),
+            variants,
+        )))
     }
 
     /// `ty` with the address spaces of its references, taken in the order a walk over its
@@ -206,9 +257,8 @@ impl<'tcx> TypeLowering<'tcx> {
         let ty::Adt(definition, arguments) = ty.kind() else {
             return Err((span, format!("unsupported reference type: {ty}")));
         };
-        if self.tcx.lang_items().option_type() == Some(definition.did()) {
-            let value = self.with_spaces(arguments.type_at(0), spaces, span)?;
-            return Ok(self.option(value));
+        if definition.is_enum() {
+            return self.enumeration(ty, spaces, span);
         }
         if let Some(iterator) = SliceIterator::of(self.tcx, ty) {
             let element = arguments
@@ -253,27 +303,33 @@ impl<'tcx> TypeLowering<'tcx> {
         }))
     }
 
-    /// The address spaces of the references in `ty`, in the order of `with_spaces`.
+    /// The address spaces of the references in `ty`, in the order of `with_spaces`; an enum's
+    /// fields count in variant order.
     pub(crate) fn spaces(&self, ty: ir::Type, spaces: &mut Vec<ir::AddressSpace>) {
         if let Some(pointer) = self.types.pointer(ty) {
             spaces.push(pointer.space);
             return self.spaces(pointer.target, spaces);
         }
-        if let ir::Type::Aggregate(id) = ty
-            && let Some(aggregate) = self.types.get(id)
-        {
-            for component in aggregate.component_types() {
-                self.spaces(component, spaces);
+        let ir::Type::Aggregate(id) = ty else {
+            return;
+        };
+        match self.types.get(id) {
+            Some(ir::Aggregate::Enum { variants, .. }) => {
+                for &field in variants.iter().flatten() {
+                    self.spaces(field, spaces);
+                }
             }
+            Some(aggregate) => {
+                for component in aggregate.component_types() {
+                    self.spaces(component, spaces);
+                }
+            }
+            None => {}
         }
     }
 
     pub(crate) fn intern_pointer(&mut self, pointer: ir::Pointer) -> ir::Type {
         self.types.intern_pointer(pointer)
-    }
-
-    pub(crate) fn optional(&mut self, value: ir::Type) -> ir::Type {
-        self.option(value)
     }
 
     /// A slice iterator: the slice it has not yielded and, for chunks, the chunk size.

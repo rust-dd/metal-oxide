@@ -65,7 +65,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Ok(None);
         }
         let item = self.item_type(iterator, self.locals[local], span)?;
-        Ok(Some(self.module.types.optional(item)))
+        Ok(Some(self.module.types.option(item)))
     }
 
     fn item_type(
@@ -190,9 +190,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let local = self.iterator_local(&receiver.node, span)?;
         let item = self.item_type(iterator, self.locals[local], span)?;
         let (option, option_type) = self.typed_place(destination, span)?;
-        let (ir::Type::Aggregate(option_id), ir::Type::Pointer(null)) = (option_type, item) else {
+        let ir::Type::Aggregate(option_id) = option_type else {
             return Err((span, "invalid iterator result".into()));
         };
+        if self.module.types.option_value(option_type) != Some(item) {
+            return Err((span, "invalid iterator result".into()));
+        }
         let source = location(self.module.tcx, span);
         let statement = |destination: ir::Place, value| ir::Statement {
             destination,
@@ -264,32 +267,28 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 end: ir::Operand::local(length),
             },
         ));
-        let yielded = |is_some, value| {
+        let yielded = |fields: Vec<ir::Operand>| {
             statement(
                 option.clone(),
-                ir::Expression::Aggregate {
+                ir::Expression::Variant {
                     ty: option_id,
-                    fields: vec![ir::Operand::Constant(ir::Constant::Bool(is_some)), value],
+                    variant: fields.len() as u32,
+                    fields,
                 },
             )
         };
-        some.push(yielded(true, ir::Operand::local(value)));
-        let mut none = vec![yielded(
-            false,
-            ir::Operand::Constant(ir::Constant::Null(null)),
-        )];
+        some.push(yielded(vec![ir::Operand::local(value)]));
+        let mut none = vec![yielded(Vec::new())];
         // As for ranges, branching to the arms of a following `match` skips the flag test.
         let (some_target, none_target) = match matched(body, target, destination) {
             Some((discriminant, some_target, none_target)) => {
                 let flag = ir::Place::local(discriminant.as_usize());
-                some.push(statement(
-                    flag.clone(),
-                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(true))),
-                ));
-                none.push(statement(
-                    flag,
-                    ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(false))),
-                ));
+                for (statements, variant) in [(&mut some, 1), (&mut none, 0)] {
+                    statements.push(statement(
+                        flag.clone(),
+                        ir::Expression::Use(ir::Operand::Constant(ir::Constant::U8(variant))),
+                    ));
+                }
                 (some_target.as_usize(), none_target.as_usize())
             }
             None => (target, target),

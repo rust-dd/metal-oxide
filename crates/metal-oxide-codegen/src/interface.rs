@@ -207,6 +207,12 @@ fn layout(module: &Module, ty: Type, function: &Function) -> Result<artifact::La
                     .map(|field| Ok((field.name.clone(), layout(module, field.ty, function)?)))
                     .collect::<Result<_, Error>>()?,
             ),
+            Aggregate::Enum { name, .. } => {
+                return Err(Error::new(
+                    &function.source,
+                    format!("enum {name} cannot cross the kernel ABI"),
+                ));
+            }
         },
         _ => {
             return Err(Error::new(

@@ -130,15 +130,6 @@ fn unsupported_reachable_calls_are_reported() {
 }
 
 #[test]
-fn enum_values_are_rejected_on_import() {
-    let (output, _) = support::emit(
-        "crates/metal-oxide-compiler/tests/fixtures/option_value.rs",
-        &[],
-    );
-    support::rejected(output, "enum values cannot be constructed in Metal kernels");
-}
-
-#[test]
 fn device_extern_operations_do_not_require_mir_bodies() {
     let report = support::checked(support::fixture("intrinsic_declarations"));
     for operation in [

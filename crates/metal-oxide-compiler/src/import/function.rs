@@ -51,10 +51,12 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
         for (index, local) in body.local_decls.iter().enumerate() {
             let ty = if (1..=body.arg_count).contains(&index) {
                 self.parameters[index - 1]
-            } else if !used[index] || self.handles[index].is_some() || panics.is_literal(index) {
+            } else if !used[index]
+                || self.handles[index].is_some()
+                || panics.is_literal(index)
+                || discriminants[index].is_some()
+            {
                 ir::Type::Unit
-            } else if discriminants[index] {
-                ir::Type::Scalar(ir::Scalar::Bool)
             } else if crate::types::has_reference(tcx, self.normalize_type(local.ty)) {
                 pending[index] = true;
                 ir::Type::Unit
@@ -64,6 +66,21 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             self.locals.push(ty);
         }
         self.infer_references(body, pending)?;
+        // A discriminant has its enum's tag type, known once references are.
+        for (index, place) in discriminants.iter().enumerate() {
+            if let Some(place) = place.filter(|_| used[index]) {
+                let span = body.local_decls[mir::Local::from_usize(index)]
+                    .source_info
+                    .span;
+                let (_, ty) = self.typed_place(&place, span)?;
+                let tag = self
+                    .module
+                    .types
+                    .tag(ty)
+                    .ok_or((span, "discriminants require an enum".into()))?;
+                self.locals[index] = ir::Type::Scalar(tag);
+            }
+        }
         let mut blocks = Vec::with_capacity(body.basic_blocks.len());
         for block in body.basic_blocks.iter() {
             blocks.push(self.block(block, body, &panics)?);
@@ -109,6 +126,24 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                     statements.push(ir::Statement {
                         destination,
                         value: self.expression(value, ty, span)?,
+                        source: location(self.module.tcx, span),
+                    });
+                }
+                mir::StatementKind::SetDiscriminant {
+                    place,
+                    variant_index,
+                } => {
+                    let (mut destination, ty) = self.typed_place(place, span)?;
+                    let tag = self
+                        .module
+                        .types
+                        .tag(ty)
+                        .and_then(|tag| control::integer(tag, variant_index.as_u32().into()))
+                        .ok_or((span, "discriminants require an enum".into()))?;
+                    destination.projection.push(ir::Projection::Field(0));
+                    statements.push(ir::Statement {
+                        destination,
+                        value: ir::Expression::Use(ir::Operand::Constant(tag)),
                         source: location(self.module.tcx, span),
                     });
                 }

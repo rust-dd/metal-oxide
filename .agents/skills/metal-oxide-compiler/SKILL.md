@@ -49,11 +49,15 @@ Implement the next acceptance criterion; create crates when their code is needed
   global index needs no overflow check. Summaries are keyed by the required block.
 - `log!` lowers to MSL `os_log` with typed printf specifiers; artifacts that use it
   require the `logging` feature, MSL 3.2 and `-fmetal-enable-logging`.
-- `Iterator::next` on `Range<integer>` expands inline into a bounds branch. Its
-  `Option` result is an internal (`is_some`, `value`) record that kernels may read
-  but not construct; `&mut` borrows are erased only as its argument. A `match` on
-  the result branches straight to its arms. Other iterators, enum construction and
-  references are rejected.
+- Enums, `Option` and `Result` included, are IR aggregates: a tag (the narrowest
+  unsigned integer that numbers the variants), then payload slots that variants share by
+  exact type, each variant taking the first free slot of its field's type. Only default
+  discriminants are supported, and enums never cross the ABI. A variant field projects
+  onto its slot, a discriminant reads the tag, and an exhaustive `match` lets its last case
+  take the unreachable default.
+- `Iterator::next` on `Range<integer>` expands inline into a bounds branch that builds its
+  `Option`; `&mut` borrows are erased only as its argument. A `match` on the result
+  branches straight to its arms. Other iterators are rejected.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
 - Records, tuples and arrays inside kernels may hold references. Each reference keeps the

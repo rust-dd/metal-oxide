@@ -78,14 +78,28 @@ fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
             })
             .collect::<Vec<_>>()
             .join(", "),
+        Aggregate::Enum { .. } => unreachable!("typing builds enum values from variants"),
     };
     format!("metal_oxide_aggregate_{id}{{{values}}}")
+}
+
+/// An enum value: the variant's tag, its fields in their slots, other slots value-initialized.
+fn variant_value(module: &Module, id: usize, variant: u32, fields: Vec<String>) -> String {
+    let aggregate = module.types.get(id).unwrap();
+    let mut values = vec!["{}".to_string(); aggregate.len()];
+    values[0] = variant.to_string();
+    for (index, value) in fields.into_iter().enumerate() {
+        values[aggregate.payload(variant, index as u32).unwrap() as usize] = value;
+    }
+    format!("metal_oxide_aggregate_{id}{{{}}}", values.join(", "))
 }
 
 pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u32) -> String {
     match module.types.get(id).unwrap() {
         Aggregate::Array { .. } => format!("{value}.elements[{field}]"),
-        Aggregate::Record { .. } | Aggregate::Tuple(_) => format!("{value}.f{field}"),
+        Aggregate::Record { .. } | Aggregate::Tuple(_) | Aggregate::Enum { .. } => {
+            format!("{value}.f{field}")
+        }
     }
 }
 
@@ -158,10 +172,6 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
             Constant::U64(v) | Constant::Usize(v) => format!("{v}ul"),
-            Constant::Null(pointer) => match module.types.pointer(Type::Pointer(*pointer)) {
-                Some(Pointer { slice: true, .. }) => format!("metal_oxide_pointer_{pointer}{{}}"),
-                _ => "nullptr".into(),
-            },
         },
     }
 }
@@ -210,6 +220,11 @@ pub(crate) fn expression(
         Expression::Aggregate { ty, fields } => {
             aggregate_value(module, *ty, fields.iter().map(op).collect())
         }
+        Expression::Variant {
+            ty,
+            variant,
+            fields,
+        } => variant_value(module, *ty, *variant, fields.iter().map(op).collect()),
         Expression::SimdCoordinate(builtin) => format!(
             "metal_oxide_ctx.simd_{}",
             match builtin {
