@@ -1,0 +1,15 @@
+[package]
+name = "saxpy-kernels"
+description = "Rust device kernel for single-precision a * x + y"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device = { workspace = true }
+
+[lints]
+workspace = true

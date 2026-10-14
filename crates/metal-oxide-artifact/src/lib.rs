@@ -2,6 +2,7 @@
 
 mod checks;
 mod compiler;
+mod contract;
 mod files;
 mod layout;
 mod math;
@@ -11,6 +12,7 @@ mod validate;
 
 pub use checks::{Check, CheckKind, Location, OverflowOp};
 pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
+pub use contract::{Comparison, Contract, Operand, Term};
 pub use files::{ArtifactFile, COMPILER_OUTPUTS};
 pub use layout::{FieldLayout, Layout, LayoutKind};
 pub use math::MathMode;

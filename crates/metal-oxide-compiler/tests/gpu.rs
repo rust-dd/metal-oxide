@@ -48,6 +48,8 @@ mod checks;
 mod closures;
 #[path = "gpu/collectives.rs"]
 mod collectives;
+#[path = "gpu/contracts.rs"]
+mod contracts;
 #[path = "gpu/control_flow.rs"]
 mod control_flow;
 #[path = "gpu/cooperation.rs"]

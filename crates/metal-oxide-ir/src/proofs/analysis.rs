@@ -52,6 +52,9 @@ impl<'a> Analysis<'a> {
         for (position, argument) in arguments.iter().enumerate() {
             entry.assign(&Place::local(position + 1), argument.clone());
         }
+        for contract in &function.requires {
+            entry.require(contract);
+        }
         let mut inputs = vec![Vec::<State<'a>>::new(); function.blocks.len()];
         let mut merged = vec![false; inputs.len()];
         let mut pending = VecDeque::from([(0, entry)]);

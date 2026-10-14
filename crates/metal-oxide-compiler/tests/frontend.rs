@@ -85,9 +85,22 @@ fn rust_borrow_errors_are_reported() {
 }
 
 #[test]
+fn safe_kernels_get_safe_launch_methods() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/safe_kernel.rs",
+        &[],
+    );
+    support::checked(output);
+    let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
+    assert!(abi.contains("\"safe\": true"), "{abi}");
+    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
+    assert!(bindings.contains("    pub fn r#vec_add<"), "{bindings}");
+    assert!(!bindings.contains("unsafe fn"), "{bindings}");
+}
+
+#[test]
 fn unsupported_kernel_signatures_are_reported() {
     for (fixture, error) in [
-        ("safe_kernel", "kernel entrypoints must be unsafe"),
         (
             "generic_kernel",
             "kernel entrypoints must not have generic parameters",

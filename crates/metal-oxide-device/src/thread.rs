@@ -55,16 +55,17 @@ pub unsafe fn uninit_array<T: Copy, const N: usize>() -> [T; N] {
 /// ```compile_fail,E0599
 /// let index = metal_oxide_device::thread_index().clone();
 /// ```
-pub struct ThreadIndex(usize);
+pub struct ThreadIndex(());
 
 impl ThreadIndex {
+    /// `block_idx().x * block_dim().x + thread_idx().x`. A kernel that reads it, here or
+    /// through `DisjointBuffer::get_mut`, accepts only one-dimensional launches.
     pub fn get(&self) -> usize {
-        self.0
+        crate::intrinsics::__metal_thread_index()
     }
 }
 
-/// The calling thread's index, `block_idx().x * block_dim().x + thread_idx().x`. A kernel that
-/// calls it accepts only one-dimensional launches, where no two threads share the index.
+/// The calling thread's index, as a witness that only this thread holds.
 pub fn thread_index() -> ThreadIndex {
-    ThreadIndex(crate::intrinsics::__metal_thread_index())
+    ThreadIndex(())
 }

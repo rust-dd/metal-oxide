@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, MSL_VERSION, Manifest,
+    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, MSL_VERSION, Manifest, Operand,
     ParameterType, Scalar,
 };
 
@@ -115,6 +115,27 @@ impl Abi {
                     "kernel {} must take its gate, failure and length words in the buffer slots after its parameters",
                     kernel.name
                 )));
+            }
+            for contract in &kernel.requires {
+                let mut read = Vec::new();
+                contract.left.parameters(&mut read);
+                contract.right.parameters(&mut read);
+                let valid = read.into_iter().all(|(index, operand)| {
+                    match (kernel.parameters.get(index).map(|p| &p.ty), operand) {
+                        (Some(ParameterType::Buffer { .. }), Operand::Buffer) => true,
+                        (Some(ParameterType::Value { layout }), Operand::Integer) => matches!(
+                            layout.scalar_type(),
+                            Some(scalar) if scalar.is_integer()
+                        ),
+                        _ => false,
+                    }
+                });
+                if !valid {
+                    return Err(Error(format!(
+                        "kernel {} requires {:?} over parameters it does not have",
+                        kernel.name, contract.relation
+                    )));
+                }
             }
             if let Some(block) = kernel.required_block
                 && (block.contains(&0)

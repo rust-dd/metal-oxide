@@ -1,4 +1,4 @@
-use rustc_hir::{Safety, def::DefKind, def_id::DefId};
+use rustc_hir::{def::DefKind, def_id::DefId};
 use rustc_middle::ty::{Instance, Ty, TyCtxt, TypingEnv};
 use rustc_span::Symbol;
 
@@ -39,6 +39,68 @@ pub(crate) fn block_shape(
     }
 }
 
+/// The relations of a kernel's `requires(...)` attributes as written, with the attribute's span.
+pub(crate) fn requires(
+    tcx: TyCtxt<'_>,
+    definition: DefId,
+) -> Result<Vec<(String, rustc_span::Span)>, (rustc_span::Span, String)> {
+    let path = [Symbol::intern("metal_oxide"), Symbol::intern("requires")];
+    let mut relations = Vec::new();
+    for attribute in tcx.get_attrs_by_path(definition, &path) {
+        let rustc_attr_ir::Attribute::Unparsed(item) = attribute else {
+            unreachable!("tool attributes stay unparsed")
+        };
+        let span = match &item.args {
+            rustc_attr_ir::AttrArgs::Delimited(arguments) => arguments.dspan.entire(),
+            _ => item.span,
+        };
+        let text = tcx
+            .sess
+            .source_map()
+            .span_to_snippet(span)
+            .ok()
+            .and_then(|text| Some(text.strip_prefix('(')?.strip_suffix(')')?.to_owned()))
+            .ok_or((
+                span,
+                "kernel requirements must be written in the source".into(),
+            ))?;
+        let mut depth = 0_i32;
+        let mut start = 0;
+        for (index, character) in text.char_indices().chain([(text.len(), ',')]) {
+            match character {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                ',' if depth == 0 => {
+                    let relation = text[start..index].trim();
+                    if !relation.is_empty() {
+                        relations.push((relation.to_owned(), span));
+                    }
+                    start = index + 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(relations)
+}
+
+/// The name a kernel parameter has in the source, from its debug information.
+pub(crate) fn parameter_name(body: &rustc_middle::mir::Body<'_>, index: usize) -> Option<String> {
+    let local = body.args_iter().nth(index)?;
+    let name = body
+        .var_debug_info
+        .iter()
+        .find_map(|debug| match &debug.value {
+            rustc_middle::mir::VarDebugInfoContents::Place(place)
+                if place.local == local && place.projection.is_empty() =>
+            {
+                Some(debug.name.to_string())
+            }
+            _ => None,
+        })?;
+    Some(name.strip_prefix("r#").unwrap_or(&name).to_owned())
+}
+
 /// Kernel entrypoints, after reporting unsupported code they can reach.
 pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Instance<'tcx>> {
     let marker = [Symbol::intern("metal_oxide"), Symbol::intern("kernel")];
@@ -73,9 +135,6 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
             tcx.fn_sig(definition).instantiate_identity(),
         )
         .skip_binder();
-    if signature.safety() != Safety::Unsafe {
-        return error("kernel entrypoints must be unsafe");
-    }
     if !signature.abi().is_rustic_abi() {
         return error("kernel entrypoints must use the Rust ABI");
     }

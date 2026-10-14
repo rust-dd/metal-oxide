@@ -1,35 +1,53 @@
-use proc_macro::{Delimiter, TokenStream, TokenTree};
+use proc_macro::{Delimiter, Group, TokenStream, TokenTree};
 
-/// Marks a concrete, unsafe kernel entrypoint for the Metal compiler.
+/// Marks a concrete kernel entrypoint for the Metal compiler; a safe `fn` gets a safe launch
+/// method. `block = (X, Y, Z)` fixes the block shape, and `requires(...)` lists relations
+/// between buffer lengths and integer parameters that every launch checks.
 #[proc_macro_attribute]
 pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
     let mut output = "#[cfg_attr(target_env = \"metal\", metal_oxide::kernel)]"
         .parse::<TokenStream>()
         .unwrap();
-    if !attributes.is_empty() {
-        let Some(shape) = block_shape(attributes) else {
-            return "compile_error!(\"expected #[kernel(block = (X, Y, Z))] with positive integer literals\");".parse().unwrap();
+    let tokens = attributes.into_iter().collect::<Vec<_>>();
+    for option in tokens.split(|token| matches!(token, TokenTree::Punct(p) if p.as_char() == ',')) {
+        let attribute = match option {
+            [] => continue,
+            [TokenTree::Ident(name), TokenTree::Group(relations)]
+                if name.to_string() == "requires"
+                    && relations.delimiter() == Delimiter::Parenthesis =>
+            {
+                let mut attribute = "metal_oxide::requires".parse::<TokenStream>().unwrap();
+                attribute.extend([TokenTree::Group(relations.clone())]);
+                attribute
+            }
+            _ => match block_shape(option) {
+                Some([x, y, z]) => format!("metal_oxide::block_shape = \"{x},{y},{z}\"")
+                    .parse()
+                    .unwrap(),
+                None => {
+                    return "compile_error!(\"expected #[kernel(block = (X, Y, Z), requires(...))] with positive integer block literals\");"
+                        .parse()
+                        .unwrap();
+                }
+            },
         };
-        output.extend(
-            format!(
-                "#[cfg_attr(target_env = \"metal\", metal_oxide::block_shape = \"{},{},{}\")]",
-                shape[0], shape[1], shape[2],
-            )
-            .parse::<TokenStream>()
-            .unwrap(),
-        );
+        let mut cfg = "target_env = \"metal\",".parse::<TokenStream>().unwrap();
+        cfg.extend(attribute);
+        let mut cfg_attr = "cfg_attr".parse::<TokenStream>().unwrap();
+        cfg_attr.extend([TokenTree::Group(Group::new(Delimiter::Parenthesis, cfg))]);
+        output.extend("#".parse::<TokenStream>().unwrap());
+        output.extend([TokenTree::Group(Group::new(Delimiter::Bracket, cfg_attr))]);
     }
     output.extend(item);
     output
 }
 
-fn block_shape(attributes: TokenStream) -> Option<[u32; 3]> {
-    let tokens = attributes.into_iter().collect::<Vec<_>>();
+fn block_shape(tokens: &[TokenTree]) -> Option<[u32; 3]> {
     let [
         TokenTree::Ident(name),
         TokenTree::Punct(equal),
         TokenTree::Group(values),
-    ] = tokens.as_slice()
+    ] = tokens
     else {
         return None;
     };

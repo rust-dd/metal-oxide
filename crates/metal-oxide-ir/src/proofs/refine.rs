@@ -7,6 +7,31 @@ use super::{
 };
 
 impl State<'_> {
+    /// Assumes a kernel requirement that compares parameters' lengths, integer values and
+    /// literals; a launch checks it before encoding. Arithmetic terms stay runtime checks.
+    pub fn require(&mut self, contract: &metal_oxide_artifact::Contract) {
+        use metal_oxide_artifact::{Comparison as Relation, Term};
+        let atom = |term: &Term| match term {
+            Term::Length(index) => Some(Atom::Length(Place::local(index + 1))),
+            Term::Value(index) => Some(Atom::Place(Place::local(index + 1))),
+            Term::Literal(value) => Some(Atom::Integer(i128::from(*value))),
+            Term::Add(..) | Term::Sub(..) | Term::Mul(..) => None,
+        };
+        let (Some(a), Some(b)) = (atom(&contract.left), atom(&contract.right)) else {
+            return;
+        };
+        let op = match contract.comparison {
+            Relation::Eq => Comparison::Eq,
+            Relation::Ne => Comparison::Ne,
+            Relation::Lt => Comparison::Lt,
+            Relation::Le => Comparison::Le,
+            Relation::Gt => Comparison::Gt,
+            Relation::Ge => Comparison::Ge,
+        };
+        self.refine(&Predicate::Compare(op, a.clone(), b.clone()), true);
+        self.relations.insert((a, op, b));
+    }
+
     pub fn assume(&mut self, operand: &Operand, expected: bool) -> bool {
         if let Some(value) = self.operand_range(operand)
             && !value.contains(i128::from(expected))

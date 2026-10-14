@@ -13,25 +13,22 @@ Kernel (`kernels/src/lib.rs`):
 
 use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 
-/// # Safety
-/// Nothing writes `a` or `b` while the kernel runs.
-#[kernel]
-pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+#[kernel(requires(a.len() == out.len(), b.len() == out.len()))]
+pub fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
     let index = thread_index();
-    let a = a.as_slice();
-    let b = b.as_slice();
-    let i = index.get();
-    if let Some(out) = out.get_mut(&index)
-        && i < a.len()
-        && i < b.len()
-    {
-        *out = a[i] + b[i];
+    if let Some(out) = out.get_mut(&index) {
+        let i = index.get();
+        *out = a.as_slice()[i] + b.as_slice()[i];
     }
 }
 ```
 
-Slices carry the lengths the host bound, so their indexing is checked; here the guards
-prove it and no check remains. `get_mut` gives each thread `&mut` to its own element only.
+Slices carry the lengths the host bound, so their indexing is checked. `get_mut` gives each
+thread `&mut` to its own element only, and `requires` lists relations every launch checks
+before it encodes (`Error::Contract` otherwise); the compiler assumes them, so here no check
+remains. A safe `fn` kernel gets a safe launch method; the method of an `unsafe fn` kernel,
+such as one using unchecked loads or barriers, is `unsafe` too, and its callers uphold the
+contract in its doc comment.
 
 Host (`host/src/main.rs`):
 
@@ -50,8 +47,7 @@ fn main() -> metal_oxide::Result<()> {
     let mut out = device.buffer_zeroed::<f32>(3)?;
     let config = LaunchConfig::<256>::for_elements(3)?;
 
-    // SAFETY: nothing else writes the inputs while the kernel runs.
-    unsafe { kernels.vec_add(config, &a, &b, &mut out) }.wait()?;
+    kernels.vec_add(config, &a, &b, &mut out).wait()?;
 
     assert_eq!(out.read().wait(), &[11.0, 22.0, 33.0]);
     Ok(())
@@ -64,7 +60,7 @@ Arguments come back in the form they were passed, so owned and `Arc` buffers mak
 blocking the executor thread:
 
 ```rust
-let (a, b, out) = unsafe { kernels.vec_add(config, a, b, out) }.await?;
+let (a, b, out) = kernels.vec_add(config, a, b, out).await?;
 let values = out.read().await;
 ```
 

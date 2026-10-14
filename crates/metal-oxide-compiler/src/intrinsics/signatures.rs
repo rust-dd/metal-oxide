@@ -259,8 +259,8 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                 };
                 let thread_index = matches!(index.kind(), ty::Ref(_, index, Mutability::Not)
                     if matches!(index.kind(), ty::Adt(definition, _)
-                        if tcx.item_name(definition.did()).as_str() == "ThreadIndex"
-                            && device::in_module(tcx, definition.did(), "thread")));
+                        if device::device_type(tcx, definition.did())
+                            == Some(DeviceType::ThreadIndex)));
                 let option = matches!(output.kind(), ty::Adt(definition, arguments)
                     if tcx.lang_items().option_type() == Some(definition.did())
                         && matches!(arguments.type_at(0).kind(),
@@ -269,6 +269,15 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
                     return false;
                 }
                 "__metal_buffer_length"
+            }
+            (Intrinsic::ThreadIndex, &[receiver])
+                if output == tcx.types.usize
+                    && matches!(receiver.kind(), ty::Ref(_, witness, Mutability::Not)
+                        if matches!(witness.kind(), ty::Adt(definition, _)
+                            if device::device_type(tcx, definition.did())
+                                == Some(DeviceType::ThreadIndex))) =>
+            {
+                "__metal_thread_index"
             }
             (Intrinsic::Log, &[format, arguments])
                 if output.is_unit()
@@ -285,7 +294,10 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
     };
     if !matches!(
         operation,
-        Intrinsic::ThreadgroupAlloc(_) | Intrinsic::Log | Intrinsic::Buffer(_)
+        Intrinsic::ThreadgroupAlloc(_)
+            | Intrinsic::Log
+            | Intrinsic::Buffer(_)
+            | Intrinsic::ThreadIndex
     ) && signature.safety() != Safety::Unsafe
     {
         return false;
@@ -342,6 +354,7 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
     let read = Pointer(Mutability::Not);
     let write = Pointer(Mutability::Mut);
     match operation {
+        Intrinsic::ThreadIndex => declaration(tcx, definition, &[], Usize, Safety::Safe),
         Intrinsic::Buffer(_) => declaration(tcx, definition, &[read], Usize, Safety::Unsafe),
         Intrinsic::Uninit => declaration(tcx, definition, &[write, Usize], Unit, Safety::Unsafe),
         Intrinsic::BufferLoad => declaration(

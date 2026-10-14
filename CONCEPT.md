@@ -61,12 +61,8 @@ The kernel crate contains ordinary Rust:
 use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 
 /// Adds two buffers element by element; threads past the end of a buffer write nothing.
-///
-/// # Safety
-///
-/// Nothing writes `a` or `b` while the kernel runs.
 #[kernel]
-pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+pub fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
     let index = thread_index();
     let a = a.as_slice();
     let b = b.as_slice();
@@ -81,7 +77,18 @@ pub unsafe fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointB
 ```
 
 `#[kernel]` adds an entrypoint marker that the compiler can find. The macro
-preserves the function body. MSL and host binding generation happen later.
+preserves the function body. MSL and host binding generation happen later. A safe `fn`
+kernel gets a safe launch method: the device API makes every operation that can race or
+read out of bounds `unsafe`, so a safe kernel is safe by Rust's own checking, or by its
+author's promise for the `unsafe` blocks it contains. An `unsafe fn` kernel's method is
+`unsafe`, and its callers uphold the contract in its doc comment.
+
+`#[kernel(requires(a.len() == out.len(), b.len() == out.len()))]` lists relations between
+buffer lengths, integer parameters and literals, with `+`, `-` and `*`. Every launch checks
+them before it encodes and returns `Error::Contract` with the relation as written when one
+fails. The compiler assumes those that compare plain lengths, parameters and literals at
+the kernel's entry, so the unguarded `*out = a.as_slice()[i] + b.as_slice()[i]` after
+`get_mut` needs no runtime check either.
 
 `ReadBuffer`, `WriteBuffer`, and `ReadWriteBuffer` are device handles with explicit element access.
 They avoid handing every GPU thread an exclusive Rust reference to the same
@@ -90,9 +97,9 @@ borrow the buffer exclusively, while the caller still ensures race-free GPU acce
 Inside the kernel entrypoint, a buffer parameter's `len()` is the element count the host
 bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`. A `DisjointBuffer`
 hands each thread `&mut` to only its own element: `get_mut(&thread_index())` returns it,
-or `None` past the end, and the index cannot be forged, copied or cloned. `thread_index()` is
-`block_idx().x * block_dim().x + thread_idx().x`, so a kernel that calls it accepts only
-one-dimensional launches.
+or `None` past the end, and the witness cannot be forged, copied or cloned. The index, which
+`get` returns, is `block_idx().x * block_dim().x + thread_idx().x`, so a kernel that reads it
+accepts only one-dimensional launches.
 
 Primitive scalar buffers expose shared Metal storage directly through `read` and
 `write`, which wait for pending GPU work first: awaiting them never blocks the thread,
@@ -205,8 +212,8 @@ The importer also replaces recognized calls:
 | `thread_idx()` | `Coordinates(ThreadIdx)` |
 | `block_idx()` | `Coordinates(BlockIdx)` |
 | `block_dim()` | `Coordinates(BlockDim)` |
-| `thread_index()` | `ThreadIndex` |
-| `DisjointBuffer::get_mut(index)` | the element's `Ref` if the index is below the buffer's `Len` |
+| `ThreadIndex::get()` | `ThreadIndex`; the witness itself is zero-sized |
+| `DisjointBuffer::get_mut(index)` | the element's `Ref` if `ThreadIndex` is below the buffer's `Len` |
 | `load_unchecked(buffer, index)` | `BufferLoad` |
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
@@ -367,7 +374,9 @@ For `vec_add`, `abi.json` contains:
       "gate_binding": 3,
       "fallible": false,
       "lengths": true,
-      "one_dimensional": true
+      "one_dimensional": true,
+      "safe": true,
+      "requires": []
     }
   ]
 }
@@ -378,7 +387,8 @@ layouts refer to earlier entries. `signatures` holds each distinct parameter
 list. The in-memory `Abi` keeps every kernel's parameters and layouts inline.
 Each kernel also records its gate slot, whether it can fail a check (it then takes
 the failure word next), whether it reads buffer lengths (it then takes their table
-next), and whether it reads its thread index.
+next), whether it reads its thread index, whether it is a safe `fn`, and its `requires`
+relations, each as written and as a term over parameter indices.
 
 Buffer handles become Metal bindings. Values and buffer elements carry a
 canonical layout with size, alignment, field offsets, array stride, and padding.
@@ -393,7 +403,7 @@ Build-time and runtime consumers use this description:
 | Kernel build | Binding generator | Produce typed host parameters and ordered `Argument` values |
 | Artifact build | `metal-oxide-build` | Embed the ABI in `manifest.json` |
 | Artifact loading | Runtime | Validate the manifest and bindings ABI hash; retain each kernel's ABI |
-| Kernel launch | Runtime | Check argument count, scalar/element types, access modes, any required block shape, and the one-dimensional launch of a thread-index kernel |
+| Kernel launch | Runtime | Check argument count, scalar/element types, access modes, any required block shape, the one-dimensional launch of a thread-index kernel, and the kernel's `requires` relations |
 
 The Apple compiler compiles the MSL declarations, including their binding
 attributes. It does not generate our ABI file or Rust wrappers.
@@ -526,8 +536,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut out = device.buffer_zeroed::<f32>(n as usize)?;
     let config = LaunchConfig::<256>::for_elements(n)?;
 
-    // SAFETY: nothing else writes the inputs while the kernel runs.
-    unsafe { kernels.vec_add(config, &a, &b, &mut out) }.wait()?;
+    kernels.vec_add(config, &a, &b, &mut out).wait()?;
 
     assert!(out.read().wait().iter().all(|&value| value == 3.0));
     Ok(())
@@ -581,10 +590,10 @@ The runtime performs these steps:
 The runtime's `Module` holds a loaded Metal library and ABI metadata.
 `metal_oxide_ir::Module` holds the compiler's program representation.
 
-The runtime checks the call interface against the ABI. The kernel's documented
-bounds, aliasing, race, and participation requirements remain the unsafe caller's
-responsibility. For `vec_add` that is the absence of other writers to its inputs;
-a kernel that indexes with `load_unchecked` must also keep its indices in bounds.
+The runtime checks the call interface and the `requires` relations against the ABI. For
+an `unsafe fn` kernel, its documented bounds, aliasing, race, and participation
+requirements remain the caller's responsibility; a kernel that indexes with
+`load_unchecked` must keep its indices in bounds.
 
 ## Native resource ownership
 

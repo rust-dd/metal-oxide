@@ -20,6 +20,7 @@ pub fn module(parameters: usize, locals: Vec<Type>, blocks: Vec<Block>) -> Modul
             name: "helper".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters,
             locals,
             blocks,

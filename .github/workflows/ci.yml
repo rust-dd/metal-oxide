@@ -67,7 +67,7 @@ jobs:
         run: cargo test --features rustc-private --locked --target-dir ../../target/compiler
       - name: Inspect kernels through Cargo
         run: |
-          for package in vec-add reduction matmul pipeline; do
+          for package in vec-add saxpy reduction matmul pipeline; do
             cargo run --package cargo-metal --manifest-path ../../Cargo.toml --locked -- inspect -p "$package" --emit msl
           done
 

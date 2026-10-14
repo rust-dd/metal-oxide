@@ -160,6 +160,26 @@ impl<'a> Argument<'a> {
         }
     }
 
+    /// The value of an integer argument of type `scalar`.
+    pub(super) fn integer(&self, scalar: metal_oxide_artifact::Scalar) -> Option<i128> {
+        use metal_oxide_artifact::Scalar;
+        let bytes = match &self.value {
+            Value::Inline(bytes) => &bytes[..self.size],
+            Value::Encoded(bytes) => bytes,
+            _ => return None,
+        };
+        let mut wide = [0; 8];
+        wide.get_mut(..bytes.len())?.copy_from_slice(bytes);
+        let bits = u64::from_le_bytes(wide);
+        Some(match scalar {
+            Scalar::U8 | Scalar::U16 | Scalar::U32 | Scalar::U64 => i128::from(bits),
+            Scalar::I8 => i128::from(bits as u8 as i8),
+            Scalar::I16 => i128::from(bits as u16 as i16),
+            Scalar::I32 => i128::from(bits as u32 as i32),
+            Scalar::F32 | Scalar::F16 => return None,
+        })
+    }
+
     /// The element count of a buffer argument.
     pub(super) fn length(&self) -> Option<usize> {
         match &self.value {
@@ -229,7 +249,15 @@ pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
 }
 
 /// A buffer a kernel writes: exclusively borrowed or owned. An `Arc` buffer is read-only
-/// because a GPU write must exclude every CPU view of it.
+/// because a GPU write must exclude every CPU view of it, and so is a shared borrow:
+///
+/// ```compile_fail,E0277
+/// use metal_oxide::{Buffer, WriteArgument};
+/// fn written(buffer: impl WriteArgument<f32>) {}
+/// fn check(buffer: &Buffer<f32>) {
+///     written(buffer);
+/// }
+/// ```
 pub trait WriteArgument<T: GpuValue>: sealed::Sealed {
     fn buffer_mut(&mut self) -> &mut Buffer<T>;
 }

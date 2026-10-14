@@ -39,6 +39,12 @@ pub enum Error {
     InvalidBuffer(&'static str),
     InvalidLaunch(&'static str),
     TooManyArguments(usize),
+    /// The arguments of a launch violate a relation in its kernel's `requires`; nothing was
+    /// encoded.
+    Contract {
+        kernel: String,
+        relation: String,
+    },
     DeviceMismatch,
     Library(String),
     KernelNotFound(String),
@@ -72,6 +78,9 @@ impl fmt::Display for Error {
             Self::InvalidLaunch(reason) => write!(f, "invalid launch: {reason}"),
             Self::TooManyArguments(count) => {
                 write!(f, "{count} arguments exceed the 31 Metal buffer slots")
+            }
+            Self::Contract { kernel, relation } => {
+                write!(f, "kernel {kernel} requires {relation}")
             }
             Self::DeviceMismatch => write!(
                 f,

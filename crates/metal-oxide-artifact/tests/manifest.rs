@@ -22,6 +22,8 @@ fn manifest() -> Manifest {
                 fallible: true,
                 lengths: true,
                 one_dimensional: true,
+                safe: false,
+                requires: Vec::new(),
             }],
         },
         checks: vec![Check {
@@ -97,6 +99,8 @@ fn kernels_share_type_and_signature_tables() {
             fallible: false,
             lengths: false,
             one_dimensional: false,
+            safe: true,
+            requires: Vec::new(),
         })
         .into();
     let json = manifest.to_json().unwrap();

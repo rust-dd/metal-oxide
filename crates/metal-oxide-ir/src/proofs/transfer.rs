@@ -45,6 +45,11 @@ impl Analysis<'_> {
             state.forget_escaped();
         }
         state.assign(&statement.destination, value);
+        if statement.value == Expression::ThreadIndex
+            && let Some(destination) = state.resolve(&statement.destination)
+        {
+            state.threads.insert(destination);
+        }
         match &statement.value {
             Expression::Len(Operand::Place(slice)) => state.length(&statement.destination, slice),
             Expression::Use(Operand::Place(source)) => {

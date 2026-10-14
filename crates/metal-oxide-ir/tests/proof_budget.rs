@@ -35,6 +35,7 @@ fn bounded_loop(name: String, kernel: bool) -> Function {
         name,
         kernel,
         required_block: None,
+        requires: Vec::new(),
         parameters: 0,
         locals: vec![
             Type::Unit,
@@ -85,6 +86,7 @@ fn caller(name: &str, functions: impl IntoIterator<Item = (usize, Vec<Operand>)>
         name: name.into(),
         kernel: true,
         required_block: None,
+        requires: Vec::new(),
         parameters: 0,
         locals: vec![Type::Unit],
         blocks: vec![block(
@@ -142,6 +144,7 @@ fn cached_helper_proofs_keep_their_argument_facts() {
         name: "checked_helper".into(),
         kernel: false,
         required_block: None,
+        requires: Vec::new(),
         parameters: 1,
         locals: vec![
             Type::Unit,

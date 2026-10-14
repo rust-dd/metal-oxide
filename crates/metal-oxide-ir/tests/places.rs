@@ -52,6 +52,7 @@ fn module(complete: bool) -> Module {
             name: "partial".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 0,
             locals: vec![record, record],
             blocks: vec![Block {

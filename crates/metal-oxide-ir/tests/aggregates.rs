@@ -15,6 +15,7 @@ fn identity(types: TypeTable, ty: Type) -> Module {
             name: "identity".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 1,
             locals: vec![ty, ty],
             blocks: vec![Block {

@@ -105,6 +105,7 @@ fn aggregate_module() -> ir::Module {
         name: "aggregate_values".into(),
         kernel: true,
         required_block: None,
+        requires: Vec::new(),
         parameters: 3,
         locals: vec![
             Type::Unit,
@@ -164,6 +165,7 @@ fn aggregate_module() -> ir::Module {
         name: "update_nested".into(),
         kernel: false,
         required_block: None,
+        requires: Vec::new(),
         parameters: 2,
         locals: vec![record, record, Type::Scalar(Scalar::U32)],
         blocks: vec![block(vec![(0, Expression::Use(Operand::local(1)))])],

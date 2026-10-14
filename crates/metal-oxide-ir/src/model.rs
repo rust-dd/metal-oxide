@@ -47,6 +47,8 @@ pub struct Function {
     pub name: String,
     pub kernel: bool,
     pub required_block: Option<[u32; 3]>,
+    /// A kernel's launch preconditions, which hold at its entry.
+    pub requires: Vec<metal_oxide_artifact::Contract>,
     pub parameters: usize,
     /// Local zero is the return place; parameters start at local one.
     pub locals: Vec<Type>,

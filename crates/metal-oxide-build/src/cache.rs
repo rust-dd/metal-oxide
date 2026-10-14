@@ -99,6 +99,8 @@ mod tests {
                 fallible: false,
                 lengths: false,
                 one_dimensional: false,
+                safe: false,
+                requires: Vec::new(),
             }],
         };
         let manifest = Manifest {

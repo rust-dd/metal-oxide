@@ -22,6 +22,8 @@ members = [
     "examples/pipeline/kernels",
     "examples/reduction/host",
     "examples/reduction/kernels",
+    "examples/saxpy/host",
+    "examples/saxpy/kernels",
     "examples/spectral/host",
     "examples/spectral/kernels",
     "examples/vec-add/host",

@@ -29,6 +29,7 @@ fn function(kernel: bool, parameters: usize, locals: Vec<Type>, blocks: Vec<Bloc
         name: if kernel { "kernel" } else { "helper" }.into(),
         kernel,
         required_block: None,
+        requires: Vec::new(),
         parameters,
         locals,
         blocks,
@@ -345,8 +346,14 @@ fn launch_index(a: Builtin, b: (Builtin, u32)) -> Vec<usize> {
 
 #[test]
 fn launch_coordinates_prove_global_index_arithmetic() {
-    assert_eq!(launch_index(Builtin::BlockIdx, (Builtin::BlockDim, 0)), []);
-    assert_eq!(launch_index(Builtin::BlockDim, (Builtin::BlockIdx, 0)), []);
+    assert_eq!(
+        launch_index(Builtin::BlockIdx, (Builtin::BlockDim, 0)),
+        Vec::<usize>::new()
+    );
+    assert_eq!(
+        launch_index(Builtin::BlockDim, (Builtin::BlockIdx, 0)),
+        Vec::<usize>::new()
+    );
     assert_eq!(launch_index(Builtin::GridDim, (Builtin::BlockDim, 0)), [1]);
     assert_eq!(
         launch_index(Builtin::BlockIdx, (Builtin::BlockDim, 1)),
@@ -403,8 +410,8 @@ fn constant_block_index(required_block: Option<[u32; 3]>) -> Vec<usize> {
 
 #[test]
 fn a_required_block_bounds_the_constant_block_index() {
-    assert_eq!(constant_block_index(Some([64, 1, 1])), []);
-    assert_eq!(constant_block_index(Some([128, 1, 1])), []);
+    assert_eq!(constant_block_index(Some([64, 1, 1])), Vec::<usize>::new());
+    assert_eq!(constant_block_index(Some([128, 1, 1])), Vec::<usize>::new());
     // A stride larger than the block can overflow on the last blocks of a large grid.
     assert_eq!(constant_block_index(Some([32, 1, 1])), [0, 1]);
     assert_eq!(constant_block_index(None), [0, 1]);
@@ -505,8 +512,8 @@ fn shifted_index(shift: u32, addend: u32) -> Vec<usize> {
 
 #[test]
 fn shifts_of_bounded_values_bound_later_arithmetic() {
-    assert_eq!(shifted_index(4, u32::MAX - 4080), []);
+    assert_eq!(shifted_index(4, u32::MAX - 4080), Vec::<usize>::new());
     assert_eq!(shifted_index(4, u32::MAX - 4079), [0]);
-    assert_eq!(shifted_index(24, 0x00ff_ffff), []);
+    assert_eq!(shifted_index(24, 0x00ff_ffff), Vec::<usize>::new());
     assert_eq!(shifted_index(25, 1), [0]);
 }

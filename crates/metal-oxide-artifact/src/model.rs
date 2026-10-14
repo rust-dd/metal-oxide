@@ -28,6 +28,10 @@ impl Scalar {
         self.size()
     }
 
+    pub const fn is_integer(self) -> bool {
+        !matches!(self, Self::F32 | Self::F16)
+    }
+
     pub const fn rust_name(self) -> &'static str {
         match self {
             Self::F32 => "f32",
@@ -94,6 +98,10 @@ pub struct Kernel {
     pub lengths: bool,
     /// The kernel reads its thread index, so it accepts only one-dimensional launches.
     pub one_dimensional: bool,
+    /// The kernel is a safe `fn`, so launching it is safe.
+    pub safe: bool,
+    /// Relations between argument lengths and values that a launch checks before encoding.
+    pub requires: Vec<crate::Contract>,
 }
 
 /// Serialized with layouts and parameter lists shared across kernels.

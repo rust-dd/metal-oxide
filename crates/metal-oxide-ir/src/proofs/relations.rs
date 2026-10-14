@@ -54,10 +54,20 @@ impl State<'_> {
 
     /// Whether two atoms name the same value.
     fn same(&self, a: &Atom, b: &Atom) -> bool {
-        match (a, b) {
-            (Atom::Place(a), Atom::Place(b)) => self.root(a) == self.root(b),
+        let identical = |a: &Atom, b: &Atom| match (a, b) {
+            (Atom::Place(a), Atom::Place(b)) => {
+                let (a, b) = (self.root(a), self.root(b));
+                a == b || self.threads.contains(&a) && self.threads.contains(&b)
+            }
             _ => a == b,
-        }
+        };
+        // An assumed equality, such as a required `a.len() == out.len()`, also makes two atoms
+        // the same.
+        identical(a, b)
+            || self.relations.iter().any(|(x, relation, y)| {
+                *relation == Comparison::Eq
+                    && (identical(x, a) && identical(y, b) || identical(x, b) && identical(y, a))
+            })
     }
 
     /// Whether the atoms' ranges, an assumed relation, or a stronger one give `a op b`.

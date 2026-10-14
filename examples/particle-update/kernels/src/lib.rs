@@ -4,11 +4,8 @@ use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
 use particle_device_math::{Config, Particle, advance};
 
 /// Advances each particle by two steps; threads past the end of a buffer write nothing.
-///
-/// # Safety
-/// Nothing writes `input` while the kernel runs.
 #[kernel(block = (64, 1, 1))]
-pub unsafe fn particle_update(
+pub fn particle_update(
     input: ReadBuffer<Particle>,
     mut output: DisjointBuffer<Particle>,
     config: Config,
@@ -24,11 +21,8 @@ pub unsafe fn particle_update(
 }
 
 /// Advances each particle by one step; threads past the end of a buffer write nothing.
-///
-/// # Safety
-/// Nothing writes `input` while the kernel runs.
 #[kernel(block = (64, 1, 1))]
-pub unsafe fn particle_step(
+pub fn particle_step(
     input: ReadBuffer<Particle>,
     mut output: DisjointBuffer<Particle>,
     config: Config,

@@ -53,6 +53,7 @@ fn early_return_joins_do_not_enumerate_diamond_paths() {
             name: "join_cost".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 2,
             locals: vec![
                 Type::Unit,

@@ -35,6 +35,7 @@ fn helper(types: TypeTable, locals: Vec<Type>, blocks: Vec<Block>) -> Module {
             name: "helper".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 0,
             locals,
             blocks,
@@ -336,6 +337,7 @@ fn index_through_reference(mutable: bool) -> Vec<usize> {
         name: "read".into(),
         kernel: false,
         required_block: None,
+        requires: Vec::new(),
         parameters: 1,
         locals: vec![USIZE, reference_type],
         blocks: vec![block(
@@ -401,6 +403,6 @@ fn index_through_reference(mutable: bool) -> Vec<usize> {
 
 #[test]
 fn a_helper_reads_a_shared_referent_with_the_callers_facts() {
-    assert_eq!(index_through_reference(false), []);
+    assert_eq!(index_through_reference(false), Vec::<usize>::new());
     assert_eq!(index_through_reference(true), [0]);
 }

@@ -33,24 +33,12 @@ pub(crate) fn write<'tcx>(
             .iter()
             .find(|e| tcx.item_name(e.def_id()).as_str() == kernel.name)
             .unwrap();
+        kernel.safe = tcx.fn_sig(entry.def_id()).skip_binder().safety().is_safe();
         let body = tcx.instance_mir(entry.def);
         let mut used = std::collections::HashSet::new();
         for (index, parameter) in kernel.parameters.iter_mut().enumerate() {
-            let local = body.args_iter().nth(index).unwrap();
-            let name = body
-                .var_debug_info
-                .iter()
-                .find_map(|debug| match &debug.value {
-                    rustc_middle::mir::VarDebugInfoContents::Place(place)
-                        if place.local == local && place.projection.is_empty() =>
-                    {
-                        Some(debug.name.to_string())
-                    }
-                    _ => None,
-                })
-                .unwrap_or_default();
-            let name = name.strip_prefix("r#").unwrap_or(&name);
-            if name != "_" && !name.is_empty() && name.is_ascii() && used.insert(name.to_owned()) {
+            let name = crate::collect::parameter_name(body, index).unwrap_or_default();
+            if name != "_" && !name.is_empty() && name.is_ascii() && used.insert(name.clone()) {
                 parameter.name = name.to_owned();
             } else {
                 while !used.insert(parameter.name.clone()) {

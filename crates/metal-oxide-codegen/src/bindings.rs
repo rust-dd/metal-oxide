@@ -139,8 +139,20 @@ fn emit_method(
             .collect(),
     );
     let output_type = tuple(parameters.iter().map(|(_, ty)| ty.clone()).collect());
-    output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n    #[allow(clippy::too_many_arguments, clippy::type_complexity)]\n");
-    write!(output, "    pub unsafe fn r#{}", kernel.name).unwrap();
+    let (qualifier, safety) = if kernel.safe {
+        (
+            "",
+            "a safe kernel needs only its parameter types, which `verify_abi` matched, and its `requires` relations, which the launch checks.",
+        )
+    } else {
+        output.push_str("    /// # Safety\n    /// The caller must satisfy the kernel's bounds, race, and synchronization contracts.\n");
+        (
+            "unsafe ",
+            "kernel-specific preconditions are delegated to this function's caller.",
+        )
+    };
+    output.push_str("    #[allow(clippy::too_many_arguments, clippy::type_complexity)]\n");
+    write!(output, "    pub {qualifier}fn r#{}", kernel.name).unwrap();
     if !generics.is_empty() {
         let names = kernel
             .parameters
@@ -168,7 +180,11 @@ fn emit_method(
         )
         .unwrap();
     }
-    output.push_str("\n    {\n        // SAFETY: kernel-specific preconditions are delegated to this function's caller.\n        unsafe {\n");
+    write!(
+        output,
+        "\n    {{\n        // SAFETY: {safety}\n        unsafe {{\n"
+    )
+    .unwrap();
     writeln!(
         output,
         "            metal_oxide::Launch::new(\n                self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_{index}, {:?}),\n                config,\n                {values},\n                |{values}| Ok([{}]),\n            )",

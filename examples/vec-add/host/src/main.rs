@@ -19,8 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut output = device.buffer_zeroed::<f32>(n as usize)?;
         let config = LaunchConfig::<256>::for_elements(n)?;
 
-        // SAFETY: nothing else writes the inputs while the kernel runs.
-        unsafe { kernels.vec_add(config, &input_a, &input_b, &mut output) }.wait()?;
+        kernels
+            .vec_add(config, &input_a, &input_b, &mut output)
+            .wait()?;
 
         for (i, actual) in output.read().wait().iter().enumerate() {
             if *actual != a[i] + b[i] {
@@ -119,6 +120,24 @@ mod tests {
             })
             .wait()?;
         }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires a Metal device and generated artifact"]
+    fn unequal_lengths_violate_the_kernel_requirements() -> metal_oxide::Result<()> {
+        let device = Device::system_default()?;
+        let kernels = super::kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
+        let a = device.buffer_from_slice(&[1.0_f32, 2.0])?;
+        let mut out = device.buffer_zeroed::<f32>(3)?;
+        let result = kernels
+            .vec_add(LaunchConfig::<256>::for_elements(3)?, &a, &a, &mut out)
+            .wait();
+        assert!(matches!(
+            result,
+            Err(Error::Contract { relation, .. }) if relation == "a.len() == out.len()"
+        ));
+        assert_eq!(out.read().wait(), [0.0; 3]);
         Ok(())
     }
 

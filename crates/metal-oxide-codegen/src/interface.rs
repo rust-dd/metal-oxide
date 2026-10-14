@@ -97,6 +97,8 @@ impl KernelInterfaces {
                     fallible: analysis.fallible,
                     lengths: reads_lengths(module, function, analysis),
                     one_dimensional: analysis.one_dimensional,
+                    safe: false,
+                    requires: function.requires.clone(),
                 }))
             })
             .collect::<Result<Vec<_>, Error>>()?;

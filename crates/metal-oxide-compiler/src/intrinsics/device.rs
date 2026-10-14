@@ -19,6 +19,7 @@ pub(crate) enum DeviceType {
     DynamicThreadgroupBuffer,
     Dim3,
     F16,
+    ThreadIndex,
 }
 
 pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceType> {
@@ -35,6 +36,7 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
         "ThreadgroupBuffer" => ("threadgroup", DeviceType::ThreadgroupBuffer),
         "DynamicThreadgroupBuffer" => ("threadgroup", DeviceType::DynamicThreadgroupBuffer),
         "Dim3" => ("thread", DeviceType::Dim3),
+        "ThreadIndex" => ("thread", DeviceType::ThreadIndex),
         "F16" => ("half", DeviceType::F16),
         _ => return None,
     };
@@ -163,6 +165,7 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         ) => Some(Intrinsic::Buffer(BufferQuery::IsEmpty)),
         (DeviceType::ReadBuffer, "as_slice") => Some(Intrinsic::Buffer(BufferQuery::Slice)),
         (DeviceType::DisjointBuffer, "get_mut") => Some(Intrinsic::Buffer(BufferQuery::Element)),
+        (DeviceType::ThreadIndex, "get") => Some(Intrinsic::ThreadIndex),
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load_relaxed" => AtomicOp::Load,

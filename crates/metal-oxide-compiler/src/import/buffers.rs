@@ -65,14 +65,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ));
             }
             BufferQuery::Element => {
-                let [_, index] = args else {
+                if args.len() != 2 {
                     return Err((span, "invalid buffer element arguments".into()));
-                };
-                let index = self.operand(&index.node, index.span)?;
+                }
                 return self.element(
                     statements,
                     buffer,
-                    index,
                     (destination, destination_type),
                     target,
                     body,
@@ -83,14 +81,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         Ok(ir::Terminator::Goto(target))
     }
 
-    /// `Some(&mut buffer[index])` when the thread's index is below the buffer length, else
-    /// `None`.
-    #[allow(clippy::too_many_arguments)]
+    /// `Some(&mut buffer[index])` when the thread's index, which its witness holds, is below
+    /// the buffer length, else `None`.
     fn element(
         &mut self,
         statements: &mut Vec<ir::Statement>,
         buffer: ir::Operand,
-        index: ir::Operand,
         (option, option_type): (ir::Place, ir::Type),
         target: usize,
         body: &mir::Body<'tcx>,
@@ -110,9 +106,6 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             slice: true,
             ..element
         });
-        let ir::Operand::Place(index) = index else {
-            return Err((span, "invalid thread index".into()));
-        };
         let statement = |destination, value| ir::Statement {
             destination,
             value,
@@ -122,15 +115,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let view = self.temporary(slice);
         let length = self.temporary(ir::Type::Scalar(ir::Scalar::Usize));
         let inside = self.temporary(ir::Type::Scalar(ir::Scalar::Bool));
-        let mut field = index;
-        field
-            .projection
-            .extend([ir::Projection::Deref, ir::Projection::Field(0)]);
         statements.extend([
-            statement(
-                ir::Place::local(position),
-                ir::Expression::Use(ir::Operand::Place(field)),
-            ),
+            statement(ir::Place::local(position), ir::Expression::ThreadIndex),
             statement(ir::Place::local(view), ir::Expression::Slice(buffer)),
             statement(
                 ir::Place::local(length),

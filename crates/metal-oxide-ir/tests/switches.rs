@@ -27,6 +27,7 @@ fn module() -> Module {
             name: "classify".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 1,
             locals: vec![Type::Scalar(Scalar::U32); 3],
             source: source(),

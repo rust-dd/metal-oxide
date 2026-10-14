@@ -59,6 +59,8 @@ pub(super) struct State<'a> {
     /// Comparisons assumed true. Unlike `truths`, they name places rather than their current
     /// values, so they survive joins of loop iterations.
     pub relations: BTreeSet<(Atom, Comparison, Atom)>,
+    /// Places that hold the calling thread's index, which every read gives alike.
+    pub threads: BTreeSet<Place>,
 }
 
 impl PartialEq for State<'_> {
@@ -72,6 +74,7 @@ impl PartialEq for State<'_> {
             && self.lengths == other.lengths
             && self.conditions == other.conditions
             && self.relations == other.relations
+            && self.threads == other.threads
     }
 }
 
@@ -92,6 +95,7 @@ impl<'a> State<'a> {
             lengths: BTreeMap::new(),
             conditions: BTreeMap::new(),
             relations: BTreeSet::new(),
+            threads: BTreeSet::new(),
         }
     }
 
@@ -318,6 +322,7 @@ impl<'a> State<'a> {
         self.conditions
             .retain(|condition, (_, a, b)| independent(condition) && atom(a) && atom(b));
         self.relations.retain(|(a, _, b)| atom(a) && atom(b));
+        self.threads.retain(|place| independent(place));
     }
 
     pub fn assign(&mut self, destination: &Place, value: Value) {
@@ -376,6 +381,9 @@ impl<'a> State<'a> {
         self.relations
             .retain(|relation| other.relations.contains(relation));
         changed |= relations != self.relations.len();
+        let threads = self.threads.len();
+        self.threads.retain(|place| other.threads.contains(place));
+        changed |= threads != self.threads.len();
         changed | retain_common(&mut self.truths, &other.truths)
     }
 

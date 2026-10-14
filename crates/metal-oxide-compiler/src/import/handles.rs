@@ -20,8 +20,10 @@ pub(super) fn handles<'tcx>(
     let handle = |local: mir::Local| {
         iterator(local).is_some()
             || matches!(normalize(body.local_decls[local].ty).kind(),
-                ty::Adt(definition, _) if device_type(tcx, definition.did())
-                    .is_some_and(|kind| !matches!(kind, DeviceType::Dim3 | DeviceType::F16)))
+            ty::Adt(definition, _) if device_type(tcx, definition.did())
+                .is_some_and(|kind| {
+                    !matches!(kind, DeviceType::Dim3 | DeviceType::F16 | DeviceType::ThreadIndex)
+                }))
     };
     let mut bindings = vec![0_u32; body.local_decls.len()];
     let mut handles = vec![None; body.local_decls.len()];

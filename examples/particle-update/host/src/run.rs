@@ -66,12 +66,11 @@ pub(super) fn verify() -> metal_oxide::Result<()> {
         let mut output = device.buffer_from_slice(&vec![sentinel; initial.len() + 64])?;
         let mut handwritten = device.buffer_from_slice(&vec![sentinel; initial.len() + 64])?;
         let launch = LaunchConfig::<64>::for_elements(n)?;
-        // SAFETY: nothing else writes the input; the handwritten kernel stops at n, which the
-        // input covers, and the outputs are distinct.
+        kernels
+            .particle_update(launch, &input, &mut output, config())
+            .wait()?;
+        // SAFETY: the handwritten kernel stops at n, which the input covers.
         unsafe {
-            kernels
-                .particle_update(launch, &input, &mut output, config())
-                .wait()?;
             Launch::new(
                 Ok(&reference),
                 launch,
@@ -105,8 +104,7 @@ pub(super) fn verify_chain() -> metal_oxide::Result<()> {
     let mut middle = device.buffer_zeroed::<Particle>(initial.len())?;
     let mut output = device.buffer_zeroed::<Particle>(initial.len())?;
     let launch = LaunchConfig::<64>::for_elements(initial.len() as u32)?;
-    // SAFETY: the second kernel reads the first kernel's completed writes in the same batch.
-    sequence(|batch| unsafe {
+    sequence(|batch| {
         batch.push(kernels.particle_update(launch, &input, &mut middle, config()))?;
         batch.push(kernels.particle_step(launch, &middle, &mut output, config()))?;
         Ok(())
@@ -131,8 +129,7 @@ pub(super) fn verify_cancelled() -> metal_oxide::Result<()> {
     let launch = LaunchConfig::<64>::for_elements(257)?;
     for forget in [false, true] {
         let mut output = device.buffer_zeroed::<Particle>(257)?;
-        // SAFETY: nothing else writes the input; completion retains library/buffer/constant state.
-        let operation = unsafe { kernels.particle_update(launch, &input, &mut output, config()) };
+        let operation = kernels.particle_update(launch, &input, &mut output, config());
         let mut future = operation.into_future();
         let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
         if forget {

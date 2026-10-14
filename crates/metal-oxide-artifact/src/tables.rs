@@ -90,6 +90,8 @@ struct KernelEntry {
     fallible: bool,
     lengths: bool,
     one_dimensional: bool,
+    safe: bool,
+    requires: Vec<crate::Contract>,
 }
 
 impl From<Abi> for AbiTables {
@@ -136,6 +138,8 @@ impl From<Abi> for AbiTables {
                     fallible: kernel.fallible,
                     lengths: kernel.lengths,
                     one_dimensional: kernel.one_dimensional,
+                    safe: kernel.safe,
+                    requires: kernel.requires,
                 }
             })
             .collect();
@@ -231,6 +235,8 @@ impl TryFrom<AbiTables> for Abi {
                     fallible: kernel.fallible,
                     lengths: kernel.lengths,
                     one_dimensional: kernel.one_dimensional,
+                    safe: kernel.safe,
+                    requires: kernel.requires,
                 })
             })
             .collect::<Result<Vec<_>, Error>>()?;

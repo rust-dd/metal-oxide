@@ -15,6 +15,7 @@ fn module() -> Module {
             name: "sum".into(),
             kernel: false,
             required_block: None,
+            requires: Vec::new(),
             parameters: 2,
             source: source(),
             locals: vec![Type::Scalar(Scalar::F32); 3],

@@ -12,6 +12,7 @@ fn function(terminators: Vec<Terminator>) -> Function {
         name: "helper".into(),
         kernel: false,
         required_block: None,
+        requires: Vec::new(),
         parameters: 0,
         locals: vec![Type::Unit],
         blocks: terminators

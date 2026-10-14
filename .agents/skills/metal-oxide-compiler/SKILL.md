@@ -26,9 +26,16 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Keep device builtins consistent with CUDA thread/block/grid semantics.
   Use `thread_idx()`, `block_idx()`, `block_dim()`, and `grid_dim()` with x/y/z
   fields; Metal threadgroups implement blocks. Scalar kernel parameters do not
-  define launch dimensions automatically. `thread_index()` is
-  `thread_position_in_grid.x`; a kernel that reads it, directly or through a helper,
-  records `one_dimensional` in its ABI, and the runtime rejects other launches.
+  define launch dimensions automatically. `thread_index()` returns a zero-sized witness;
+  `ThreadIndex::get` and `DisjointBuffer::get_mut` read `ThreadIndex`
+  (`thread_position_in_grid.x`), which proofs treat as one value however often it is read.
+  A kernel that reads it, directly or through a helper, records `one_dimensional` in its
+  ABI, and the runtime rejects other launches.
+- A safe `fn` kernel records `safe` in its ABI and gets a safe binding method.
+  `#[kernel(requires(...))]` relations are parsed from their source text (lengths of buffer
+  parameters, integer parameters, literals, `+ - *`, one comparison) into the kernel's IR and
+  ABI; proofs assume those over plain atoms at entry, and an assumed equality makes its two
+  sides interchangeable.
 - Precede emitted statements with `#line` directives for their Rust source (short form within
   one file) and reset to `kernels.metal` after each body; directives never change AIR.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,

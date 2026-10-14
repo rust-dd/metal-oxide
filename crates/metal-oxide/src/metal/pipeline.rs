@@ -124,6 +124,26 @@ impl Pipeline {
                 }
                 let _ = checked.set(argument.signature());
             }
+            for contract in &kernel.requires {
+                let length = |index: usize| arguments[index].length().unwrap_or_default() as u64;
+                let value = |index: usize| {
+                    let scalar = match &kernel.parameters[index].ty {
+                        metal_oxide_artifact::ParameterType::Value { layout } => {
+                            layout.scalar_type()
+                        }
+                        _ => None,
+                    };
+                    scalar
+                        .and_then(|scalar| arguments[index].integer(scalar))
+                        .unwrap_or_default()
+                };
+                if !contract.holds(length, value) {
+                    return Err(crate::Error::Contract {
+                        kernel: kernel.name.clone(),
+                        relation: contract.relation.clone(),
+                    });
+                }
+            }
             let (grid, block) = (config.grid, config.block);
             if kernel
                 .required_block

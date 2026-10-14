@@ -39,6 +39,7 @@ fn function(parameters: usize, locals: Vec<Type>, blocks: Vec<Block>) -> Functio
         name: "helper".into(),
         kernel: false,
         required_block: None,
+        requires: Vec::new(),
         parameters,
         locals,
         blocks,
