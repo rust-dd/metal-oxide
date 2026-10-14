@@ -595,6 +595,25 @@ an `unsafe fn` kernel, its documented bounds, aliasing, race, and participation
 requirements remain the caller's responsibility; a kernel that indexes with
 `load_unchecked` must keep its indices in bounds.
 
+## Debugging
+
+`cargo metal run|test --validate` runs the host under Metal API and shader validation.
+`cargo metal run|test --capture FILE.gputrace` records the host's GPU work for Xcode,
+which replays the dispatches and attributes their instructions to Rust lines:
+
+1. The kernels build into a separate artifact under `target/metal/` whose library holds
+   line tables and its compile inputs (`-gline-tables-only -frecord-sources`), with
+   `-fdebug-compilation-dir` at the kernel workspace so the relative paths of the
+   `#line` directives resolve. Committed artifacts never carry them.
+2. The host runs with `METAL_CAPTURE_ENABLED=1` and `METAL_OXIDE_CAPTURE` set to the
+   absolute trace path. The first `Device` of the process captures the native device,
+   which covers every queue of both backends, and stops when its last clone, including
+   those its pipelines hold, drops.
+
+Metal does not replace an existing trace, and later devices of the process are not
+recorded, so give `test` a filter that selects the test to capture. Hosts that embed a
+committed artifact capture with the two variables, without Rust lines.
+
 ## Native resource ownership
 
 `Device::all` creates independently validated contexts in native enumeration order;

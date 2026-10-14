@@ -155,4 +155,8 @@ and infinity support; fast functions have narrower accuracy/domain guarantees
 and zero signs are unspecified. The mode is recorded in the artifact and cache;
 see [numerical compilation](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#apple-compilation-and-artifact).
 
+`cargo metal run|test --validate` enables Metal API and shader validation, and
+`--capture FILE.gputrace` records a GPU trace that Xcode shows with Rust lines; see
+[debugging](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#debugging).
+
 [Architecture](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md) · [Build, test, benchmarks](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md) · [MIT](https://github.com/rust-dd/metal-oxide/blob/main/LICENSE)

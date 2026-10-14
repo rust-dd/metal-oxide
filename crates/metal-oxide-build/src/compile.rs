@@ -3,7 +3,7 @@ use crate::{
     metadata::Project,
     process::Result,
     rust::{KernelBuild, Rust},
-    toolchain::{Metal, metal_flags},
+    toolchain::{Metal, debug_flags, metal_flags},
 };
 use metal_oxide_artifact::{
     Abi, ArtifactFile, BuildInfo, COMPILER_OUTPUTS, DEVICE_TARGET, Files, MSL_VERSION, Manifest,
@@ -29,6 +29,7 @@ pub struct Kernels {
     compiler: Compiler,
     math_mode: MathMode,
     isolated: bool,
+    debug_info: bool,
 }
 
 pub(crate) struct Compiled {
@@ -49,7 +50,15 @@ impl Kernels {
             compiler,
             math_mode,
             isolated: false,
+            debug_info: false,
         })
+    }
+
+    /// Records line tables and the compile inputs in the metallib, so GPU captures show the
+    /// Rust line of each instruction. [`Artifact`](crate::Artifact) never records them.
+    pub fn debug_info(mut self, debug_info: bool) -> Self {
+        self.debug_info = debug_info;
+        self
     }
 
     /// Kernels built from a build script, without the host build's Rust flags.
@@ -63,6 +72,7 @@ impl Kernels {
             compiler,
             math_mode,
             isolated: true,
+            debug_info: false,
         }
     }
 
@@ -114,6 +124,10 @@ impl Kernels {
         let abi = Abi::from_json(&std::fs::read_to_string(
             output.join(ArtifactFile::Abi.name()),
         )?)?;
+        let mut flags = metal_flags(&abi);
+        if self.debug_info {
+            flags.extend(debug_flags(&self.project.metadata.workspace_root));
+        }
         let profile = std::env::vars()
             .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
             .collect::<std::collections::BTreeMap<_, _>>();
@@ -126,7 +140,7 @@ impl Kernels {
             std::fs::read(&rust.target)?,
             &metal.version,
             &metal.sdk,
-            metal_flags(&abi),
+            &flags,
             profile,
         ))?;
         let fingerprint = sha256(&identity);
@@ -139,7 +153,7 @@ impl Kernels {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir(&stage)?;
-            let result = create(&stage, &generated, &rust, &metal, &fingerprint);
+            let result = create(&stage, &generated, &rust, &metal, &fingerprint, flags);
             if let Err(error) = result {
                 let failed = root.join(
                     stage
@@ -198,6 +212,7 @@ fn create(
     rust: &Rust,
     metal: &Metal,
     fingerprint: &str,
+    flags: Vec<String>,
 ) -> Result<()> {
     for (file, bytes) in COMPILER_OUTPUTS.into_iter().zip(generated) {
         std::fs::write(stage.join(file.name()), bytes)?;
@@ -205,8 +220,7 @@ fn create(
     let abi = Abi::from_json(&std::fs::read_to_string(
         stage.join(ArtifactFile::Abi.name()),
     )?)?;
-    metal.compile(stage, &abi)?;
-    let flags = metal_flags(&abi);
+    metal.compile(stage, &flags)?;
     let manifest = Manifest {
         abi,
         checks: serde_json::from_slice(&std::fs::read(stage.join(ArtifactFile::Checks.name()))?)?,

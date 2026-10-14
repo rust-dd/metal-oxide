@@ -6,6 +6,9 @@ use std::{
     process::Command,
 };
 
+/// Embeds the compile inputs in the metallib; linking keeps them only when it records them too.
+const RECORD_SOURCES: &str = "-frecord-sources";
+
 pub(crate) fn metal_flags(abi: &Abi) -> Vec<String> {
     let logging = abi.required_features.iter().any(|f| f == "logging");
     ["-std=metal3.2", "-mmacosx-version-min=15.0"]
@@ -15,6 +18,16 @@ pub(crate) fn metal_flags(abi: &Abi) -> Vec<String> {
         .chain(logging.then_some(LOGGING_FLAG))
         .map(str::to_owned)
         .collect()
+}
+
+/// Line tables and embedded sources that GPU captures map to Rust lines; relative `#line`
+/// paths name files under `root`, the kernel workspace.
+pub(crate) fn debug_flags(root: &Path) -> [String; 3] {
+    [
+        "-gline-tables-only".into(),
+        RECORD_SOURCES.into(),
+        format!("-fdebug-compilation-dir={}", root.display()),
+    ]
 }
 
 pub(crate) struct Metal {
@@ -106,16 +119,17 @@ impl Metal {
         command
     }
 
-    pub(crate) fn compile(&self, directory: &Path, abi: &Abi) -> Result<()> {
+    pub(crate) fn compile(&self, directory: &Path, flags: &[String]) -> Result<()> {
         let mut compile = self.command();
         compile
-            .args(metal_flags(abi))
+            .args(flags)
             .arg("-c")
             .arg(directory.join(ArtifactFile::Msl.name()))
             .arg("-o")
             .arg(directory.join(ArtifactFile::Air.name()));
         let mut link = self.command();
-        link.arg(directory.join(ArtifactFile::Air.name()))
+        link.args(flags.iter().filter(|flag| *flag == RECORD_SOURCES))
+            .arg(directory.join(ArtifactFile::Air.name()))
             .arg("-o")
             .arg(directory.join(ArtifactFile::Metallib.name()));
         let commands = [&compile, &link].map(|command| {

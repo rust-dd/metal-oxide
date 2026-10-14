@@ -25,6 +25,10 @@ static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 /// A Metal device and its command queues; clones share them, and any thread may use them.
 /// An operation runs after the operations committed before it that use its buffers; the others
 /// may run concurrently on other queues and finish independently.
+///
+/// With `METAL_CAPTURE_ENABLED=1` and `METAL_OXIDE_CAPTURE=<file>.gputrace` set at process start,
+/// the first device records a GPU trace into that file until its last clone drops, including the
+/// clones its pipelines hold.
 #[derive(Clone)]
 pub struct Device(Arc<Context>);
 
@@ -35,6 +39,15 @@ struct Context {
     failures: Arc<FailurePool>,
     snapshot: OnceLock<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     log: OnceLock<Retained<ProtocolObject<dyn MTLLogState>>>,
+    capture: bool,
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        if self.capture {
+            super::capture::stop();
+        }
+    }
 }
 
 impl Device {
@@ -73,6 +86,7 @@ impl Device {
             let id = NEXT_DEVICE_ID
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
                 .map_err(|_| Error::Command("device identity space exhausted".into()))?;
+            let capture = super::capture::start(&raw)?;
             Ok(Self(Arc::new(Context {
                 raw,
                 backend,
@@ -80,6 +94,7 @@ impl Device {
                 failures: Arc::default(),
                 snapshot: OnceLock::new(),
                 log: OnceLock::new(),
+                capture,
             })))
         })
     }

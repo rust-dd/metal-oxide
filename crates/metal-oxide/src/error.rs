@@ -28,6 +28,8 @@ impl fmt::Display for KernelFailure {
 pub enum Error {
     DeviceUnavailable,
     UnsupportedDevice(String),
+    /// `METAL_OXIDE_CAPTURE` names a GPU trace that Metal cannot record.
+    Capture(String),
     AllocationFailed {
         bytes: usize,
     },
@@ -67,6 +69,7 @@ impl fmt::Display for Error {
         match self {
             Self::DeviceUnavailable => write!(f, "no Metal device is available"),
             Self::UnsupportedDevice(reason) => write!(f, "unsupported Metal device: {reason}"),
+            Self::Capture(reason) => write!(f, "GPU capture failed: {reason}"),
             Self::AllocationFailed { bytes } => {
                 write!(f, "failed to allocate {bytes} Metal buffer bytes")
             }

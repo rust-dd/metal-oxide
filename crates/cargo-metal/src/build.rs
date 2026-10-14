@@ -5,7 +5,8 @@ use std::process::Command;
 
 pub(crate) fn execute(options: &Options) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let host = crate::metadata::host(options)?;
-    let kernels = Kernels::new(&host.kernels, crate::compiler::find()?, options.math_mode)?;
+    let kernels = Kernels::new(&host.kernels, crate::compiler::find()?, options.math_mode)?
+        .debug_info(options.capture.is_some());
     if let Action::Inspect(emit) = options.action {
         print!("{}", kernels.emit(emit)?);
         return Ok(());
@@ -35,6 +36,11 @@ pub(crate) fn execute(options: &Options) -> Result<(), Box<dyn std::error::Error
         command
             .env("MTL_DEBUG_LAYER", "1")
             .env("MTL_SHADER_VALIDATION", "1");
+    }
+    if let Some(trace) = &options.capture {
+        command
+            .env("METAL_CAPTURE_ENABLED", "1")
+            .env("METAL_OXIDE_CAPTURE", std::path::absolute(trace)?);
     }
     if options.action == Action::Test {
         command.args(["--", "--ignored", "--test-threads=1"]);

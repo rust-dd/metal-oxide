@@ -91,6 +91,10 @@ separate.
   bind no words.
 - Loading a `logging` artifact gives the device a `MTLLogState`; later command
   buffers carry it, and its handler prints messages to stderr.
+- With `METAL_OXIDE_CAPTURE` set, the first `Device` of the process captures its native
+  device (every queue of both backends) into that `.gputrace` until its context drops.
+  Metal's capture proxies forward some messages, so objc2's encoding assertions, which
+  reject forwarded methods in debug builds, stay disabled.
 - Artifact loading validates the ABI version, requirements, and library digest.
   Load the verified bytes rather than reopening their path. Check argument types,
   access modes, any required block shape, the one-dimensional launch of a

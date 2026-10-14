@@ -19,6 +19,8 @@ pub(crate) struct Options {
     pub(crate) math_mode: MathMode,
     /// Runs the host under Metal API and shader validation.
     pub(crate) validate: bool,
+    /// Records the host's GPU work into this `.gputrace`, with line tables in the kernels.
+    pub(crate) capture: Option<PathBuf>,
     pub(crate) arguments: Vec<String>,
 }
 
@@ -52,6 +54,7 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         release: false,
         math_mode: MathMode::default(),
         validate: false,
+        capture: None,
         arguments: vec![],
     };
     let mut index = 1;
@@ -64,7 +67,7 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
             "--validate" if matches!(action, Action::Run | Action::Test) && !options.validate => {
                 options.validate = true
             }
-            "--manifest-path" | "--package" | "-p" | "--emit" | "--math-mode" => {
+            "--manifest-path" | "--package" | "-p" | "--emit" | "--math-mode" | "--capture" => {
                 let option = arguments[index];
                 index += 1;
                 let value = arguments
@@ -82,6 +85,12 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
                     }
                     "--package" | "-p" if options.package.is_none() => {
                         options.package = Some((*value).to_owned())
+                    }
+                    "--capture"
+                        if matches!(action, Action::Run | Action::Test)
+                            && options.capture.is_none() =>
+                    {
+                        options.capture = Some(PathBuf::from(value))
                     }
                     "--emit" if matches!(action, Action::Inspect(_)) && emit.is_none() => {
                         emit = Some(match *value {
@@ -128,11 +137,15 @@ mod tests {
         assert!(options.release);
         assert_eq!(options.math_mode, MathMode::Precise);
         assert!(!options.validate);
+        assert_eq!(options.capture, None);
         for action in ["run", "test"] {
-            let Ok(Command::Build(options)) = parse(&[action, "--validate"]) else {
+            let Ok(Command::Build(options)) =
+                parse(&[action, "--validate", "--capture", "kernels.gputrace"])
+            else {
                 panic!()
             };
             assert!(options.validate);
+            assert_eq!(options.capture, Some(PathBuf::from("kernels.gputrace")));
         }
     }
 
@@ -162,6 +175,10 @@ mod tests {
             &["inspect", "--emit", "llvm"][..],
             &["build", "--validate"][..],
             &["test", "--validate", "--validate"][..],
+            &["build", "--capture", "kernels.gputrace"][..],
+            &["inspect", "--emit", "air", "--capture", "kernels.gputrace"][..],
+            &["run", "--capture"][..],
+            &["test", "--capture", "a.gputrace", "--capture", "b.gputrace"][..],
             &["inspect", "--emit", "ir", "--emit", "air"][..],
             &["run", "-p"][..],
             &["run", "-p", "a", "-p", "b"][..],

@@ -49,8 +49,9 @@ pub fn compile_msl(directory: &std::path::Path) -> Result<Vec<String>, Error> {
         let abi = metal_oxide_artifact::Abi::from_json(&std::fs::read_to_string(
             directory.join(metal_oxide_artifact::ArtifactFile::Abi.name()),
         )?)?;
-        toolchain::Metal::find()?.compile(directory, &abi)?;
-        Ok(toolchain::metal_flags(&abi))
+        let flags = toolchain::metal_flags(&abi);
+        toolchain::Metal::find()?.compile(directory, &flags)?;
+        Ok(flags)
     };
     compile().map_err(Error)
 }
