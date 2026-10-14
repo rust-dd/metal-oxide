@@ -153,8 +153,10 @@ impl Context {
             value(&encoder, 5, &plan.seed);
             value(&encoder, 6, &plan.base_cell);
             value(&encoder, 7, &plan.stages);
-            encoder.setThreadgroupMemoryLength_atIndex(plan.tile as usize * 4, 0);
-            encoder.setThreadgroupMemoryLength_atIndex(plan.tile as usize * 4, 1);
+            // Metal requires threadgroup lengths in multiples of 16 bytes.
+            let shared = (plan.tile as usize * 4).next_multiple_of(16);
+            encoder.setThreadgroupMemoryLength_atIndex(shared, 0);
+            encoder.setThreadgroupMemoryLength_atIndex(shared, 1);
             encoder.dispatchThreadgroups_threadsPerThreadgroup(
                 size(plan.total / plan.tile),
                 size(plan.tile / 2),
