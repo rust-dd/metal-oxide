@@ -99,3 +99,22 @@ fn signed_division_checks_are_required_in_wrapping_builds() {
     assert_eq!(checks.as_array().unwrap().len(), 1, "{checks}");
     assert_eq!(checks[0]["kind"], serde_json::json!({"overflow": "rem"}));
 }
+
+#[test]
+fn signed_division_by_constant_operands_keeps_the_overflow_check() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/proofs_constant_division.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let dividend = support::check(&directory, serde_json::json!({"overflow": "div"}), 7);
+    let divisor = support::check(&directory, serde_json::json!({"overflow": "rem"}), 12);
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "for (int divisor : {2, -1}) { int out[1] = {7}; constant_dividend(out, divisor, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); } \
+             for (char value : {char(5), char(-128)}) { char out[1] = {7}; constant_divisor(out, value, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << int(out[0]) << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); }"
+        ),
+        format!("-1073741824,0;7,{};0,0;7,{};", dividend + 2, divisor + 2)
+    );
+}

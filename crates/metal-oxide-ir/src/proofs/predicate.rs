@@ -188,7 +188,15 @@ pub(super) fn from_binary(
     let left = state.predicate(a);
     let right = state.predicate(b);
     if matches!(op, BinaryOp::BitAnd | BinaryOp::BitOr) {
-        return Some(Predicate::combine(left?, right?, op == BinaryOp::BitAnd));
+        let and = op == BinaryOp::BitAnd;
+        // `p & true` and `p | false` are `p`, as in the overflow check of `MIN / x`.
+        let identity = Some(i128::from(and));
+        return match (left, right) {
+            (Some(left), Some(right)) => Some(Predicate::combine(left, right, and)),
+            (Some(p), None) if state.constant(b) == identity => Some(p),
+            (None, Some(p)) if state.constant(a) == identity => Some(p),
+            _ => None,
+        };
     }
     if matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
         let (predicate, value) = if let Some(p) = left {
