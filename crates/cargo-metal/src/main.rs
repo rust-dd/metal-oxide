@@ -14,7 +14,7 @@ fn main() -> ExitCode {
         Ok(Command::Doctor) => doctor::run(),
         Ok(Command::Help) => {
             println!(
-                "cargo metal build|run|test [-p HOST] [--manifest-path PATH] [--release] [--math-mode precise|fast]\ncargo metal inspect --emit ir|msl|air [-p HOST] [--manifest-path PATH] [--math-mode precise|fast]\ncargo metal doctor\n\nMath defaults to precise. Fast permits reassociation and contraction with fast math functions; arithmetic honors NaN and infinity.\nrun and test accept host arguments after --."
+                "cargo metal build|run|test [-p HOST] [--manifest-path PATH] [--release] [--math-mode precise|fast]\ncargo metal inspect --emit ir|msl|air [-p HOST] [--manifest-path PATH] [--math-mode precise|fast]\ncargo metal doctor\n\nMath defaults to precise. Fast permits reassociation and contraction with fast math functions; arithmetic honors NaN and infinity.\nrun and test accept host arguments after --, and --validate enables Metal API and shader validation."
             );
             ExitCode::SUCCESS
         }

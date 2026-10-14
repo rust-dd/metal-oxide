@@ -31,6 +31,11 @@ pub(crate) fn execute(options: &Options) -> Result<(), Box<dyn std::error::Error
     if options.release {
         command.arg("--release");
     }
+    if options.validate {
+        command
+            .env("MTL_DEBUG_LAYER", "1")
+            .env("MTL_SHADER_VALIDATION", "1");
+    }
     if options.action == Action::Test {
         command.args(["--", "--ignored", "--test-threads=1"]);
     } else if !options.arguments.is_empty() {

@@ -26,9 +26,9 @@ for backend in $backends; do
         cargo test --features rustc-private --locked --target-dir ../../target/compiler --test gpu --test differential -- --ignored --test-threads=1
     )
     for package in cooperation vec-add reduction matmul pipeline particle-update; do
-        cargo run -p cargo-metal --locked -- test -p "$package"
+        cargo run -p cargo-metal --locked -- test -p "$package" --validate
     done
     for mode in precise fast; do
-        cargo run -p cargo-metal --locked -- test -p spectral --release --math-mode "$mode"
+        cargo run -p cargo-metal --locked -- test -p spectral --release --math-mode "$mode" --validate
     done
 done

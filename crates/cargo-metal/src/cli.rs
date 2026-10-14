@@ -17,6 +17,8 @@ pub(crate) struct Options {
     pub(crate) package: Option<String>,
     pub(crate) release: bool,
     pub(crate) math_mode: MathMode,
+    /// Runs the host under Metal API and shader validation.
+    pub(crate) validate: bool,
     pub(crate) arguments: Vec<String>,
 }
 
@@ -49,6 +51,7 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         package: None,
         release: false,
         math_mode: MathMode::default(),
+        validate: false,
         arguments: vec![],
     };
     let mut index = 1;
@@ -58,6 +61,9 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
     while index < arguments.len() {
         match arguments[index] {
             "--release" if !options.release => options.release = true,
+            "--validate" if matches!(action, Action::Run | Action::Test) && !options.validate => {
+                options.validate = true
+            }
             "--manifest-path" | "--package" | "-p" | "--emit" | "--math-mode" => {
                 let option = arguments[index];
                 index += 1;
@@ -121,6 +127,13 @@ mod tests {
         assert_eq!(options.arguments, ["--n", "10"]);
         assert!(options.release);
         assert_eq!(options.math_mode, MathMode::Precise);
+        assert!(!options.validate);
+        for action in ["run", "test"] {
+            let Ok(Command::Build(options)) = parse(&[action, "--validate"]) else {
+                panic!()
+            };
+            assert!(options.validate);
+        }
     }
 
     #[test]
@@ -147,6 +160,8 @@ mod tests {
             &["build", "--"][..],
             &["inspect"][..],
             &["inspect", "--emit", "llvm"][..],
+            &["build", "--validate"][..],
+            &["test", "--validate", "--validate"][..],
             &["inspect", "--emit", "ir", "--emit", "air"][..],
             &["run", "-p"][..],
             &["run", "-p", "a", "-p", "b"][..],
