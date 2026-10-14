@@ -44,6 +44,34 @@ fn files(directory: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
+/// Whether a file of the trace bundle names `kernel`. macOS 15 keeps the capture only in its
+/// `store` files, as concatenated zlib streams.
+fn names(trace: &Path, kernel: &[u8]) -> std::io::Result<bool> {
+    let contains = |bytes: &[u8]| bytes.windows(kernel.len()).any(|window| window == kernel);
+    for file in files(trace)? {
+        let bytes = std::fs::read(&file)?;
+        let store = file
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("store");
+        if contains(&bytes) || store && streams(&bytes).any(|stream| contains(&stream)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The zlib streams that start anywhere in `bytes`.
+fn streams(bytes: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
+    (0..bytes.len().saturating_sub(1))
+        .filter(|&start| {
+            let header = u16::from_be_bytes([bytes[start], bytes[start + 1]]);
+            bytes[start] == 0x78 && header.is_multiple_of(31)
+        })
+        .filter_map(|start| miniz_oxide::inflate::decompress_to_vec_zlib(&bytes[start..]).ok())
+}
+
 fn record(trace: &Path) -> metal_oxide::Result<()> {
     {
         let device = Device::system_default()?;
@@ -89,15 +117,11 @@ fn the_first_device_records_a_trace_until_it_drops() -> metal_oxide::Result<()> 
 
     let (success, text) = run(&trace, true);
     assert!(success, "{text}");
-    let files = files(&trace)?;
-    let names = |file: &PathBuf| {
-        std::fs::read(file).is_ok_and(|bytes| bytes.windows(13).any(|w| w == b"captured_fill"))
-    };
     assert!(
-        files.iter().any(names),
-        "no file of the trace names the kernel: {files:?}"
+        names(&trace, b"captured_fill")?,
+        "no file of the trace names the kernel: {:?}",
+        files(&trace)?
     );
-
     // Metal does not replace an earlier trace.
     let (success, text) = run(&trace, true);
     assert!(!success && text.contains("Capture("), "{text}");

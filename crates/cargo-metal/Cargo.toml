@@ -18,5 +18,8 @@ metal-oxide-build = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+miniz_oxide = { workspace = true }
+
 [lints]
 workspace = true

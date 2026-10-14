@@ -45,6 +45,31 @@ fn files(directory: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Whether a file of the trace bundle names `kernel`. macOS 15 keeps the capture only in its
+/// `store` files, as concatenated zlib streams.
+fn names(trace: &Path, kernel: &[u8]) -> bool {
+    let contains = |bytes: &[u8]| bytes.windows(kernel.len()).any(|window| window == kernel);
+    files(trace).iter().any(|file| {
+        let bytes = std::fs::read(file).unwrap();
+        let store = file
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("store");
+        contains(&bytes) || store && streams(&bytes).any(|stream| contains(&stream))
+    })
+}
+
+/// The zlib streams that start anywhere in `bytes`.
+fn streams(bytes: &[u8]) -> impl Iterator<Item = Vec<u8>> + '_ {
+    (0..bytes.len().saturating_sub(1))
+        .filter(|&start| {
+            let header = u16::from_be_bytes([bytes[start], bytes[start + 1]]);
+            bytes[start] == 0x78 && header.is_multiple_of(31)
+        })
+        .filter_map(|start| miniz_oxide::inflate::decompress_to_vec_zlib(&bytes[start..]).ok())
+}
+
 fn names_source(artifact: &std::path::Path) -> bool {
     let air = std::fs::read(artifact.join(ArtifactFile::Air.name())).unwrap();
     air.windows(11).any(|name| name == b"src/main.rs")
@@ -71,16 +96,10 @@ fn captures_record_gpu_work_with_rust_line_tables() {
     );
     let trace = directory.join("add.gputrace");
     assert!(trace.join("metadata").is_file());
-    let files = files(&trace);
-    let names = |file: &PathBuf| {
-        std::fs::read(file)
-            .unwrap()
-            .windows(10)
-            .any(|w| w == b"traced_add")
-    };
     assert!(
-        files.iter().any(names),
-        "no file of the trace names the kernel: {files:?}"
+        names(&trace, b"traced_add"),
+        "no file of the trace names the kernel: {:?}",
+        files(&trace)
     );
     let captured = project.artifact_of("traced_add", MathMode::Precise, true);
     let root = format!("-fdebug-compilation-dir={}", project.0.display());
