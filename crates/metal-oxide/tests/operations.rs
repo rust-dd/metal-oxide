@@ -158,6 +158,49 @@ fn chained_kernels_publish_intermediate_writes_to_the_next_dispatch() -> metal_o
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn a_batch_orders_conflicting_launches_and_interleaves_independent_ones() -> metal_oxide::Result<()>
+{
+    let (device, pipeline) = setup()?;
+    let n = 1_u32 << 20;
+    let values = (0..n).map(|i| (i % 1024) as f32).collect::<Vec<_>>();
+    let config = LaunchConfig::<256>::for_elements(n)?;
+    let mut chains = [1.0_f32, 2.0].map(|offset| {
+        let x = device.buffer_from_slice(&values);
+        let y = device.buffer_zeroed::<f32>(n as usize);
+        (x, y, offset)
+    });
+    let mut last = device.buffer_zeroed::<f32>(n as usize)?;
+    let rounds = 16;
+    sequence(|batch| {
+        // Each step reads what the previous step of its chain wrote and overwrites what it
+        // read; the steps of the two chains are independent.
+        for _ in 0..rounds {
+            for (x, y, offset) in &mut chains {
+                let (x, y) = (x.as_mut().unwrap(), y.as_mut().unwrap());
+                batch.push(scale_add(&pipeline, config, &*x, &mut *y, 1.0, *offset, n))?;
+                batch.push(scale_add(&pipeline, config, &*y, &mut *x, 1.0, *offset, n))?;
+            }
+        }
+        let first = chains[0].0.as_ref().unwrap();
+        batch.push(scale_add(&pipeline, config, first, &mut last, 1.0, 1.0, n))?;
+        batch.push(scale_add(&pipeline, config, first, &mut last, 1.0, 5.0, n))?;
+        Ok(())
+    })
+    .wait()?;
+    for (x, _, offset) in &chains {
+        let x = x.as_ref().unwrap().read().wait();
+        for (i, actual) in x.iter().enumerate() {
+            assert_eq!(*actual, values[i] + 2.0 * rounds as f32 * offset, "i={i}");
+        }
+    }
+    for (i, actual) in last.read().wait().iter().enumerate() {
+        assert_eq!(*actual, values[i] + 2.0 * rounds as f32 + 5.0, "i={i}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn operations_dropped_before_their_first_poll_encode_nothing() -> metal_oxide::Result<()> {
     let (device, pipeline) = setup()?;
     let n = 1_000_003_u32;

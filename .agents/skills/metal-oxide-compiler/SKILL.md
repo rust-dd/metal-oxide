@@ -35,7 +35,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   recursion, layouts, and conversions must produce diagnostics. Never remove a
   bounds/overflow check without a sound proof or silently change semantics.
 - Unproved assertions and literal panics become runtime checks: the failing thread
-  stores `check + 2` in the command buffer's failure word and returns; callers of
+  stores `check + 2` in its dispatch's failure word and returns; callers of
   fallible helpers return after them. A check before a barrier or SIMD collective
   must be proved or uniform. Generated kernels take a gate word in the buffer slot
   after their parameters, then the failure word when fallible, then a `ulong` table of

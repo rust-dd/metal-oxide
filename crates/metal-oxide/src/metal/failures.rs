@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use metal_oxide_artifact::Check;
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -11,22 +11,23 @@ const WORD_BYTES: usize = 4;
 const CHUNK_WORDS: usize = 1024;
 /// Never written: the gate of dispatches that no fallible dispatch precedes.
 const ZERO: usize = 0;
-/// Failing threads store `check + 2` here.
-const FAILURE: usize = 1;
+/// The most words one snapshot dispatch reads, one per thread of its single block.
+const SNAPSHOT_WIDTH: usize = 256;
 
 pub(super) const SNAPSHOT_KERNEL: &str = "metal_oxide_snapshot";
 
-/// Copies the failure word into a later fallible dispatch's gate, which must not be a word
-/// that the dispatch's own failing threads write.
+/// Sets a fresh gate when any word it reads is set.
 pub(super) const SNAPSHOT_SOURCE: &str = "#include <metal_stdlib>
 using namespace metal;
 
-kernel void metal_oxide_snapshot(const device uint* failure [[buffer(0)]], device uint* gate [[buffer(1)]]) {
-    *gate = *failure;
+kernel void metal_oxide_snapshot(const device uint* words [[buffer(0)]], device atomic_uint* gate [[buffer(1)]], uint i [[thread_position_in_grid]]) {
+    if (words[i] != 0u) {
+        atomic_store_explicit(gate, 1u, memory_order_relaxed);
+    }
 }
 ";
 
-/// Shared storage for gate and failure words.
+/// Shared storage for gate, failure and length words.
 struct Chunk(Retained<ProtocolObject<dyn MTLBuffer>>);
 
 // SAFETY: the runtime retains, releases and reads immutable properties of the buffer on any
@@ -42,7 +43,7 @@ impl Chunk {
             .newBufferWithLength_options(bytes, MTLResourceOptions::StorageModeShared)
             .ok_or(Error::AllocationFailed { bytes })?;
         let chunk = Self(raw);
-        chunk.clear(CHUNK_WORDS);
+        chunk.clear();
         Ok(chunk)
     }
 
@@ -62,13 +63,13 @@ impl Chunk {
         unsafe { self.0.contents().cast::<u32>().add(index).read() }
     }
 
-    fn clear(&self, words: usize) {
-        // SAFETY: no GPU work uses the chunk, and `words` fits inside it.
+    fn clear(&self) {
+        // SAFETY: no GPU work uses the chunk.
         unsafe {
             self.0
                 .contents()
                 .cast::<u8>()
-                .write_bytes(0, words * WORD_BYTES)
+                .write_bytes(0, CHUNK_WORDS * WORD_BYTES)
         };
     }
 }
@@ -76,6 +77,15 @@ impl Chunk {
 /// Zeroed chunks of one device, reused after their command buffer completes.
 #[derive(Default)]
 pub(super) struct FailurePool(Mutex<Vec<Chunk>>);
+
+impl FailurePool {
+    fn take(&self, device: &ProtocolObject<dyn MTLDevice>) -> Result<Chunk> {
+        match lock(&self.0).pop() {
+            Some(chunk) => Ok(chunk),
+            None => Chunk::new(device),
+        }
+    }
+}
 
 /// The generated kernel behind a pipeline: its name, hidden bindings and check table.
 pub(super) struct KernelChecks {
@@ -93,27 +103,77 @@ pub(super) struct Slot {
     pub(super) offset: usize,
 }
 
-/// The words a generated dispatch binds after its parameters.
-pub(super) struct Assignment {
-    pub(super) gate: Slot,
-    pub(super) failure: Option<Slot>,
-    /// The failure word must be copied into the gate before the dispatch.
-    pub(super) snapshot: bool,
+/// Consecutive words in one chunk that one snapshot dispatch reads.
+pub(super) struct Segment {
+    pub(super) start: Slot,
+    pub(super) count: usize,
+}
+
+/// The gate of a level's generated dispatches.
+pub(super) enum Gate {
+    /// A word that no dispatch of the level writes.
+    Word(Slot),
+    /// A fresh word that snapshot dispatches over `sources` set before the level starts.
+    Snapshot { gate: Slot, sources: Vec<Segment> },
+}
+
+/// Words handed out in order from chunks of the command buffer.
+#[derive(Default)]
+struct Region {
+    chunks: Vec<usize>,
+    used: usize,
+}
+
+impl Region {
+    /// Reserves `count` words at a multiple of `align` inside one chunk.
+    fn allocate(
+        &mut self,
+        chunks: &mut Vec<Chunk>,
+        pool: &FailurePool,
+        device: &ProtocolObject<dyn MTLDevice>,
+        count: usize,
+        align: usize,
+    ) -> Result<usize> {
+        let mut start = self.used.next_multiple_of(align);
+        if start + count > self.chunks.len() * CHUNK_WORDS {
+            start = self.chunks.len() * CHUNK_WORDS;
+            let chunk = pool.take(device)?;
+            self.chunks.push(chunks.len());
+            chunks.push(chunk);
+        }
+        self.used = start + count;
+        Ok(start)
+    }
+
+    fn slot(&self, index: usize) -> Slot {
+        Slot {
+            chunk: self.chunks[index / CHUNK_WORDS],
+            offset: index % CHUNK_WORDS * WORD_BYTES,
+        }
+    }
 }
 
 struct Fallible {
     kernel: Arc<KernelChecks>,
     dispatch: usize,
-    gate: Slot,
+    word: usize,
 }
 
-/// The gate and failure words of one command buffer. Once a dispatch fails, later infallible
-/// dispatches gate on the failure word and later fallible ones on a snapshot taken before them.
+/// The gate, failure and length words of one command buffer.
+///
+/// Every fallible dispatch sets its own failure word. The dispatches between two barriers form
+/// a level and share a gate that none of them writes: zero, a failure word of an earlier level,
+/// or a snapshot of several such words taken before the level.
 pub(super) struct Failures {
     pool: Arc<FailurePool>,
     chunks: Vec<Chunk>,
-    used: usize,
+    words: Region,
+    tables: Region,
     fallible: Vec<Fallible>,
+    /// The latest snapshot gate, which covers every word before it.
+    gate: Option<usize>,
+    /// Words before this index were written by levels that have ended.
+    closed: usize,
 }
 
 impl Failures {
@@ -121,77 +181,72 @@ impl Failures {
         Self {
             pool,
             chunks: Vec::new(),
-            used: 0,
+            words: Region::default(),
+            tables: Region::default(),
             fallible: Vec::new(),
+            gate: None,
+            closed: 0,
         }
     }
 
-    pub(super) fn assign(
-        &mut self,
-        device: &ProtocolObject<dyn MTLDevice>,
-        fallible: bool,
-    ) -> Result<Assignment> {
-        if self.used == 0 {
-            self.reserve(device)?;
-            self.used = FAILURE + 1;
+    /// Ends the current level: its failure words become sources of later gates.
+    pub(super) fn close_level(&mut self) {
+        self.closed = self.words.used;
+    }
+
+    /// The words a gate must cover: the latest snapshot gate, or zero, and the failure words of
+    /// ended levels after it.
+    fn sources(&self) -> Range<usize> {
+        self.gate.unwrap_or(ZERO)..self.closed.max(ZERO + 1)
+    }
+
+    /// Whether the next level needs a snapshot because several words may be set.
+    fn needs_snapshot(&self) -> bool {
+        self.sources().len() > if self.gate.is_some() { 1 } else { 2 }
+    }
+
+    /// The gate of a level that has no dispatch encoded yet.
+    pub(super) fn gate(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<Gate> {
+        self.reserve_zero(device)?;
+        let sources = self.sources();
+        if !self.needs_snapshot() {
+            return Ok(Gate::Word(self.words.slot(sources.end - 1)));
         }
-        let first = self.fallible.is_empty();
-        Ok(match (fallible, first) {
-            (false, _) => Assignment {
-                gate: Self::slot(if first { ZERO } else { FAILURE }),
-                failure: None,
-                snapshot: false,
-            },
-            (true, true) => Assignment {
-                gate: Self::slot(ZERO),
-                failure: Some(Self::slot(FAILURE)),
-                snapshot: false,
-            },
-            (true, false) => Assignment {
-                gate: self.allocate(device)?,
-                failure: Some(Self::slot(FAILURE)),
-                snapshot: true,
-            },
+        let index = self.allocate_word(device)?;
+        self.gate = Some(index);
+        self.closed = self.words.used;
+        let mut segments = Vec::new();
+        let mut start = sources.start;
+        while start < sources.end {
+            let chunk_end = (start / CHUNK_WORDS + 1) * CHUNK_WORDS;
+            let end = sources.end.min(chunk_end).min(start + SNAPSHOT_WIDTH);
+            segments.push(Segment {
+                start: self.words.slot(start),
+                count: end - start,
+            });
+            start = end;
+        }
+        Ok(Gate::Snapshot {
+            gate: self.words.slot(index),
+            sources: segments,
         })
     }
 
-    /// Records an encoded fallible dispatch and the gate it reads.
-    pub(super) fn record(&mut self, kernel: &Arc<KernelChecks>, dispatch: usize, gate: Slot) {
+    /// The word that the failing threads of a fallible dispatch set.
+    pub(super) fn failure_word(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        kernel: &Arc<KernelChecks>,
+        dispatch: usize,
+    ) -> Result<Slot> {
+        self.reserve_zero(device)?;
+        let word = self.allocate_word(device)?;
         self.fallible.push(Fallible {
             kernel: Arc::clone(kernel),
             dispatch,
-            gate,
+            word,
         });
-    }
-
-    pub(super) fn failure_slot(&self) -> Slot {
-        Self::slot(FAILURE)
-    }
-
-    pub(super) fn buffer(&self, slot: Slot) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
-        &self.chunks[slot.chunk].0
-    }
-
-    /// The failed dispatch, read after the command buffer completes.
-    pub(super) fn failure(&self) -> Option<KernelFailure> {
-        if self.fallible.is_empty() {
-            return None;
-        }
-        let state = self.read(Self::slot(FAILURE));
-        if state == 0 {
-            return None;
-        }
-        // Gates after a failure hold its snapshot, so the failed dispatch is the last whose
-        // gate stayed zero.
-        self.fallible
-            .iter()
-            .rev()
-            .find(|fallible| self.read(fallible.gate) == 0)
-            .map(|failed| failed.report(state.wrapping_sub(2)))
-    }
-
-    fn read(&self, slot: Slot) -> u32 {
-        self.chunks[slot.chunk].word(slot.offset / WORD_BYTES)
+        Ok(self.words.slot(word))
     }
 
     /// Writes `values` into aligned words that one dispatch reads as a `ulong` table.
@@ -200,50 +255,50 @@ impl Failures {
         device: &ProtocolObject<dyn MTLDevice>,
         values: &[u64],
     ) -> Result<Slot> {
-        let words = values.len() * 2;
-        let mut start = self.used.next_multiple_of(2);
-        if start + words > self.chunks.len() * CHUNK_WORDS {
-            start = self.chunks.len() * CHUNK_WORDS;
-            self.reserve(device)?;
-        }
-        self.used = start + words;
-        let slot = Self::slot(start);
+        let index =
+            self.tables
+                .allocate(&mut self.chunks, &self.pool, device, values.len() * 2, 2)?;
+        let slot = self.tables.slot(index);
         self.chunks[slot.chunk].write(slot.offset / WORD_BYTES, values);
         Ok(slot)
     }
 
-    fn allocate(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<Slot> {
-        if self.used == self.chunks.len() * CHUNK_WORDS {
-            self.reserve(device)?;
-        }
-        self.used += 1;
-        Ok(Self::slot(self.used - 1))
+    pub(super) fn buffer(&self, slot: Slot) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
+        &self.chunks[slot.chunk].0
     }
 
-    fn reserve(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<()> {
-        let reused = lock(&self.pool.0).pop();
-        self.chunks.push(match reused {
-            Some(chunk) => chunk,
-            None => Chunk::new(device)?,
-        });
+    /// The failed dispatch pushed first, read after the command buffer completes.
+    pub(super) fn failure(&self) -> Option<KernelFailure> {
+        self.fallible
+            .iter()
+            .filter_map(|fallible| {
+                let slot = self.words.slot(fallible.word);
+                let state = self.chunks[slot.chunk].word(slot.offset / WORD_BYTES);
+                (state != 0).then_some((fallible, state))
+            })
+            .min_by_key(|(fallible, _)| fallible.dispatch)
+            .map(|(fallible, state)| fallible.report(state.wrapping_sub(2)))
+    }
+
+    fn reserve_zero(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<()> {
+        if self.words.used == 0 {
+            self.allocate_word(device)?;
+            self.closed = self.words.used;
+        }
         Ok(())
     }
 
-    fn slot(index: usize) -> Slot {
-        Slot {
-            chunk: index / CHUNK_WORDS,
-            offset: index % CHUNK_WORDS * WORD_BYTES,
-        }
+    fn allocate_word(&mut self, device: &ProtocolObject<dyn MTLDevice>) -> Result<usize> {
+        self.words
+            .allocate(&mut self.chunks, &self.pool, device, 1, 1)
     }
 }
 
 impl Drop for Failures {
     /// Runs after completion or for an uncommitted batch, so no GPU work uses the chunks.
     fn drop(&mut self) {
-        let mut remaining = self.used;
         for chunk in &self.chunks {
-            chunk.clear(remaining.min(CHUNK_WORDS));
-            remaining = remaining.saturating_sub(CHUNK_WORDS);
+            chunk.clear();
         }
         lock(&self.pool.0).append(&mut self.chunks);
     }

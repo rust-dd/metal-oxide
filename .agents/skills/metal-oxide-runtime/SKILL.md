@@ -34,10 +34,9 @@ separate.
   codec values. Preserve identity storage, codec, cancellation and residency
   guarantees; dropping a buffer is not a synchronized handoff. Native device
   import creates an independent queue context; it does not adopt pending work.
-- `Device` clones share one ordered queue context; command buffers committed from
-  several threads execute in commit order, which follows the first poll or `wait` of
-  each operation. `Batch` holds native encoders and lives only inside that poll or
-  `wait`. Put `unsafe impl Send/Sync` only on small leaf types that own
+- `Device` clones share one queue context; operations that use the same buffer run in
+  the order of their first poll or `wait`. `Batch` records dispatches and lives only
+  inside that poll or `wait`. Put `unsafe impl Send/Sync` only on small leaf types that own
   non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
   protocol that makes them sound; never on `Device` or `Buffer` as a whole.
 - Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
@@ -61,14 +60,18 @@ separate.
 - A launch checks queue-context ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.
-- Generated kernels bind a gate word after their parameters, the command buffer's
-  failure word when fallible, and a table of argument element counts when they read
-  buffer lengths. `Failures` owns these pooled words until completion. A zero
-  word gates dispatches before the first fallible one, and the failure word gates
-  later infallible ones. Before each later fallible dispatch, a one-thread snapshot
-  kernel copies the failure word into a fresh gate, since a kernel must not gate on
-  a word its own threads write.
-- The handler reports the last fallible dispatch whose gate stayed zero as
+- A batch encodes at commit. Each dispatch goes to the first level after every level
+  holding a dispatch that wrote a buffer it uses or read a buffer it writes; levels are
+  encoded in order with a barrier between them, dispatches of one level in push order.
+  Classic uses a serial encoder when every level holds one dispatch (barriers in a
+  concurrent encoder cost 2-8% on such chains) and a concurrent encoder otherwise.
+- Generated kernels bind a gate word after their parameters, their own failure word
+  when fallible, and a table of argument element counts when they read buffer lengths.
+  `Failures` owns these pooled words until completion. A level's dispatches share a gate
+  that none of them writes, since all threads of a dispatch must agree on it: zero, the
+  single failure word of an earlier level, or a fresh word that snapshot dispatches set
+  after the previous barrier when several earlier words may be set.
+- The handler reports the earliest-pushed fallible dispatch whose failure word is set as
   `Error::KernelFailed`; command errors take precedence. It then returns the cleared
   words to the pool. Generated MSL loads only through artifacts: source modules
   bind no words.
@@ -92,9 +95,9 @@ configurations when changing launch geometry. Use
 compile-fail examples to verify public borrowing constraints when changing the
 argument API.
 
-An operation encodes nothing until its first poll or `wait`; then one `Batch` encodes
-the whole operation (a `Launch`, or the operations a `sequence` closure pushes) and
-commits. The futures (`Pending`, `TimedPending`, `Read`, `Write`) never block, and
+An operation encodes nothing until its first poll or `wait`; then one `Batch` records
+the whole operation (a `Launch`, or the operations a `sequence` closure pushes), encodes
+it and commits. The futures (`Pending`, `TimedPending`, `Read`, `Write`) never block, and
 `Completion` wakes every distinct waker. Native completion callbacks
 retain buffers, pipelines, queues, and Metal 4 allocation/binding/residency state
 independently of the future. Do not replace this with waiting in `Drop`.
@@ -106,7 +109,8 @@ Keep both size boundaries and cancellation/reuse covered when changing binding.
 Dynamic threadgroup arguments have a separate 31-slot namespace; check rounded
 nonzero byte lengths plus static pipeline storage before encoding, including empty grids.
 Clear stale threadgroup slots when a reused encoder changes kernels.
-Metal 4 requires dispatch barriers within a batch and queue barriers between batches.
+Metal 4 requires encoder barriers between dependent dispatches and queue barriers
+between batches.
 Do not reset or release a command allocator before GPU completion.
 The context pools the command buffer, allocator, residency set and binding storage
 of up to 64 committed batches, like a classic queue's in-flight command buffers. A fresh

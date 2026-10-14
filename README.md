@@ -68,8 +68,9 @@ let (a, b, out) = unsafe { kernels.vec_add(config, a, b, out) }.await?;
 let values = out.read().await;
 ```
 
-`metal_oxide::sequence(|batch| ...)` runs the operations it pushes in one command buffer,
-in order; `operation.timed()` also returns the GPU time.
+`metal_oxide::sequence(|batch| ...)` runs the operations it pushes in one command buffer: a
+launch waits for the earlier ones whose buffers it uses, and the others run concurrently;
+`operation.timed()` also returns the GPU time.
 
 `cargo-metal` generates the bindings and supplies the build paths.
 Complete Cargo setup: [examples/vec-add](https://github.com/rust-dd/metal-oxide/tree/main/examples/vec-add).
@@ -104,9 +105,9 @@ See the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CO
 Checks the compiler cannot prove run on the GPU: an out-of-bounds index, an overflow
 under the profile's overflow checks, a division by zero or a literal `assert!`/`panic!`
 stops the thread and returns `Error::KernelFailed` with the kernel, dispatch, Rust location
-and message; later dispatches of its command buffer do not run. A check before a barrier or SIMD
-collective must be proved or uniform. `metal_oxide_device::log!` prints from kernels to
-stderr through Metal shader logging.
+and message; the dispatches that wait for it in its command buffer do not run. A check
+before a barrier or SIMD collective must be proved or uniform. `metal_oxide_device::log!`
+prints from kernels to stderr through Metal shader logging.
 
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Generated bindings take an element count;

@@ -1,8 +1,8 @@
-use std::{any::TypeId, cell::RefCell, collections::HashSet, sync::Arc};
+use std::{any::TypeId, cell::RefCell, collections::HashSet, ops::Range, sync::Arc};
 
 use metal_oxide_artifact::{Access, Layout, ParameterType};
 use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::{MTLBuffer, MTLDevice};
+use objc2_metal::MTLBuffer;
 
 use super::{
     Buffer,
@@ -29,6 +29,17 @@ enum Kind {
     Value,
     Buffer(Access),
     Threadgroup,
+}
+
+/// A kernel parameter in the form a batch records and the native encoders bind.
+pub(super) enum Binding {
+    Buffer(Retained<ProtocolObject<dyn MTLBuffer>>),
+    /// Canonical value bytes in the batch's byte store.
+    Value {
+        bytes: Range<usize>,
+        alignment: usize,
+    },
+    Threadgroup(usize),
 }
 
 /// A borrowed buffer, owned value, or block-local allocation in kernel parameter order.
@@ -133,11 +144,19 @@ impl<'a> Argument<'a> {
         }
     }
 
-    pub(super) fn value_bytes(&self) -> Option<&[u8]> {
-        match &self.value {
-            Value::Inline(bytes) => Some(&bytes[..self.size]),
-            Value::Encoded(bytes) => Some(bytes),
-            _ => None,
+    /// The parameter as the native encoders bind it; value bytes are appended to `store`.
+    pub(super) fn binding(&self, store: &mut Vec<u8>) -> Binding {
+        let bytes = match &self.value {
+            Value::Buffer(buffer) => return Binding::Buffer(buffer.raw().clone()),
+            Value::Threadgroup(bytes) => return Binding::Threadgroup(*bytes),
+            Value::Inline(bytes) => &bytes[..self.size],
+            Value::Encoded(bytes) => bytes,
+        };
+        let start = store.len();
+        store.extend_from_slice(bytes);
+        Binding::Value {
+            bytes: start..store.len(),
+            alignment: self.alignment,
         }
     }
 
@@ -155,6 +174,7 @@ impl<'a> Argument<'a> {
             _ => None,
         }
     }
+
     pub(super) fn resource(&self) -> Option<Resource> {
         match &self.value {
             Value::Buffer(buffer) => {
@@ -168,6 +188,7 @@ impl<'a> Argument<'a> {
             _ => None,
         }
     }
+
     pub(super) fn signature(&self) -> Signature {
         self.signature
     }
@@ -189,33 +210,10 @@ impl<'a> Argument<'a> {
         })
     }
 
-    pub(super) fn value_alignment(&self) -> Option<usize> {
-        (self.signature.kind == Kind::Value).then_some(self.alignment)
-    }
-
     pub(super) fn prepare(&self) {
         if let (Value::Buffer(buffer), Kind::Buffer(access)) = (&self.value, self.signature.kind) {
             buffer.prepare(access);
         }
-    }
-
-    pub(super) fn metal_buffer(
-        &self,
-        device: &ProtocolObject<dyn MTLDevice>,
-    ) -> Result<Retained<ProtocolObject<dyn MTLBuffer>>> {
-        if let Value::Buffer(buffer) = &self.value {
-            return Ok(buffer.raw().clone());
-        }
-        let bytes = self
-            .value_bytes()
-            .expect("threadgroup storage has no device buffer");
-        let buffer = super::constants::allocate(device, bytes.len())?;
-        // SAFETY: bytes is live; fresh shared storage covers it and is not yet committed.
-        unsafe {
-            let destination = buffer.contents().cast::<u8>().as_ptr();
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
-        }
-        Ok(buffer)
     }
 }
 

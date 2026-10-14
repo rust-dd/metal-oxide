@@ -16,6 +16,7 @@ mod metal4;
 mod module;
 mod operation;
 mod pipeline;
+mod record;
 mod sync;
 
 pub use argument::{Argument, ReadArgument, WriteArgument};

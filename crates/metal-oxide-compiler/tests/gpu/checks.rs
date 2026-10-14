@@ -126,16 +126,17 @@ fn lookups_and_fills(
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn a_failed_dispatch_skips_the_rest_of_its_command_buffer() -> metal_oxide::Result<()> {
+fn a_failed_dispatch_skips_the_dispatches_ordered_after_it() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let module = module(&device)?;
+    // The first lookup, the first fill and the second lookup share no buffer, so they run
+    // together; the second fill waits for the first and gates on both lookups.
     let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [5, 1])?;
     let first = failure(result);
     assert_eq!((first.kernel.as_str(), first.dispatch), ("lookup", 0));
-    // Neither the later fill nor the later lookup, which gates on a snapshot, runs.
     assert_eq!(
         [early, late, filled],
-        [[0; 4], [0; 4], [0; 4]].map(Vec::from)
+        [[0; 4], [20; 4], [1; 4]].map(Vec::from)
     );
     let (result, [early, late, filled]) = lookups_and_fills(&device, &module, [1, 5])?;
     let second = failure(result);
@@ -236,7 +237,8 @@ fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxi
     let invalid = device.buffer_from_slice(&[4_u32])?;
     let mut out = device.buffer_zeroed::<u32>(1)?;
     let config = LaunchConfig::<1>::new(Dim3::x(1));
-    // Each fallible dispatch after the first takes a gate word; more than one chunk holds.
+    // Every dispatch writes `out` after the previous one and takes a failure word, and every
+    // one after the second a snapshot gate, so the words span three chunks.
     let dispatches = 1100;
     for failing in [true, false, true] {
         // SAFETY: one thread writes the single element in dispatch order.

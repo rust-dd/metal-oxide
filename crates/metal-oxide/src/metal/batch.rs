@@ -5,45 +5,24 @@ use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLSize};
 
 use super::{
     Argument, Device, Operation, Pipeline,
+    argument::Binding,
     backend::Backend,
-    buffer::Resource,
     classic::ClassicBatch,
     completion::Completion,
-    failures::{Failures, Slot},
+    failures::{Failures, Gate, Slot},
     metal4::Metal4Batch,
+    record::Recording,
 };
 use crate::{Dim3, DynamicLaunchConfig, Error, Result};
 
-enum NativeBatch {
-    Classic(ClassicBatch),
-    Metal4(Metal4Batch),
-}
-
 /// The command buffer an operation encodes into; see [`sequence`](super::sequence).
 ///
-/// It holds native command encoders, so it stays on the encoding thread:
-///
-/// ```compile_fail
-/// metal_oxide::sequence(|batch| {
-///     std::thread::scope(|scope| {
-///         scope.spawn(|| drop(batch));
-///     });
-///     Ok(())
-/// });
-/// ```
+/// A batch records its dispatches and encodes them when it commits. A dispatch runs after the
+/// earlier ones whose buffers it reads or writes; dispatches without such conflicts may run
+/// concurrently.
 pub struct Batch {
     device: Option<Device>,
-    commands: Option<Commands>,
-}
-
-struct Commands {
-    native: NativeBatch,
-    resources: Vec<Resource>,
-    pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
-    failures: Failures,
-    dispatches: usize,
-    /// A native dispatch, including an internal snapshot, precedes the next one.
-    encoded: bool,
+    recording: Recording,
 }
 
 /// A gate or failure word that a dispatch binds after its parameters.
@@ -67,17 +46,17 @@ impl Batch {
     pub(super) fn new() -> Self {
         Self {
             device: None,
-            commands: None,
+            recording: Recording::default(),
         }
     }
 
-    /// Encodes `operation` after the batch's previous dispatches and returns its output, which
-    /// is ready to use as the arguments of later operations in the batch.
+    /// Encodes `operation` and returns its output, which is ready to use as the arguments of
+    /// later operations in the batch.
     pub fn push<O: Operation>(&mut self, operation: O) -> Result<O::Output> {
         operation.encode(self)
     }
 
-    /// Encodes a kernel after the batch's preceding dispatches.
+    /// Records a kernel dispatch after validating it.
     ///
     /// # Safety
     ///
@@ -97,25 +76,24 @@ impl Batch {
             return Err(Error::DeviceMismatch);
         }
         validate(device, pipeline, config, arguments)?;
-        if config.is_empty() {
-            return Ok(());
+        if !config.is_empty() {
+            self.recording.record(pipeline, config, arguments);
         }
-        let commands = match &mut self.commands {
-            Some(commands) => commands,
-            None => self.commands.insert(Commands::new(device)?),
-        };
-        // SAFETY: validation passed; the caller provides the kernel contract.
-        unsafe { commands.launch(device, pipeline, config, arguments) }
+        Ok(())
     }
 
-    /// Commits the encoded dispatches; a batch without any finishes immediately.
-    pub(super) fn commit(self) -> Arc<Completion> {
+    /// Encodes and commits the recorded dispatches; a batch without any finishes immediately.
+    pub(super) fn commit(self) -> Result<Arc<Completion>> {
         let completion = Arc::new(Completion::default());
-        match (self.device, self.commands) {
-            (Some(device), Some(commands)) => commands.commit(&device, &completion),
+        match self.device {
+            Some(device) if !self.recording.dispatches.is_empty() => {
+                let encoder = Encoder::new(&device, &self.recording)?;
+                self.recording.register(&completion);
+                encoder.commit(&device, &completion);
+            }
             _ => completion.finish(Ok(None)),
         }
-        completion
+        Ok(completion)
     }
 }
 
@@ -150,123 +128,123 @@ fn validate(
     )
 }
 
-impl Commands {
-    fn new(device: &Device) -> Result<Self> {
-        Ok(Self {
-            native: match device.backend() {
-                Backend::Classic(queue) => {
-                    NativeBatch::Classic(ClassicBatch::new(queue, device.log_state())?)
-                }
-                Backend::Metal4 { queue, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
-                    device.raw(),
-                    queue,
-                    cache,
-                    device.log_state(),
-                )?),
-            },
-            resources: Vec::new(),
-            pipelines: Vec::new(),
+/// The native command buffer of a committing batch.
+struct Encoder {
+    native: NativeBatch,
+    failures: Failures,
+    pipelines: Vec<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+}
+
+enum NativeBatch {
+    Classic(ClassicBatch),
+    Metal4(Metal4Batch),
+}
+
+impl Encoder {
+    /// Encodes the recorded dispatches level by level, with a barrier between levels.
+    fn new(device: &Device, recording: &Recording) -> Result<Self> {
+        let native = match device.backend() {
+            Backend::Classic(queue) => NativeBatch::Classic(ClassicBatch::new(
+                queue,
+                device.log_state(),
+                recording.is_chain(),
+            )?),
+            Backend::Metal4 { queue, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
+                device.raw(),
+                queue,
+                cache,
+                device.log_state(),
+            )?),
+        };
+        let mut encoder = Self {
+            native,
             failures: Failures::new(Arc::clone(device.failure_pool())),
-            dispatches: 0,
-            encoded: false,
-        })
+            pipelines: Vec::new(),
+        };
+        let schedule = recording.schedule();
+        for (position, level) in schedule
+            .chunk_by(|first, second| first.level == second.level)
+            .enumerate()
+        {
+            if position > 0 {
+                encoder.native.barrier();
+                encoder.failures.close_level();
+            }
+            let gated = level
+                .iter()
+                .any(|dispatch| dispatch.pipeline.checks().is_some());
+            let gate = if gated {
+                Some(encoder.gate(device)?)
+            } else {
+                None
+            };
+            for dispatch in level {
+                let mut slots = Vec::new();
+                if let (Some(kernel), Some(gate)) = (dispatch.pipeline.checks(), gate) {
+                    let binding = kernel.gate_binding as usize;
+                    slots.push((binding, gate));
+                    if kernel.fallible {
+                        let word =
+                            encoder
+                                .failures
+                                .failure_word(device.raw(), kernel, dispatch.index)?;
+                        slots.push((binding + 1, word));
+                    }
+                    if kernel.lengths {
+                        let lengths = &recording.lengths[dispatch.lengths.clone()];
+                        let table = encoder.failures.table(device.raw(), lengths)?;
+                        slots.push((binding + 1 + usize::from(kernel.fallible), table));
+                    }
+                }
+                let words = slots
+                    .into_iter()
+                    .map(|(index, slot)| Word::new(&encoder.failures, index, slot))
+                    .collect::<Vec<_>>();
+                let bindings = &recording.bindings[dispatch.bindings.clone()];
+                // SAFETY: validation passed when the dispatch was recorded; its pusher provides
+                // the shader safety contract.
+                unsafe {
+                    encoder.native.launch(
+                        device,
+                        dispatch.pipeline.raw(),
+                        dispatch.config,
+                        bindings,
+                        &recording.store,
+                        &words,
+                    )?
+                };
+                encoder.pipelines.push(dispatch.pipeline.raw().clone());
+            }
+        }
+        Ok(encoder)
     }
 
-    /// # Safety
-    ///
-    /// The dispatch must satisfy the launch contract after `validate`.
-    unsafe fn launch(
-        &mut self,
-        device: &Device,
-        pipeline: &Pipeline,
-        config: DynamicLaunchConfig,
-        arguments: &[Argument<'_>],
-    ) -> Result<()> {
-        for argument in arguments {
-            argument.prepare();
-            if let Some(resource) = argument.resource() {
-                if let Some(existing) = self
-                    .resources
-                    .iter_mut()
-                    .find(|existing| Arc::ptr_eq(&existing.access, &resource.access))
-                {
-                    existing.written |= resource.written;
-                } else {
-                    self.resources.push(resource);
-                }
-            }
-        }
-        let assignment = match pipeline.checks() {
-            Some(kernel) => Some((
-                kernel.gate_binding as usize,
-                self.failures.assign(device.raw(), kernel.fallible)?,
-            )),
-            None => None,
+    /// The gate of a level's generated dispatches, set by snapshots if it covers several words.
+    fn gate(&mut self, device: &Device) -> Result<Slot> {
+        let (gate, sources) = match self.failures.gate(device.raw())? {
+            Gate::Word(slot) => return Ok(slot),
+            Gate::Snapshot { gate, sources } => (gate, sources),
         };
-        if let Some((_, assignment)) = assignment.as_ref().filter(|(_, a)| a.snapshot) {
-            let snapshot = device.snapshot()?;
+        let snapshot = device.snapshot()?;
+        for segment in &sources {
             let words = [
-                Word::new(&self.failures, 0, self.failures.failure_slot()),
-                Word::new(&self.failures, 1, assignment.gate),
+                Word::new(&self.failures, 0, segment.start),
+                Word::new(&self.failures, 1, gate),
             ];
-            self.pipelines.push(snapshot.clone());
-            let previous = std::mem::replace(&mut self.encoded, true);
-            // SAFETY: one thread copies a word between live, retained failure-storage slots.
+            let config = DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(segment.count as u32));
+            // SAFETY: each thread reads one word that ended levels wrote, and may set the
+            // fresh gate; both stay retained by `Failures` through completion.
             unsafe {
-                self.native.launch(
-                    device,
-                    snapshot,
-                    DynamicLaunchConfig::new(Dim3::x(1), Dim3::x(1)),
-                    &[],
-                    &words,
-                    previous,
-                )?
+                self.native
+                    .launch(device, snapshot, config, &[], &[], &words)?
             };
         }
-        let lengths = match pipeline.checks() {
-            Some(kernel) if kernel.lengths => {
-                let counts = arguments
-                    .iter()
-                    .map(|argument| argument.length().unwrap_or(0) as u64)
-                    .collect::<Vec<_>>();
-                let binding = kernel.gate_binding as usize + 1 + usize::from(kernel.fallible);
-                Some((binding, self.failures.table(device.raw(), &counts)?))
-            }
-            _ => None,
-        };
-        let words = assignment
-            .iter()
-            .flat_map(|(binding, assignment)| {
-                std::iter::once((*binding, assignment.gate))
-                    .chain(assignment.failure.map(|failure| (binding + 1, failure)))
-            })
-            .chain(lengths)
-            .map(|(index, slot)| Word::new(&self.failures, index, slot))
-            .collect::<Vec<_>>();
-        self.pipelines.push(pipeline.raw().clone());
-        let previous = std::mem::replace(&mut self.encoded, true);
-        // SAFETY: validation passed; the caller provides the shader safety contract.
-        unsafe {
-            self.native
-                .launch(device, pipeline.raw(), config, arguments, &words, previous)?
-        };
-        if let (Some(kernel), Some((_, assignment))) = (pipeline.checks(), &assignment)
-            && kernel.fallible
-        {
-            self.failures
-                .record(kernel, self.dispatches, assignment.gate);
-        }
-        self.dispatches += 1;
-        Ok(())
+        self.pipelines.push(snapshot.clone());
+        self.native.barrier();
+        Ok(gate)
     }
 
     fn commit(self, device: &Device, completion: &Arc<Completion>) {
-        for resource in &self.resources {
-            resource.access.register(completion);
-            if resource.written {
-                resource.access.mark_written();
-            }
-        }
         match (self.native, device.backend()) {
             (NativeBatch::Classic(batch), _) => {
                 batch.commit(Arc::clone(completion), self.pipelines, self.failures)
@@ -290,30 +268,27 @@ impl NativeBatch {
         device: &Device,
         pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
         config: DynamicLaunchConfig,
-        arguments: &[Argument<'_>],
+        bindings: &[Binding],
+        store: &[u8],
         words: &[Word<'_>],
-        has_previous_dispatch: bool,
     ) -> Result<()> {
         // SAFETY: forwarded from the caller.
         unsafe {
             match self {
-                Self::Classic(batch) => batch.launch(
-                    device.raw(),
-                    pipeline,
-                    config,
-                    arguments,
-                    words,
-                    has_previous_dispatch,
-                ),
-                Self::Metal4(batch) => batch.launch(
-                    device.raw(),
-                    pipeline,
-                    config,
-                    arguments,
-                    words,
-                    has_previous_dispatch,
-                ),
+                Self::Classic(batch) => {
+                    batch.launch(device.raw(), pipeline, config, bindings, store, words)
+                }
+                Self::Metal4(batch) => {
+                    batch.launch(device.raw(), pipeline, config, bindings, store, words)
+                }
             }
+        }
+    }
+
+    fn barrier(&self) {
+        match self {
+            Self::Classic(batch) => batch.barrier(),
+            Self::Metal4(batch) => batch.barrier(),
         }
     }
 }

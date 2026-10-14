@@ -17,7 +17,7 @@ use objc2_metal::{
 };
 
 use super::{
-    Argument,
+    argument::Binding,
     batch::{Word, metal_size},
     completion::{Completion, gpu_time},
     constants::Constants,
@@ -186,13 +186,13 @@ impl Metal4Batch {
         device: &ProtocolObject<dyn MTLDevice>,
         pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
         config: DynamicLaunchConfig,
-        arguments: &[Argument<'_>],
+        bindings: &[Binding],
+        store: &[u8],
         words: &[Word<'_>],
-        has_previous_dispatch: bool,
     ) -> Result<()> {
-        let buffer_count = arguments
+        let buffer_count = bindings
             .iter()
-            .filter(|a| a.threadgroup_bytes().is_none())
+            .filter(|binding| !matches!(binding, Binding::Threadgroup(_)))
             .count();
         let bound = buffer_count + words.len();
         let table = match self
@@ -211,7 +211,7 @@ impl Metal4Batch {
         // SAFETY: the cache returns storage only after GPU completion; each dispatch takes
         // a distinct allocation and keeps its bytes unchanged through the next completion.
         let constants =
-            unsafe { Constants::new(device, arguments, self.reusable_constants.pop())? };
+            unsafe { Constants::new(device, bindings, store, self.reusable_constants.pop())? };
         if let Some(constants) = &constants {
             self.residency
                 .addAllocation(ProtocolObject::from_ref(&*constants.buffer));
@@ -222,22 +222,21 @@ impl Metal4Batch {
         }
         let mut buffer_slot = 0;
         let mut threadgroup_slot = 0;
-        for argument in arguments {
-            if let Some(bytes) = argument.threadgroup_bytes() {
-                // SAFETY: Batch validated the slot and combined per-block storage size.
-                unsafe { encoder.setThreadgroupMemoryLength_atIndex(bytes, threadgroup_slot) };
-                threadgroup_slot += 1;
-                continue;
-            }
-            let address = if argument.value_bytes().is_some() {
-                constants.as_ref().unwrap().address(buffer_slot)
-            } else {
-                let buffer = argument.metal_buffer(device)?;
-                self.residency
-                    .addAllocation(ProtocolObject::from_ref(&*buffer));
-                let address = buffer.gpuAddress();
-                self.bindings.push(buffer);
-                address
+        for binding in bindings {
+            let address = match binding {
+                Binding::Threadgroup(bytes) => {
+                    // SAFETY: Batch validated the slot and combined per-block storage size.
+                    unsafe { encoder.setThreadgroupMemoryLength_atIndex(*bytes, threadgroup_slot) };
+                    threadgroup_slot += 1;
+                    continue;
+                }
+                Binding::Value { .. } => constants.as_ref().unwrap().address(buffer_slot),
+                Binding::Buffer(buffer) => {
+                    self.residency
+                        .addAllocation(ProtocolObject::from_ref(&**buffer));
+                    self.bindings.push(buffer.clone());
+                    buffer.gpuAddress()
+                }
             };
             // SAFETY: the table has this slot; the aligned, immutable bytes stay
             // resident and retained through completion, independently of later dispatches.
@@ -262,13 +261,6 @@ impl Metal4Batch {
         }
         self.residency
             .addAllocation(ProtocolObject::from_ref(pipeline));
-        if has_previous_dispatch {
-            encoder.barrierAfterEncoderStages_beforeEncoderStages_visibilityOptions(
-                MTLStages::Dispatch,
-                MTLStages::Dispatch,
-                MTL4VisibilityOptions::Device,
-            );
-        }
         encoder.setComputePipelineState(pipeline);
         encoder.setArgumentTable(Some(&table.raw));
         encoder.dispatchThreadgroups_threadsPerThreadgroup(
@@ -277,6 +269,18 @@ impl Metal4Batch {
         );
         self.tables.push(table);
         Ok(())
+    }
+
+    /// Orders the later dispatches after every earlier one and makes their writes visible.
+    pub(super) fn barrier(&self) {
+        self.encoder
+            .as_ref()
+            .unwrap()
+            .barrierAfterEncoderStages_beforeEncoderStages_visibilityOptions(
+                MTLStages::Dispatch,
+                MTLStages::Dispatch,
+                MTL4VisibilityOptions::Device,
+            );
     }
 
     pub(super) fn commit(

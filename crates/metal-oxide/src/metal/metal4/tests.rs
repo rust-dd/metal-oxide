@@ -1,5 +1,5 @@
 use super::*;
-use crate::Operation;
+use crate::{Argument, Operation};
 
 #[test]
 #[ignore = "requires a Metal 4 device on Apple Silicon"]

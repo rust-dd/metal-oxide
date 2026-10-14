@@ -8,11 +8,11 @@ use objc2::{
 use objc2_metal::{
     MTLBarrierScope, MTLBuffer, MTLCommandBuffer, MTLCommandBufferDescriptor,
     MTLCommandBufferStatus, MTLCommandEncoder, MTLCommandQueue, MTLComputeCommandEncoder,
-    MTLComputePipelineState, MTLDevice, MTLLogState,
+    MTLComputePipelineState, MTLDevice, MTLDispatchType, MTLLogState,
 };
 
 use super::{
-    Argument,
+    argument::Binding,
     batch::{Word, metal_size},
     completion::{Completion, gpu_time},
     failure::CommandFailure,
@@ -29,17 +29,25 @@ pub(super) struct ClassicBatch {
 }
 
 impl ClassicBatch {
+    /// A command buffer with one compute encoder: serial when every dispatch waits for the
+    /// previous one, which beats barriers in a concurrent encoder for such chains.
     pub(super) fn new(
         queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
+        serial: bool,
     ) -> Result<Self> {
         let descriptor = MTLCommandBufferDescriptor::new();
         descriptor.setLogState(log);
         let command = queue
             .commandBufferWithDescriptor(&descriptor)
             .ok_or_else(|| Error::Command("could not create command buffer".into()))?;
+        let dispatch = if serial {
+            MTLDispatchType::Serial
+        } else {
+            MTLDispatchType::Concurrent
+        };
         let encoder = command
-            .computeCommandEncoder()
+            .computeCommandEncoderWithDispatchType(dispatch)
             .ok_or_else(|| Error::Command("could not create compute encoder".into()))?;
         Ok(Self {
             command,
@@ -55,39 +63,51 @@ impl ClassicBatch {
         device: &ProtocolObject<dyn MTLDevice>,
         pipeline: &ProtocolObject<dyn MTLComputePipelineState>,
         config: DynamicLaunchConfig,
-        arguments: &[Argument<'_>],
+        bindings: &[Binding],
+        store: &[u8],
         words: &[Word<'_>],
-        has_previous_dispatch: bool,
     ) -> Result<()> {
         let encoder = self.encoder.as_ref().unwrap();
-        if has_previous_dispatch {
-            encoder.memoryBarrierWithScope(MTLBarrierScope::Buffers);
-        }
         encoder.setComputePipelineState(pipeline);
         let mut buffer_slot = 0;
         let mut threadgroup_slot = 0;
-        for argument in arguments {
-            if let Some(bytes) = argument.threadgroup_bytes() {
-                // SAFETY: Batch validated the slot and combined per-block storage size.
-                unsafe { encoder.setThreadgroupMemoryLength_atIndex(bytes, threadgroup_slot) };
-                threadgroup_slot += 1;
-                continue;
-            }
-            if let Some(bytes) = argument.value_bytes().filter(|bytes| bytes.len() <= 4096) {
-                // SAFETY: canonical value bytes are initialized and nonempty. Metal
-                // copies at most 4 KiB before returning; later dispatches cannot mutate them.
-                unsafe {
-                    encoder.setBytes_length_atIndex(
-                        NonNull::new(bytes.as_ptr().cast_mut()).unwrap().cast(),
-                        bytes.len(),
-                        buffer_slot,
-                    )
-                };
-            } else {
-                let buffer = argument.metal_buffer(device)?;
-                // SAFETY: Batch validated bindings; buffers stay retained through completion.
-                unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, buffer_slot) };
-                self.bindings.push(buffer);
+        for binding in bindings {
+            match binding {
+                Binding::Threadgroup(bytes) => {
+                    // SAFETY: Batch validated the slot and combined per-block storage size.
+                    unsafe { encoder.setThreadgroupMemoryLength_atIndex(*bytes, threadgroup_slot) };
+                    threadgroup_slot += 1;
+                    continue;
+                }
+                Binding::Value { bytes, .. } if bytes.len() <= 4096 => {
+                    let bytes = &store[bytes.clone()];
+                    // SAFETY: canonical value bytes are initialized and nonempty. Metal
+                    // copies at most 4 KiB before returning; later dispatches cannot mutate them.
+                    unsafe {
+                        encoder.setBytes_length_atIndex(
+                            NonNull::new(bytes.as_ptr().cast_mut()).unwrap().cast(),
+                            bytes.len(),
+                            buffer_slot,
+                        )
+                    };
+                }
+                Binding::Value { bytes, .. } => {
+                    let bytes = &store[bytes.clone()];
+                    let buffer = super::constants::allocate(device, bytes.len())?;
+                    // SAFETY: fresh shared storage covers the bytes and is not yet committed.
+                    unsafe {
+                        let destination = buffer.contents().cast::<u8>().as_ptr();
+                        std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
+                    }
+                    // SAFETY: the buffer stays retained through completion.
+                    unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, buffer_slot) };
+                    self.bindings.push(buffer);
+                }
+                Binding::Buffer(buffer) => {
+                    // SAFETY: Batch validated bindings; buffers stay retained through completion.
+                    unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), 0, buffer_slot) };
+                    self.bindings.push(buffer.clone());
+                }
             }
             buffer_slot += 1;
         }
@@ -105,6 +125,14 @@ impl ClassicBatch {
             metal_size(config.block),
         );
         Ok(())
+    }
+
+    /// Orders the later dispatches after every earlier one and makes their writes visible.
+    pub(super) fn barrier(&self) {
+        self.encoder
+            .as_ref()
+            .unwrap()
+            .memoryBarrierWithScope(MTLBarrierScope::Buffers);
     }
 
     pub(super) fn commit(

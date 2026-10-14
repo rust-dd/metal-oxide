@@ -1,7 +1,7 @@
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLDevice, MTLResourceOptions};
 
-use super::Argument;
+use super::argument::Binding;
 use crate::{Error, Result};
 
 pub(super) struct Constants {
@@ -10,28 +10,33 @@ pub(super) struct Constants {
 }
 
 impl Constants {
+    /// Packs the value bytes of `bindings`, taken from `store`, into one shared buffer.
+    ///
     /// # Safety
     ///
     /// Reused storage must come from `allocate` on `device`, with no remaining
     /// CPU accesses or encoded/pending GPU accesses.
     pub unsafe fn new(
         device: &ProtocolObject<dyn MTLDevice>,
-        arguments: &[Argument<'_>],
+        bindings: &[Binding],
+        store: &[u8],
         reusable: Option<Retained<ProtocolObject<dyn MTLBuffer>>>,
     ) -> Result<Option<Self>> {
         let mut offsets = [0; 31];
         let mut length = 0_usize;
-        let bindings = arguments.iter().filter(|a| a.threadgroup_bytes().is_none());
-        for (slot, argument) in bindings.clone().enumerate() {
-            if let Some(alignment) = argument.value_alignment() {
-                let alignment = alignment.max(4);
+        let slots = bindings
+            .iter()
+            .filter(|binding| !matches!(binding, Binding::Threadgroup(_)));
+        for (slot, binding) in slots.clone().enumerate() {
+            if let Binding::Value { bytes, alignment } = binding {
+                let alignment = (*alignment).max(4);
                 length = length
                     .checked_add(alignment - 1)
                     .ok_or(Error::LengthOverflow)?
                     & !(alignment - 1);
                 offsets[slot] = length;
                 length = length
-                    .checked_add(argument.value_bytes().unwrap().len())
+                    .checked_add(bytes.len())
                     .ok_or(Error::LengthOverflow)?;
             }
         }
@@ -42,13 +47,13 @@ impl Constants {
             Some(buffer) => buffer,
             None => allocate(device, length)?,
         };
-        for (slot, argument) in bindings.enumerate() {
-            if let Some(bytes) = argument.value_bytes() {
+        for (slot, binding) in slots.enumerate() {
+            if let Binding::Value { bytes, .. } = binding {
                 // SAFETY: checked, aligned suballocations are disjoint and within
                 // initialized, idle shared storage, before this command buffer commits.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
-                        bytes.as_ptr(),
+                        store[bytes.clone()].as_ptr(),
                         buffer.contents().cast::<u8>().as_ptr().add(offsets[slot]),
                         bytes.len(),
                     );

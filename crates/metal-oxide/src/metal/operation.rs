@@ -104,7 +104,8 @@ impl<A, const N: usize> Operation for Launch<A, N> {
     }
 }
 
-/// One operation from those `encode` pushes, in order, into a single command buffer; the
+/// One operation from those `encode` pushes into a single command buffer, where a launch
+/// waits for the earlier ones whose buffers it uses and the others run concurrently; the
 /// closure runs when the operation is first polled or waited.
 pub fn sequence<F, T>(encode: F) -> Sequence<F>
 where
@@ -184,7 +185,7 @@ fn start<O: Operation>(operation: O) -> Result<(Arc<Completion>, O::Output)> {
     autoreleasepool(|_| {
         let mut batch = Batch::new();
         let output = operation.encode(&mut batch)?;
-        Ok((batch.commit(), output))
+        Ok((batch.commit()?, output))
     })
 }
 

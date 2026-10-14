@@ -258,7 +258,7 @@ neither does `block_idx * B + thread_idx` for a constant `B` up to the block siz
 that reads it only in one dimension, where no two threads share it.
 Metal has no device trap, so each unproved assertion and each literal `panic!` or
 `assert!` becomes a runtime check: a failing thread stores the check in its
-command buffer's failure word and returns. A check before a barrier or SIMD collective
+dispatch's failure word and returns. A check before a barrier or SIMD collective
 must be proved or uniform, so that no thread waits for one that has returned. `log!`
 lowers to Metal shader logging with typed `printf` specifiers.
 
@@ -549,19 +549,23 @@ The runtime performs these steps:
 4. The generated `vec_add` wrapper returns a `Launch` operation that holds the
    pipeline, the configuration and the arguments; nothing is encoded yet.
 5. `wait` (or the first poll of its future) creates a `Batch`, which binds the three
-   ordered arguments and checks resource context, ABI types/access, block
+   ordered arguments, checks resource context, ABI types/access, block
    requirements, the one-dimensional launch of a kernel that reads its thread index,
-   and dispatch limits. It then encodes the bindings, a gate word,
-   for a kernel that can fail a check the command buffer's failure word, and for a
-   kernel that reads buffer lengths a table of its arguments' element counts. A kernel
-   tests its gate once, at the latest point that precedes all of its memory accesses,
-   synchronization and logs, and returns once an earlier dispatch has failed. A
-   fallible dispatch after another fallible one gates on a snapshot of the failure
-   word, copied by a one-thread kernel just before it.
-6. The batch commits. `wait` blocks until GPU completion, and the future resolves
-   then; either reports command errors, or `Error::KernelFailed` with the kernel,
-   dispatch, Rust location and message of the failed check.
-7. The host reads the output buffer.
+   and dispatch limits, and records the dispatch.
+6. The batch commits. It places each recorded dispatch in the first phase after every
+   dispatch that wrote a buffer it uses or read a buffer it writes, and encodes the
+   phases with a barrier between them; the dispatches of a phase may run concurrently.
+   A dispatch binds a gate word, for a kernel that can fail a check its own failure
+   word, and for a kernel that reads buffer lengths a table of its arguments' element
+   counts. A kernel tests its gate once, at the latest point that precedes all of its
+   memory accesses, synchronization and logs, and returns once a dispatch of an
+   earlier phase has failed. The dispatches of a phase share a gate that none of them
+   writes: zero, an earlier failure word, or a snapshot of several, which one thread
+   per word sets after the previous barrier.
+7. `wait` blocks until GPU completion, and the future resolves then; either reports
+   command errors, or `Error::KernelFailed` with the kernel, dispatch, Rust location
+   and message of the failed check.
+8. The host reads the output buffer.
 
 The runtime's `Module` holds a loaded Metal library and ABI metadata.
 `metal_oxide_ir::Module` holds the compiler's program representation.
@@ -598,9 +602,9 @@ the operation that ran them.
 
 `Device`, `Module`, `Pipeline`, `Buffer`, `Argument`, `Launch` and the operation
 futures are `Send + Sync` when their arguments are. `Device` and `Pipeline` are cheap
-handles: device clones share one ordered queue context, and command buffers execute
-in commit order, which is the order operations are first polled or waited. A `Batch`
-holds native encoders and stays on the thread that runs the operation. CPU views on
+handles: device clones share one queue context, and operations that use the same buffer
+run in the order they are first polled or waited. A `Batch` records its dispatches and
+encodes them when its operation commits. CPU views on
 any thread wait for every registered GPU access; GPU writes require an exclusive
 borrow or ownership, so codec buffers decode a GPU write once even when several
 threads read concurrently. [The threading tests](crates/metal-oxide/tests/threads.rs)
@@ -620,7 +624,7 @@ The selected variant controls pipeline creation and batch encoding:
 | Command encoding | `MTLComputeCommandEncoder` | `MTL4ComputeCommandEncoder` and command allocator |
 | Arguments | `setBuffer`; values up to 4 KiB copied with `setBytes`, larger values retained in buffers | GPU addresses in an immutable `MTL4ArgumentTable`; values packed into aligned, immutable storage per dispatch |
 | Resource residency | Classic resource management | Explicit residency set |
-| Dispatch ordering | Buffer barriers between dispatches | Encoder barriers and a queue barrier |
+| Dispatch ordering | A serial encoder for a chain; otherwise a concurrent encoder with buffer barriers between phases | Encoder barriers between phases and a queue barrier per batch |
 | Commit | Command-buffer commit and completion callback | Command-queue commit and feedback callback |
 
 Both paths retain native resources until GPU completion and expose the same

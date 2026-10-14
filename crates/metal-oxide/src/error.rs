@@ -6,7 +6,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelFailure {
     pub kernel: String,
-    /// Position of the failed dispatch among the dispatches of its command buffer.
+    /// Position of the failed dispatch among the dispatches pushed into its command buffer.
     pub dispatch: usize,
     pub message: String,
     pub file: String,
@@ -45,7 +45,8 @@ pub enum Error {
     Pipeline(String),
     Command(String),
     OutOfMemory(String),
-    /// A dispatch failed a runtime check; later dispatches of its command buffer were skipped.
+    /// A dispatch failed a runtime check; the dispatches of its command buffer that wait for
+    /// it were skipped.
     KernelFailed(Box<KernelFailure>),
     InvalidPath,
     Artifact(metal_oxide_artifact::Error),
