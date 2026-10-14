@@ -1,0 +1,5 @@
+error: expected one element type
+ --> tests/ui/untyped_buffer.rs:2:41
+  |
+2 | pub fn read(input: metal_oxide::device::ReadBuffer) {}
+  |                                         ^^^^^^^^^^

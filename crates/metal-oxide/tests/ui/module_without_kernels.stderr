@@ -1,0 +1,5 @@
+error: a `#[kernels]` module defines `#[kernel]` functions or names a kernel crate
+ --> tests/ui/module_without_kernels.rs:2:5
+  |
+2 | mod helpers {
+  |     ^^^^^^^

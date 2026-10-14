@@ -1,0 +1,5 @@
+error: kernels return nothing
+ --> tests/ui/returns_value.rs:2:5
+  |
+2 | pub fn answer() -> u32 {
+  |     ^^^^^^^^^^^^^^^^^^

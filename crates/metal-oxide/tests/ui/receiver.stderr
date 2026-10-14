@@ -1,0 +1,5 @@
+error: kernels take no `self`
+ --> tests/ui/receiver.rs:5:18
+  |
+5 |     pub fn scale(&self) {}
+  |                  ^^^^^

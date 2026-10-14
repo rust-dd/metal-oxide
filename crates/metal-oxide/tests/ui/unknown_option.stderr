@@ -1,0 +1,5 @@
+error: expected one `block = (X, Y, Z)` and one `requires(...)`
+ --> tests/ui/unknown_option.rs:1:23
+  |
+1 | #[metal_oxide::kernel(threads = 64)]
+  |                       ^^^^^^^

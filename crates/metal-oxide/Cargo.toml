@@ -26,6 +26,7 @@ metal-oxide-kernels = { workspace = true }
 
 [target.'cfg(not(loom))'.dev-dependencies]
 tokio = { workspace = true }
+trybuild = { workspace = true }
 
 [target.'cfg(loom)'.dev-dependencies]
 loom = { workspace = true }

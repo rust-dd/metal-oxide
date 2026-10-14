@@ -1,0 +1,5 @@
+error: a block shape is three positive integer literals
+ --> tests/ui/block_shape.rs:1:31
+  |
+1 | #[metal_oxide::kernel(block = (64, 0, 1))]
+  |                               ^^^^^^^^^^

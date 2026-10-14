@@ -1,0 +1,5 @@
+error: expected one each of `math = "precise" | "fast"`, `dependencies(...)` and `path = "..."`
+ --> tests/ui/module_options.rs:1:24
+  |
+1 | #[metal_oxide::kernels(fast)]
+  |                        ^^^^

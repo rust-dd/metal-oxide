@@ -1,0 +1,5 @@
+error: a record that kernels share with the host is a non-generic `#[repr(C)]` struct
+ --> tests/ui/shared_record.rs:5:16
+  |
+5 |     pub struct Pair {
+  |                ^^^^

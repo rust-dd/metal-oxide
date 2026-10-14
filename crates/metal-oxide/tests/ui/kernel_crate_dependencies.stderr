@@ -1,0 +1,7 @@
+error: a kernel crate names its dependencies in its own Cargo.toml
+ --> tests/ui/kernel_crate_dependencies.rs:1:1
+  |
+1 | #[metal_oxide::kernels(path = "../kernels", dependencies(num))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `metal_oxide::kernels` (in Nightly builds, run with -Z macro-backtrace for more info)

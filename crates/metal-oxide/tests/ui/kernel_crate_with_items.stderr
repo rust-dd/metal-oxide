@@ -1,0 +1,5 @@
+error: a module that launches a kernel crate's kernels is empty
+ --> tests/ui/kernel_crate_with_items.rs:1:31
+  |
+1 | #[metal_oxide::kernels(path = "../kernels")]
+  |                               ^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: kernel parameters are plain names
+ --> tests/ui/pattern_parameter.rs:2:14
+  |
+2 | pub fn pairs((first, second): (u32, u32)) {}
+  |              ^^^^^^^^^^^^^^^

@@ -1,0 +1,5 @@
+error: kernels cannot be `async` or `const`
+ --> tests/ui/asynchronous.rs:2:5
+  |
+2 | pub async fn wait() {}
+  |     ^^^^^^^^^^^^^^^
