@@ -21,16 +21,14 @@ fn differential_process_deadline_stops_nonterminating_programs() {
 }
 
 #[test]
-fn seeded_rust_matches_cpu_and_emitted_msl() {
+fn generated_programs_match_cpu_and_emitted_msl() {
     for seed in support::differential::SEEDS {
-        let case = support::differential::Case::new(seed);
+        let case = support::differential::Case::generated(seed);
         let generated = case.compile();
-        assert_eq!(
-            case.msl(&generated),
-            case.cpu(),
-            "seed {seed}, source {}",
-            case.source.display()
-        );
+        let source = case.source.display();
+        if let Some(mismatch) = case.mismatch(&case.cpu(), &case.msl(&generated)) {
+            panic!("seed {seed:#x}, {source}: {mismatch}");
+        }
         let original = metal_oxide_artifact::COMPILER_OUTPUTS
             .map(|file| std::fs::read(generated.join(file.name())).unwrap());
         let rebuilt = case.compile();
@@ -41,7 +39,7 @@ fn seeded_rust_matches_cpu_and_emitted_msl() {
             assert_eq!(
                 std::fs::read(rebuilt.join(file.name())).unwrap(),
                 expected,
-                "nondeterministic {} for seed {seed}",
+                "nondeterministic {} for seed {seed:#x}",
                 file.name()
             );
         }
@@ -49,8 +47,109 @@ fn seeded_rust_matches_cpu_and_emitted_msl() {
 }
 
 #[test]
+fn a_kernel_that_writes_other_words_is_reported() {
+    let case = support::differential::Case::generated(5);
+    let expected = case.cpu();
+    let source = std::fs::read_to_string(&case.source).unwrap();
+    let changed = source.replacen("words[0]);", "words[0] ^ 1);", 1);
+    assert_ne!(changed, source);
+    std::fs::write(&case.source, changed).unwrap();
+    let generated = case.compile();
+    assert!(case.mismatch(&expected, &case.msl(&generated)).is_some());
+}
+
+#[test]
+fn generated_programs_cover_the_supported_constructs() {
+    let sources = (0..300)
+        .map(|seed| support::generate::Program::generate(seed).source(&[]))
+        .collect::<String>();
+    for construct in [
+        ".wrapping_add(",
+        ".wrapping_sub(",
+        ".wrapping_mul(",
+        ".wrapping_shl(",
+        ".wrapping_shr(",
+        ".rotate_left(",
+        ".rotate_right(",
+        ".wrapping_neg()",
+        ".reverse_bits()",
+        ".count_ones()",
+        ".leading_zeros()",
+        ".trailing_zeros()",
+        ".min(",
+        ".max(",
+        ".abs()",
+        ".to_bits()",
+        " ^ ",
+        " & ",
+        " | ",
+        " / ",
+        " % ",
+        " + ",
+        " - ",
+        " * ",
+        " == ",
+        " != ",
+        " < ",
+        " <= ",
+        " > ",
+        " >= ",
+        " && ",
+        " || ",
+        "(!",
+        "(-",
+        "_u8",
+        "_u16",
+        "_u32",
+        "_u64",
+        "_i8",
+        "_i16",
+        "_i32",
+        "_f32",
+        "::MIN",
+        "::MAX",
+        " as f32)",
+        " as u8)",
+        " as i32)",
+        "(if ",
+        "(match ",
+        ": for c",
+        "break 'o",
+        "continue 'o",
+        "struct R",
+        "R0 { ",
+        ",)",
+        "% 1]",
+        "% 4]",
+        "fn h",
+        "<const K: u32>",
+        "::<",
+        "let mut ",
+    ] {
+        assert!(
+            sources.contains(construct),
+            "no generated program uses {construct:?}"
+        );
+    }
+}
+
+#[test]
+fn generated_programs_are_deterministic() {
+    for seed in [0, 1, u64::MAX] {
+        let first = support::generate::Program::generate(seed);
+        let second = support::generate::Program::generate(seed);
+        assert_eq!(first.source(&[1, 2]), second.source(&[1, 2]));
+        assert_eq!(first.words, second.words);
+    }
+    let sources = (0..32)
+        .map(|seed| support::generate::Program::generate(seed).source(&[]))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(sources.len() > 28, "seeds should yield distinct programs");
+}
+
+#[test]
 fn unsupported_generated_sources_keep_locations_and_never_panic() {
-    let case = support::differential::Case::new(42);
+    let directory = support::differential::scratch("unsupported");
     for (name, body, diagnostic) in [
         (
             "formatted_panic",
@@ -68,7 +167,7 @@ fn unsupported_generated_sources_keep_locations_and_never_panic() {
             "must be proved or uniform",
         ),
     ] {
-        let source = case.directory.join(format!("{name}.rs"));
+        let source = directory.join(format!("{name}.rs"));
         std::fs::write(&source, format!("#![no_std]\nuse metal_oxide_device::{{kernel, WriteBuffer}};\n#[kernel]\npub unsafe fn invalid(output: WriteBuffer<u32>, n: u32) {{\nunsafe {{ {body} }}\n}}\n")).unwrap();
         let (output, _) = support::emit(source.to_str().unwrap(), &["-C", "overflow-checks=off"]);
         assert!(!output.status.success());
@@ -84,8 +183,7 @@ fn unsupported_generated_sources_keep_locations_and_never_panic() {
 
 #[test]
 fn duplicate_entrypoint_names_have_source_diagnostics() {
-    let case = support::differential::Case::new(43);
-    let source = case.directory.join("duplicate.rs");
+    let source = support::differential::scratch("duplicate").join("duplicate.rs");
     std::fs::write(&source, "#![no_std]\nmod first { use metal_oxide_device::kernel; #[kernel] pub unsafe fn repeated() {} }\nmod second { use metal_oxide_device::kernel; #[kernel] pub unsafe fn repeated() {} }\n").unwrap();
     let (output, _) = support::emit(source.to_str().unwrap(), &[]);
     assert!(!output.status.success());
@@ -103,22 +201,27 @@ fn duplicate_entrypoint_names_have_source_diagnostics() {
 #[test]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
-fn seeded_rust_matches_cpu_on_gpu() {
+fn generated_programs_match_cpu_on_gpu() {
     use metal_oxide::{Argument, Device, Launch, LaunchConfig, Operation, Pipeline};
     let device = Device::system_default().unwrap();
-    for seed in [0, 0xdeadbeef, u32::MAX] {
-        let case = support::differential::Case::new(seed);
+    for seed in support::differential::SEEDS {
+        let case = support::differential::Case::generated(seed);
         let directory = case.compile();
         let module = support::artifact::module(&device, &directory).unwrap();
-        let pipeline = Pipeline::new(&device, &module, "seeded").unwrap();
+        let pipeline = Pipeline::new(&device, &module, "generated").unwrap();
+        let words = case.program.words.len();
         let input = device.buffer_from_slice(&case.inputs).unwrap();
-        let mut output = device.buffer_zeroed::<u32>(case.inputs.len()).unwrap();
-        // SAFETY: complete buffers are disjoint; padded threads are guarded and every valid index has one writer.
+        let mut output = device
+            .buffer_zeroed::<u32>(case.inputs.len() * words)
+            .unwrap();
+        let n = case.inputs.len() as u32;
+        // SAFETY: the buffers are disjoint; padded threads are guarded and thread i alone
+        // writes the words at i * words.
         unsafe {
             Launch::new(
                 Ok(&pipeline),
-                LaunchConfig::<64>::for_elements(257).unwrap(),
-                (&input, &mut output, 257_u32),
+                LaunchConfig::<64>::for_elements(n).unwrap(),
+                (&input, &mut output, n),
                 |(input, output, n)| {
                     Ok([
                         Argument::read(input),
@@ -130,6 +233,14 @@ fn seeded_rust_matches_cpu_on_gpu() {
             .wait()
             .unwrap();
         }
-        assert_eq!(output.read().wait(), case.cpu(), "seed {seed}");
+        let gpu = output
+            .read()
+            .wait()
+            .chunks(words)
+            .map(<[u32]>::to_vec)
+            .collect::<Vec<_>>();
+        if let Some(mismatch) = case.mismatch(&case.cpu(), &gpu) {
+            panic!("seed {seed:#x}, {}: {mismatch}", case.source.display());
+        }
     }
 }
