@@ -38,7 +38,7 @@ impl<'tcx> TypeLowering<'tcx> {
         // `PhantomData`, fn items and closures without captures need no storage, nor do
         // references to them. Enums keep their tag; zero-length arrays are rejected below.
         if (!ty.is_enum() && !matches!(ty.kind(), ty::Array(..)) && is_zero_sized(self.tcx, ty))
-            || pointee(ty).is_some_and(|target| is_zero_sized(self.tcx, target))
+            || addresses_nothing(self.tcx, ty)
         {
             return Ok(ir::Type::Unit);
         }
@@ -397,6 +397,12 @@ fn pointee(ty: Ty<'_>) -> Option<Ty<'_>> {
     }
 }
 
+/// Whether `ty` is a reference or raw pointer to a zero-sized value, directly or through further
+/// such references, which the IR stores nowhere; it needs no address.
+fn addresses_nothing<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
+    pointee(ty).is_some_and(|target| is_zero_sized(tcx, target) || addresses_nothing(tcx, target))
+}
+
 /// Whether values of `ty` occupy no storage.
 pub(crate) fn is_zero_sized<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
     tcx.layout_of(TypingEnv::fully_monomorphized().as_query_input(ty))
@@ -482,7 +488,7 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
 /// buffer handles hold their own address space.
 pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
     match ty.kind() {
-        ty::Ref(_, target, _) | ty::RawPtr(target, _) => !is_zero_sized(tcx, *target),
+        ty::Ref(..) | ty::RawPtr(..) => !addresses_nothing(tcx, ty),
         ty::Pat(base, _) => has_reference(tcx, *base),
         ty::Tuple(fields) => fields.iter().any(|field| has_reference(tcx, field)),
         ty::Closure(_, arguments) => arguments

@@ -12,7 +12,7 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
     pub(super) instance: Instance<'tcx>,
     /// The kernel's lowered signature, or the argument types of the helper's callers.
-    parameters: Vec<ir::Type>,
+    pub(super) parameters: Vec<ir::Type>,
     /// The literal of each local that holds a message, starting from the parameters'.
     pub(super) messages: Vec<Option<String>>,
     /// Where the checks of a `#[track_caller]` function report: its outermost caller.
@@ -114,7 +114,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             requires: if kernel {
                 self.requirements(body)?
             } else {
-                Vec::new()
+                self.invariants(body)
             },
             parameters: body.arg_count,
             locals: self.locals,
@@ -350,33 +350,6 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     ) -> Result<Option<(Expanded, usize)>> {
         let callee = self.callee(func, body, span)?;
         Ok(self.expanded_next(&callee, args).zip(self.receiver(args)))
-    }
-
-    /// A kernel's `requires` relations, over its buffer lengths and integer parameters.
-    fn requirements(&self, body: &mir::Body<'tcx>) -> Result<Vec<metal_oxide_artifact::Contract>> {
-        let operand = |name: &str| {
-            let index = (0..body.arg_count).find(|&index| {
-                crate::collect::parameter_name(body, index).as_deref() == Some(name)
-            })?;
-            let operand = match self.parameters[index] {
-                ir::Type::Buffer {
-                    address_space: ir::AddressSpace::Device,
-                    ..
-                } => metal_oxide_artifact::Operand::Buffer,
-                ir::Type::Scalar(scalar) if scalar.is_integer() => {
-                    metal_oxide_artifact::Operand::Integer
-                }
-                _ => return None,
-            };
-            Some((index, operand))
-        };
-        crate::collect::requires(self.module.tcx, self.instance.def_id())?
-            .into_iter()
-            .map(|(relation, span)| {
-                metal_oxide_artifact::Contract::parse(&relation, operand)
-                    .map_err(|error| (span, error.0))
-            })
-            .collect()
     }
 
     pub(super) fn parameter_count(&self) -> usize {

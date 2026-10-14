@@ -1,4 +1,5 @@
 use metal_oxide_ir as ir;
+use rustc_hir::def::{CtorKind, CtorOf, DefKind};
 use rustc_middle::{
     mir,
     ty::{self, Instance, TyCtxt, consts::ConstExt},
@@ -8,10 +9,19 @@ use rustc_span::{Span, Spanned};
 use super::{FunctionKey, Result, function::FunctionImporter};
 use crate::intrinsics::Intrinsic;
 
-/// Whether every value the instance returns is built without references, such as `None`, so
-/// its return type's references point where its caller's do.
+/// Whether every value the instance returns is built from values without references, such as
+/// `None` or `ControlFlow::Continue(())`, so its return type's references point where its
+/// caller's do.
 pub(super) fn returns_no_references<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> bool {
     let body = crate::monomorphize::body(tcx, instance);
+    let referenceless = |operand: &mir::Operand<'tcx>| {
+        let ty = instance.instantiate_mir_and_normalize_erasing_regions(
+            tcx,
+            ty::TypingEnv::fully_monomorphized(),
+            ty::EarlyBinder::bind(tcx, operand.ty(&body.local_decls, tcx)),
+        );
+        !crate::types::has_reference(tcx, ty)
+    };
     let mut returned = false;
     for block in body.basic_blocks.iter() {
         if let mir::TerminatorKind::Call { destination, .. } = &block.terminator().kind
@@ -23,7 +33,7 @@ pub(super) fn returns_no_references<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<
             match statement.kind.as_assign() {
                 Some((place, mir::Rvalue::Aggregate(kind, operands)))
                     if *place == mir::Place::return_place()
-                        && operands.is_empty()
+                        && operands.iter().all(referenceless)
                         && matches!(**kind, mir::AggregateKind::Adt(..)) =>
                 {
                     returned = true;
@@ -96,6 +106,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         fn_span: Span,
     ) -> Result<ir::Expression> {
         let callee = self.callee(func, body, span)?;
+        if let DefKind::Ctor(of, CtorKind::Fn) = self.module.tcx.def_kind(callee.definition) {
+            return self.construct(&callee, of, args, destination, span);
+        }
         if let Some(Intrinsic::Log) = callee.intrinsic {
             return self.log(args, callee.arguments, span);
         }
@@ -132,6 +145,32 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             function: self.module.function(key, false)?,
             arguments,
         })
+    }
+
+    /// A tuple struct or variant constructor called as a function, as `Err` in
+    /// `map_or(Ok(()), Err)`, builds its value like the aggregate it stands for.
+    fn construct(
+        &mut self,
+        callee: &Callee<'tcx>,
+        of: CtorOf,
+        args: &[Spanned<mir::Operand<'tcx>>],
+        destination: ir::Type,
+        span: Span,
+    ) -> Result<ir::Expression> {
+        let tcx = self.module.tcx;
+        let definition = match of {
+            CtorOf::Struct => tcx.parent(callee.definition),
+            CtorOf::Variant => tcx.parent(tcx.parent(callee.definition)),
+        };
+        let adt = tcx.adt_def(definition);
+        let variant = adt.variant_index_with_ctor_id(callee.definition);
+        let kind = mir::AggregateKind::Adt(adt.did(), variant, callee.arguments, None, None);
+        let fields = args.iter().map(|argument| argument.node.clone()).collect();
+        self.expression(
+            &mir::Rvalue::Aggregate(Box::new(kind), fields),
+            destination,
+            span,
+        )
     }
 
     /// The arguments a call passes to its callee's parameters. A `rust-call` call to a closure

@@ -528,7 +528,7 @@ pub fn expression_type(
             ) else {
                 return Err(Error::new(source, "pointer casts require pointers"));
             };
-            if from.target != target.target
+            if !module.types.same_values(from.target, target.target)
                 || from.space != target.space
                 || (!from.slice && target.slice)
             {

@@ -46,9 +46,21 @@ fn atomic_operations_compile_with_device_and_threadgroup_memory() {
 }
 
 #[test]
-fn references_to_constants_are_rejected_where_they_are_taken() {
+fn references_to_constants_borrow_local_copies_unless_they_escape() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
+        &[],
+    );
+    support::checked(output);
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "float out[1] = {}; pointer(out, {}, {}, {}, {}, metal_oxide_gate); std::cout << out[0];",
+        ),
+        "1"
+    );
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/escaping_constant.rs",
         &[],
     );
     let error = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -56,7 +68,7 @@ fn references_to_constants_are_rejected_where_they_are_taken() {
         output,
         "a reference to a constant is unsupported; borrow a local copy",
     );
-    assert!(error.contains("record_pointer.rs:6:35"), "{error}");
+    assert!(error.contains("escaping_constant.rs:5:5"), "{error}");
     assert!(!directory.join("kernels.metal").exists());
 }
 

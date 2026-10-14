@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashSet};
 
-use rustc_hir::def::DefKind;
+use rustc_hir::def::{CtorKind, DefKind};
 use rustc_middle::{
     mir::{BasicBlock, Body, Operand, Rvalue, StatementKind, TerminatorKind, traversal},
     ty::{self, EarlyBinder, Instance, TyCtxt, TypingEnv},
@@ -21,7 +21,8 @@ pub(crate) fn validate<'tcx>(tcx: TyCtxt<'tcx>, entries: &[Instance<'tcx>]) {
 
 /// The instance's MIR without `cold_path` hints and without the blocks that its constants make
 /// unreachable, such as the branches of `T::IS_ZST` or of disabled runtime and precondition
-/// checks; codegen skips them likewise.
+/// checks; codegen skips them likewise. Blocks that read uninhabited values are unreachable too,
+/// and borrowed constants become borrowed local copies.
 pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx Body<'tcx> {
     let mut body = Cow::Borrowed(tcx.instance_mir(instance.def));
     let gotos = body
@@ -33,6 +34,18 @@ pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx B
         let blocks = body.to_mut().basic_blocks_mut();
         for (block, target) in gotos {
             blocks[block].terminator_mut().kind = TerminatorKind::Goto { target };
+        }
+    }
+    let impossible = body
+        .basic_blocks
+        .indices()
+        .filter(|&block| reads_uninhabited(tcx, instance, &body, block))
+        .collect::<Vec<_>>();
+    if !impossible.is_empty() {
+        let blocks = body.to_mut().basic_blocks_mut();
+        for block in impossible {
+            blocks[block].statements.clear();
+            blocks[block].terminator_mut().kind = TerminatorKind::Unreachable;
         }
     }
     let reachable = traversal::mono_reachable_as_bitset(&body, tcx, instance);
@@ -49,10 +62,49 @@ pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx B
             blocks[block].terminator_mut().kind = TerminatorKind::Unreachable;
         }
     }
+    crate::constant_borrows::copy(tcx, instance, &mut body);
     match body {
         Cow::Borrowed(body) => body,
         Cow::Owned(body) => tcx.arena.alloc(body),
     }
+}
+
+/// Whether the block reads a value of an uninhabited type, as the `Break` arm of core's
+/// `ControlFlow::from_try` does for `NeverShortCircuit`. No such value exists, and statements do
+/// not branch, so the block never runs.
+fn reads_uninhabited<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    instance: Instance<'tcx>,
+    body: &Body<'tcx>,
+    block: BasicBlock,
+) -> bool {
+    let typing = TypingEnv::fully_monomorphized();
+    let uninhabited = |operand: &Operand<'tcx>| {
+        let Some(place) = operand.place() else {
+            return false;
+        };
+        let ty = instance.instantiate_mir_and_normalize_erasing_regions(
+            tcx,
+            typing,
+            EarlyBinder::bind(tcx, place.ty(&body.local_decls, tcx).ty),
+        );
+        ty.is_privately_uninhabited(tcx, typing)
+    };
+    let data = &body.basic_blocks[block];
+    let statements = data
+        .statements
+        .iter()
+        .any(|statement| match statement.kind.as_assign() {
+            Some((_, Rvalue::Use(operand, _))) => uninhabited(operand),
+            _ => false,
+        });
+    let arguments = match &data.terminator().kind {
+        TerminatorKind::Call { args, .. } => {
+            args.iter().any(|argument| uninhabited(&argument.node))
+        }
+        _ => false,
+    };
+    statements || arguments
 }
 
 /// Blocks from which every path reaches `unreachable`; running them is undefined behavior, as
@@ -180,14 +232,18 @@ impl<'tcx> Collector<'tcx> {
                 .span_err(span, format!("unsupported function instance: {instance}"));
             return;
         }
+        // Constructors such as `Err` called as functions build their value.
         if !matches!(
             tcx.def_kind(instance.def_id()),
-            DefKind::Fn | DefKind::AssocFn | DefKind::Closure
+            DefKind::Fn | DefKind::AssocFn | DefKind::Closure | DefKind::Ctor(_, CtorKind::Fn)
         ) {
             tcx.dcx().span_err(
                 span,
                 "coroutines and other callable shims are not supported in Metal kernels",
             );
+            return;
+        }
+        if matches!(tcx.def_kind(instance.def_id()), DefKind::Ctor(..)) {
             return;
         }
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {

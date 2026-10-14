@@ -14,6 +14,7 @@ extern crate rustc_target;
 mod arguments;
 mod backend;
 mod collect;
+mod constant_borrows;
 mod driver;
 mod import;
 mod intrinsics;

@@ -1,6 +1,7 @@
 mod buffers;
 mod calls;
 mod constants;
+mod contracts;
 mod control;
 mod conversions;
 mod function;

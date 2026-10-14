@@ -302,6 +302,18 @@ impl TypeTable {
         }
     }
 
+    /// Whether `a` and `b` hold the same values: equal, or pointers that differ only in
+    /// mutability, at any depth. A pointer cast between such pointees is a view.
+    pub fn same_values(&self, a: Type, b: Type) -> bool {
+        a == b
+            || match (self.pointer(a), self.pointer(b)) {
+                (Some(a), Some(b)) => {
+                    a.space == b.space && a.slice == b.slice && self.same_values(a.target, b.target)
+                }
+                _ => false,
+            }
+    }
+
     pub fn pointers(&self) -> impl Iterator<Item = (usize, &Pointer)> {
         self.pointers.iter().enumerate()
     }

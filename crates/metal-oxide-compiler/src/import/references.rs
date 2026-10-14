@@ -307,12 +307,26 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 variants.push(built_fields.take().unwrap());
                 continue;
             }
-            let mut fields = Vec::with_capacity(variant.fields.len());
-            for field in &variant.fields {
-                let ty = tcx.normalize_erasing_regions(
-                    ty::TypingEnv::fully_monomorphized(),
-                    field.ty(tcx, arguments),
-                );
+            let types = variant
+                .fields
+                .iter()
+                .map(|field| {
+                    tcx.normalize_erasing_regions(
+                        ty::TypingEnv::fully_monomorphized(),
+                        field.ty(tcx, arguments),
+                    )
+                })
+                .collect::<Vec<_>>();
+            // As in the enum's type, a variant that never exists has no payload.
+            if types
+                .iter()
+                .any(|ty| ty.is_privately_uninhabited(tcx, ty::TypingEnv::fully_monomorphized()))
+            {
+                variants.push(Vec::new());
+                continue;
+            }
+            let mut fields = Vec::with_capacity(types.len());
+            for ty in types {
                 if crate::types::has_reference(tcx, ty) {
                     return Ok(None);
                 }

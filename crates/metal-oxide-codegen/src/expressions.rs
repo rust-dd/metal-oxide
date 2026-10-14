@@ -76,8 +76,10 @@ fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
         Aggregate::Array { .. } => {
             format!("metal_oxide_aggregate_{id}{{{{{}}}}}", fields.join(", "))
         }
-        Aggregate::Record { .. } | Aggregate::Tuple(_) => members(module, id, &fields),
-        Aggregate::Enum { .. } => unreachable!("typing builds enum values from variants"),
+        // An enum constant lists the tag and every slot.
+        Aggregate::Record { .. } | Aggregate::Tuple(_) | Aggregate::Enum { .. } => {
+            members(module, id, &fields)
+        }
     }
 }
 

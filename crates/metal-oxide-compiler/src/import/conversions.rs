@@ -124,7 +124,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .expect("every local has a type once references are inferred"))
     }
 
-    /// The pointer `value` as `to`, which must view the same values in the same space.
+    /// The pointer `value` as `to`, which must view the same values in the same space; pointees
+    /// may differ in the mutability of pointers they hold.
     pub(super) fn pointer_cast(
         &mut self,
         value: &mir::Operand<'tcx>,
@@ -139,7 +140,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let table = self.module.types.table();
         match (table.pointer(from), table.pointer(to)) {
             (Some(from), Some(target))
-                if from.target == target.target
+                if table.same_values(from.target, target.target)
                     && from.space == target.space
                     && (from.slice || !target.slice) =>
             {
