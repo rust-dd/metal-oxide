@@ -3,6 +3,7 @@
 mod support;
 
 use metal_oxide_artifact::{ArtifactFile, Manifest, MathMode};
+use std::path::{Path, PathBuf};
 use support::{Project, checked};
 
 const ADD: &str = r#"
@@ -10,7 +11,7 @@ use metal_oxide::device::{DisjointBuffer, ReadBuffer, thread_index};
 use metal_oxide::{Device, LaunchConfig, Operation};
 
 #[metal_oxide::kernel(requires(a.len() == out.len(), b.len() == out.len()))]
-pub fn add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+pub fn traced_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
     let index = thread_index();
     if let Some(out) = out.get_mut(&index) {
         let i = index.get();
@@ -23,11 +24,26 @@ fn main() -> metal_oxide::Result<()> {
     let a = device.buffer_from_slice(&[1.0_f32, 2.0, 3.0])?;
     let b = device.buffer_from_slice(&[10.0_f32, 20.0, 30.0])?;
     let mut out = device.buffer_zeroed::<f32>(3)?;
-    add(&device, LaunchConfig::<64>::for_elements(3)?, &a, &b, &mut out).wait()?;
+    traced_add(&device, LaunchConfig::<64>::for_elements(3)?, &a, &b, &mut out).wait()?;
     assert_eq!(out.read().wait(), [11.0, 22.0, 33.0]);
     Ok(())
 }
 "#;
+
+/// The files of a trace bundle, whose layout differs between macOS versions.
+fn files(directory: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .flat_map(|path| {
+            if path.is_dir() {
+                files(&path)
+            } else {
+                vec![path]
+            }
+        })
+        .collect()
+}
 
 fn names_source(artifact: &std::path::Path) -> bool {
     let air = std::fs::read(artifact.join(ArtifactFile::Air.name())).unwrap();
@@ -55,9 +71,18 @@ fn captures_record_gpu_work_with_rust_line_tables() {
     );
     let trace = directory.join("add.gputrace");
     assert!(trace.join("metadata").is_file());
-    let recorded = std::fs::read(trace.join("capture")).unwrap();
-    assert!(recorded.windows(3).any(|name| name == b"add"));
-    let captured = project.artifact_of("add", MathMode::Precise, true);
+    let files = files(&trace);
+    let names = |file: &PathBuf| {
+        std::fs::read(file)
+            .unwrap()
+            .windows(10)
+            .any(|w| w == b"traced_add")
+    };
+    assert!(
+        files.iter().any(names),
+        "no file of the trace names the kernel: {files:?}"
+    );
+    let captured = project.artifact_of("traced_add", MathMode::Precise, true);
     let root = format!("-fdebug-compilation-dir={}", project.0.display());
     for flag in ["-gline-tables-only", "-frecord-sources", root.as_str()] {
         assert!(metal_flags(&captured).iter().any(|f| f == flag), "{flag}");
@@ -65,7 +90,7 @@ fn captures_record_gpu_work_with_rust_line_tables() {
     assert!(names_source(&captured));
 
     checked(project.cargo(&["build", "--quiet"]).output().unwrap());
-    let plain = project.artifact("add");
+    let plain = project.artifact("traced_add");
     assert_ne!(plain, captured);
     assert!(
         !metal_flags(&plain)
@@ -80,8 +105,8 @@ fn captures_record_gpu_work_with_rust_line_tables() {
 fn inspect_prints_the_kernels_a_build_compiled() {
     let project = Project::new(ADD);
     for (emit, expected) in [
-        ("ir", "add"),
-        ("msl", "kernel void add"),
+        ("ir", "traced_add"),
+        ("msl", "kernel void traced_add"),
         ("air", "define "),
     ] {
         let output = checked(
@@ -91,7 +116,10 @@ fn inspect_prints_the_kernels_a_build_compiled() {
                 .unwrap(),
         );
         let text = String::from_utf8_lossy(&output.stdout);
-        assert!(text.starts_with("// host::add: add\n"), "{text}");
+        assert!(
+            text.starts_with("// host::traced_add: traced_add\n"),
+            "{text}"
+        );
         assert!(text.contains(expected), "{emit}: {text}");
     }
     let output = project
