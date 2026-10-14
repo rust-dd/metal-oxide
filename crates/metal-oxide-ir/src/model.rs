@@ -83,6 +83,7 @@ pub enum Constant {
     I8(i8),
     I16(i16),
     Usize(u64),
+    Isize(i64),
 }
 
 impl Constant {
@@ -100,6 +101,7 @@ impl Constant {
             Self::I8(_) => Type::Scalar(Scalar::I8),
             Self::I16(_) => Type::Scalar(Scalar::I16),
             Self::Usize(_) => Type::Scalar(Scalar::Usize),
+            Self::Isize(_) => Type::Scalar(Scalar::Isize),
         }
     }
 }
@@ -172,6 +174,11 @@ pub enum BinaryOp {
     AddWithOverflow,
     SubWithOverflow,
     MulWithOverflow,
+    /// The pointer moved by a `usize` or `isize` count of elements; it stays within or one past
+    /// the values it points into.
+    Offset,
+    /// The element count from the second pointer to the first, which is not below it.
+    OffsetFrom,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,6 +244,8 @@ pub fn sin_cos_type(types: &TypeTable) -> Option<Type> {
 pub enum IntegerOp {
     Min,
     Max,
+    SaturatingAdd,
+    SaturatingSub,
     LeadingZeros,
     TrailingZeros,
     CountOnes,
@@ -249,7 +258,12 @@ impl IntegerOp {
     pub const fn arity(self) -> usize {
         match self {
             Self::LeadingZeros | Self::TrailingZeros | Self::CountOnes | Self::ReverseBits => 1,
-            Self::Min | Self::Max | Self::RotateLeft | Self::RotateRight => 2,
+            Self::Min
+            | Self::Max
+            | Self::SaturatingAdd
+            | Self::SaturatingSub
+            | Self::RotateLeft
+            | Self::RotateRight => 2,
         }
     }
 }
@@ -349,6 +363,14 @@ pub enum Expression {
         start: Operand,
         end: Operand,
     },
+    /// `length` elements from the thin pointer `data`, as a slice.
+    SliceFromParts {
+        data: Operand,
+        length: Operand,
+    },
+    /// The pointer as this pointer type, which views the same values in the same space with
+    /// any mutability; a slice converts to its data pointer.
+    PointerCast(Operand, Type),
     Call {
         function: usize,
         arguments: Vec<Operand>,
@@ -370,7 +392,8 @@ impl Expression {
             | Self::Bitcast(v, _)
             | Self::Ref { place: v, .. }
             | Self::Len(v)
-            | Self::Slice(v) => vec![v],
+            | Self::Slice(v)
+            | Self::PointerCast(v, _) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
@@ -394,6 +417,7 @@ impl Expression {
                 value,
             } => vec![buffer, index, value],
             Self::Subslice { slice, start, end } => vec![slice, start, end],
+            Self::SliceFromParts { data, length } => vec![data, length],
             Self::Call { arguments, .. }
             | Self::Log { arguments, .. }
             | Self::Math { arguments, .. }

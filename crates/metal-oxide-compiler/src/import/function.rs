@@ -3,8 +3,10 @@ use rustc_middle::{mir, ty::Instance};
 use rustc_span::Span;
 
 use super::{
-    ModuleImporter, Result, control, location, messages, panics::Panics, ranges, references,
+    FunctionKey, ModuleImporter, Result, control, handles, location, messages, panics::Panics,
+    ranges,
 };
+use crate::intrinsics::Expanded;
 
 pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) module: &'a mut ModuleImporter<'tcx>,
@@ -15,6 +17,8 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
     pub(super) messages: Vec<Option<String>>,
     /// Where the checks of a `#[track_caller]` function report: its outermost caller.
     pub(super) caller: Option<ir::SourceLocation>,
+    /// The return type the caller gives a function whose return values hold no reference.
+    returns: Option<ir::Type>,
     pub(super) kernel: bool,
     pub(super) locals: Vec<ir::Type>,
     pub(super) allocations: u32,
@@ -25,19 +29,14 @@ pub(super) struct FunctionImporter<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
-    pub(super) fn new(
-        module: &'a mut ModuleImporter<'tcx>,
-        instance: Instance<'tcx>,
-        parameters: Vec<ir::Type>,
-        messages: Vec<Option<String>>,
-        caller: Option<ir::SourceLocation>,
-    ) -> Self {
+    pub(super) fn new(module: &'a mut ModuleImporter<'tcx>, key: FunctionKey<'tcx>) -> Self {
         Self {
             module,
-            instance,
-            parameters,
-            messages,
-            caller,
+            instance: key.instance,
+            parameters: key.parameters,
+            messages: key.messages,
+            caller: key.caller,
+            returns: key.returns,
             kernel: false,
             locals: Vec::new(),
             allocations: 0,
@@ -50,18 +49,20 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
     pub(super) fn import(mut self, kernel: bool) -> Result<ir::Function> {
         self.kernel = kernel;
         let tcx = self.module.tcx;
-        let body = tcx.instance_mir(self.instance.def);
+        let body = crate::monomorphize::body(tcx, self.instance);
         let source = location(tcx, tcx.def_span(self.instance.def_id()));
         let used = control::used_locals(body);
         self.messages = messages::messages(tcx, body, &self.messages);
         let panics = Panics::new(tcx, body, self.messages.clone())?;
         self.constants = super::constants::locals(tcx, self.instance, body);
-        self.handles = references::handles(tcx, body, |ty| self.normalize_type(ty));
+        self.handles = handles::handles(tcx, body, |ty| self.normalize_type(ty));
         let discriminants = ranges::discriminants(body);
         let mut pending = vec![false; body.local_decls.len()];
         for (index, local) in body.local_decls.iter().enumerate() {
             let ty = if (1..=body.arg_count).contains(&index) {
                 self.parameters[index - 1]
+            } else if let Some(returns) = self.returns.filter(|_| index == 0) {
+                returns
             } else if !used[index]
                 || self.handles[index].is_some()
                 || panics.is_literal(index)
@@ -146,6 +147,17 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 mir::StatementKind::Assign(assignment) => {
                     let (destination, value) = assignment.as_ref();
                     let (destination, ty) = self.typed_place(destination, span)?;
+                    // Zero-sized values, and references to them, hold nothing to assign.
+                    if ty == ir::Type::Unit {
+                        continue;
+                    }
+                    if let mir::Rvalue::Cast(mir::CastKind::Transmute, operand, to) = value
+                        && self.module.types.tag(ty).is_some()
+                    {
+                        let niche = self.niche_transmute(destination, ty, operand, *to, span)?;
+                        statements.extend(niche);
+                        continue;
+                    }
                     statements.push(ir::Statement {
                         destination,
                         value: self.expression(value, ty, span)?,
@@ -173,6 +185,8 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 mir::StatementKind::StorageLive(_)
                 | mir::StatementKind::StorageDead(_)
                 | mir::StatementKind::Nop => {}
+                mir::StatementKind::Intrinsic(intrinsic)
+                    if matches!(**intrinsic, mir::NonDivergingIntrinsic::Assume(_)) => {}
                 other => return Err((span, format!("unsupported MIR statement: {other:?}"))),
             }
         }
@@ -219,14 +233,18 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 destination,
                 target: Some(target),
                 ..
-            } if self.is_range_next(func, body) => self.range_next(
-                &mut statements,
-                args,
-                destination,
-                target.as_usize(),
-                body,
-                span,
-            )?,
+            } if self.expanded_call(func, args, body, span)?.is_some() => {
+                let (expanded, local) = self.expanded_call(func, args, body, span)?.unwrap();
+                let target = target.as_usize();
+                match expanded {
+                    Expanded::Range => {
+                        self.range_next(&mut statements, local, destination, target, body, span)?
+                    }
+                    Expanded::Chunks => {
+                        self.next_chunk(&mut statements, local, destination, target, body, span)?
+                    }
+                }
+            }
             mir::TerminatorKind::Call {
                 func,
                 args,
@@ -241,42 +259,6 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 body,
                 span,
             )?,
-            mir::TerminatorKind::Call {
-                func,
-                args,
-                destination,
-                target: Some(target),
-                ..
-            } if self.created_iterator(func, body, span)?.is_some() => {
-                let iterator = self.created_iterator(func, body, span)?.unwrap();
-                self.create_iterator(
-                    &mut statements,
-                    iterator,
-                    args,
-                    destination,
-                    target.as_usize(),
-                    body,
-                    span,
-                )?
-            }
-            mir::TerminatorKind::Call {
-                func,
-                args,
-                destination,
-                target: Some(target),
-                ..
-            } if self.advanced_iterator(func, body, span)?.is_some() => {
-                let iterator = self.advanced_iterator(func, body, span)?.unwrap();
-                self.next_item(
-                    &mut statements,
-                    iterator,
-                    args,
-                    destination,
-                    target.as_usize(),
-                    body,
-                    span,
-                )?
-            }
             mir::TerminatorKind::Call {
                 func,
                 args,
@@ -303,9 +285,10 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 fn_span,
                 ..
             } => {
+                let (destination, ty) = self.typed_place(destination, span)?;
                 statements.push(ir::Statement {
-                    destination: self.place(destination, span)?,
-                    value: self.call(func, args, body, span, *fn_span)?,
+                    destination,
+                    value: self.call(func, args, body, ty, span, *fn_span)?,
                     source: source.clone(),
                 });
                 ir::Terminator::Goto(target.as_usize())
@@ -351,7 +334,19 @@ fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
     })
 }
 
-impl FunctionImporter<'_, '_> {
+impl<'tcx> FunctionImporter<'_, 'tcx> {
+    /// The iterator and its local when a call is a `next` that the importer expands.
+    fn expanded_call(
+        &self,
+        func: &mir::Operand<'tcx>,
+        args: &[rustc_span::Spanned<mir::Operand<'tcx>>],
+        body: &mir::Body<'tcx>,
+        span: Span,
+    ) -> Result<Option<(Expanded, usize)>> {
+        let callee = self.callee(func, body, span)?;
+        Ok(self.expanded_next(&callee, args).zip(self.receiver(args)))
+    }
+
     pub(super) fn parameter_count(&self) -> usize {
         self.parameters.len()
     }

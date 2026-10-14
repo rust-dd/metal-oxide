@@ -70,6 +70,8 @@ mod half;
 mod integer_bits;
 #[path = "gpu/ir_aggregates.rs"]
 mod ir_aggregates;
+#[path = "gpu/iterators.rs"]
+mod iterators;
 #[path = "gpu/lengths.rs"]
 mod lengths;
 #[path = "gpu/lines.rs"]

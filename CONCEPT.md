@@ -210,11 +210,14 @@ The importer also replaces recognized calls:
 | `load_unchecked(buffer, index)` | `BufferLoad` |
 | `store_unchecked(buffer, index, value)` | `BufferStore` |
 | `buffer.len()`, `buffer.as_slice()` | `Len`, `Slice` of the parameter |
-| `slice.iter()`, `iter_mut()`, `chunks_exact(n)` and their `next` | the remaining slice in a record; `next` takes its first element or chunk |
+| `Iterator::next` on an integer `Range` or on `chunks_exact(n)` | expanded inline: a bound check, then the next value or chunk, so proofs keep loop bounds and chunk lengths |
+| Other iterator methods and adapters (`iter`, `zip`, `map`, `fold`, `sum`, `rev`, `step_by`, ...) | core's own MIR, raw pointers included |
+| Raw pointers, `NonNull<T>`, `NonZero<T>` | pointers and integers; `Offset`, `OffsetFrom`, `PointerCast` and `SliceFromParts` for pointer arithmetic |
 | A tuple, record or array of references | an aggregate whose pointers keep the address spaces of the values that built it |
 | An enum value, such as `Some(x)` | `Variant`: its tag and fields in payload slots that variants share by type |
 | `match` on an enum | the tag, then a `Switch` |
-| A closure and its calls | a record of its captures, unit without any; `Fn*` calls reach its body with the argument tuple spread |
+| A closure and its calls | a record of its captures; `Fn*` calls reach its body with the argument tuple spread |
+| `PhantomData`, fn items, closures without captures | unit: zero-sized values have no storage |
 | Boolean `switchInt` | `Branch` |
 
 With copy-only temporaries collapsed, the kernel has the following operations.

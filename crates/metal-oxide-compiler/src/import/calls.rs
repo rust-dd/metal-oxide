@@ -1,12 +1,40 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{
     mir,
-    ty::{self, Instance, consts::ConstExt},
+    ty::{self, Instance, TyCtxt, consts::ConstExt},
 };
 use rustc_span::{Span, Spanned};
 
-use super::{Result, function::FunctionImporter};
+use super::{FunctionKey, Result, function::FunctionImporter};
 use crate::intrinsics::Intrinsic;
+
+/// Whether every value the instance returns is built without references, such as `None`, so
+/// its return type's references point where its caller's do.
+pub(super) fn returns_no_references<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> bool {
+    let body = crate::monomorphize::body(tcx, instance);
+    let mut returned = false;
+    for block in body.basic_blocks.iter() {
+        if let mir::TerminatorKind::Call { destination, .. } = &block.terminator().kind
+            && destination.local == mir::RETURN_PLACE
+        {
+            return false;
+        }
+        for statement in &block.statements {
+            match statement.kind.as_assign() {
+                Some((place, mir::Rvalue::Aggregate(kind, operands)))
+                    if *place == mir::Place::return_place()
+                        && operands.is_empty()
+                        && matches!(**kind, mir::AggregateKind::Adt(..)) =>
+                {
+                    returned = true;
+                }
+                Some((place, _)) if place.local == mir::RETURN_PLACE => return false,
+                _ => {}
+            }
+        }
+    }
+    returned
+}
 
 /// What a call passes: argument types, and for each message argument its literal, which
 /// specializes the callee in place of a value.
@@ -63,6 +91,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         func: &mir::Operand<'tcx>,
         args: &[Spanned<mir::Operand<'tcx>>],
         body: &mir::Body<'tcx>,
+        destination: ir::Type,
         span: Span,
         fn_span: Span,
     ) -> Result<ir::Expression> {
@@ -80,7 +109,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let args = self.spread(func, args, body)?;
         let args = args.as_slice();
         let Signature { types, messages } = self
-            .signature(args, body, &[])?
+            .signature(callee.instance, args, body, &[])?
             .expect("inferred references are known");
         let arguments = args
             .iter()
@@ -90,17 +119,23 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 _ => self.operand(&argument.node, argument.span),
             })
             .collect::<Result<Vec<_>>>()?;
-        let caller = self.caller_of(&callee, fn_span);
+        let key = FunctionKey {
+            instance: callee.instance,
+            parameters: types,
+            messages,
+            caller: self.caller_of(&callee, fn_span),
+            returns: (!self.module.types.table().is_owned(destination)
+                && returns_no_references(self.module.tcx, callee.instance))
+            .then_some(destination),
+        };
         Ok(ir::Expression::Call {
-            function: self
-                .module
-                .function(callee.instance, types, messages, caller, false)?,
+            function: self.module.function(key, false)?,
             arguments,
         })
     }
 
-    /// The arguments a call passes to its callee's parameters. A `rust-call` call, such as a
-    /// closure call, passes the fields of its last argument's tuple as separate parameters.
+    /// The arguments a call passes to its callee's parameters. A `rust-call` call to a closure
+    /// passes the fields of its last argument's tuple as separate parameters.
     pub(super) fn spread(
         &self,
         func: &mir::Operand<'tcx>,
@@ -117,6 +152,14 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         }) else {
             return Ok(args.to_vec());
         };
+        // A closure body takes its arguments one by one; a call shim takes the tuple.
+        let callee = self.callee(func, body, last.span)?;
+        if crate::monomorphize::body(tcx, callee.instance)
+            .spread_arg
+            .is_some()
+        {
+            return Ok(args.to_vec());
+        }
         let (place, moved) = match last.node {
             mir::Operand::Copy(place) => (place, false),
             mir::Operand::Move(place) => (place, true),
@@ -161,14 +204,16 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     /// `pending`.
     pub(super) fn signature(
         &mut self,
+        callee: Instance<'tcx>,
         args: &[Spanned<mir::Operand<'tcx>>],
         body: &mir::Body<'tcx>,
         pending: &[bool],
     ) -> Result<Option<Signature>> {
         let tcx = self.module.tcx;
+        let parameters = &crate::monomorphize::body(tcx, callee).local_decls;
         let mut types = Vec::with_capacity(args.len());
         let mut messages = Vec::with_capacity(args.len());
-        for argument in args {
+        for (index, argument) in args.iter().enumerate() {
             let rust = self.normalize_type(argument.node.ty(&body.local_decls, tcx));
             if super::messages::is_message(rust) {
                 types.push(ir::Type::Unit);
@@ -179,10 +224,33 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ));
                 continue;
             }
-            match self.argument_type(&argument.node, pending, argument.span)? {
-                Some(ty) => types.push(ty),
-                None => return Ok(None),
-            }
+            let Some(ty) = self.argument_type(&argument.node, pending, argument.span)? else {
+                return Ok(None);
+            };
+            // A shared reference parameter, such as a `Fn` closure's environment called through
+            // `FnMut`, takes a mutable argument as a reborrow.
+            let shared = matches!(
+                callee
+                    .instantiate_mir_and_normalize_erasing_regions(
+                        tcx,
+                        ty::TypingEnv::fully_monomorphized(),
+                        ty::EarlyBinder::bind(
+                            tcx,
+                            parameters[mir::Local::from_usize(index + 1)].ty
+                        ),
+                    )
+                    .kind(),
+                ty::Ref(_, _, ty::Mutability::Not)
+            );
+            types.push(match self.module.types.table().pointer(ty) {
+                Some(pointer) if shared && pointer.mutable && !pointer.slice => {
+                    self.module.types.intern_pointer(ir::Pointer {
+                        mutable: false,
+                        ..pointer
+                    })
+                }
+                _ => ty,
+            });
             messages.push(None);
         }
         Ok(Some(Signature { types, messages }))
@@ -348,8 +416,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Use(value)
             }
-            Intrinsic::Subslice | Intrinsic::Buffer(_) | Intrinsic::SliceIterator(_) => {
-                unreachable!("subslices, buffer queries and slice iterators are expanded in place")
+            Intrinsic::OffsetFrom => {
+                let [end, start] = arguments(values, span)?;
+                ir::Expression::Binary(ir::BinaryOp::OffsetFrom, end, start)
+            }
+            Intrinsic::Subslice | Intrinsic::Buffer(_) => {
+                unreachable!("subslices and buffer queries are expanded in place")
             }
         })
     }

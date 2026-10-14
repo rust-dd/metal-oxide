@@ -9,6 +9,7 @@ fn integer_value(scalar: Scalar, value: &str) -> String {
             8 => "uchar",
             16 => "ushort",
             32 => "uint",
+            64 => "ulong",
             _ => unreachable!(),
         };
         format!("as_type<{name}>({unsigned}({value}))")
@@ -40,12 +41,17 @@ pub(crate) fn cast(
 
 pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
     match (op, ty) {
+        (UnaryOp::Neg, Type::Scalar(Scalar::Isize)) => {
+            integer_value(Scalar::Isize, &format!("0ul - ulong({value})"))
+        }
         (UnaryOp::Neg, Type::Scalar(scalar)) if scalar.is_signed() => {
             integer_value(scalar, &format!("0u - uint(int({value}))"))
         }
         (UnaryOp::Neg, _) => format!("(-{value})"),
         (UnaryOp::Not, Type::Scalar(Scalar::Bool)) => format!("(!{value})"),
-        (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::Usize)) => format!("(~{value})"),
+        (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::Usize | Scalar::Isize)) => {
+            format!("(~{value})")
+        }
         (UnaryOp::Not, Type::Scalar(scalar)) => integer_value(scalar, &format!("~uint({value})")),
         _ => unreachable!("validated unary type"),
     }
@@ -70,7 +76,16 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
         Le => "<=",
         Gt => ">",
         Ge => ">=",
+        Offset => "+",
+        OffsetFrom => "-",
     };
+    if matches!(ty, Type::Pointer(_)) {
+        // Pointers compare, move by element counts and subtract to an element count.
+        return match op {
+            OffsetFrom => format!("ulong({a} - {b})"),
+            _ => format!("({a} {symbol} {b})"),
+        };
+    }
     if matches!(op, AddWithOverflow | SubWithOverflow | MulWithOverflow) {
         let Type::Scalar(scalar) = ty else {
             unreachable!()
@@ -88,12 +103,19 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     let Type::Scalar(scalar) = ty else {
         unreachable!("validated binary type")
     };
+    if scalar == Scalar::Isize && matches!(op, Add | Sub | Mul) {
+        return integer_value(scalar, &format!("ulong({a}) {symbol} ulong({b})"));
+    }
     if scalar.is_signed() && matches!(op, Add | Sub | Mul) {
         return integer_value(scalar, &format!("uint(int({a})) {symbol} uint(int({b}))"));
     }
     if matches!(op, Shl | Shr) {
         let count = format!("(uint({b}) & {}u)", scalar.bits() - 1);
-        let value = if scalar.is_signed() && op == Shr {
+        let value = if scalar == Scalar::Isize && op == Shr {
+            format!(
+                "(ulong({a}) >> {count}) | (((0ul - ulong({a} < 0)) << ((64u - {count}) & 63u)) & (0ul - ulong({count} != 0u)))"
+            )
+        } else if scalar.is_signed() && op == Shr {
             format!(
                 "(uint(int({a})) >> {count}) | (((0u - uint({a} < 0)) << ((32u - {count}) & 31u)) & (0u - uint({count} != 0u)))"
             )

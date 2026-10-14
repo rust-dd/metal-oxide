@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <limits>
 #include <type_traits>
 static_assert(char(-1) < 0, "MSL char is signed; compile the shim with -fsigned-char");
 #define kernel
@@ -80,6 +81,16 @@ template<class T> T rotate(T value, T shift) {
     unsigned n = unsigned(U(shift)) % width;
     U bits = U(value);
     return n == 0 ? value : T(U((bits << n) | (bits >> (width - n))));
+}
+template<class T> T addsat(T a, T b) {
+    T result;
+    if (!__builtin_add_overflow(a, b, &result)) return result;
+    return b < T(0) ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
+}
+template<class T> T subsat(T a, T b) {
+    T result;
+    if (!__builtin_sub_overflow(a, b, &result)) return result;
+    return b > T(0) ? std::numeric_limits<T>::min() : std::numeric_limits<T>::max();
 }
 namespace precise {
 using std::sqrt;

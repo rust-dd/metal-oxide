@@ -210,9 +210,25 @@ fn recursive_forward_and_missing_type_references_are_rejected() {
 }
 
 #[test]
+fn zero_sized_fields_take_no_storage_but_array_elements_need_values() {
+    let mut types = TypeTable::default();
+    let record = types.intern(Aggregate::record(
+        "Record",
+        vec![Type::Scalar(Scalar::U32), Type::Unit],
+    ));
+    assert!(validate(&identity(types, record)).is_ok());
+    let mut types = TypeTable::default();
+    let array = types.intern(Aggregate::Array {
+        element: Type::Unit,
+        length: 2,
+    });
+    let error = validate(&identity(types, array)).unwrap_err();
+    assert!(error.message.contains("requires value components"));
+}
+
+#[test]
 fn non_value_components_are_rejected_in_nested_storage() {
     for component in [
-        Type::Unit,
         Type::Never,
         Type::Checked(Scalar::Bool),
         Type::Checked(Scalar::F32),

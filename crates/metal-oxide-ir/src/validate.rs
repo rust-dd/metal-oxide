@@ -95,7 +95,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             if matches!(
                 ty,
                 Type::Buffer {
-                    element: Element::Scalar(Scalar::Bool | Scalar::Usize),
+                    element: Element::Scalar(Scalar::Bool | Scalar::Usize | Scalar::Isize),
                     ..
                 } | Type::Buffer {
                     element: Element::Scalar(

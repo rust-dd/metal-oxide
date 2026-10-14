@@ -141,6 +141,7 @@ pub(super) fn integer(value: Constant) -> Option<i128> {
         Constant::I8(v) => i128::from(v),
         Constant::I16(v) => i128::from(v),
         Constant::I32(v) => i128::from(v),
+        Constant::Isize(v) => i128::from(v),
         _ => return None,
     })
 }

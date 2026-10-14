@@ -5,6 +5,7 @@ use std::{
 };
 
 use super::{
+    Aliasing,
     domain::{Range, integer},
     predicate::{Atom, Comparison, Predicate},
 };
@@ -42,8 +43,7 @@ impl Value {
 pub(super) struct State<'a> {
     pub module: &'a Module,
     pub function: &'a Function,
-    /// Locals whose address is taken mutably; writes through pointers may change them.
-    pub escaped: &'a [usize],
+    pub aliasing: &'a Aliasing,
     pub facts: BTreeMap<Place, Range>,
     pub aliases: BTreeMap<Place, Atom>,
     pub predicates: BTreeMap<Place, Predicate>,
@@ -78,11 +78,11 @@ impl PartialEq for State<'_> {
 impl Eq for State<'_> {}
 
 impl<'a> State<'a> {
-    pub fn new(module: &'a Module, function: &'a Function, escaped: &'a [usize]) -> Self {
+    pub fn new(module: &'a Module, function: &'a Function, aliasing: &'a Aliasing) -> Self {
         Self {
             module,
             function,
-            escaped,
+            aliasing,
             facts: BTreeMap::new(),
             aliases: BTreeMap::new(),
             predicates: BTreeMap::new(),
@@ -103,7 +103,8 @@ impl<'a> State<'a> {
     }
 
     /// The place with constant indices as fields; `None` behind a pointer or a varying index.
-    /// A local shared reference's referent resolves, since it cannot change while in use.
+    /// The referent of a local shared or exclusive reference resolves, since nothing else
+    /// changes it while in use.
     pub fn resolve(&self, place: &Place) -> Option<Place> {
         let mut result = Place::local(place.local);
         for (position, projection) in place.projection.iter().enumerate() {
@@ -112,7 +113,13 @@ impl<'a> State<'a> {
                 Projection::Index(index) => Projection::Field(
                     u32::try_from(self.range(&Place::local(index))?.singleton()?).ok()?,
                 ),
-                Projection::Deref if position == 0 && self.shared(place.local) => Projection::Deref,
+                Projection::Deref
+                    if position == 0
+                        && (self.shared(place.local)
+                            || self.aliasing.exclusive.contains(&place.local)) =>
+                {
+                    Projection::Deref
+                }
                 Projection::Deref => return None,
             });
         }
@@ -264,13 +271,20 @@ impl<'a> State<'a> {
 
     /// Drops every fact about locals a write through a pointer may have changed.
     pub fn forget_escaped(&mut self) {
-        for &local in self.escaped {
+        for &local in &self.aliasing.escaped {
             self.forget(&Place::local(local));
         }
     }
 
     pub fn forget(&mut self, place: &Place) {
-        if place.is_indirect() {
+        // A write into an exclusive referent changes only it.
+        let exclusive = self.aliasing.exclusive.contains(&place.local)
+            && place
+                .projection
+                .iter()
+                .rposition(|p| *p == Projection::Deref)
+                == Some(0);
+        if place.is_indirect() && !exclusive {
             self.forget_escaped();
             return;
         }

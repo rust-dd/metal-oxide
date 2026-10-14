@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::{
+    Aliasing,
     domain::integer,
     state::{State, Value},
 };
@@ -11,7 +12,7 @@ type Context = (usize, Option<[u32; 3]>, Vec<Value>);
 
 pub(super) struct Analysis<'a> {
     module: &'a Module,
-    escaped: &'a [Vec<usize>],
+    aliasing: &'a [Aliasing],
     pub remaining: usize,
     /// The required block of the kernel being analyzed, which bounds launch coordinates.
     pub block: Option<[u32; 3]>,
@@ -23,10 +24,10 @@ pub(super) struct Analysis<'a> {
 }
 
 impl<'a> Analysis<'a> {
-    pub fn new(module: &'a Module, graphs: &[FunctionAnalysis], escaped: &'a [Vec<usize>]) -> Self {
+    pub fn new(module: &'a Module, graphs: &[FunctionAnalysis], aliasing: &'a [Aliasing]) -> Self {
         Self {
             module,
-            escaped,
+            aliasing,
             remaining: 0,
             block: None,
             checks: vec![BTreeSet::new(); module.functions.len()],
@@ -47,7 +48,7 @@ impl<'a> Analysis<'a> {
             return Ok(result.clone());
         }
         let function = &self.module.functions[index];
-        let mut entry = State::new(self.module, function, &self.escaped[index]);
+        let mut entry = State::new(self.module, function, &self.aliasing[index]);
         for (position, argument) in arguments.iter().enumerate() {
             entry.assign(&Place::local(position + 1), argument.clone());
         }

@@ -14,6 +14,8 @@ pub enum Scalar {
     I16,
     /// Device pointer-width integer, restricted to internal values.
     Usize,
+    /// Signed device pointer-width integer, restricted to internal values.
+    Isize,
 }
 
 impl Scalar {
@@ -23,7 +25,7 @@ impl Scalar {
             Self::U16 | Self::I16 | Self::F16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
-            Self::U64 | Self::Usize => 64,
+            Self::U64 | Self::Usize | Self::Isize => 64,
         }
     }
 
@@ -38,11 +40,12 @@ impl Scalar {
                 | Self::I8
                 | Self::I16
                 | Self::Usize
+                | Self::Isize
         )
     }
 
     pub const fn is_signed(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32)
+        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::Isize)
     }
 
     pub const fn name(self) -> &'static str {
@@ -58,6 +61,7 @@ impl Scalar {
             Self::I8 => "i8",
             Self::I16 => "i16",
             Self::Usize => "usize",
+            Self::Isize => "isize",
         }
     }
 }
@@ -305,7 +309,7 @@ impl TypeTable {
     /// Values that contain no pointer, so they can live in arrays, slices and buffers.
     pub fn is_owned(&self, ty: Type) -> bool {
         match ty {
-            Type::Scalar(_) | Type::Dim3 | Type::Checked(_) => true,
+            Type::Unit | Type::Scalar(_) | Type::Dim3 | Type::Checked(_) => true,
             Type::Aggregate(id) => self
                 .get(id)
                 .is_some_and(|aggregate| aggregate.component_types().all(|t| self.is_owned(t))),
@@ -339,7 +343,7 @@ impl TypeTable {
     /// Owned types whose scalar leaves have a canonical host/GPU representation.
     pub fn is_abi_value(&self, ty: Type) -> bool {
         match ty {
-            Type::Scalar(scalar) => !matches!(scalar, Scalar::Bool | Scalar::Usize),
+            Type::Scalar(scalar) => !matches!(scalar, Scalar::Bool | Scalar::Usize | Scalar::Isize),
             Type::Aggregate(id) => self.get(id).is_some_and(|aggregate| {
                 !aggregate.is_empty()
                     && !matches!(aggregate, Aggregate::Enum { .. })
@@ -364,6 +368,8 @@ impl TypeTable {
             for ty in aggregate.component_types() {
                 match ty {
                     Type::Scalar(_) | Type::Dim3 => {}
+                    // Zero-sized fields take no storage; array elements need some.
+                    Type::Unit if !matches!(aggregate, Aggregate::Array { .. }) => {}
                     Type::Checked(scalar) if scalar.is_integer() => {}
                     Type::Aggregate(child) if child < id => {}
                     Type::Aggregate(_) => {

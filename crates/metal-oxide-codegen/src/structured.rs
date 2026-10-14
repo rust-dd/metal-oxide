@@ -174,7 +174,7 @@ impl<'a> Emitter<'a> {
                 &statement.source,
                 self.math_mode,
             )?;
-            if self.function.locals[statement.destination.local] == Type::Unit {
+            if crate::expressions::is_unit(self.module, self.function, &statement.destination) {
                 if !value.is_empty() {
                     self.line_at(&format!("{value};"), &statement.source);
                 }

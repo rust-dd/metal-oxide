@@ -12,6 +12,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
         Scalar::I16,
         Scalar::U64,
         Scalar::Usize,
+        Scalar::Isize,
     ] {
         let name = scalar.name();
         let ty = crate::expressions::scalar_name(scalar);
@@ -71,6 +72,26 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 writeln!(
                     output,
                     "    return {{{ty}(uint(a) {symbol} uint(b)), {overflow}}};\n}}\n"
+                )
+                .unwrap();
+                continue;
+            }
+            if scalar == Scalar::Isize {
+                output.push_str(
+                    "    ulong ua = as_type<ulong>(a);\n    ulong ub = as_type<ulong>(b);\n",
+                );
+                writeln!(output, "    ulong value = ua {symbol} ub;").unwrap();
+                let overflow = match operation {
+                    BinaryOp::AddWithOverflow => "((~(ua ^ ub) & (ua ^ value)) >> 63) != 0ul",
+                    BinaryOp::SubWithOverflow => "(((ua ^ ub) & (ua ^ value)) >> 63) != 0ul",
+                    _ => {
+                        output.push_str("    ulong ma = a < 0 ? 0ul - ua : ua;\n    ulong mb = b < 0 ? 0ul - ub : ub;\n    ulong limit = (a < 0) != (b < 0) ? 0x8000000000000000ul : 0x7ffffffffffffffful;\n");
+                        "mb != 0ul && ma > limit / mb"
+                    }
+                };
+                writeln!(
+                    output,
+                    "    return {{as_type<long>(value), {overflow}}};\n}}\n"
                 )
                 .unwrap();
                 continue;

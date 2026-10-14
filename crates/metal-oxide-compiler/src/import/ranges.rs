@@ -1,6 +1,6 @@
 use metal_oxide_ir as ir;
-use rustc_middle::{mir, ty};
-use rustc_span::{Span, Spanned};
+use rustc_middle::mir;
+use rustc_span::Span;
 
 use super::{Result, control::integer, function::FunctionImporter, location};
 
@@ -57,40 +57,17 @@ pub(super) fn discriminants<'tcx>(body: &mir::Body<'tcx>) -> Vec<Option<mir::Pla
 }
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
-    pub(super) fn is_range_next(&self, func: &mir::Operand<'tcx>, body: &mir::Body<'tcx>) -> bool {
-        let tcx = self.module.tcx;
-        let ty = self.normalize_type(func.ty(&body.local_decls, tcx));
-        let ty::FnDef(definition, arguments) = *ty.kind() else {
-            return false;
-        };
-        let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
-        crate::intrinsics::range_next(tcx, definition, arguments).is_some()
-    }
-
     /// Expands `Range::next`: below `end` it yields `start` and advances it, otherwise `None`.
     /// Returns the terminator that replaces the call.
     pub(super) fn range_next(
         &mut self,
         statements: &mut Vec<ir::Statement>,
-        args: &[Spanned<mir::Operand<'tcx>>],
+        range: usize,
         destination: &mir::Place<'tcx>,
         target: usize,
         body: &mir::Body<'tcx>,
         span: Span,
     ) -> Result<ir::Terminator> {
-        let range = match args {
-            [argument] => argument
-                .node
-                .place()
-                .and_then(|place| place.as_local())
-                .and_then(|local| self.handles[local.as_usize()]),
-            _ => None,
-        }
-        .ok_or((
-            span,
-            "range iteration requires a borrowed local range".into(),
-        ))?
-        .as_usize();
         let (option, option_type) = self.typed_place(destination, span)?;
         let table = self.module.types.table();
         let (Some(ir::Type::Scalar(element)), ir::Type::Aggregate(option_id)) =

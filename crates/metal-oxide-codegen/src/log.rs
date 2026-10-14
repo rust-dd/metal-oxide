@@ -35,6 +35,7 @@ pub(crate) fn expression(
                     Scalar::I8 => ("%hhd", value.clone()),
                     Scalar::I16 => ("%hd", value.clone()),
                     Scalar::I32 => ("%d", value.clone()),
+                    Scalar::Isize => ("%ld", value.clone()),
                     Scalar::F32 => ("%.9g", value.clone()),
                     Scalar::F16 => ("%.5g", format!("float({value})")),
                     Scalar::Bool => unreachable!("validated log argument"),

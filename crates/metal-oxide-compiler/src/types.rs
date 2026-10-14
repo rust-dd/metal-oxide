@@ -2,7 +2,7 @@ use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::Span;
 
-use crate::intrinsics::{DeviceType, SliceIterator, device_type};
+use crate::intrinsics::{DeviceType, device_type};
 
 pub(crate) struct TypeLowering<'tcx> {
     tcx: TyCtxt<'tcx>,
@@ -35,6 +35,16 @@ impl<'tcx> TypeLowering<'tcx> {
         if ty.is_privately_uninhabited(self.tcx, TypingEnv::fully_monomorphized()) {
             return Ok(ir::Type::Never);
         }
+        // `PhantomData`, fn items and closures without captures need no storage, nor do
+        // references to them. Enums keep their tag; zero-length arrays are rejected below.
+        if (!ty.is_enum() && !matches!(ty.kind(), ty::Array(..)) && is_zero_sized(self.tcx, ty))
+            || pointee(ty).is_some_and(|target| is_zero_sized(self.tcx, target))
+        {
+            return Ok(ir::Type::Unit);
+        }
+        if let Some(base) = restricted(self.tcx, ty) {
+            return self.lower(base, span);
+        }
         if let ty::Tuple(types) = ty.kind()
             && types.len() == 2
             && types[1].is_bool()
@@ -45,7 +55,9 @@ impl<'tcx> TypeLowering<'tcx> {
         }
         if let Some((access, address_space, element)) = buffer(self.tcx, ty) {
             let element = match self.owned(element, span)? {
-                ir::Type::Scalar(s) if !matches!(s, ir::Scalar::Bool | ir::Scalar::Usize) => {
+                ir::Type::Scalar(s)
+                    if !matches!(s, ir::Scalar::Bool | ir::Scalar::Usize | ir::Scalar::Isize) =>
+                {
                     ir::Element::Scalar(s)
                 }
                 ir::Type::Aggregate(id) => ir::Element::Aggregate(id),
@@ -60,6 +72,9 @@ impl<'tcx> TypeLowering<'tcx> {
         if let ty::Array(element, length) = ty.kind() {
             let length = self.array_length(*length, span)?;
             let element = self.owned(*element, span)?;
+            if element == ir::Type::Unit {
+                return Err((span, "arrays of zero-sized values are unsupported".into()));
+            }
             return Ok(self.types.intern(ir::Aggregate::Array { element, length }));
         }
         if let ty::Tuple(fields) = ty.kind() {
@@ -77,10 +92,6 @@ impl<'tcx> TypeLowering<'tcx> {
             );
         }
         if let ty::Adt(definition, args) = ty.kind() {
-            // `slice[..]` passes a field-less `RangeFull`, which needs no storage.
-            if self.tcx.lang_items().range_full_struct() == Some(definition.did()) {
-                return Ok(ir::Type::Unit);
-            }
             if device_type(self.tcx, definition.did()) == Some(DeviceType::F16) {
                 return Ok(ir::Type::Scalar(ir::Scalar::F16));
             }
@@ -109,9 +120,6 @@ impl<'tcx> TypeLowering<'tcx> {
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                if fields.is_empty() {
-                    return Err((span, "empty device records are unsupported".into()));
-                }
                 return Ok(self.types.intern(ir::Aggregate::Record {
                     name: self.tcx.item_name(definition.did()).to_string(),
                     fields,
@@ -233,6 +241,9 @@ impl<'tcx> TypeLowering<'tcx> {
         if !has_reference(self.tcx, ty) {
             return self.owned(ty, span);
         }
+        if let Some(base) = restricted(self.tcx, ty) {
+            return self.with_spaces(base, spaces, span);
+        }
         let mut space = || {
             spaces
                 .next()
@@ -276,25 +287,6 @@ impl<'tcx> TypeLowering<'tcx> {
         if definition.is_enum() {
             return self.enumeration(ty, spaces, span);
         }
-        if let Some(iterator) = SliceIterator::of(self.tcx, ty) {
-            let element = arguments
-                .types()
-                .next()
-                .ok_or((span, format!("unsupported device type: {ty}")))?;
-            let mutability = if iterator == SliceIterator::Mutable {
-                ty::Mutability::Mut
-            } else {
-                ty::Mutability::Not
-            };
-            let slice = Ty::new_ref(
-                self.tcx,
-                self.tcx.lifetimes.re_erased,
-                Ty::new_slice(self.tcx, element),
-                mutability,
-            );
-            let rest = self.with_spaces(slice, spaces, span)?;
-            return Ok(self.iterator(iterator, rest));
-        }
         if !definition.is_struct() {
             return Err((span, format!("unsupported reference type: {ty}")));
         }
@@ -319,17 +311,13 @@ impl<'tcx> TypeLowering<'tcx> {
         }))
     }
 
-    /// A closure's captures as a record, or unit when it captures nothing; captured references
-    /// take spaces from `spaces`.
+    /// A closure's captures as a record; captured references take spaces from `spaces`.
     fn closure(
         &mut self,
         upvars: &'tcx ty::List<Ty<'tcx>>,
         spaces: &mut dyn Iterator<Item = ir::AddressSpace>,
         span: Span,
     ) -> Result<ir::Type, (Span, String)> {
-        if upvars.is_empty() {
-            return Ok(ir::Type::Unit);
-        }
         let fields = upvars
             .iter()
             .map(|upvar| self.with_spaces(upvar, spaces, span))
@@ -366,29 +354,6 @@ impl<'tcx> TypeLowering<'tcx> {
         self.types.intern_pointer(pointer)
     }
 
-    /// A slice iterator: the slice it has not yielded and, for chunks, the chunk size.
-    pub(crate) fn iterator(&mut self, iterator: SliceIterator, rest: ir::Type) -> ir::Type {
-        let field = |name: &str, ty| ir::RecordField {
-            name: name.into(),
-            ty,
-        };
-        let (name, fields) = match iterator {
-            SliceIterator::Shared => ("Iter", vec![field("rest", rest)]),
-            SliceIterator::Mutable => ("IterMut", vec![field("rest", rest)]),
-            SliceIterator::Chunks => (
-                "ChunksExact",
-                vec![
-                    field("rest", rest),
-                    field("size", ir::Type::Scalar(ir::Scalar::Usize)),
-                ],
-            ),
-        };
-        self.types.intern(ir::Aggregate::Record {
-            name: name.into(),
-            fields,
-        })
-    }
-
     pub(crate) fn intern(&mut self, aggregate: ir::Aggregate) -> ir::Type {
         self.types.intern(aggregate)
     }
@@ -398,14 +363,44 @@ impl<'tcx> TypeLowering<'tcx> {
             return Err((span, format!("unsupported type with references: {ty}")));
         }
         let ty = self.lower(ty, span)?;
-        if matches!(
-            ty,
-            ir::Type::Unit | ir::Type::Never | ir::Type::Buffer { .. }
-        ) {
+        if matches!(ty, ir::Type::Never | ir::Type::Buffer { .. }) {
             return Err((span, "aggregate components must be owned values".into()));
         }
         Ok(ty)
     }
+}
+
+/// The type whose values `ty` restricts, when it is stored as one: a pattern type such as
+/// `NonNull`'s non-null pointer, or a transparent struct around one, such as `NonZero<T>`.
+pub(crate) fn restricted<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<Ty<'tcx>> {
+    match ty.kind() {
+        ty::Pat(base, _) => Some(*base),
+        ty::Adt(definition, arguments) if definition.repr().transparent() => {
+            let mut fields = definition.non_enum_variant().fields.iter().map(|field| {
+                tcx.normalize_erasing_regions(
+                    TypingEnv::fully_monomorphized(),
+                    field.ty(tcx, arguments),
+                )
+            });
+            let field = fields.find(|field| !is_zero_sized(tcx, *field))?;
+            restricted(tcx, field)
+        }
+        _ => None,
+    }
+}
+
+/// The type a reference or raw pointer points to.
+fn pointee(ty: Ty<'_>) -> Option<Ty<'_>> {
+    match ty.kind() {
+        ty::Ref(_, target, _) | ty::RawPtr(target, _) => Some(*target),
+        _ => None,
+    }
+}
+
+/// Whether values of `ty` occupy no storage.
+pub(crate) fn is_zero_sized<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
+    tcx.layout_of(TypingEnv::fully_monomorphized().as_query_input(ty))
+        .is_ok_and(|layout| layout.is_zst())
 }
 
 fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
@@ -415,6 +410,7 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
         ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
         ty::Uint(ty::UintTy::U64) => Some(ir::Scalar::U64),
         ty::Uint(ty::UintTy::Usize) => Some(ir::Scalar::Usize),
+        ty::Int(ty::IntTy::Isize) => Some(ir::Scalar::Isize),
         ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
         ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
         ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),
@@ -482,12 +478,12 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
     }
 }
 
-/// Whether `ty` holds a reference, raw pointer or slice iterator, whose address space its uses
-/// determine. Device buffer handles hold their own address space.
+/// Whether `ty` holds a reference or raw pointer, whose address space its uses determine. Device
+/// buffer handles hold their own address space.
 pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
     match ty.kind() {
-        ty::Ref(..) | ty::RawPtr(..) => true,
-        _ if SliceIterator::of(tcx, ty).is_some() => true,
+        ty::Ref(_, target, _) | ty::RawPtr(target, _) => !is_zero_sized(tcx, *target),
+        ty::Pat(base, _) => has_reference(tcx, *base),
         ty::Tuple(fields) => fields.iter().any(|field| has_reference(tcx, field)),
         ty::Closure(_, arguments) => arguments
             .as_closure()

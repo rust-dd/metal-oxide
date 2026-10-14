@@ -54,6 +54,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             .layout_of(TypingEnv::fully_monomorphized().as_query_input(ty))
             .map_err(|e| (span, e.to_string()))?;
         let lowered = self.lower_type(ty, span)?;
+        if lowered == ir::Type::Unit {
+            return Ok(ir::Operand::Constant(ir::Constant::Unit));
+        }
         if let ir::Type::Scalar(scalar) = lowered {
             let bytes = allocation
                 .get_bytes_strip_provenance(&tcx, alloc_range(offset, layout.size))
@@ -78,6 +81,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ir::Scalar::U16 => ir::Constant::U16(value as u16),
                 ir::Scalar::I8 => ir::Constant::I8(value as i8),
                 ir::Scalar::I16 => ir::Constant::I16(value as i16),
+                ir::Scalar::Isize => ir::Constant::Isize(value as i64),
             }));
         }
         let count = self.module.types.table().field_count(lowered);

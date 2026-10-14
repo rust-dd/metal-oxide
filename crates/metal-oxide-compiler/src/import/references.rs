@@ -1,65 +1,12 @@
 use metal_oxide_ir as ir;
 use rustc_middle::{
     mir,
-    ty::{self, Ty, TyCtxt},
+    ty::{self, Ty},
 };
 use rustc_span::{Span, Spanned};
 
 use super::{Result, function::FunctionImporter};
-use crate::intrinsics::{BufferQuery, DeviceType, Intrinsic, SliceIterator, device_type};
-
-/// Locals bound once to `&local` or `&mut local`, directly or by reborrow, where `local` is an
-/// integer range, a slice iterator or a device buffer handle. They stand for that local in the
-/// calls that use them.
-pub(super) fn handles<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    body: &mir::Body<'tcx>,
-    normalize: impl Fn(Ty<'tcx>) -> Ty<'tcx>,
-) -> Vec<Option<mir::Local>> {
-    let handle = |local: mir::Local| {
-        let ty = normalize(body.local_decls[local].ty);
-        SliceIterator::of(tcx, ty).is_some()
-            || match ty.kind() {
-                ty::Adt(definition, _) => {
-                    tcx.lang_items().range_struct() == Some(definition.did())
-                        || device_type(tcx, definition.did())
-                            .is_some_and(|kind| !matches!(kind, DeviceType::Dim3 | DeviceType::F16))
-                }
-                _ => false,
-            }
-    };
-    let mut bindings = vec![0_u32; body.local_decls.len()];
-    let mut handles = vec![None; body.local_decls.len()];
-    for statement in body.basic_blocks.iter().flat_map(|block| &block.statements) {
-        let mir::StatementKind::Assign(assignment) = &statement.kind else {
-            continue;
-        };
-        let (destination, value) = assignment.as_ref();
-        let Some(local) = destination.as_local() else {
-            continue;
-        };
-        bindings[local.as_usize()] += 1;
-        if let mir::Rvalue::Ref(_, _, referent) = value {
-            handles[local.as_usize()] = match referent.as_ref() {
-                mir::PlaceRef {
-                    local,
-                    projection: [],
-                } if handle(local) => Some(local),
-                mir::PlaceRef {
-                    local,
-                    projection: [mir::ProjectionElem::Deref],
-                } => handles[local.as_usize()],
-                _ => None,
-            };
-        }
-    }
-    for (handle, count) in handles.iter_mut().zip(bindings) {
-        if count != 1 {
-            *handle = None;
-        }
-    }
-    handles
-}
+use crate::intrinsics::{BufferQuery, Expanded, Intrinsic};
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
     /// Types the locals that hold references. A reference points into the address space of the
@@ -176,7 +123,35 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let (place, mutable) = match value {
             mir::Rvalue::Ref(_, mir::BorrowKind::Shared, place) => (place, false),
             mir::Rvalue::Ref(_, mir::BorrowKind::Mut { .. }, place) => (place, true),
-            mir::Rvalue::RawPtr(mir::RawPtrKind::FakeForPtrMetadata, place) => (place, false),
+            mir::Rvalue::RawPtr(kind, place) => (place, *kind == mir::RawPtrKind::Mut),
+            mir::Rvalue::BinaryOp(mir::BinOp::Offset, operands) => {
+                return self.argument_type(&operands.0, pending, span);
+            }
+            // A cast pointer keeps the spaces of the pointer it converts.
+            mir::Rvalue::Cast(
+                mir::CastKind::PtrToPtr
+                | mir::CastKind::Transmute
+                | mir::CastKind::PointerCoercion(
+                    ty::adjustment::PointerCoercion::MutToConstPointer,
+                    _,
+                ),
+                operand,
+                to,
+            ) => return self.converted(operand, *to, pending, span),
+            mir::Rvalue::Aggregate(kind, operands)
+                if matches!(**kind, mir::AggregateKind::RawPtr(..)) =>
+            {
+                let mir::AggregateKind::RawPtr(pointee, mutability) = **kind else {
+                    unreachable!()
+                };
+                let pointer = Ty::new_ptr(self.module.tcx, pointee, mutability);
+                return self.converted(
+                    &operands[rustc_abi::FieldIdx::ZERO],
+                    pointer,
+                    pending,
+                    span,
+                );
+            }
             mir::Rvalue::Use(mir::Operand::Copy(place) | mir::Operand::Move(place), _)
             | mir::Rvalue::CopyForDeref(place) => return self.known_type(place, pending, span),
             mir::Rvalue::Cast(
@@ -224,6 +199,26 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         })))
     }
 
+    /// The type of `to` that a conversion of the pointer `operand` gives, with its spaces.
+    fn converted(
+        &mut self,
+        operand: &mir::Operand<'tcx>,
+        to: Ty<'tcx>,
+        pending: &[bool],
+        span: Span,
+    ) -> Result<Option<ir::Type>> {
+        let Some(from) = self.argument_type(operand, pending, span)? else {
+            return Ok(None);
+        };
+        let mut spaces = Vec::new();
+        self.module.types.spaces(from, &mut spaces);
+        let to = self.normalize_type(to);
+        self.module
+            .types
+            .with_spaces(to, &mut spaces.into_iter(), span)
+            .map(Some)
+    }
+
     /// The type of an aggregate built from `components`, whose references keep their spaces.
     fn aggregate_type(
         &mut self,
@@ -251,6 +246,20 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 if self.module.tcx.adt_def(*definition).is_enum() =>
             {
                 return self.variant_type(*definition, *variant, arguments, components, span);
+            }
+            // A restricted value, such as a `NonNull`, is the value it holds.
+            mir::AggregateKind::Adt(definition, _, arguments, ..)
+                if crate::types::restricted(
+                    self.module.tcx,
+                    self.normalize_type(Ty::new_adt(
+                        self.module.tcx,
+                        self.module.tcx.adt_def(*definition),
+                        arguments,
+                    )),
+                )
+                .is_some() =>
+            {
+                return Ok(components.first().copied());
             }
             mir::AggregateKind::Adt(definition, ..) => {
                 let definition = self.module.tcx.adt_def(*definition);
@@ -347,16 +356,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         fn_span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
-        if let Some(iterator) =
-            crate::intrinsics::slice_next(self.module.tcx, callee.definition, callee.arguments)
-        {
-            return self.next_item_type(iterator, &args[0].node, pending, span);
-        }
-        if let Some(Intrinsic::SliceIterator(iterator)) = callee.intrinsic {
-            let Some(slice) = self.argument_type(&args[0].node, pending, args[0].span)? else {
-                return Ok(None);
-            };
-            return self.iterator_type(iterator, slice, span).map(Some);
+        if self.expanded_next(&callee, args) == Some(Expanded::Chunks) {
+            return self.chunk_type(&args[0].node, pending, span);
         }
         if let Some(Intrinsic::Buffer(query @ (BufferQuery::Slice | BufferQuery::Element))) =
             callee.intrinsic
@@ -375,7 +376,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         }
         let args = self.spread(func, args, body)?;
         let Some(super::calls::Signature { types, messages }) =
-            self.signature(&args, body, pending)?
+            self.signature(callee.instance, &args, body, pending)?
         else {
             return Ok(None);
         };
@@ -399,11 +400,19 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 span,
                 format!("{} does not return a reference", intrinsic.name()),
             )),
+            // Such a callee's result has whatever type its destination gets elsewhere.
+            None if super::calls::returns_no_references(self.module.tcx, callee.instance) => {
+                Ok(None)
+            }
             None => {
-                let caller = self.caller_of(&callee, fn_span);
-                let id = self
-                    .module
-                    .function(callee.instance, types, messages, caller, false)?;
+                let key = super::FunctionKey {
+                    instance: callee.instance,
+                    parameters: types,
+                    messages,
+                    caller: self.caller_of(&callee, fn_span),
+                    returns: None,
+                };
+                let id = self.module.function(key, false)?;
                 Ok(Some(self.module.return_type(id)))
             }
         }
@@ -424,7 +433,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let ty = constant.ty();
                 self.lower_type(ty, span).map(Some)
             }
-            _ => Err((span, "unsupported MIR operand".into())),
+            mir::Operand::RuntimeChecks(_) => Ok(Some(ir::Type::Scalar(ir::Scalar::Bool))),
         }
     }
 

@@ -46,7 +46,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 }
                 self.owned_literal(constant, span)
             }
-            _ => Err((span, "unsupported MIR operand".into())),
+            mir::Operand::RuntimeChecks(checks) => Ok(ir::Operand::Constant(ir::Constant::Bool(
+                checks.value(self.module.tcx.sess),
+            ))),
         }
     }
 
@@ -74,6 +76,22 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         .map(|value| self.operand(value, span))
                         .collect::<Result<Vec<_>>>()?,
                 })
+            }
+            // A raw-pointer aggregate joins a slice's data and length; a restricted value, such
+            // as a `NonNull`, is the value it holds.
+            mir::Rvalue::Aggregate(kind, fields) if self.is_wrapping(kind) => {
+                let data = &fields[rustc_abi::FieldIdx::ZERO];
+                match self.module.types.table().pointer(destination) {
+                    Some(pointer) if pointer.slice && fields.len() == 2 => {
+                        Ok(ir::Expression::SliceFromParts {
+                            data: self.operand(data, span)?,
+                            length: self
+                                .operand(&fields[rustc_abi::FieldIdx::from_u32(1)], span)?,
+                        })
+                    }
+                    Some(_) => self.pointer_cast(data, destination, span),
+                    None => Ok(ir::Expression::Use(self.operand(data, span)?)),
+                }
             }
             mir::Rvalue::Aggregate(_, fields) => {
                 let ty = destination;
@@ -132,12 +150,18 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     mutable,
                 })
             }
-            // `&raw const (*slice)` only feeds the slice's length.
-            mir::Rvalue::RawPtr(mir::RawPtrKind::FakeForPtrMetadata, place) => {
-                Ok(ir::Expression::Ref {
-                    place: ir::Operand::Place(self.place(place, span)?),
-                    mutable: false,
-                })
+            mir::Rvalue::RawPtr(kind, place) => Ok(ir::Expression::Ref {
+                place: ir::Operand::Place(self.place(place, span)?),
+                mutable: *kind == mir::RawPtrKind::Mut,
+            }),
+            mir::Rvalue::Cast(
+                mir::CastKind::PtrToPtr
+                | mir::CastKind::Transmute
+                | mir::CastKind::PointerCoercion(PointerCoercion::MutToConstPointer, _),
+                value,
+                _,
+            ) if self.module.types.table().pointer(destination).is_some() => {
+                self.pointer_cast(value, destination, span)
             }
             mir::Rvalue::UnaryOp(mir::UnOp::PtrMetadata, v) => {
                 Ok(ir::Expression::Len(self.operand(v, span)?))
@@ -179,44 +203,43 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 };
                 Ok(ir::Expression::Cast(self.operand(v, span)?, to))
             }
-            mir::Rvalue::Cast(mir::CastKind::Transmute, value, to) => {
-                let body = self.module.tcx.instance_mir(self.instance.def);
-                let from = self.lower_type(value.ty(&body.local_decls, self.module.tcx), span)?;
-                let to = self.lower_type(*to, span)?;
-                if !matches!(
-                    (from, to),
-                    (
-                        ir::Type::Scalar(ir::Scalar::F16),
-                        ir::Type::Scalar(ir::Scalar::U16)
-                    ) | (
-                        ir::Type::Scalar(ir::Scalar::U16),
-                        ir::Type::Scalar(ir::Scalar::F16)
-                    )
-                ) {
-                    return Err((span, "only F16/u16 transmute is supported".into()));
+            mir::Rvalue::Cast(mir::CastKind::Transmute, value, _) => {
+                let from = self.operand_type(value, span)?;
+                match (from, destination) {
+                    // A restricted value, such as a `NonZero`, and the value it holds.
+                    (from, to) if from == to => Ok(ir::Expression::Use(self.operand(value, span)?)),
+                    (ir::Type::Scalar(from), ir::Type::Scalar(to))
+                        if from.bits() == to.bits()
+                            && from != ir::Scalar::Bool
+                            && to != ir::Scalar::Bool =>
+                    {
+                        Ok(ir::Expression::Bitcast(self.operand(value, span)?, to))
+                    }
+                    _ => Err((
+                        span,
+                        "transmutes are supported between same-width numbers and between pointers"
+                            .into(),
+                    )),
                 }
-                let ir::Type::Scalar(to) = to else {
-                    unreachable!()
-                };
-                Ok(ir::Expression::Bitcast(self.operand(value, span)?, to))
             }
             other => Err((span, format!("unsupported MIR rvalue: {other:?}"))),
         }
     }
 }
 
+/// MIR's operation; an unchecked one, whose overflow is undefined behavior, wraps.
 fn binary(op: mir::BinOp, span: Span) -> Result<ir::BinaryOp> {
     Ok(match op {
-        mir::BinOp::Add => ir::BinaryOp::Add,
-        mir::BinOp::Sub => ir::BinaryOp::Sub,
-        mir::BinOp::Mul => ir::BinaryOp::Mul,
+        mir::BinOp::Add | mir::BinOp::AddUnchecked => ir::BinaryOp::Add,
+        mir::BinOp::Sub | mir::BinOp::SubUnchecked => ir::BinaryOp::Sub,
+        mir::BinOp::Mul | mir::BinOp::MulUnchecked => ir::BinaryOp::Mul,
         mir::BinOp::Div => ir::BinaryOp::Div,
         mir::BinOp::Rem => ir::BinaryOp::Rem,
         mir::BinOp::BitAnd => ir::BinaryOp::BitAnd,
         mir::BinOp::BitOr => ir::BinaryOp::BitOr,
         mir::BinOp::BitXor => ir::BinaryOp::BitXor,
-        mir::BinOp::Shl => ir::BinaryOp::Shl,
-        mir::BinOp::Shr => ir::BinaryOp::Shr,
+        mir::BinOp::Shl | mir::BinOp::ShlUnchecked => ir::BinaryOp::Shl,
+        mir::BinOp::Shr | mir::BinOp::ShrUnchecked => ir::BinaryOp::Shr,
         mir::BinOp::Eq => ir::BinaryOp::Eq,
         mir::BinOp::Ne => ir::BinaryOp::Ne,
         mir::BinOp::Lt => ir::BinaryOp::Lt,
@@ -226,6 +249,7 @@ fn binary(op: mir::BinOp, span: Span) -> Result<ir::BinaryOp> {
         mir::BinOp::AddWithOverflow => ir::BinaryOp::AddWithOverflow,
         mir::BinOp::SubWithOverflow => ir::BinaryOp::SubWithOverflow,
         mir::BinOp::MulWithOverflow => ir::BinaryOp::MulWithOverflow,
+        mir::BinOp::Offset => ir::BinaryOp::Offset,
         _ => return Err((span, format!("unsupported MIR binary operation: {op:?}"))),
     })
 }

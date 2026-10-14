@@ -93,8 +93,15 @@ fn prepare_dependencies() {
             .unwrap();
         let sysroot = PathBuf::from(checked(sysroot).trim());
         let library = sysroot.join("lib/rustlib/src/rust/library");
+        // Kernel builds check core with `--release`, which disables its own overflow checks.
+        let release = ["-Cdebug-assertions=off", "-Coverflow-checks=off"];
         let mut core = compiler(&library.join("core/src/lib.rs"), "core", "metadata");
-        checked(core.args(["--cap-lints", "allow"]).output().unwrap());
+        checked(
+            core.args(["--cap-lints", "allow"])
+                .args(release)
+                .output()
+                .unwrap(),
+        );
 
         let mut builtins = compiler(
             &library.join("compiler-builtins/compiler-builtins/src/lib.rs"),
@@ -112,6 +119,7 @@ fn prepare_dependencies() {
                     "--cap-lints",
                     "allow",
                 ])
+                .args(release)
                 .output()
                 .unwrap(),
         );

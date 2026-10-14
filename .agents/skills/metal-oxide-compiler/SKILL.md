@@ -60,15 +60,33 @@ Implement the next acceptance criterion; create crates when their code is needed
   known message; core's `unwrap_failed`, `expect_failed` and `result::unwrap_failed` end
   the caller's block with a check. A `#[track_caller]` function is instantiated per
   caller, and its checks report the caller's `fn_span`, as Rust does.
-- A closure is a record of its captures (unit when it captures nothing); captured
-  references keep their address spaces like any aggregate's. `Fn`, `FnMut` and `FnOnce`
-  calls use the `rust-call` ABI: the call spreads its argument tuple into the body's
-  parameters. `FnOnce` calls of other closures go through rustc's closure-once shim.
+- A closure is a record of its captures; captured references keep their address spaces
+  like any aggregate's. `Fn`, `FnMut` and `FnOnce` calls use the `rust-call` ABI: a call
+  spreads its argument tuple into a closure body's parameters, while rustc's call shims
+  (closure-once, and fn items called through the `Fn` traits) take the tuple.
+- Zero-sized values (`PhantomData`, field-less structs, fn items, closures without
+  captures) and references to them lower to unit: records keep them as fields without
+  storage, and their assignments emit nothing.
 - Uninhabited types lower to `Never`; a variant with an uninhabited field has no payload,
   so `?` on `Result` builds its `Result<Infallible, E>` residual.
-- `Iterator::next` on `Range<integer>` expands inline into a bounds branch that builds its
-  `Option`; `&mut` borrows are erased only as its argument. A `match` on the result
-  branches straight to its arms. Other iterators are rejected.
+- Core's iterators run core's MIR. Only `Iterator::next` on an integer `Range` and on
+  `ChunksExact` expands inline, because proofs keep loop bounds and chunk lengths only
+  when `next` is inlined; a `&mut` borrow of such an iterator is erased only when every
+  use advances it, and a `match` on the result branches straight to its arms.
+- Each instance's MIR is pruned before import, as codegen would: `mono_reachable`
+  removes branches on generic constants (`T::IS_ZST`), runtime-check switches and
+  `check_language_ub` take their configured arm, `cold_path` hints are dropped, and blocks
+  that can only reach `unreachable` become unreachable, so switches drop those arms. Core's
+  unsafe-precondition checks are off (`-Zub-checks=no`, as in release builds).
+- Raw pointers are IR pointers whose spaces are inferred like references'. A transparent
+  struct around a pattern type (`NonNull<T>`, `NonZero<T>`) is the value it holds.
+  Pointer casts keep the pointee and address space; reinterpreting casts are rejected.
+  `isize` is an internal scalar. A transmute into an `Option`-like enum stored in an
+  integer niche (`NonZero::new`) computes the tag from the niche value.
+- A callee whose return values hold no reference of their own, such as `None` from `?`,
+  takes its return type from the caller's destination.
+- Proofs resolve the referent of an exclusive `&mut` parameter (only read and written
+  through, never copied, passed or mutably reborrowed) like a shared referent.
 - Specify buffer bindings and scalar representation in a versioned ABI. Do not
   copy the host memory layout of arbitrary Rust parameter aggregates.
 - Records, tuples and arrays inside kernels may hold references. Each reference keeps the

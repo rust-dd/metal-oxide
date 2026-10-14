@@ -38,6 +38,9 @@ impl Callbacks for Frontend {
             "allow(internal_features)".into(),
         ]);
         config.opts.unstable_opts.mir_opt_level = Some(0);
+        // Core's unsafe-precondition checks compare raw addresses and abort without unwinding,
+        // which devices cannot do; release builds disable them too.
+        config.opts.unstable_opts.ub_checks = Some(false);
         config.opts.unstable_opts.always_encode_mir = true;
         config.opts.unstable_opts.enforce_type_length_limit = true;
     }

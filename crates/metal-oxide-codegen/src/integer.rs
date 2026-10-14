@@ -10,6 +10,8 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
     match op {
         IntegerOp::Min => format!("min({}, {})", values[0], values[1]),
         IntegerOp::Max => format!("max({}, {})", values[0], values[1]),
+        IntegerOp::SaturatingAdd => format!("addsat({}, {})", values[0], values[1]),
+        IntegerOp::SaturatingSub => format!("subsat({}, {})", values[0], values[1]),
         IntegerOp::LeadingZeros => format!("uint(clz({}))", values[0]),
         IntegerOp::TrailingZeros => format!("uint(ctz({}))", values[0]),
         IntegerOp::CountOnes => format!("uint(popcount({}))", values[0]),

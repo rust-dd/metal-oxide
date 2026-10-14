@@ -132,14 +132,16 @@ pub fn expression_type(
     };
     match expression {
         Expression::Use(v) => ty(v),
-        Expression::Binary(op, a, b) => binary_type(*op, ty(a)?, ty(b)?, source),
+        Expression::Binary(op, a, b) => binary_type(module, *op, ty(a)?, ty(b)?, source),
         Expression::Unary(op, v) => {
             let t = ty(v)?;
             let valid = matches!(
                 (op, t),
                 (
                     UnaryOp::Neg,
-                    Type::Scalar(Scalar::F32 | Scalar::I8 | Scalar::I16 | Scalar::I32)
+                    Type::Scalar(
+                        Scalar::F32 | Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::Isize
+                    )
                 ) | (
                     UnaryOp::Not,
                     Type::Scalar(
@@ -152,6 +154,7 @@ pub fn expression_type(
                             | Scalar::I16
                             | Scalar::U64
                             | Scalar::Usize
+                            | Scalar::Isize
                     )
                 )
             );
@@ -195,11 +198,9 @@ pub fn expression_type(
         }
         Expression::Bitcast(value, to) => {
             if matches!(
-                (ty(value)?, to),
-                (Type::Scalar(Scalar::F32), Scalar::U32)
-                    | (Type::Scalar(Scalar::U32), Scalar::F32)
-                    | (Type::Scalar(Scalar::F16), Scalar::U16)
-                    | (Type::Scalar(Scalar::U16), Scalar::F16)
+                ty(value)?,
+                Type::Scalar(from) if from.bits() == to.bits()
+                    && from != Scalar::Bool && *to != Scalar::Bool
             ) {
                 Ok(Type::Scalar(*to))
             } else {
@@ -236,9 +237,10 @@ pub fn expression_type(
                 }
             };
             match op {
-                IntegerOp::Min | IntegerOp::Max => {
-                    require(ty(&arguments[1])?, Type::Scalar(scalar))?
-                }
+                IntegerOp::Min
+                | IntegerOp::Max
+                | IntegerOp::SaturatingAdd
+                | IntegerOp::SaturatingSub => require(ty(&arguments[1])?, Type::Scalar(scalar))?,
                 IntegerOp::RotateLeft | IntegerOp::RotateRight => {
                     require(ty(&arguments[1])?, Type::Scalar(Scalar::U32))?
                 }
@@ -412,7 +414,16 @@ pub fn expression_type(
             }
             for (argument, expected) in arguments.iter().zip(&callee.locals[1..=callee.parameters])
             {
-                require(ty(argument)?, *expected)?;
+                let actual = ty(argument)?;
+                // A shared pointer parameter reborrows a mutable argument.
+                let reborrowed = matches!(
+                    (module.types.pointer(actual), module.types.pointer(*expected)),
+                    (Some(from), Some(to)) if !from.slice && from.mutable
+                        && to == Pointer { mutable: false, ..from }
+                );
+                if !reborrowed {
+                    require(actual, *expected)?;
+                }
             }
             Ok(callee.locals[0])
         }
@@ -496,6 +507,38 @@ pub fn expression_type(
                 _ => Err(Error::new(source, "subslices require a slice")),
             }
         }
+        Expression::SliceFromParts { data, length } => {
+            require(ty(length)?, Type::Scalar(Scalar::Usize))?;
+            match module.types.pointer(ty(data)?) {
+                Some(pointer) if !pointer.slice => pointer_type(
+                    module,
+                    Pointer {
+                        slice: true,
+                        ..pointer
+                    },
+                    source,
+                ),
+                _ => Err(Error::new(source, "a slice's data must be a thin pointer")),
+            }
+        }
+        Expression::PointerCast(pointer, to) => {
+            let (Some(from), Some(target)) = (
+                module.types.pointer(ty(pointer)?),
+                module.types.pointer(*to),
+            ) else {
+                return Err(Error::new(source, "pointer casts require pointers"));
+            };
+            if from.target != target.target
+                || from.space != target.space
+                || (!from.slice && target.slice)
+            {
+                return Err(Error::new(
+                    source,
+                    "pointer casts keep the pointee type and address space",
+                ));
+            }
+            Ok(*to)
+        }
     }
 }
 
@@ -506,18 +549,30 @@ fn pointer_type(module: &Module, pointer: Pointer, source: &SourceLocation) -> R
         .ok_or_else(|| Error::new(source, format!("pointer type {pointer:?} is not interned")))
 }
 
-fn binary_type(op: BinaryOp, a: Type, b: Type, source: &SourceLocation) -> Result<Type, Error> {
+fn binary_type(
+    module: &Module,
+    op: BinaryOp,
+    a: Type,
+    b: Type,
+    source: &SourceLocation,
+) -> Result<Type, Error> {
     use BinaryOp::*;
     use Scalar::*;
     let integer = matches!(a, Type::Scalar(s) if s.is_integer());
     let number = integer || a == Type::Scalar(F32);
     let boolean = a == Type::Scalar(Bool);
+    let thin = module
+        .types
+        .pointer(a)
+        .is_some_and(|pointer| !pointer.slice);
     let valid = match op {
         Shl | Shr => integer && matches!(b, Type::Scalar(s) if s.is_integer()),
         BitAnd | BitOr | BitXor => (integer || boolean) && a == b,
-        Eq | Ne | Lt | Le | Gt | Ge => (number || boolean) && a == b,
+        Eq | Ne | Lt | Le | Gt | Ge => (number || boolean || thin) && a == b,
         AddWithOverflow | SubWithOverflow | MulWithOverflow => integer && a == b,
         Add | Sub | Mul | Div | Rem => number && a == b,
+        Offset => thin && matches!(b, Type::Scalar(Usize | Isize)),
+        OffsetFrom => thin && a == b,
     };
     if !valid {
         return Err(Error::new(source, "invalid binary operation types"));
@@ -528,6 +583,7 @@ fn binary_type(op: BinaryOp, a: Type, b: Type, source: &SourceLocation) -> Resul
             let Type::Scalar(s) = a else { unreachable!() };
             Type::Checked(s)
         }
+        OffsetFrom => Type::Scalar(Usize),
         _ => a,
     })
 }

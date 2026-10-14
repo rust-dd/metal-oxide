@@ -30,7 +30,11 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         body: &mir::Body<'tcx>,
         span: Span,
     ) -> Result<ir::Terminator> {
-        let mut cases = targets.iter().collect::<Vec<_>>();
+        // Cases that reach `unreachable` never run, such as the `None` arm of `unwrap_unchecked`.
+        let mut cases = targets
+            .iter()
+            .filter(|&(_, target)| !body.basic_blocks[target].is_empty_unreachable())
+            .collect::<Vec<_>>();
         let mut otherwise = targets.otherwise().as_usize();
         // An exhaustive `match` leaves the default unreachable; its last case can take it.
         if body.basic_blocks[targets.otherwise()].is_empty_unreachable()
@@ -104,6 +108,7 @@ pub(super) fn integer(scalar: ir::Scalar, value: u128) -> Option<ir::Constant> {
         ir::Scalar::U16 => ir::Constant::U16(value as u16),
         ir::Scalar::I8 => ir::Constant::I8(value as i8),
         ir::Scalar::I16 => ir::Constant::I16(value as i16),
+        ir::Scalar::Isize => ir::Constant::Isize(value as i64),
         _ => return None,
     })
 }

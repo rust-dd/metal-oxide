@@ -2,7 +2,9 @@ mod buffers;
 mod calls;
 mod constants;
 mod control;
+mod conversions;
 mod function;
+mod handles;
 mod iterators;
 mod literals;
 mod messages;
@@ -24,17 +26,22 @@ use function::FunctionImporter;
 
 type Result<T> = std::result::Result<T, (Span, String)>;
 
-type FunctionKey<'tcx> = (
-    Instance<'tcx>,
-    Vec<ir::Type>,
-    Vec<Option<String>>,
-    Option<ir::SourceLocation>,
-);
+/// What a function is imported for.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct FunctionKey<'tcx> {
+    instance: Instance<'tcx>,
+    parameters: Vec<ir::Type>,
+    /// The literals of the message parameters.
+    messages: Vec<Option<String>>,
+    /// Where the checks of a `#[track_caller]` function report.
+    caller: Option<ir::SourceLocation>,
+    /// The return type, for a function whose return values hold no reference of their own,
+    /// such as `None`; its references point where the caller's do.
+    returns: Option<ir::Type>,
+}
 
 pub(crate) struct ModuleImporter<'tcx> {
     tcx: TyCtxt<'tcx>,
-    /// Functions by instance, parameter types, the literals of message parameters and, for a
-    /// `#[track_caller]` function, the caller its checks report.
     ids: HashMap<FunctionKey<'tcx>, usize>,
     /// Empty while the function is being imported.
     functions: Vec<Option<ir::Function>>,
@@ -73,7 +80,14 @@ impl<'tcx> ModuleImporter<'tcx> {
                 })
                 .collect::<Result<Vec<_>>>()?;
             let messages = vec![None; parameters.len()];
-            self.function(entry, parameters, messages, None, true)?;
+            let key = FunctionKey {
+                instance: entry,
+                parameters,
+                messages,
+                caller: None,
+                returns: None,
+            };
+            self.function(key, true)?;
         }
         Ok(ir::Module {
             functions: called(self.functions.into_iter().map(Option::unwrap).collect()),
@@ -81,24 +95,15 @@ impl<'tcx> ModuleImporter<'tcx> {
         })
     }
 
-    /// The function for `instance` called with `parameters`, the literals of its message
-    /// parameters and the caller a `#[track_caller]` function reports, imported on first use.
-    fn function(
-        &mut self,
-        instance: Instance<'tcx>,
-        parameters: Vec<ir::Type>,
-        messages: Vec<Option<String>>,
-        caller: Option<ir::SourceLocation>,
-        kernel: bool,
-    ) -> Result<usize> {
-        let key = (instance, parameters, messages, caller);
+    /// The function for `key`, imported on first use.
+    fn function(&mut self, key: FunctionKey<'tcx>, kernel: bool) -> Result<usize> {
         if let Some(&id) = self.ids.get(&key) {
             return Ok(id);
         }
         let id = self.functions.len();
         self.functions.push(None);
         self.ids.insert(key.clone(), id);
-        let function = FunctionImporter::new(self, instance, key.1, key.2, key.3).import(kernel)?;
+        let function = FunctionImporter::new(self, key).import(kernel)?;
         self.functions[id] = Some(function);
         Ok(id)
     }

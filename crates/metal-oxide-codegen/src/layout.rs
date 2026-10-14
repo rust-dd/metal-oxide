@@ -30,6 +30,9 @@ pub(crate) fn shape(module: &Module, id: usize) -> Shape {
     let mut members = Vec::new();
     let (mut offset, mut alignment) = (0_u64, 1);
     for (field, ty) in aggregate.component_types().enumerate() {
+        if ty == Type::Unit {
+            continue;
+        }
         let (size, field_alignment) = size_alignment(module, ty);
         let start = offset.next_multiple_of(field_alignment);
         if stored && start > offset {

@@ -36,17 +36,22 @@ pub(crate) fn space_name(space: AddressSpace) -> &'static str {
 
 /// A thin pointer is a typedef; a slice is a struct of its data pointer and length.
 pub(crate) fn pointer_declaration(id: usize, pointer: &Pointer) -> String {
-    let constness = if pointer.mutable { "" } else { "const " };
-    let data = format!(
-        "{} {constness}{}*",
-        space_name(pointer.space),
-        type_name(pointer.target)
-    );
+    let data = data_pointer(pointer);
     if pointer.slice {
         format!("struct metal_oxide_pointer_{id} {{\n    {data} data;\n    ulong length;\n}};\n\n")
     } else {
         format!("typedef {data} metal_oxide_pointer_{id};\n")
     }
+}
+
+/// The MSL type of a pointer to the values a pointer or slice views.
+fn data_pointer(pointer: &Pointer) -> String {
+    let constness = if pointer.mutable { "" } else { "const " };
+    format!(
+        "{} {constness}{}*",
+        space_name(pointer.space),
+        type_name(pointer.target)
+    )
 }
 
 pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
@@ -61,26 +66,19 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
         Scalar::I8 => "char",
         Scalar::I16 => "short",
         Scalar::U64 | Scalar::Usize => "ulong",
+        Scalar::Isize => "long",
     }
 }
 
 /// A struct value; padding members start zeroed.
 fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
-    let aggregate = module.types.get(id).unwrap();
-    let values = match aggregate {
-        Aggregate::Array { .. } => format!("{{{}}}", fields.join(", ")),
-        Aggregate::Record { .. } | Aggregate::Tuple(_) => layout::shape(module, id)
-            .members
-            .iter()
-            .map(|member| match *member {
-                Member::Field(field) => fields[field as usize].as_str(),
-                Member::Padding(_) => "{}",
-            })
-            .collect::<Vec<_>>()
-            .join(", "),
+    match module.types.get(id).unwrap() {
+        Aggregate::Array { .. } => {
+            format!("metal_oxide_aggregate_{id}{{{{{}}}}}", fields.join(", "))
+        }
+        Aggregate::Record { .. } | Aggregate::Tuple(_) => members(module, id, &fields),
         Aggregate::Enum { .. } => unreachable!("typing builds enum values from variants"),
-    };
-    format!("metal_oxide_aggregate_{id}{{{values}}}")
+    }
 }
 
 /// An enum value: the variant's tag, its fields in their slots, other slots value-initialized.
@@ -91,7 +89,21 @@ fn variant_value(module: &Module, id: usize, variant: u32, fields: Vec<String>) 
     for (index, value) in fields.into_iter().enumerate() {
         values[aggregate.payload(variant, index as u32).unwrap() as usize] = value;
     }
-    format!("metal_oxide_aggregate_{id}{{{}}}", values.join(", "))
+    members(module, id, &values)
+}
+
+/// A struct value from its field values; zero-sized fields have no member.
+fn members(module: &Module, id: usize, fields: &[String]) -> String {
+    let values = layout::shape(module, id)
+        .members
+        .iter()
+        .map(|member| match *member {
+            Member::Field(field) => fields[field as usize].as_str(),
+            Member::Padding(_) => "{}",
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("metal_oxide_aggregate_{id}{{{values}}}")
 }
 
 pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u32) -> String {
@@ -101,6 +113,11 @@ pub(crate) fn aggregate_field(module: &Module, id: usize, value: &str, field: u3
             format!("{value}.f{field}")
         }
     }
+}
+
+/// Whether a place holds a zero-sized value, which has no storage to read or write.
+pub(crate) fn is_unit(module: &Module, function: &Function, place: &Place) -> bool {
+    place_type(module, function, place, &function.source).is_ok_and(|ty| ty == Type::Unit)
 }
 
 pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> String {
@@ -148,7 +165,7 @@ pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> Stri
 
 pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> String {
     match value {
-        Operand::Place(value) if function.locals[value.local] == Type::Unit => String::new(),
+        Operand::Place(value) if is_unit(module, function, value) => String::new(),
         Operand::Place(value) => place(module, function, value),
         Operand::AggregateConstant { ty, fields } => {
             let fields = fields
@@ -172,6 +189,7 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
             Constant::U64(v) | Constant::Usize(v) => format!("{v}ul"),
+            Constant::Isize(v) => format!("as_type<long>(0x{:016x}ul)", *v as u64),
         },
     }
 }
@@ -301,6 +319,30 @@ pub(crate) fn expression(
                         module.types.get(id).unwrap().len()
                     )
                 }
+            }
+        }
+        Expression::SliceFromParts { data, length } => {
+            let pointer = result_pointer(module, function, value, source)?;
+            format!(
+                "metal_oxide_pointer_{pointer}{{{}, {}}}",
+                op(data),
+                op(length)
+            )
+        }
+        Expression::PointerCast(pointer, to) => {
+            let from = module.types.pointer(ty(pointer)?).unwrap();
+            let Type::Pointer(id) = *to else {
+                unreachable!("validated pointer cast")
+            };
+            let target = module.types.pointer(*to).unwrap();
+            let value = op(pointer);
+            match (from.slice, target.slice) {
+                (false, _) => format!("(metal_oxide_pointer_{id})({value})"),
+                (true, false) => format!("(metal_oxide_pointer_{id})({value}.data)"),
+                (true, true) => format!(
+                    "metal_oxide_pointer_{id}{{({})({value}.data), {value}.length}}",
+                    data_pointer(&target)
+                ),
             }
         }
         Expression::Subslice { slice, start, end } => {

@@ -5,7 +5,9 @@ use rustc_middle::{
 };
 
 pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Option<ir::Constant> {
-    if constant.ty().is_unit() {
+    if constant.ty().is_unit()
+        || !constant.ty().is_enum() && crate::types::is_zero_sized(tcx, constant.ty())
+    {
         return Some(ir::Constant::Unit);
     }
     let bits = constant.try_eval_bits(tcx, TypingEnv::fully_monomorphized())?;
@@ -19,6 +21,7 @@ pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Op
         ty::Uint(ty::UintTy::U16) => ir::Constant::U16(bits as u16),
         ty::Int(ty::IntTy::I8) => ir::Constant::I8(bits as i8),
         ty::Int(ty::IntTy::I16) => ir::Constant::I16(bits as i16),
+        ty::Int(ty::IntTy::Isize) => ir::Constant::Isize(bits as i64),
         ty::Float(ty::FloatTy::F32) => ir::Constant::F32(bits as u32),
         _ => return None,
     })
@@ -42,6 +45,7 @@ fn operand<'tcx>(
         mir::Operand::Copy(place) | mir::Operand::Move(place) if place.projection.is_empty() => {
             facts[place.local.as_usize()]
         }
+        mir::Operand::RuntimeChecks(checks) => Some(ir::Constant::Bool(checks.value(tcx.sess))),
         _ => None,
     }
 }
@@ -55,6 +59,7 @@ fn integer(value: ir::Constant) -> Option<i128> {
         ir::Constant::I8(n) => i128::from(n),
         ir::Constant::I16(n) => i128::from(n),
         ir::Constant::U64(n) | ir::Constant::Usize(n) => i128::from(n),
+        ir::Constant::Isize(n) => i128::from(n),
         ir::Constant::Bool(n) => i128::from(n),
         _ => return None,
     })

@@ -54,7 +54,20 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 },
                 _ => None,
             };
+            // Nothing is stored within a zero-sized value.
+            if located == ir::Located::Value(ir::Type::Unit) {
+                continue;
+            }
             let next = match element {
+                // A restricted value, such as a `NonNull` or `NonZero`, is the value it holds.
+                mir::ProjectionElem::Field(..)
+                    if matches!(
+                        located,
+                        ir::Located::Value(ir::Type::Scalar(_) | ir::Type::Pointer(_))
+                    ) =>
+                {
+                    continue;
+                }
                 // A variant's fields live in the enum's payload slots.
                 mir::ProjectionElem::Downcast(_, index) if variant.is_none() => {
                     variant = Some(index.as_u32());
