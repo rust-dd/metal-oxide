@@ -1,5 +1,4 @@
 use metal_oxide::{Buffer, Device, LaunchConfig, Operation};
-use metal_oxide_artifact::Manifest;
 
 use crate::{
     Result, cpu,
@@ -20,12 +19,8 @@ pub fn compare(actual: &[f32], expected: &[f32], scale: f32, label: &str) {
 
 pub fn run() -> Result<()> {
     let device = Device::system_default()?;
-    let directory = env!("METAL_OXIDE_ARTIFACT_DIR");
-    let manifest = Manifest::from_json(&std::fs::read_to_string(format!(
-        "{directory}/manifest.json"
-    ))?)?;
-    let generated = fgn::Context::new(&device, directory)?;
-    let reference = native::Context::new(&device, manifest.abi.math_mode)?;
+    let generated = fgn::Context::new(&device)?;
+    let reference = native::Context::new(&device, crate::MATH_MODE)?;
     let max_threads = generated
         .max_threads()
         .min(reference.max_threads())
@@ -33,7 +28,7 @@ pub fn run() -> Result<()> {
     println!(
         "{}: {:?}; load {} / {} ns, pipelines {} / {} ns",
         device.name(),
-        manifest.abi.math_mode,
+        crate::MATH_MODE,
         generated.load_ns,
         reference.load_ns,
         generated.pipeline_ns,
@@ -66,9 +61,9 @@ pub fn run() -> Result<()> {
     }
     chunking(&device, &generated, max_threads)?;
     law(&device, &generated, max_threads)?;
-    interop(&device, &reference, max_threads, directory)?;
-    crate::sheet::run(&device, directory, manifest.abi.math_mode)?;
-    crate::euler::run(&device, directory, manifest.abi.math_mode)?;
+    interop(&device, &reference, max_threads)?;
+    crate::sheet::run(&device, crate::MATH_MODE)?;
+    crate::euler::run(&device, crate::MATH_MODE)?;
     Ok(())
 }
 
@@ -135,12 +130,7 @@ fn chunking(device: &Device, context: &fgn::Context, max_threads: usize) -> Resu
     Ok(())
 }
 
-fn interop(
-    device: &Device,
-    reference: &native::Context,
-    max_threads: usize,
-    directory: &str,
-) -> Result<()> {
+fn interop(device: &Device, reference: &native::Context, max_threads: usize) -> Result<()> {
     let plan = Plan::new(257, 3, 1, 0.7, 987, max_threads)?;
     let mut native = native::Buffers::from(fgn::Buffers::new(device, plan, 0.7)?);
     reference.run(plan, &mut native)?;
@@ -159,10 +149,10 @@ fn interop(
     // other owners and hands over initialized shared storage without live aliases.
     let mut values =
         unsafe { Buffer::<f32>::from_native(device, native.into_output(), expected.len())? };
-    let kernels = kernels::load(device, directory)?;
     // SAFETY: each lane integrates one complete row of native fGN increments in place.
     unsafe {
-        kernels.integrate(
+        kernels::integrate(
+            device,
             LaunchConfig::<32>::for_elements(plan.rows)?,
             &mut values,
             plan.rows,

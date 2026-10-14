@@ -9,7 +9,7 @@ use std::{
 use objc2::rc::autoreleasepool;
 
 use super::{
-    Argument, Pipeline,
+    Argument, Device, Library, Pipeline,
     batch::Batch,
     completion::{Completion, GpuTime},
 };
@@ -84,6 +84,29 @@ impl<A, const N: usize> Launch<A, N> {
     ) -> Self {
         Self {
             pipeline: pipeline.cloned(),
+            config: config.into(),
+            arguments,
+            bind,
+        }
+    }
+
+    /// A dispatch of `entry` from a library that the kernel macros embedded; the launch
+    /// functions they generate call it.
+    ///
+    /// # Safety
+    ///
+    /// As for [`Launch::new`].
+    #[doc(hidden)]
+    pub unsafe fn kernel(
+        device: &Device,
+        library: &'static Library,
+        entry: &'static str,
+        config: impl Into<DynamicLaunchConfig>,
+        arguments: A,
+        bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
+    ) -> Self {
+        Self {
+            pipeline: device.kernel(library, entry),
             config: config.into(),
             arguments,
             bind,

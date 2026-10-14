@@ -10,6 +10,7 @@ mod constants;
 mod device;
 mod failure;
 mod failures;
+mod library;
 mod logging;
 #[cfg(all(test, loom))]
 mod loom;
@@ -25,6 +26,7 @@ pub use argument::{Argument, ReadArgument, WriteArgument};
 pub use batch::Batch;
 pub use buffer::{Buffer, Read, Write};
 pub use device::Device;
+pub use library::Library;
 pub use module::Module;
 pub use operation::{Launch, Operation, Pending, Sequence, Timed, TimedPending, sequence};
 pub use pipeline::Pipeline;

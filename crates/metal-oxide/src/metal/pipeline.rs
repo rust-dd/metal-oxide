@@ -18,11 +18,14 @@ static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
 /// A compiled kernel of one device. Clones are cheap handles to the same native pipeline.
 #[derive(Clone)]
-pub struct Pipeline(Arc<Compiled>);
-
-struct Compiled {
-    raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+pub struct Pipeline {
     device: Device,
+    compiled: Arc<Compiled>,
+}
+
+/// A native pipeline and its ABI, without the device, so a device can cache it.
+pub(super) struct Compiled {
+    raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     abi: Option<metal_oxide_artifact::Kernel>,
     /// Present for generated kernels, which bind gate and failure words.
     checks: Option<Arc<KernelChecks>>,
@@ -32,63 +35,32 @@ struct Compiled {
 
 impl Pipeline {
     pub fn new(device: &Device, module: &Module, entrypoint: &str) -> Result<Self> {
-        if module.device_id != device.id() {
-            return Err(Error::DeviceMismatch);
-        }
-        let abi = module
-            .abi
-            .as_ref()
-            .map(|abi| {
-                abi.kernels
-                    .iter()
-                    .find(|kernel| kernel.name == entrypoint)
-                    .cloned()
-                    .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))
-            })
-            .transpose()?;
-        let raw = compile(device, module, entrypoint)?;
-        if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
-            return Err(Error::InvalidLaunch(
-                "kernel exceeds threadgroup memory capacity",
-            ));
-        }
-        Ok(Self(Arc::new(Compiled {
-            raw,
-            device: device.clone(),
-            validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
-                .map(|_| OnceLock::new())
-                .collect(),
-            checks: abi.as_ref().map(|kernel| {
-                Arc::new(KernelChecks {
-                    name: kernel.name.clone(),
-                    gate_binding: kernel.gate_binding,
-                    fallible: kernel.fallible,
-                    lengths: kernel.lengths,
-                    checks: Arc::clone(&module.checks),
-                })
-            }),
-            abi,
-        })))
+        let compiled = Compiled::new(device, module, entrypoint)?;
+        Ok(Self::from_compiled(device.clone(), Arc::new(compiled)))
+    }
+
+    pub(super) fn from_compiled(device: Device, compiled: Arc<Compiled>) -> Self {
+        Self { device, compiled }
     }
 
     pub fn thread_execution_width(&self) -> usize {
-        self.0.raw.threadExecutionWidth()
+        self.compiled.raw.threadExecutionWidth()
     }
 
     pub fn max_threads_per_block(&self) -> usize {
-        self.0.raw.maxTotalThreadsPerThreadgroup()
+        self.compiled.raw.maxTotalThreadsPerThreadgroup()
     }
 
     pub(super) fn raw(&self) -> &Retained<ProtocolObject<dyn MTLComputePipelineState>> {
-        &self.0.raw
+        &self.compiled.raw
     }
 
     pub(super) fn device(&self) -> &Device {
-        &self.0.device
+        &self.device
     }
 
     pub(super) fn checks(&self) -> Option<&Arc<KernelChecks>> {
-        self.0.checks.as_ref()
+        self.compiled.checks.as_ref()
     }
 
     pub(super) fn validate_launch(
@@ -96,7 +68,7 @@ impl Pipeline {
         config: crate::DynamicLaunchConfig,
         arguments: &[super::Argument<'_>],
     ) -> Result<()> {
-        if let Some(kernel) = &self.0.abi {
+        if let Some(kernel) = &self.compiled.abi {
             if arguments.len() != kernel.parameters.len() {
                 return Err(metal_oxide_artifact::Error(format!(
                     "kernel {} requires {} arguments, got {}",
@@ -109,7 +81,7 @@ impl Pipeline {
             for ((argument, parameter), checked) in arguments
                 .iter()
                 .zip(&kernel.parameters)
-                .zip(&self.0.validated)
+                .zip(&self.compiled.validated)
             {
                 if checked.get() == Some(&argument.signature()) {
                     continue;
@@ -160,6 +132,47 @@ impl Pipeline {
             }
         }
         Ok(())
+    }
+}
+
+impl Compiled {
+    pub(super) fn new(device: &Device, module: &Module, entrypoint: &str) -> Result<Self> {
+        if module.device_id != device.id() {
+            return Err(Error::DeviceMismatch);
+        }
+        let abi = module
+            .abi
+            .as_ref()
+            .map(|abi| {
+                abi.kernels
+                    .iter()
+                    .find(|kernel| kernel.name == entrypoint)
+                    .cloned()
+                    .ok_or_else(|| Error::KernelNotFound(entrypoint.into()))
+            })
+            .transpose()?;
+        let raw = compile(device, module, entrypoint)?;
+        if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
+            return Err(Error::InvalidLaunch(
+                "kernel exceeds threadgroup memory capacity",
+            ));
+        }
+        Ok(Self {
+            raw,
+            validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
+                .map(|_| OnceLock::new())
+                .collect(),
+            checks: abi.as_ref().map(|kernel| {
+                Arc::new(KernelChecks {
+                    name: kernel.name.clone(),
+                    gate_binding: kernel.gate_binding,
+                    fallible: kernel.fallible,
+                    lengths: kernel.lengths,
+                    checks: Arc::clone(&module.checks),
+                })
+            }),
+            abi,
+        })
     }
 }
 

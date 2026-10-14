@@ -4,11 +4,10 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import tempfile
 import time
 
-from bench import ROOT, build_binary, command, digest, positive
+from bench import ROOT, build_kernels, command, digest, positive
 
 
 def main():
@@ -23,20 +22,13 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="spectral-", dir=parent))
     output = args.output.resolve() if args.output else run / "report.json"
     print(f"Spectral benchmark directory: {run}", flush=True)
-    cli = build_binary("cargo-metal", os.environ, run / "cli.log")
     environment = dict(os.environ, CARGO_TARGET_DIR=str(run / "build"))
     modes = []
-    for mode in ("precise", "fast"):
+    for mode, features in (("precise", []), ("fast", ["--features", "fast"])):
         print(f"Building and validating {mode}", flush=True)
-        build = [cli, "build", "-p", "spectral", "--release", "--math-mode", mode]
-        first, cold_ns = command(build, env=environment, log=run / f"{mode}-first.log")
-        match = re.search(r"Built Metal artifact (.+)", first)
-        if not match:
-            raise RuntimeError(f"expected a fresh artifact: {first}")
-        artifact = Path(match[1].strip())
-        cached, cached_ns = command(build, env=environment, log=run / f"{mode}-cached.log")
-        if f"Cached Metal artifact {artifact}" not in cached:
-            raise RuntimeError(f"expected a cache hit: {cached}")
+        artifact, _, cold_ns, rebuild_ns = build_kernels(
+            "spectral", "examples/spectral/host/src/main.rs", environment,
+            run / f"{mode}-build.log", features)
         host = run / "build/release/spectral"
         results = []
         for backend in ("classic", "metal4"):
@@ -47,7 +39,7 @@ def main():
             command([host, "--bench", result, args.samples, args.warmup, args.max_rows],
                     env=selected, log=run / f"{mode}-{backend}.log")
             results.append(json.loads(result.read_text()))
-        modes.append({"mode": mode, "first_build_ns": cold_ns, "cached_build_ns": cached_ns,
+        modes.append({"mode": mode, "first_build_ns": cold_ns, "rebuild_ns": rebuild_ns,
                       "manifest": json.loads((artifact / "manifest.json").read_text()),
                       "host_sha256": digest(host), "backends": results})
     revision, _ = command(["git", "rev-parse", "HEAD"])
@@ -57,13 +49,14 @@ def main():
     os_version, _ = command(["sw_vers"])
     sources = [ROOT / "examples/spectral/host" / name
                for name in ("common.metal", "fgn.metal", "sheet.metal", "euler.metal")]
-    report = {"schema": 1, "revision": revision, "dirty": bool(status),
+    report = {"schema": 2, "revision": revision, "dirty": bool(status),
               "timestamp_unix": time.time(), "os": os_version, "xcode": xcode,
               "host_rustc": rustc, "modes": modes,
               "references": {str(p.relative_to(ROOT)): digest(p) for p in sources},
               "validation_environment": {k: v for k, v in os.environ.items()
                                          if k.startswith(("MTL_", "METAL_", "DYLD_"))},
-              "timing": {"unit": "ns", "build": "fresh target; shared dependencies warm after precise",
+              "timing": {"unit": "ns", "build": "fresh target, shared dependencies warm after "
+                         "precise; the rebuild touches the host source and reuses the kernels",
                          "total": "encode, submit, wait and zero-copy CPU view; reusable allocations",
                          "setup": "f64 eigenvalues and bit reversal; separately measured",
                          "allocation_upload": "initialized shared storage and setup upload; separate",

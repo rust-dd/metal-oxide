@@ -1,0 +1,1058 @@
+{
+  "abi": {
+    "version": 4,
+    "math_mode": "precise",
+    "required_features": [
+      "dynamic_threadgroup_memory"
+    ],
+    "types": [
+      {
+        "size": 4,
+        "alignment": 4,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "f32"
+        }
+      },
+      {
+        "size": 4,
+        "alignment": 4,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "u32"
+        }
+      },
+      {
+        "size": 16,
+        "alignment": 4,
+        "kind": {
+          "kind": "record",
+          "name": "Readout",
+          "fields": [
+            {
+              "name": "size",
+              "offset": 0,
+              "layout": 1
+            },
+            {
+              "name": "scale",
+              "offset": 4,
+              "layout": 0
+            },
+            {
+              "name": "rows",
+              "offset": 8,
+              "layout": 1
+            },
+            {
+              "name": "parity",
+              "offset": 12,
+              "layout": 1
+            }
+          ]
+        }
+      },
+      {
+        "size": 8,
+        "alignment": 8,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "u64"
+        }
+      },
+      {
+        "size": 40,
+        "alignment": 8,
+        "kind": {
+          "kind": "record",
+          "name": "SheetReadout",
+          "fields": [
+            {
+              "name": "cells",
+              "offset": 0,
+              "layout": 1
+            },
+            {
+              "name": "rows",
+              "offset": 4,
+              "layout": 1
+            },
+            {
+              "name": "m",
+              "offset": 8,
+              "layout": 1
+            },
+            {
+              "name": "n",
+              "offset": 12,
+              "layout": 1
+            },
+            {
+              "name": "radius",
+              "offset": 16,
+              "layout": 0
+            },
+            {
+              "name": "correction",
+              "offset": 20,
+              "layout": 0
+            },
+            {
+              "name": "seed",
+              "offset": 24,
+              "layout": 1
+            },
+            {
+              "name": "correction_cell",
+              "offset": 32,
+              "layout": 3
+            }
+          ]
+        }
+      }
+    ],
+    "signatures": [
+      [
+        {
+          "name": "values",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read_write"
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 1,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "steps",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "dt",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 0
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read_write"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read_write"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "half_stride",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "butterflies",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read_write"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read_write"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "stage",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "quads",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "output",
+          "binding": 3,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "config",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 2
+          }
+        },
+        {
+          "name": "quads",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "output",
+          "binding": 3,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "config",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 2
+          }
+        },
+        {
+          "name": "butterflies",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "out",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "curve",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "program",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "len",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "steps",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "first_path",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "out",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "events",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "table",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "count",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "table_len",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "steps",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "out",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 1,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "steps",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "first_path",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "seed",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "shape",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 0
+          }
+        },
+        {
+          "name": "intensity",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 0
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "lam",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "reverse",
+          "binding": 3,
+          "ty": {
+            "kind": "buffer",
+            "element": 1,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "cells",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "cols",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "seed",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "first_cell",
+          "binding": 7,
+          "ty": {
+            "kind": "value",
+            "layout": 3
+          }
+        },
+        {
+          "name": "total",
+          "binding": 8,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "out_real",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "out_imag",
+          "binding": 3,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "reverse",
+          "binding": 4,
+          "ty": {
+            "kind": "buffer",
+            "element": 1,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "cells",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "cols",
+          "binding": 7,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "total",
+          "binding": 8,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "output",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "config",
+          "binding": 2,
+          "ty": {
+            "kind": "value",
+            "layout": 4
+          }
+        },
+        {
+          "name": "total",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "real",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "imag",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "eigs",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "reverse",
+          "binding": 3,
+          "ty": {
+            "kind": "buffer",
+            "element": 1,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "seed",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "base_cell",
+          "binding": 6,
+          "ty": {
+            "kind": "value",
+            "layout": 3
+          }
+        },
+        {
+          "name": "stages",
+          "binding": 7,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "shared_real",
+          "binding": 0,
+          "ty": {
+            "kind": "threadgroup",
+            "element": 0,
+            "stride": 4
+          }
+        },
+        {
+          "name": "shared_imag",
+          "binding": 1,
+          "ty": {
+            "kind": "threadgroup",
+            "element": 0,
+            "stride": 4
+          }
+        }
+      ]
+    ],
+    "kernels": [
+      {
+        "name": "integrate",
+        "signature": 0,
+        "required_block": null,
+        "gate_binding": 4,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "fft_butterfly",
+        "signature": 1,
+        "required_block": null,
+        "gate_binding": 5,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "fft_radix4",
+        "signature": 2,
+        "required_block": null,
+        "gate_binding": 5,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "fft_radix4_extract",
+        "signature": 3,
+        "required_block": null,
+        "gate_binding": 6,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "fft_butterfly_extract",
+        "signature": 4,
+        "required_block": null,
+        "gate_binding": 6,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "history_program",
+        "signature": 5,
+        "required_block": null,
+        "gate_binding": 7,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "series_clock",
+        "signature": 6,
+        "required_block": null,
+        "gate_binding": 7,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "sample_jumps",
+        "signature": 7,
+        "required_block": null,
+        "gate_binding": 7,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "sheet_generate",
+        "signature": 8,
+        "required_block": null,
+        "gate_binding": 9,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "sheet_transpose",
+        "signature": 9,
+        "required_block": null,
+        "gate_binding": 9,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "sheet_extract",
+        "signature": 10,
+        "required_block": null,
+        "gate_binding": 4,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "gen_tile_fft",
+        "signature": 11,
+        "required_block": null,
+        "gate_binding": 8,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      }
+    ]
+  },
+  "checks": [],
+  "target": "metal64-unknown-none",
+  "msl_version": "3.2",
+  "files": {
+    "msl": "f72e90803ef86e9c77a45fa34411bb0f12f3cec5673198cfd6242af1f032020b",
+    "oxide_ir": "cf9eaedd757c2e60b21ab92ebabded5916293cb327b076bf5318ec86361452e5",
+    "ir": "0d967036167da6aefdca06b61a91c20d8150c89a3864267e762f01f7796a0099",
+    "metallib": "1e3d0f47b90d9bcd81096e6abaca659826a5dd98623bed96e08e902e060bfefe"
+  },
+  "build": {
+    "fingerprint": "e145f95778b061b1bddaf2905455baa01ea2e2b0c5acf064678b256237626004",
+    "compiler": "aa68a60116d4279a90d0c1b885cac4e2d4c1928f9d48bd77c73407f657c8464a",
+    "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
+    "metal": "Apple metal version 32023.883 (metalfe-32023.883)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /Users/danixx/Library/Developer/DVTDownloads/MetalToolchain/mounts/5f4a441a6d0a11f2e9b28c67384263afe92320f7/Metal.xctoolchain/usr/metal/current/bin",
+    "sdk": "26.5",
+    "rustc_args": [
+      "-Zunstable-options",
+      "--crate-name",
+      "spectral_kernels",
+      "--edition=2024",
+      "examples/spectral/kernels/src/lib.rs",
+      "--error-format=json",
+      "--json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent",
+      "--crate-type",
+      "lib",
+      "--emit=dep-info,metadata",
+      "-C",
+      "opt-level=3",
+      "-C",
+      "embed-bitcode=no",
+      "--deny=unsafe_op_in_unsafe_fn",
+      "--warn=unexpected_cfgs",
+      "--deny=clippy::undocumented_unsafe_blocks",
+      "--check-cfg",
+      "cfg(loom)",
+      "--check-cfg",
+      "cfg(target_env, values(\"metal\"))",
+      "--check-cfg",
+      "cfg(docsrs,test)",
+      "--check-cfg",
+      "cfg(feature, values())",
+      "-C",
+      "metadata=3589090043508aed",
+      "-C",
+      "extra-filename=-581ee5ef70b17a68",
+      "--out-dir",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/spectral-kernels/581ee5ef70b17a68/out",
+      "--target",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/metal64-unknown-none.json",
+      "-Zunstable-options",
+      "-C",
+      "strip=debuginfo",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/metal-oxide-macros/5b66d2206ef23be4/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/spectral-kernels/581ee5ef70b17a68/out",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "metal_oxide_device=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/metal-oxide-device/a7ab5358dbc2c34c/out/libmetal_oxide_device-a7ab5358dbc2c34c.rmeta",
+      "-Z",
+      "unstable-options",
+      "--force-warn=unused_crate_dependencies"
+    ],
+    "metal_flags": [
+      "-std=metal3.2",
+      "-mmacosx-version-min=15.0",
+      "-fmetal-math-mode=safe",
+      "-fmetal-math-fp32-functions=precise",
+      "-ffp-contract=off",
+      "-O2"
+    ]
+  }
+}

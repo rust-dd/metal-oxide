@@ -1,0 +1,319 @@
+{
+  "abi": {
+    "version": 4,
+    "math_mode": "precise",
+    "required_features": [
+      "simd_groups"
+    ],
+    "types": [
+      {
+        "size": 4,
+        "alignment": 4,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "f32"
+        }
+      },
+      {
+        "size": 4,
+        "alignment": 4,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "u32"
+        }
+      },
+      {
+        "size": 2,
+        "alignment": 2,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "f16"
+        }
+      }
+    ],
+    "signatures": [
+      [
+        {
+          "name": "a",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "b",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "output",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "n",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "a",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "b",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "output",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "columns",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "inner",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ],
+      [
+        {
+          "name": "a",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 2,
+            "stride": 2,
+            "access": "read"
+          }
+        },
+        {
+          "name": "b",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 2,
+            "stride": 2,
+            "access": "read"
+          }
+        },
+        {
+          "name": "output",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        },
+        {
+          "name": "rows",
+          "binding": 3,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "columns",
+          "binding": 4,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        },
+        {
+          "name": "inner",
+          "binding": 5,
+          "ty": {
+            "kind": "value",
+            "layout": 1
+          }
+        }
+      ]
+    ],
+    "kernels": [
+      {
+        "name": "dot",
+        "signature": 0,
+        "required_block": [
+          256,
+          1,
+          1
+        ],
+        "gate_binding": 4,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "matmul",
+        "signature": 1,
+        "required_block": [
+          16,
+          16,
+          1
+        ],
+        "gate_binding": 6,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      },
+      {
+        "name": "matmul_half",
+        "signature": 2,
+        "required_block": [
+          16,
+          16,
+          1
+        ],
+        "gate_binding": 6,
+        "fallible": false,
+        "lengths": false,
+        "one_dimensional": false,
+        "safe": false,
+        "requires": []
+      }
+    ]
+  },
+  "checks": [],
+  "target": "metal64-unknown-none",
+  "msl_version": "3.2",
+  "files": {
+    "msl": "c9337426dc2996fb595245595e917ca1acbcaea023d1af03fc1e6277f27b1a89",
+    "oxide_ir": "78ba5ce9a93a7ed514ed1286b8acc226ae90be779ed022f0ee342fdec3af5d3d",
+    "ir": "3af1e9ba7b348e135a9b535443bc654ac40e623d552db868adf323d428b90c3e",
+    "metallib": "749f17275c2862e1f43187d679d2ccc74a10f79371d963e23dabda2a46589761"
+  },
+  "build": {
+    "fingerprint": "89e70a9e3138eb062af389dd893b886282bf408965e4c6e655ebbc00fc0a6275",
+    "compiler": "aa68a60116d4279a90d0c1b885cac4e2d4c1928f9d48bd77c73407f657c8464a",
+    "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
+    "metal": "Apple metal version 32023.883 (metalfe-32023.883)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /Users/danixx/Library/Developer/DVTDownloads/MetalToolchain/mounts/5f4a441a6d0a11f2e9b28c67384263afe92320f7/Metal.xctoolchain/usr/metal/current/bin",
+    "sdk": "26.5",
+    "rustc_args": [
+      "-Zunstable-options",
+      "--crate-name",
+      "matmul_kernels",
+      "--edition=2024",
+      "examples/matmul/kernels/src/lib.rs",
+      "--error-format=json",
+      "--json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent",
+      "--crate-type",
+      "lib",
+      "--emit=dep-info,metadata",
+      "-C",
+      "opt-level=3",
+      "-C",
+      "embed-bitcode=no",
+      "--deny=unsafe_op_in_unsafe_fn",
+      "--warn=unexpected_cfgs",
+      "--deny=clippy::undocumented_unsafe_blocks",
+      "--check-cfg",
+      "cfg(loom)",
+      "--check-cfg",
+      "cfg(target_env, values(\"metal\"))",
+      "--check-cfg",
+      "cfg(docsrs,test)",
+      "--check-cfg",
+      "cfg(feature, values())",
+      "-C",
+      "metadata=16534025430ff80d",
+      "-C",
+      "extra-filename=-27485e73b2be800c",
+      "--out-dir",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/matmul-kernels/27485e73b2be800c/out",
+      "--target",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/metal64-unknown-none.json",
+      "-Zunstable-options",
+      "-C",
+      "strip=debuginfo",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/metal-oxide-macros/5b66d2206ef23be4/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/matmul-kernels/27485e73b2be800c/out",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "metal_oxide_device=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/metal-oxide-device/a7ab5358dbc2c34c/out/libmetal_oxide_device-a7ab5358dbc2c34c.rmeta",
+      "-Z",
+      "unstable-options",
+      "--force-warn=unused_crate_dependencies"
+    ],
+    "metal_flags": [
+      "-std=metal3.2",
+      "-mmacosx-version-min=15.0",
+      "-fmetal-math-mode=safe",
+      "-fmetal-math-fp32-functions=precise",
+      "-ffp-contract=off",
+      "-O2"
+    ]
+  }
+}

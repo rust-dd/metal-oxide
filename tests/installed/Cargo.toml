@@ -1,0 +1,12 @@
+[workspace]
+members = ["application", "helper"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+publish = false
+version = "0.0.0"
+
+[workspace.dependencies]
+installed-helper = { path = "helper" }
+metal-oxide = { path = "../../crates/metal-oxide" }

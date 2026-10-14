@@ -1,26 +1,13 @@
+//! Math that an application's kernels and its CPU reference share.
 #![no_std]
 
-#[derive(Clone, Copy)]
-pub struct Particle {
-    pub position: (f32, f32),
-    pub velocity: [f32; 2],
-    pub tag: u8,
-}
-
-#[derive(Clone, Copy)]
-pub struct Config {
-    pub dt: f32,
-}
-
-pub fn advance<const STEPS: u32>(mut particle: Particle, config: Config) -> Particle {
-    if particle.tag == 0 {
-        return particle;
+/// The position after `steps` steps at `velocity`.
+pub fn advance(mut position: [f32; 2], velocity: [f32; 2], dt: f32, steps: u32) -> [f32; 2] {
+    let mut step = 0;
+    while step < steps {
+        position[0] += velocity[0] * dt;
+        position[1] += velocity[1] * dt;
+        step += 1;
     }
-    let mut step = 0_u32;
-    while step < STEPS {
-        particle.position.0 += particle.velocity[0] * config.dt;
-        particle.position.1 += particle.velocity[1] * config.dt;
-        step = step.wrapping_add(1);
-    }
-    particle
+    position
 }

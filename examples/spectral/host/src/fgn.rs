@@ -7,8 +7,8 @@ use std::{
 };
 
 use metal_oxide::{
-    Argument, Batch, Buffer, Device, Dim3, DynamicLaunchConfig, Launch, Module, Operation,
-    Pipeline, sequence,
+    Argument, Batch, Buffer, Device, Dim3, DynamicLaunchConfig, Launch, Operation, Pipeline,
+    sequence,
 };
 use serde::Serialize;
 
@@ -138,9 +138,9 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(device: &Device, directory: &str) -> Result<Self> {
+    pub fn new(device: &Device) -> Result<Self> {
         let start = Instant::now();
-        let module = Module::from_artifact(device, directory)?;
+        let module = crate::kernels::module(device)?;
         let load_ns = elapsed(start);
         let start = Instant::now();
         Ok(Self {

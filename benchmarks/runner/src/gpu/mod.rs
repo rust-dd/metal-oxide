@@ -20,11 +20,6 @@ use crate::stats::Summary;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-#[allow(dead_code)]
-mod records {
-    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-}
-
 #[derive(Deserialize)]
 struct Config {
     artifacts: BTreeMap<String, PathBuf>,

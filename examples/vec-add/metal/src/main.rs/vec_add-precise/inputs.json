@@ -1,0 +1,28 @@
+{
+  "format": 2,
+  "artifact": "8ff63531e1e20e6f6f1641bfb0b5c9960d83caecf34ce9e329a83c3035762a76",
+  "request": {
+    "source": "5a14223e19b1db33e354a69ebb6439a7f2bdc7c83b18242a595b09e9a6173a36",
+    "math_mode": "precise",
+    "debug_info": false
+  },
+  "lock": "../../Cargo.lock",
+  "packages": [
+    "metal-oxide-device 0.1.0-alpha.1 ",
+    "metal-oxide-macros 0.1.0-alpha.1 "
+  ],
+  "files": {
+    "../../crates/metal-oxide-device/Cargo.toml": "28ec15049554942341f1137979f6550bc5a9486b79ce5513805ec6cd5a6e734a",
+    "../../crates/metal-oxide-device/src/atomic.rs": "b59edf320e539b3f76f1b3106f2b9a42174d09d7e692a9602904c8beafce9ede",
+    "../../crates/metal-oxide-device/src/buffer.rs": "1cd8673e58f3daa96a4c988f6ff17aacfa43044fa42694ed5e70dfe8503c42be",
+    "../../crates/metal-oxide-device/src/half.rs": "b39ac889f1106310f66920d80a664f6a0a054729623a26f80e94df048a05e0db",
+    "../../crates/metal-oxide-device/src/intrinsics.rs": "21cab1ea80bf1910d694a6edf8cb05389b029debaa1f62d33104804390bae2e1",
+    "../../crates/metal-oxide-device/src/lib.rs": "7be3cae3b36c48bc6211063b310b7737d63d3f8cc90ba719161c30f3e7ef4ac1",
+    "../../crates/metal-oxide-device/src/log.rs": "ff6fc43441069afc45ef4bde4d2e5f5e6a84cbbb3f5328bc7f921539b30b0a74",
+    "../../crates/metal-oxide-device/src/math.rs": "7e62605cacc250251c6efbdab551706e6006e6fd08fb6fd881173f84e33dd263",
+    "../../crates/metal-oxide-device/src/simdgroup.rs": "a83fa54c55a4b04ad0180830d61c580a412ac08ec22aed32ac4c60b881c26211",
+    "../../crates/metal-oxide-device/src/thread.rs": "f5889baf70747a10160a623648c0d3e87a5d12032d840dd8b756aa465e8ad17a",
+    "../../crates/metal-oxide-device/src/threadgroup.rs": "b36ba3bc84cc422157d64c763b1e2b0eea3bd34edacf720de0e6a9e25599cc15",
+    "../../crates/metal-oxide-macros/Cargo.toml": "af3d00cc99b54929faaa03e57b2bae8878691aabb14b76d99abc352eaa352b92"
+  }
+}

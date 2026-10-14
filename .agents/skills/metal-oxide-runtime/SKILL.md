@@ -62,8 +62,11 @@ separate.
   Both paths share validation. The grid counts blocks and each block maps to a
   Metal threadgroup via dispatchThreadgroups.
 - Const host configuration does not specialize handwritten MSL. Keep shader
-  shape assumptions in the unsafe caller contract until generated bindings and
+  shape assumptions in the unsafe caller contract until launch functions and
   artifact metadata can enforce them for specialized Rust kernels.
+- A `Device` loads each embedded `Library` on its first launch, verifies the ABI digest
+  its launch functions were generated for, and caches the module and each entry's
+  pipeline for all clones; the cache holds no `Device`.
 - A launch checks queue-context ownership, binding slots, device axis limits, pipeline
   block volume, and dimension/count overflow; commits, waits, and checks terminal
   status. Errors must not release active resources.

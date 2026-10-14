@@ -1,119 +1,117 @@
 use crate::{
-    Compiler, Error, cache, metadata,
-    metadata::Project,
-    process::Result,
+    Compiler, cache,
+    metadata::{Metadata, Project},
+    process::{self, Result},
+    recorded::{Recorded, Request},
     rust::{KernelBuild, Rust},
+    state::State,
     toolchain::{Metal, debug_flags, metal_flags},
 };
 use metal_oxide_artifact::{
-    Abi, ArtifactFile, BuildInfo, COMPILER_OUTPUTS, DEVICE_TARGET, Files, MSL_VERSION, Manifest,
-    MathMode, sha256,
+    Abi, ArtifactFile, BuildInfo, COMPILER_NIGHTLY, COMPILER_OUTPUTS, DEVICE_TARGET, Files,
+    MSL_VERSION, Manifest, MathMode, sha256,
 };
 use std::{
     fs::{File, OpenOptions, TryLockError},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
+    process::Command,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-/// A representation of the kernels that [`Kernels::emit`] returns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Emit {
-    Ir,
-    Msl,
-    Air,
-}
-
-/// A kernel crate that the metal-oxide compiler builds for Metal.
-pub struct Kernels {
+/// A kernel crate that the kernel macros build for Metal inside rustc, without the host
+/// build's settings and with diagnostics in the error.
+pub(crate) struct Kernels {
     project: Project,
     compiler: Compiler,
     math_mode: MathMode,
-    isolated: bool,
-    debug_info: bool,
+    /// The host crate that the kernels were copied from, which resolves their packages.
+    host: Option<Arc<Metadata>>,
+    /// The directory that relative source paths in line tables start at.
+    debug_info: Option<PathBuf>,
 }
 
-pub(crate) struct Compiled {
-    pub(crate) directory: PathBuf,
-    pub(crate) kernels: KernelBuild,
+/// The artifact that the kernel macros embed.
+pub struct BuiltKernels {
+    pub directory: PathBuf,
+    pub abi: Abi,
+    /// Files whose changes call for rebuilding the crate that embeds the artifact.
+    pub tracked: Vec<PathBuf>,
+    /// The artifact is the one saved beside the package's sources, which holds only the
+    /// manifest and the library.
+    pub saved: bool,
+}
+
+struct Compiled {
+    directory: PathBuf,
+    kernels: KernelBuild,
+    compiler: PathBuf,
 }
 
 impl Kernels {
-    /// Reads the Cargo workspace of the kernel crate whose Cargo.toml is `manifest`.
-    pub fn new(
-        manifest: impl AsRef<Path>,
-        compiler: Compiler,
-        math_mode: MathMode,
-    ) -> std::result::Result<Self, Error> {
-        let project = metadata::load(manifest.as_ref()).map_err(Error)?;
-        Ok(Self {
-            project,
-            compiler,
-            math_mode,
-            isolated: false,
-            debug_info: false,
-        })
-    }
-
-    /// Records line tables and the compile inputs in the metallib, so GPU captures show the
-    /// Rust line of each instruction. [`Artifact`](crate::Artifact) never records them.
-    pub fn debug_info(mut self, debug_info: bool) -> Self {
-        self.debug_info = debug_info;
-        self
-    }
-
-    /// Kernels built from a build script, without the host build's Rust flags.
-    pub(crate) fn from_build_script(
+    /// The kernels of a kernel crate, or with `host` those copied from a host crate into a
+    /// device crate.
+    pub(crate) fn new(
         project: Project,
         compiler: Compiler,
         math_mode: MathMode,
+        host: Option<Arc<Metadata>>,
+        debug_info: Option<PathBuf>,
     ) -> Self {
         Self {
             project,
             compiler,
             math_mode,
-            isolated: true,
-            debug_info: false,
+            host,
+            debug_info,
         }
     }
 
-    pub(crate) fn project(&self) -> &Project {
-        &self.project
-    }
-
-    /// The kernels as metal-oxide IR or MSL, which need no Metal toolchain, or as the AIR
-    /// that Apple's compiler builds from the MSL.
-    pub fn emit(&self, emit: Emit) -> std::result::Result<String, Error> {
-        let text = || -> Result<String> {
-            let file = match emit {
-                Emit::Ir => ArtifactFile::OxideIr,
-                Emit::Msl => ArtifactFile::Msl,
-                Emit::Air => {
-                    let air = self.compiled()?.directory.join(ArtifactFile::Air.name());
-                    return Metal::find()?.disassemble(&air);
-                }
-            };
-            let root = self.root()?;
-            let _lock = lock(&root)?;
-            let rust = Rust::prepare(&self.project, self.math_mode, &self.compiler, self.isolated)?;
-            let kernels = rust.kernels(&self.project)?;
-            Ok(std::fs::read_to_string(kernels.output.join(file.name()))?)
+    /// Builds the kernels and records what they were built from, relative to `base`, in
+    /// `state`, so unchanged inputs reuse the artifact.
+    pub(crate) fn record(
+        &self,
+        base: &Path,
+        request: Request,
+        state: &Path,
+    ) -> Result<(BuiltKernels, Recorded)> {
+        let compiled = self.compiled()?;
+        let sysroot = process::capture(Command::new("rustup").args([
+            "run",
+            COMPILER_NIGHTLY,
+            "rustc",
+            "--print",
+            "sysroot",
+        ]))?;
+        let inputs = Recorded::from_build(
+            &self.project,
+            self.host.as_deref(),
+            &compiled.kernels.messages,
+            Path::new(&sysroot),
+            base,
+            &compiled.directory.file_name().unwrap().to_string_lossy(),
+            request,
+        )?;
+        State::new(inputs.clone(), &compiled.directory, &compiled.compiler)?.write(state)?;
+        let abi = std::fs::read_to_string(compiled.directory.join(ArtifactFile::Abi.name()))?;
+        let built = BuiltKernels {
+            abi: Abi::from_json(&abi)?,
+            directory: compiled.directory,
+            tracked: std::iter::once(compiled.compiler)
+                .chain(inputs.paths(base))
+                .collect(),
+            saved: false,
         };
-        text().map_err(Error)
+        Ok((built, inputs))
     }
 
-    /// Builds the artifact under the Cargo target directory, or reuses the build with
-    /// identical inputs and toolchain, and returns its directory.
-    pub fn compile(&self) -> std::result::Result<PathBuf, Error> {
-        self.compiled()
-            .map(|compiled| compiled.directory)
-            .map_err(Error)
-    }
-
-    pub(crate) fn compiled(&self) -> Result<Compiled> {
+    fn compiled(&self) -> Result<Compiled> {
         let root = self.root()?;
         let lock = lock(&root)?;
         cache::discard_abandoned(&root)?;
-        let rust = Rust::prepare(&self.project, self.math_mode, &self.compiler, self.isolated)?;
+        let rust = self.rust()?;
         let kernels = rust.kernels(&self.project)?;
         let output = &kernels.output;
         let metal = Metal::find()?;
@@ -125,8 +123,8 @@ impl Kernels {
             output.join(ArtifactFile::Abi.name()),
         )?)?;
         let mut flags = metal_flags(&abi);
-        if self.debug_info {
-            flags.extend(debug_flags(&self.project.metadata.workspace_root));
+        if let Some(root) = &self.debug_info {
+            flags.extend(debug_flags(root));
         }
         let profile = std::env::vars()
             .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
@@ -153,7 +151,8 @@ impl Kernels {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir(&stage)?;
-            let result = create(&stage, &generated, &rust, &metal, &fingerprint, flags);
+            let result = create(&stage, &generated, &rust, &metal, &fingerprint, flags)
+                .and_then(|()| cache::settle(&stage));
             if let Err(error) = result {
                 let failed = root.join(
                     stage
@@ -173,12 +172,22 @@ impl Kernels {
                 std::fs::remove_dir_all(&directory)?;
             }
             std::fs::rename(&stage, &directory)?;
-            eprintln!("Built Metal artifact {}", directory.display());
-        } else {
-            eprintln!("Cached Metal artifact {}", directory.display());
         }
         drop(lock);
-        Ok(Compiled { directory, kernels })
+        Ok(Compiled {
+            directory,
+            kernels,
+            compiler: rust.compiler,
+        })
+    }
+
+    fn rust(&self) -> Result<Rust> {
+        Rust::prepare(
+            &self.project,
+            self.math_mode,
+            &self.compiler,
+            self.host.is_some(),
+        )
     }
 
     fn root(&self) -> Result<PathBuf> {

@@ -4,7 +4,7 @@ use metal_oxide::{
     Argument, Device, Dim3, DynamicLaunchConfig, Launch, LaunchConfig, Module, Operation, Pipeline,
 };
 
-const SOURCE: &str = include_str!("../../../examples/vec-add/kernels/vec_add.metal");
+const SOURCE: &str = include_str!("kernels/vec_add.metal");
 const GEOMETRY_SOURCE: &str = include_str!("kernels/launch_geometry.metal");
 
 #[test]

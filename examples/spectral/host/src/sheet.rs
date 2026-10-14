@@ -4,10 +4,14 @@ use metal_oxide::{
 };
 use metal_oxide_artifact::MathMode;
 
-use crate::{Result, cpu, kernels::SheetReadout, validation::compare};
+use crate::{
+    Result, cpu,
+    kernels::{self, SheetReadout},
+    validation::compare,
+};
 
-pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
-    let generated = Module::from_artifact(device, directory)?;
+pub fn run(device: &Device, mode: MathMode) -> Result<()> {
+    let generated = kernels::module(device)?;
     let source = format!(
         "{}\n{}",
         include_str!("../common.metal"),
@@ -96,14 +100,14 @@ fn execute(
     let reverse_cols = device.buffer_from_slice(&cpu::reverse(cols as usize))?;
     let reverse_rows = device.buffer_from_slice(&cpu::reverse(config.rows as usize))?;
     let block = if generated { 256 } else { 1 };
-    // SAFETY: both dimensions are powers of two. The permutation stages own unique
-    // cells, ordered FFT passes own disjoint pairs, and the crop stays within each sheet.
-    // Native kernels have no tail guard, so their one-thread blocks cover exact counts.
     let generate = DynamicLaunchConfig::for_elements(total, block)?;
     let butterflies = DynamicLaunchConfig::for_elements(total / 2, block)?;
     let out_len = config.m * config.n * sheets;
     let extract = DynamicLaunchConfig::for_elements(out_len, block)?;
     let values = [config.cells, cols, config.seed, total];
+    // SAFETY: both dimensions are powers of two. The permutation stages own unique
+    // cells, ordered FFT passes own disjoint pairs, and the crop stays within each sheet.
+    // Native kernels have no tail guard, so their one-thread blocks cover exact counts.
     sequence(|batch| unsafe {
         let sources = (&roots, &reverse_cols, first);
         if generated {

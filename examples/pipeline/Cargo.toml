@@ -1,0 +1,15 @@
+[package]
+name = "pipeline"
+description = "Async kernel chains whose kernels share helpers"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true

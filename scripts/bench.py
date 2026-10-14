@@ -6,18 +6,20 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import subprocess
 import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-REFERENCES = {
-    "vec-add": "examples/vec-add/kernels/vec_add.metal",
-    "reduction": "benchmarks/reference-msl/reduction.metal",
-    "cooperation": "benchmarks/reference-msl/cooperation.metal",
-    "particle-update": "examples/particle-update/reference.metal",
-    "matmul": "benchmarks/reference-msl/matmul.metal",
+# Each package with the source file that holds its kernels and the handwritten reference MSL.
+WORKLOADS = {
+    "vec-add": ("examples/vec-add/src/main.rs", "crates/metal-oxide/tests/kernels/vec_add.metal"),
+    "reduction": ("examples/reduction/src/main.rs", "benchmarks/reference-msl/reduction.metal"),
+    "cooperation": ("examples/cooperation/host/src/main.rs",
+                    "benchmarks/reference-msl/cooperation.metal"),
+    "particle-update": ("examples/particle-update/src/lib.rs",
+                        "examples/particle-update/reference.metal"),
+    "matmul": ("examples/matmul/host/src/main.rs", "benchmarks/reference-msl/matmul.metal"),
 }
 
 
@@ -74,6 +76,30 @@ def build_binary(package, environment, log):
     return binaries[0]
 
 
+def build_kernels(package, source, environment, log, arguments=()):
+    """Builds `package` with plain Cargo, then again after touching `source`, which reuses its
+    kernels; returns the artifact that the kernel macros compiled, the command and both times."""
+    listing = log.with_suffix(".artifacts")
+    listing.unlink(missing_ok=True)
+    environment = dict(environment, METAL_OXIDE_INSPECT=str(listing))
+    build = ["cargo", "build", "-p", package, "--release", "--locked", *arguments]
+
+    def artifacts():
+        lines = listing.read_text().splitlines() if listing.exists() else []
+        return {fields[0] for fields in map(lambda line: line.split("\t"), lines)
+                if fields[1] == package}
+
+    _, first_ns = command(build, env=environment, log=log)
+    found = artifacts()
+    if len(found) != 1:
+        raise RuntimeError(f"expected one Metal artifact for {package}, found {sorted(found)}")
+    os.utime(ROOT / source)
+    _, rebuild_ns = command(build, env=environment, log=log.with_name(f"{log.stem}-rebuild.log"))
+    if artifacts() != found:
+        raise RuntimeError(f"rebuilding {package} with unchanged kernels changed its artifact")
+    return Path(found.pop()), build, first_ns, rebuild_ns
+
+
 def positive(value):
     number = int(value)
     if number <= 0:
@@ -99,23 +125,15 @@ def main():
     run = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
     output = args.output.resolve() if args.output else run / "report.json"
     print(f"Benchmark work directory: {run}", flush=True)
-    cli = build_binary("cargo-metal", os.environ, run / "cli.log")
     environment = dict(os.environ, CARGO_TARGET_DIR=str(run / "build"))
     artifacts, references, builds, identities = {}, {}, {}, {}
     metal = metal_command()
     sdk, _ = command(["xcrun", "--sdk", "macosx", "--show-sdk-path"])
     metal_env = dict(os.environ, SDKROOT=sdk)
-    for package, source in REFERENCES.items():
-        print(f"Building {package}: first use and cache hit", flush=True)
-        build_command = [cli, "build", "-p", package, "--release"]
-        first, cold_ns = command(build_command, env=environment, log=run / f"{package}-first.log")
-        match = re.search(r"Built Metal artifact (.+)", first)
-        if not match:
-            raise RuntimeError(f"expected fresh artifact for {package}:\n{first}")
-        artifact = Path(match[1].strip())
-        warm, warm_ns = command(build_command, env=environment, log=run / f"{package}-warm.log")
-        if f"Cached Metal artifact {artifact}" not in warm:
-            raise RuntimeError(f"expected artifact cache hit for {package}:\n{warm}")
+    for package, (kernels, source) in WORKLOADS.items():
+        print(f"Building {package}: first build and a rebuild that reuses its kernels", flush=True)
+        artifact, build_command, first_ns, rebuild_ns = build_kernels(
+            package, kernels, environment, run / f"{package}-build.log")
         artifacts[package] = str(artifact)
         manifest = json.loads((artifact / "manifest.json").read_text())
         reference = run / f"{package}.metallib"
@@ -124,15 +142,14 @@ def main():
         _, compile_ns = command(compile_command, env=metal_env, log=run / f"{package}-reference.log")
         _, link_ns = command(metal + [air, "-o", reference], env=metal_env)
         references[package] = str(reference)
-        builds[package] = {"command": list(map(str, build_command)),
-                           "first_use_ns": cold_ns, "cache_hit_ns": warm_ns,
+        builds[package] = {"command": build_command,
+                           "first_build_ns": first_ns, "rebuild_ns": rebuild_ns,
                            "reference_compile_ns": compile_ns, "reference_link_ns": link_ns,
                            "reference_command": compile_command}
         identities[package] = {"manifest": manifest, "reference_source": source,
                                "reference_sha256": digest(ROOT / source),
                                "reference_metallib_sha256": digest(reference)}
-    binding = str(Path(artifacts["particle-update"]) / "bindings.rs")
-    host_env = dict(os.environ, METAL_OXIDE_BENCH_BINDINGS=binding)
+    host_env = dict(os.environ)
     host = build_binary("metal-oxide-bench", host_env, run / "host.log")
     config = {"artifacts": artifacts, "references": references, "samples": args.samples,
               "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix}
@@ -150,7 +167,7 @@ def main():
     rustc, _ = command(["rustc", "-vV"])
     xcode, _ = command(["xcodebuild", "-version"])
     os_version, _ = command(["sw_vers"])
-    report = {"schema": 1, "revision": revision, "dirty": bool(status),
+    report = {"schema": 2, "revision": revision, "dirty": bool(status),
               "timestamp_unix": time.time(), "os": os_version, "xcode": xcode,
               "host_rustc": rustc, "host_binary_sha256": digest(host),
               "host_build_environment": {k: v for k, v in host_env.items()
@@ -162,7 +179,8 @@ def main():
                   if k.startswith(("MTL_", "METAL_", "DYLD_"))},
               "timing": {"unit": "ns", "host": "monotonic Instant/perf_counter",
                   "gpu": "Metal completion GPUStartTime/GPUEndTime; null when unavailable",
-                  "build": "fresh artifact directory; shared dependencies warm after first package",
+                  "build": "fresh target directory, shared dependencies warm after the first "
+                           "package; the rebuild touches the kernels' file and reuses their artifact",
                   "submit": "includes encoding; overlaps GPU work and is not additive with GPU time",
                   "wait": "host blocking after commit, not isolated queue latency",
                   "cpu": "serial reference including result allocation",

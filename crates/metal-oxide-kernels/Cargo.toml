@@ -1,0 +1,27 @@
+[package]
+name = "metal-oxide-kernels"
+categories = ["development-tools::procedural-macro-helpers", "hardware-support"]
+description = "Compiles Metal kernels written in a host crate and generates their launch functions"
+edition.workspace = true
+keywords = ["gpu", "kernel", "metal", "msl"]
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+metal-oxide-artifact = { workspace = true }
+metal-oxide-build = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
+
+[dev-dependencies]
+metal-oxide = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

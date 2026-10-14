@@ -7,7 +7,7 @@ use crate::{
 use metal_oxide_artifact::{COMPILER_OUTPUTS, MathMode, sha256};
 use std::{
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
 };
 
 pub(crate) use metal_oxide_artifact::COMPILER_NIGHTLY as NIGHTLY;
@@ -20,7 +20,8 @@ pub(crate) struct Rust {
     pub(crate) target: PathBuf,
     pub(crate) directory: PathBuf,
     math_mode: MathMode,
-    isolated: bool,
+    /// The kernel crate copies a host crate's source, which cannot declare `no_std`.
+    copied: bool,
 }
 
 pub(crate) struct KernelBuild {
@@ -37,12 +38,13 @@ fn cargo() -> Command {
 }
 
 impl Rust {
-    /// `isolated` drops the host build's Rust flags that Cargo passes to build scripts.
+    /// The build of a kernel crate inside rustc: without the host build's settings and with
+    /// progress and diagnostics in the error.
     pub(crate) fn prepare(
         project: &Project,
         math_mode: MathMode,
         compiler: &Compiler,
-        isolated: bool,
+        copied: bool,
     ) -> Result<Self> {
         let root = project.metadata.target_directory.join("metal");
         std::fs::create_dir_all(&root)?;
@@ -67,15 +69,13 @@ impl Rust {
             target,
             directory,
             math_mode,
-            isolated,
+            copied,
         })
     }
 
     fn command(&self, project: &Project, output: &Path) -> Command {
         let mut command = cargo();
-        if self.isolated {
-            process::isolate(&mut command);
-        }
+        process::isolate(&mut command);
         command
             .current_dir(&project.metadata.workspace_root)
             .env("RUSTC_WRAPPER", &self.compiler)
@@ -88,6 +88,9 @@ impl Rust {
             )
             .env("METAL_OXIDE_CARGO_OUTPUT", output)
             .env("METAL_OXIDE_CARGO_MATH_MODE", self.math_mode.as_str());
+        if self.copied {
+            command.env("METAL_OXIDE_CARGO_SOURCE", "1");
+        }
         command
     }
 
@@ -156,8 +159,7 @@ impl Rust {
     }
 
     fn check(&self, project: &Project, output: &Path) -> Result<(Inputs, String)> {
-        let messages =
-            process::capture(self.check_command(project, output).stderr(Stdio::inherit()))?;
+        let messages = process::capture(self.check_command(project, output).arg("--quiet"))?;
         Ok((Inputs::from_cargo(&messages, project)?, messages))
     }
 }

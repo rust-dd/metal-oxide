@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Error,
-    metadata::Project,
+    metadata::Metadata,
     process::{self, Result},
 };
 use metal_oxide_artifact::{COMPILER_NIGHTLY, CompilerInfo, sha256};
@@ -20,13 +20,13 @@ pub enum Compiler {
 }
 
 impl Compiler {
-    /// `METAL_OXIDE_COMPILER`, then the compiler sources beside the kernels'
-    /// `metal-oxide-device`, then `metal-oxide-compiler` on `PATH`.
-    pub(crate) fn search(project: &Project) -> Result<Self> {
+    /// `METAL_OXIDE_COMPILER`, then the compiler sources beside the `metal-oxide-device` that
+    /// `metadata` resolves, then `metal-oxide-compiler` on `PATH`.
+    pub(crate) fn search(metadata: &Metadata) -> Result<Self> {
         if let Some(path) = std::env::var_os("METAL_OXIDE_COMPILER") {
             return Ok(Self::Executable(PathBuf::from(path).canonicalize()?));
         }
-        if let Some(source) = project.compiler_source() {
+        if let Some(source) = metadata.compiler_source() {
             return Ok(Self::Source(source));
         }
         let paths = std::env::var_os("PATH").unwrap_or_default();

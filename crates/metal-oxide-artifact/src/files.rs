@@ -7,7 +7,6 @@ pub enum ArtifactFile {
     OxideIr,
     Abi,
     Checks,
-    Bindings,
     RustcArgs,
     Air,
     Metallib,
@@ -21,7 +20,6 @@ impl ArtifactFile {
             Self::OxideIr => "kernels.oxide-ir",
             Self::Abi => "abi.json",
             Self::Checks => "checks.json",
-            Self::Bindings => "bindings.rs",
             Self::RustcArgs => "rustc-args.json",
             Self::Air => "kernels.ir",
             Self::Metallib => "kernels.metallib",
@@ -30,12 +28,11 @@ impl ArtifactFile {
     }
 }
 
-pub const COMPILER_OUTPUTS: [ArtifactFile; 6] = [
+pub const COMPILER_OUTPUTS: [ArtifactFile; 5] = [
     ArtifactFile::Msl,
     ArtifactFile::OxideIr,
     ArtifactFile::Abi,
     ArtifactFile::Checks,
-    ArtifactFile::Bindings,
     ArtifactFile::RustcArgs,
 ];
 
@@ -49,17 +46,15 @@ impl Files {
             oxide_ir: hash(ArtifactFile::OxideIr)?,
             ir: hash(ArtifactFile::Air)?,
             metallib: hash(ArtifactFile::Metallib)?,
-            bindings: hash(ArtifactFile::Bindings)?,
         })
     }
 
-    pub fn entries(&self) -> [(ArtifactFile, &str); 5] {
+    pub fn entries(&self) -> [(ArtifactFile, &str); 4] {
         [
             (ArtifactFile::Msl, &self.msl),
             (ArtifactFile::OxideIr, &self.oxide_ir),
             (ArtifactFile::Air, &self.ir),
             (ArtifactFile::Metallib, &self.metallib),
-            (ArtifactFile::Bindings, &self.bindings),
         ]
     }
 }

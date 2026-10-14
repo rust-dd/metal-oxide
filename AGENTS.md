@@ -60,7 +60,7 @@ working features. Add crates and modules when they have an implementation.
   types share validation.
 - Keep const block information in the configuration type. Host const generics
   do not specialize handwritten MSL. Future compiler variants and generated
-  bindings must carry and enforce any specialized block-shape requirements.
+  launch functions must carry and enforce any specialized block-shape requirements.
 - Preserve checks, assertions, address spaces, and numerical semantics. Reject
   unsupported operations explicitly; do not silently lower them differently.
 

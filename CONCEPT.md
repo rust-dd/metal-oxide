@@ -1,29 +1,32 @@
 # Compilation and execution
 
-metal-oxide compiles Rust compute kernels to Metal Shading Language (MSL).
-Apple's compiler builds the shader library, and a Rust host loads and launches
-its kernels through the metal-oxide runtime.
+metal-oxide compiles Rust compute kernels to Metal Shading Language (MSL). Kernels are
+written in ordinary crates; at build time the kernel macros hand their source to the
+metal-oxide compiler, Apple's compiler builds the shader library, and the host launches the
+kernels through generated functions and the metal-oxide runtime.
 
-This document follows `vec_add` through the compiler, ABI, generated bindings,
+This document follows `vec_add` through the compiler, ABI, launch functions,
 and execution. The example source is in [`examples/vec-add`](examples/vec-add).
 
 ## Build and runtime boundaries
 
 ```text
-       [Rust kernel]
+   [#[kernel] item in a host crate]
+             |
+   [kernel macro: device crate]
              |
         [rustc: MIR]
              |
        [importer: IR]
              |
-         [codegen] ----> ABI + bindings
-             |                 |
-            MSL                |
-             |                 |
-      [Apple compiler]         |
-             |                 |
-         .metallib             |
-             +-----------------+
+         [codegen] -------------> ABI
+             |                     |
+            MSL                    |
+             |                     |
+      [Apple compiler]   [kernel macro: launch functions]
+             |                     |
+         .metallib                 |
+             +---------------------+
              |
    [Rust host + runtime]
              |
@@ -34,34 +37,25 @@ There are three stages:
 
 | Stage | Input | Output |
 | --- | --- | --- |
-| Kernel build | A separate `no_std` Rust crate and its device dependencies | MSL, ABI, host bindings, and a `.metallib` |
-| Host build | Ordinary Rust application code and the generated bindings | A native macOS executable |
-| Execution | The executable, artifact, GPU buffers, and launch configuration | GPU commands and results |
+| Kernel build | The item's source as a `no_std` device crate, or a kernel crate, with their device dependencies | MSL, ABI, and a `.metallib` |
+| Host build | The host crate, whose kernel macros embed the library and generate launch functions | A native macOS executable |
+| Execution | The executable, GPU buffers, and launch configuration | GPU commands and results |
 
-`cargo metal run -p vec-add` coordinates all three. The compiler uses a pinned
-nightly rustc; the host and runtime build with stable Rust. The runtime depends on
-the artifact format and Metal bindings, with no dependency on `rustc_private`.
-The kernel build uses Cargo's release profile; `--release` selects the host
-profile separately.
-
-The host package identifies its kernel crate in `Cargo.toml`:
-
-```toml
-[package.metadata.metal]
-kernels = "../kernels/Cargo.toml"
-```
+`cargo build` runs the first two: the kernel macros run the kernel build inside the host
+build. The compiler uses a pinned nightly rustc; the host and runtime build with stable
+Rust. The runtime depends on the artifact format and Metal bindings, with no dependency on
+`rustc_private`. The kernel build uses Cargo's release profile; `--release` selects the
+host profile separately.
 
 ## Rust kernel and entrypoint marker
 
-The kernel crate contains ordinary Rust:
+A kernel is an ordinary Rust function in the host crate:
 
 ```rust
-#![no_std]
-
-use metal_oxide_device::{DisjointBuffer, ReadBuffer, kernel, thread_index};
+use metal_oxide::device::{DisjointBuffer, ReadBuffer, thread_index};
 
 /// Adds two buffers element by element; threads past the end of a buffer write nothing.
-#[kernel]
+#[metal_oxide::kernel]
 pub fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
     let index = thread_index();
     let a = a.as_slice();
@@ -76,12 +70,18 @@ pub fn vec_add(a: ReadBuffer<f32>, b: ReadBuffer<f32>, mut out: DisjointBuffer<f
 }
 ```
 
-`#[kernel]` adds an entrypoint marker that the compiler can find. The macro
-preserves the function body. MSL and host binding generation happen later. A safe `fn`
-kernel gets a safe launch method: the device API makes every operation that can race or
+On the host, `#[metal_oxide::kernel]` keeps the function in a hidden module, where rustc and
+rust-analyzer check it, and replaces it with a launch function of the same name. For the
+kernel build it copies the source file into a device crate under `target/metal/sources/`,
+with every character outside the item blanked so that each span keeps its line and column,
+and adds the device prelude. There `#[kernel]` adds an entrypoint marker that the compiler
+can find and preserves the function body. `#[metal_oxide::kernels]` does the same for an
+inline module, whose other items stay on the host too.
+
+A safe `fn` kernel launches safely: the device API makes every operation that can race or
 read out of bounds `unsafe`, so a safe kernel is safe by Rust's own checking, or by its
-author's promise for the `unsafe` blocks it contains. An `unsafe fn` kernel's method is
-`unsafe`, and its callers uphold the contract in its doc comment.
+author's promise for the `unsafe` blocks it contains. An `unsafe fn` kernel's launch function
+is `unsafe`, and its callers uphold the contract in its doc comment.
 
 `#[kernel(requires(a.len() == out.len(), b.len() == out.len()))]` lists relations between
 buffer lengths, integer parameters and literals, with `+`, `-` and `*`. Every launch checks
@@ -92,7 +92,7 @@ the kernel's entry, so the unguarded `*out = a.as_slice()[i] + b.as_slice()[i]` 
 
 `ReadBuffer`, `WriteBuffer`, and `ReadWriteBuffer` are device handles with explicit element access.
 They avoid handing every GPU thread an exclusive Rust reference to the same
-whole buffer. Read-write handles support in-place algorithms; their host bindings
+whole buffer. Read-write handles support in-place algorithms; their launch functions
 borrow the buffer exclusively, while the caller still ensures race-free GPU access.
 Inside the kernel entrypoint, a buffer parameter's `len()` is the element count the host
 bound, and `ReadBuffer::as_slice()` views it as a checked `&[T]`. A `DisjointBuffer`
@@ -111,7 +111,7 @@ Thread coordinates, math, and cooperative operations use bodyless
 `extern "Rust"` declarations behind the device API. Rustc type-checks the
 wrappers and calls. The importer checks the declaration's crate, module, and
 signature through its resolved `DefId`, then emits the corresponding IR
-operation. A normal CPU linker has no implementation for these GPU symbols.
+operation. On the host, where kernels are only checked, these functions panic.
 
 The device `math` module provides f32 `sqrt`, `fma`, `ln`, `exp`, `sin`,
 `cos`, `sin_cos`, `powf`, `tanh`, `atan`, `floor`, `round`, `ceil`, and `trunc`.
@@ -283,22 +283,20 @@ The compiler writes a diagnostic text dump of this structure to
 
 ## MSL and ABI generation
 
-Codegen produces three outputs from the imported program:
+Codegen produces two outputs from the imported program:
 
 | Function | Input | Output |
 | --- | --- | --- |
 | `metal_oxide_codegen::Codegen::new` | IR module | Validated codegen context and kernel parameter bindings |
 | `Codegen::emit` | Codegen context | MSL source |
 | `Codegen::abi` | The same context | In-memory `Abi` |
-| `metal_oxide_codegen::bindings` | `Abi` | Rust host source |
 
 The compiler restores parameter names from MIR debug information before writing
-the ABI and bindings.
+the ABI.
 
 The codegen context assigns binding indices once. MSL emission and ABI generation
 use that shared kernel interface. The MSL emitter also reads the IR for types and
-function bodies; it does not read `abi.json`. The binding generator consumes the
-in-memory ABI.
+function bodies; it does not read `abi.json`.
 
 ### MSL
 
@@ -392,7 +390,7 @@ relations, each as written and as a term over parameter indices.
 
 Buffer handles become Metal bindings. Values and buffer elements carry a
 canonical layout with size, alignment, field offsets, array stride, and padding.
-Generated record types implement `GpuValue` to encode/decode those bytes.
+Records that the host shares with kernels implement `GpuValue` to encode/decode those bytes.
 Scalars also use this representation; a `u32` value is four bytes. The host does not copy
 the memory layout of the Rust device handles into the shader.
 
@@ -400,23 +398,24 @@ Build-time and runtime consumers use this description:
 
 | When | Consumer | Use |
 | --- | --- | --- |
-| Kernel build | Binding generator | Produce typed host parameters and ordered `Argument` values |
 | Artifact build | `metal-oxide-build` | Embed the ABI in `manifest.json` |
-| Artifact loading | Runtime | Validate the manifest and bindings ABI hash; retain each kernel's ABI |
+| Host build | Kernel macros | Check the launch functions against it; define a kernel crate's host records |
+| Artifact loading | Runtime | Validate the manifest and the launch functions' ABI digest; retain each kernel's ABI |
 | Kernel launch | Runtime | Check argument count, scalar/element types, access modes, any required block shape, the one-dimensional launch of a thread-index kernel, and the kernel's `requires` relations |
 
 The Apple compiler compiles the MSL declarations, including their binding
-attributes. It does not generate our ABI file or Rust wrappers.
+attributes. It does not generate our ABI file or the launch functions.
 
-## Generated Rust bindings
+## Launch functions
 
-`bindings.rs` contains a `Kernels` struct, `load` and `load_bytes`, and one method
-per entrypoint that returns its `Launch` operation. Loading validates the complete
-ABI, including its embedded digest, and retains the module and a `Device` handle, so
-`Kernels` has no lifetime and is `Send + Sync`. Each pipeline is created on its
-first invocation and reused; concurrent first calls may create it twice and keep
-one. A pipeline failure is returned when that operation runs; unrelated entrypoints
-remain usable.
+The kernel macros generate one function per kernel, with the kernel's name and visibility,
+that takes the `Device`, the launch configuration and the kernel's arguments and returns
+its `Launch` operation. They derive it from the signature and check it against the built
+ABI: the kernels, their parameters' names, kinds and access, safety and block shape. The
+crate embeds the manifest and library in a hidden static. A `Device` loads an embedded
+library on its first launch, verifies the ABI digest the functions were generated for, and
+keeps the library and each kernel's pipeline for all of its clones. A load or pipeline
+failure is returned when that operation runs.
 
 The ABI determines the signature: read buffers accept a shared borrow, an exclusive
 borrow, an owned buffer or an `Arc` (`ReadArgument`); write, read-write and atomic
@@ -427,30 +426,42 @@ buffers come back after the GPU work. `sequence(|batch| ...)` pushes several
 operations into one ordered command buffer. Required block shapes remain encoded in
 the configuration type and checked by the runtime.
 
-A host can commit the generated bindings, manifest and metallib with its source:
+A `#[kernels]` module also gets `module(&device)`, its library as a `Module` for pipelines
+that code encodes itself. Its `#[repr(C)]` records that kernels take implement `GpuValue`
+with their Rust layout, which launches check against the ABI. With `path = "../kernels"`
+the module launches the kernels of a separate `no_std` kernel crate and defines a host
+struct for each record they take, whose layout const assertions check against the ABI.
 
-```rust
-mod kernels {
-    include!("generated/bindings.rs");
-}
+The macros track their inputs on stable Rust: the expansion includes the library, the
+compiler and a kernel crate's files through `include_bytes!` and reads the variables that
+steer kernel builds through `option_env!`, so Cargo rebuilds the crate when one changes.
+The artifact files a kernel build writes are dated 1970: Cargo would take files that appear
+during a build for changes and build the crate a second time.
+Under rust-analyzer the macros generate the launch functions without a kernel build.
 
-// Inside a host function returning metal_oxide::Result:
-let kernels = kernels::load_bytes(
-    &device,
-    include_str!("generated/manifest.json"),
-    include_bytes!("generated/kernels.metallib"),
-)?;
-```
+### Saved artifacts
 
-`Module::from_bytes` and directory loading share version, capability and library
-hash validation. The host's build and execution need no device compiler or Metal
-Toolchain when using these precompiled files. Rebuild the three files together
-when kernels or their ABI change. The numerical mode remains part of ABI identity.
+After each kernel build the macros save the artifact beside the crate's sources, in
+`metal/<file>/<item>-<math mode>/`: `manifest.json`, `kernels.metallib`, and `inputs.json`,
+which records what it was built from: a digest of the item's source with its file, name and
+dependencies, or of the kernel crate's path; the math mode; the registry and git packages
+from `Cargo.lock`; and digests of the path packages' files. The saved artifact stands in for
+a kernel build
+
+- in a package that Cargo fetched from a registry, a git repository or a vendor directory,
+  whose sources stay as published;
+- without the kernel toolchain, while its recorded inputs are unchanged;
+- with `METAL_OXIDE_ARTIFACTS=locked`, which builds no kernels and makes a missing or stale
+  saved artifact an error.
+
+A build with the toolchain rewrites a saved artifact whose inputs changed. Commit and
+publish the `metal/` directory. A removed kernel leaves its directory behind; deleting
+`metal/` and building again keeps only the current ones.
 
 ## Apple compilation and artifact
 
-`metal-oxide-build`, the library behind `cargo-metal` and build scripts, invokes the
-Apple compiler in two steps:
+`metal-oxide-build`, the library behind the kernel macros, invokes the Apple compiler in
+two steps:
 
 ```sh
 xcrun -sdk macosx metal \
@@ -462,10 +473,10 @@ xcrun -sdk macosx metal kernels.ir -o kernels.metallib
 ```
 
 When `xcrun` cannot locate the compiler, it also resolves the installed
-Metal Toolchain component. The default `--math-mode precise` uses safe math,
+Metal Toolchain component. The default precise math mode uses safe math,
 precise floating-point functions, and disabled floating-point contraction.
 
-`cargo metal build|run|test|inspect --math-mode fast` selects Metal's relaxed
+`#[kernels(math = "fast")]` selects Metal's relaxed
 arithmetic mode, fast f32 functions and fast contraction. It permits reciprocal
 approximations and reassociation, including fusion across statements. Arithmetic
 honors NaN and infinity; zero signs are unspecified. Float-to-integer casts still
@@ -484,7 +495,7 @@ defines the full function contracts.
 Generated MSL carries the numerical pragmas and explicit `precise::`/`fast::`
 calls, so `Module::from_source` uses the same contract as offline compilation.
 The mode is required in the ABI and participates in the Rust build cache,
-artifact fingerprint and generated binding identity. Mismatched Metal flags,
+artifact fingerprint and saved artifact name. Mismatched Metal flags,
 unknown modes and artifacts missing this field are rejected. Rebuild development
 artifacts after format changes, including the shared ABI tables; the pre-release
 ABI version remains 4.
@@ -497,13 +508,12 @@ The artifact is stored under `target/metal/<build-hash>/`:
 | `rustc-args.json` | Compiler driver | Effective kernel compiler arguments, included in the build identity |
 | `kernels.metal` | MSL codegen | Input to the Apple compiler; inspectable shader source |
 | `abi.json` | ABI codegen | Standalone kernel contract |
-| `bindings.rs` | Binding codegen | Compiled into the host |
 | `kernels.ir` | Apple compiler | Apple's intermediate code used to build the library |
 | `kernels.metallib` | Apple compiler | Loaded by the runtime |
 | `manifest.json` | `metal-oxide-build` | ABI, requirements, file hashes, and build identity |
 
 `kernels.oxide-ir` and `kernels.ir` are different representations produced
-by different compilers. The runtime consumes `manifest.json` and
+by different compilers. The host embeds `manifest.json` and
 `kernels.metallib`; diagnostic IR is for inspection. `cargo metal inspect --emit ir`,
 `--emit msl` and `--emit air` print the first two and the AIR as text.
 
@@ -513,30 +523,21 @@ Cache reuse checks the generated files against the manifest.
 
 ## Host build and launch
 
-`cargo-metal` passes `METAL_OXIDE_BINDINGS` and `METAL_OXIDE_ARTIFACT_DIR`
-to the ordinary host Cargo build. The host includes the generated source and
-uses the artifact path when loading kernels.
-
-A minimal macOS host using the generated `vec_add` bindings is:
+A minimal macOS host is the kernel above and the code that launches it:
 
 ```rust
 use metal_oxide::{Device, LaunchConfig, Operation};
 
-mod kernels {
-    include!(env!("METAL_OXIDE_BINDINGS"));
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let n = 257_u32;
     let device = Device::system_default()?;
-    let kernels = kernels::load(&device, env!("METAL_OXIDE_ARTIFACT_DIR"))?;
 
     let a = device.buffer_from_slice(&vec![1.0_f32; n as usize])?;
     let b = device.buffer_from_slice(&vec![2.0_f32; n as usize])?;
     let mut out = device.buffer_zeroed::<f32>(n as usize)?;
     let config = LaunchConfig::<256>::for_elements(n)?;
 
-    kernels.vec_add(config, &a, &b, &mut out).wait()?;
+    vec_add(&device, config, &a, &b, &mut out).wait()?;
 
     assert!(out.read().wait().iter().all(|&value| value == 3.0));
     Ok(())
@@ -548,24 +549,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 511 find no element of `out`, so `get_mut` returns `None` and they write nothing.
 
 The launch configuration controls dispatch geometry; the bound buffers' lengths
-bound the kernel's accesses. The wrapper takes four values after `self`: the
-configuration and three kernel arguments.
+bound the kernel's accesses. The launch function takes the device, the configuration
+and the three kernel arguments.
 
 When an entrypoint declares `#[kernel(block = (256, 1, 1))]`, its ABI records
-that shape and the wrapper accepts the matching `LaunchConfig` type.
-`vec_add` has no required shape, so its wrapper accepts const or dynamic
+that shape and the launch function accepts the matching `LaunchConfig` type.
+`vec_add` has no required shape, so it accepts const or dynamic
 configuration. Host const generics alone do not specialize the shader.
 
 The runtime performs these steps:
 
 1. `Device::system_default` requires macOS 15, creates the GPU context and
    selects a native backend.
-2. `Module::from_artifact` reads the manifest, validates its format and
-   requirements, verifies the library bytes, and loads those bytes into Metal.
-3. On the first invocation, `Pipeline::new` selects `vec_add`, creates the native
-   compute pipeline, and retains that entrypoint's ABI. Later calls reuse it.
-4. The generated `vec_add` wrapper returns a `Launch` operation that holds the
-   pipeline, the configuration and the arguments; nothing is encoded yet.
+2. `vec_add` returns a `Launch` operation that holds the device, the embedded library,
+   the configuration and the arguments; nothing is loaded or encoded yet.
+3. On the device's first launch from that library, it validates the manifest's format
+   and requirements, verifies the library bytes and the ABI digest, and loads the bytes
+   into Metal. It then creates the native `vec_add` pipeline and retains that
+   entrypoint's ABI. Later launches through any clone of the device reuse both.
 5. `wait` (or the first poll of its future) creates a `Batch`, which binds the three
    ordered arguments, checks resource context, ABI types/access, block
    requirements, the one-dimensional launch of a kernel that reads its thread index,
@@ -604,15 +605,15 @@ which replays the dispatches and attributes their instructions to Rust lines:
 1. The kernels build into a separate artifact under `target/metal/` whose library holds
    line tables and its compile inputs (`-gline-tables-only -frecord-sources`), with
    `-fdebug-compilation-dir` at the kernel workspace so the relative paths of the
-   `#line` directives resolve. Committed artifacts never carry them.
+   `#line` directives resolve. Saved artifacts never carry them.
 2. The host runs with `METAL_CAPTURE_ENABLED=1` and `METAL_OXIDE_CAPTURE` set to the
    absolute trace path. The first `Device` of the process captures the native device,
    which covers every queue of both backends, and stops when its last clone, including
    those its pipelines hold, drops.
 
 Metal does not replace an existing trace, and later devices of the process are not
-recorded, so give `test` a filter that selects the test to capture. Hosts that embed a
-committed artifact capture with the two variables, without Rust lines.
+recorded, so give `test` a filter that selects the test to capture. Kernels from saved
+artifacts, as in a dependency, are captured without Rust lines.
 
 ## Native resource ownership
 
@@ -679,17 +680,18 @@ forcing Metal 4 on an unsupported device returns an error.
 
 | Responsibility | Source |
 | --- | --- |
+| Kernel macros and launch functions | [`kernels/src/lib.rs`](crates/metal-oxide-kernels/src/lib.rs), [`launch.rs`](crates/metal-oxide-kernels/src/launch.rs), [`device.rs`](crates/metal-oxide-kernels/src/device.rs) |
 | Entrypoint marker | [`metal-oxide-macros/src/lib.rs`](crates/metal-oxide-macros/src/lib.rs) |
 | Rustc callbacks | [`compiler/src/driver.rs`](crates/metal-oxide-compiler/src/driver.rs) |
 | Entries and concrete instances | [`compiler/src/collect.rs`](crates/metal-oxide-compiler/src/collect.rs), [`monomorphize.rs`](crates/metal-oxide-compiler/src/monomorphize.rs) |
 | MIR import and intrinsic lowering | [`compiler/src/import/mod.rs`](crates/metal-oxide-compiler/src/import/mod.rs) |
 | IR data and validation | [`ir/src/model.rs`](crates/metal-oxide-ir/src/model.rs), [`validate.rs`](crates/metal-oxide-ir/src/validate.rs) |
-| MSL, ABI, and bindings | [`codegen/src/emit.rs`](crates/metal-oxide-codegen/src/emit.rs), [`abi.rs`](crates/metal-oxide-codegen/src/abi.rs), [`bindings.rs`](crates/metal-oxide-codegen/src/bindings.rs) |
+| MSL and ABI | [`codegen/src/emit.rs`](crates/metal-oxide-codegen/src/emit.rs), [`abi.rs`](crates/metal-oxide-codegen/src/abi.rs) |
 | Compiler output files | [`compiler/src/output.rs`](crates/metal-oxide-compiler/src/output.rs) |
 | Artifact model and validation | [`artifact/src/model.rs`](crates/metal-oxide-artifact/src/model.rs), [`validate.rs`](crates/metal-oxide-artifact/src/validate.rs) |
 | Kernel build and Apple compiler | [`build/src/rust.rs`](crates/metal-oxide-build/src/rust.rs), [`toolchain.rs`](crates/metal-oxide-build/src/toolchain.rs) |
 | Manifest and cache | [`build/src/compile.rs`](crates/metal-oxide-build/src/compile.rs), [`cache.rs`](crates/metal-oxide-build/src/cache.rs) |
-| Committed artifacts in build scripts | [`build/src/artifact.rs`](crates/metal-oxide-build/src/artifact.rs), [`recorded.rs`](crates/metal-oxide-build/src/recorded.rs) |
-| CLI and host build | [`cargo-metal/src/build.rs`](crates/cargo-metal/src/build.rs) |
-| Library loading and launch validation | [`runtime/metal/module.rs`](crates/metal-oxide/src/metal/module.rs), [`pipeline.rs`](crates/metal-oxide/src/metal/pipeline.rs) |
+| Device crates, reuse and saved artifacts | [`build/src/source.rs`](crates/metal-oxide-build/src/source.rs), [`kernel_crate.rs`](crates/metal-oxide-build/src/kernel_crate.rs), [`saved.rs`](crates/metal-oxide-build/src/saved.rs), [`recorded.rs`](crates/metal-oxide-build/src/recorded.rs) |
+| CLI | [`cargo-metal/src/setup.rs`](crates/cargo-metal/src/setup.rs), [`run.rs`](crates/cargo-metal/src/run.rs), [`inspect.rs`](crates/cargo-metal/src/inspect.rs) |
+| Library loading and launch validation | [`runtime/metal/library.rs`](crates/metal-oxide/src/metal/library.rs), [`module.rs`](crates/metal-oxide/src/metal/module.rs), [`pipeline.rs`](crates/metal-oxide/src/metal/pipeline.rs) |
 | Operations and native paths | [`runtime/metal/operation.rs`](crates/metal-oxide/src/metal/operation.rs), [`batch.rs`](crates/metal-oxide/src/metal/batch.rs), [`backend.rs`](crates/metal-oxide/src/metal/backend.rs) |

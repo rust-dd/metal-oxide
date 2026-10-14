@@ -7,6 +7,12 @@ use metal_oxide_artifact::{
 
 /// Loads generated kernels as an artifact: offline MSL compilation and a manifest of the outputs.
 pub fn module(device: &Device, directory: &Path) -> metal_oxide::Result<Module> {
+    let (manifest, metallib) = manifest(directory)?;
+    Module::from_bytes(device, &manifest.to_json()?, &metallib)
+}
+
+/// The manifest and library of generated kernels, compiled offline.
+pub fn manifest(directory: &Path) -> metal_oxide::Result<(Manifest, Vec<u8>)> {
     let metal_flags = metal_oxide_build::compile_msl(directory).unwrap();
     let read = |file: ArtifactFile| std::fs::read(directory.join(file.name())).unwrap();
     let manifest = Manifest {
@@ -25,7 +31,7 @@ pub fn module(device: &Device, directory: &Path) -> metal_oxide::Result<Module> 
             metal_flags,
         },
     };
-    Module::from_bytes(device, &manifest.to_json()?, &read(ArtifactFile::Metallib))
+    Ok((manifest, read(ArtifactFile::Metallib)))
 }
 
 /// Loads kernels generated directly from IR, writing the outputs the compiler would.
@@ -44,10 +50,6 @@ pub fn ir_module(device: &Device, ir: &metal_oxide_ir::Module) -> metal_oxide::R
     write(
         ArtifactFile::Checks,
         serde_json::to_vec(codegen.checks()).unwrap(),
-    )?;
-    write(
-        ArtifactFile::Bindings,
-        metal_oxide_codegen::bindings(&abi).unwrap().into_bytes(),
     )?;
     module(device, &directory)
 }

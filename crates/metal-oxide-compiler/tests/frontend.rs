@@ -85,7 +85,7 @@ fn rust_borrow_errors_are_reported() {
 }
 
 #[test]
-fn safe_kernels_get_safe_launch_methods() {
+fn safe_kernels_record_their_safety_in_the_abi() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/safe_kernel.rs",
         &[],
@@ -93,9 +93,6 @@ fn safe_kernels_get_safe_launch_methods() {
     support::checked(output);
     let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
     assert!(abi.contains("\"safe\": true"), "{abi}");
-    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("    pub fn r#vec_add<"), "{bindings}");
-    assert!(!bindings.contains("unsafe fn"), "{bindings}");
 }
 
 #[test]

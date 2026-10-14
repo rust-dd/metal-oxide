@@ -3,8 +3,7 @@ use metal_oxide_artifact::MathMode;
 
 use crate::{Result, kernels, validation::compare};
 
-pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
-    let kernels = kernels::load(device, directory)?;
+pub fn run(device: &Device, mode: MathMode) -> Result<()> {
     let source = include_str!("../euler.metal");
     let source = if mode == MathMode::Fast {
         source.replace("precise::", "fast::").replace(
@@ -25,18 +24,18 @@ pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
         let mut expected = device.buffer_zeroed::<f32>(generated.len())?;
         // SAFETY: both kernels own four outputs per active path/step cell.
         unsafe {
-            kernels
-                .sample_jumps(
-                    LaunchConfig::<64>::for_elements(rows * steps)?,
-                    &mut generated,
-                    rows,
-                    steps,
-                    first,
-                    seed,
-                    shape,
-                    intensity,
-                )
-                .wait()?;
+            kernels::sample_jumps(
+                device,
+                LaunchConfig::<64>::for_elements(rows * steps)?,
+                &mut generated,
+                rows,
+                steps,
+                first,
+                seed,
+                shape,
+                intensity,
+            )
+            .wait()?;
             Launch::new(
                 Ok(&native),
                 LaunchConfig::<64>::for_elements(rows * steps)?,
@@ -99,7 +98,8 @@ pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
             let mut chunk = device.buffer_zeroed::<f32>((steps * 4) as usize)?;
             // SAFETY: one complete path, with the same global key as the full launch.
             unsafe {
-                kernels.sample_jumps(
+                kernels::sample_jumps(
+                    device,
                     LaunchConfig::<32>::for_elements(steps)?,
                     &mut chunk,
                     1,
@@ -119,8 +119,8 @@ pub fn run(device: &Device, directory: &str, mode: MathMode) -> Result<()> {
             "Euler draw chunk invariance"
         );
     }
-    history(device, &kernels)?;
-    series(device, &kernels)?;
+    history(device)?;
+    series(device)?;
     println!(
         "Euler: count/gamma/jump parity, program/history/lift/series/table and chunk invariance"
     );
@@ -176,7 +176,7 @@ fn evaluate(program: &[(u32, f32)], curve: f32, state: f32) -> f32 {
     stack[0]
 }
 
-fn history(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
+fn history(device: &Device) -> Result<()> {
     let program = [
         (0, 0.0),
         (1, 0.0),
@@ -246,7 +246,8 @@ fn history(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
         // SAFETY: the program has a valid stack of depth <= 8; all rows and curves
         // cover steps <= 512. The history and lift arrays are private per lane.
         unsafe {
-            kernels.history_program(
+            kernels::history_program(
+                device,
                 LaunchConfig::<32>::for_elements(rows)?,
                 &mut actual,
                 &curve,
@@ -268,7 +269,7 @@ fn history(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
     Ok(())
 }
 
-fn series(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
+fn series(device: &Device) -> Result<()> {
     let events = [0.0, 0.5, 0.125, 0.25, 0.3, -0.125, 1.0, 0.75];
     let table = [0.0, 0.25, 0.25, 0.4, 0.6];
     let (rows, steps) = (3, 33);
@@ -301,7 +302,8 @@ fn series(device: &Device, kernels: &kernels::Kernels) -> Result<()> {
     let table_buffer = device.buffer_from_slice(&table)?;
     // SAFETY: input pairs and monotone table cover their counts; every row is complete.
     unsafe {
-        kernels.series_clock(
+        kernels::series_clock(
+            device,
             LaunchConfig::<32>::for_elements(rows)?,
             &mut output,
             &events_buffer,

@@ -3,7 +3,7 @@ use metal_oxide::{
 };
 
 pub(super) enum Program {
-    Generated(super::kernels::Kernels),
+    Generated(Device),
     Reference(Reference),
 }
 pub(super) struct Reference {
@@ -14,11 +14,8 @@ pub(super) struct Reference {
     scatter: Pipeline,
 }
 impl Program {
-    pub(super) fn generated(device: &Device) -> Result<Self> {
-        Ok(Self::Generated(super::kernels::load(
-            device,
-            env!("METAL_OXIDE_ARTIFACT_DIR"),
-        )?))
+    pub(super) fn generated(device: &Device) -> Self {
+        Self::Generated(device.clone())
     }
     pub(super) fn reference(device: &Device) -> Result<Self> {
         let module = Module::from_source(
@@ -44,8 +41,8 @@ impl Program {
         // SAFETY: the workload supplies matching bounds, initialized resources, and ordered passes.
         unsafe {
             match self {
-                Self::Generated(kernels) => batch
-                    .push(kernels.histogram(config, input, bins, n))
+                Self::Generated(device) => batch
+                    .push(super::kernels::histogram(device, config, input, bins, n))
                     .map(drop),
                 Self::Reference(kernels) => batch
                     .push(Launch::new(
@@ -76,8 +73,10 @@ impl Program {
         // SAFETY: the workload supplies matching bounds, initialized resources, and ordered passes.
         unsafe {
             match self {
-                Self::Generated(kernels) => batch
-                    .push(kernels.block_scan(config, input, prefix, totals, n))
+                Self::Generated(device) => batch
+                    .push(super::kernels::block_scan(
+                        device, config, input, prefix, totals, n,
+                    ))
                     .map(drop),
                 Self::Reference(kernels) => batch
                     .push(Launch::new(
@@ -109,8 +108,10 @@ impl Program {
         // SAFETY: the workload supplies matching bounds, initialized resources, and ordered passes.
         unsafe {
             match self {
-                Self::Generated(kernels) => batch
-                    .push(kernels.add_offsets(config, local, offsets, output, n))
+                Self::Generated(device) => batch
+                    .push(super::kernels::add_offsets(
+                        device, config, local, offsets, output, n,
+                    ))
                     .map(drop),
                 Self::Reference(kernels) => batch
                     .push(Launch::new(
@@ -141,9 +142,9 @@ impl Program {
         // SAFETY: the workload supplies matching bounds, initialized resources, and ordered passes.
         unsafe {
             match self {
-                Self::Generated(kernels) => {
-                    batch.push(kernels.mark(config, input, flags, n)).map(drop)
-                }
+                Self::Generated(device) => batch
+                    .push(super::kernels::mark(device, config, input, flags, n))
+                    .map(drop),
                 Self::Reference(kernels) => batch
                     .push(Launch::new(
                         Ok(&kernels.mark),
@@ -176,8 +177,10 @@ impl Program {
         // SAFETY: the workload supplies matching bounds, initialized resources, and ordered passes.
         unsafe {
             match self {
-                Self::Generated(kernels) => batch
-                    .push(kernels.scatter(config, input, flags, prefix, output, count, n))
+                Self::Generated(device) => batch
+                    .push(super::kernels::scatter(
+                        device, config, input, flags, prefix, output, count, n,
+                    ))
                     .map(drop),
                 Self::Reference(kernels) => batch
                     .push(Launch::new(

@@ -41,6 +41,14 @@ pub(crate) fn forward(arguments: &mut Vec<String>) -> Option<ExitCode> {
         if let Ok(mode) = std::env::var("METAL_OXIDE_CARGO_MATH_MODE") {
             arguments.extend(["--metal-math-mode".into(), mode]);
         }
+        // Kernels copied from a host crate keep its positions, so their crate root cannot
+        // declare `no_std`; the host build already reports their warnings.
+        if std::env::var_os("METAL_OXIDE_CARGO_SOURCE").is_some() {
+            arguments.extend([
+                "-Zcrate-attr=no_std".into(),
+                "-Zcrate-attr=allow(warnings)".into(),
+            ]);
+        }
     }
     None
 }

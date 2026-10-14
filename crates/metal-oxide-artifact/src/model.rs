@@ -136,7 +136,6 @@ pub struct Files {
     pub oxide_ir: String,
     pub ir: String,
     pub metallib: String,
-    pub bindings: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -90,7 +90,11 @@ fn changed_files_and_lock_entries_are_not_current() {
     let recorded = Recorded {
         format: FORMAT,
         artifact: "0".repeat(64),
-        math_mode: MathMode::Fast,
+        request: Request {
+            source: sha256(b"kernels"),
+            math_mode: MathMode::Fast,
+            debug_info: false,
+        },
         lock: "../Cargo.lock".into(),
         packages: vec![lock_entries(LOCK)[1].clone()],
         files: BTreeMap::from([("src/lib.rs".into(), sha256(b"#![no_std]\n"))]),

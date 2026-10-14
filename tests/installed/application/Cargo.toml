@@ -1,0 +1,9 @@
+[package]
+name = "installed"
+edition.workspace = true
+publish.workspace = true
+version.workspace = true
+
+[dependencies]
+installed-helper = { workspace = true }
+metal-oxide = { workspace = true }

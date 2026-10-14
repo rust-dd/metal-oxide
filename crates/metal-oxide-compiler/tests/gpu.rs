@@ -40,6 +40,8 @@ macro_rules! record {
 mod aggregate_references;
 #[path = "gpu/aggregates.rs"]
 mod aggregates;
+#[path = "gpu/artifact.rs"]
+mod artifact;
 #[path = "gpu/atomics.rs"]
 mod atomics;
 #[path = "gpu/checks.rs"]

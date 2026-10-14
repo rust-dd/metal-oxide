@@ -47,7 +47,7 @@ pub(crate) fn write<'tcx>(
             }
         }
     }
-    let bindings = metal_oxide_codegen::bindings(&abi)?;
+    abi.validate()?;
     let abi = abi.to_json()?;
     std::fs::write(directory.join(ArtifactFile::Msl.name()), msl)?;
     std::fs::write(directory.join(ArtifactFile::Abi.name()), abi)?;
@@ -55,7 +55,6 @@ pub(crate) fn write<'tcx>(
         directory.join(ArtifactFile::Checks.name()),
         serde_json::to_vec_pretty(codegen.checks())?,
     )?;
-    std::fs::write(directory.join(ArtifactFile::Bindings.name()), bindings)?;
     std::fs::write(
         directory.join(ArtifactFile::RustcArgs.name()),
         serde_json::to_vec_pretty(arguments)?,

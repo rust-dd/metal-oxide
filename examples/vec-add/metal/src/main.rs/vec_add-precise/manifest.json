@@ -1,0 +1,163 @@
+{
+  "abi": {
+    "version": 4,
+    "math_mode": "precise",
+    "required_features": [],
+    "types": [
+      {
+        "size": 4,
+        "alignment": 4,
+        "kind": {
+          "kind": "scalar",
+          "scalar": "f32"
+        }
+      }
+    ],
+    "signatures": [
+      [
+        {
+          "name": "a",
+          "binding": 0,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "b",
+          "binding": 1,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "read"
+          }
+        },
+        {
+          "name": "out",
+          "binding": 2,
+          "ty": {
+            "kind": "buffer",
+            "element": 0,
+            "stride": 4,
+            "access": "write"
+          }
+        }
+      ]
+    ],
+    "kernels": [
+      {
+        "name": "vec_add",
+        "signature": 0,
+        "required_block": null,
+        "gate_binding": 3,
+        "fallible": false,
+        "lengths": true,
+        "one_dimensional": true,
+        "safe": true,
+        "requires": [
+          {
+            "relation": "a.len() == out.len()",
+            "left": {
+              "length": 0
+            },
+            "comparison": "eq",
+            "right": {
+              "length": 2
+            }
+          },
+          {
+            "relation": "b.len() == out.len()",
+            "left": {
+              "length": 1
+            },
+            "comparison": "eq",
+            "right": {
+              "length": 2
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "checks": [],
+  "target": "metal64-unknown-none",
+  "msl_version": "3.2",
+  "files": {
+    "msl": "aca3033c9e09ef0dbd5c977520ced76d2670ce35368696a8401e736f6be5cde9",
+    "oxide_ir": "eab768e6b60d484e52489f973c752c8b7135f9ce1c4a9bc0f43ce155bc718d15",
+    "ir": "6a98e163de9daa4cd9b1548f72660c5640e71d1dd6dce279c624bf268d6c6947",
+    "metallib": "2b4d03573a94cd4caa0de463ab6a4349f07af4e72d409769b1e8adff5fed9276"
+  },
+  "build": {
+    "fingerprint": "8ff63531e1e20e6f6f1641bfb0b5c9960d83caecf34ce9e329a83c3035762a76",
+    "compiler": "aa68a60116d4279a90d0c1b885cac4e2d4c1928f9d48bd77c73407f657c8464a",
+    "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
+    "metal": "Apple metal version 32023.883 (metalfe-32023.883)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /Users/danixx/Library/Developer/DVTDownloads/MetalToolchain/mounts/5f4a441a6d0a11f2e9b28c67384263afe92320f7/Metal.xctoolchain/usr/metal/current/bin",
+    "sdk": "26.5",
+    "rustc_args": [
+      "-Zunstable-options",
+      "--crate-name",
+      "metal_oxide_kernels_83c404e35e7ef3ce",
+      "--edition=2024",
+      "examples/vec-add/src/main.rs",
+      "--error-format=json",
+      "--json=diagnostic-rendered-ansi,artifacts,future-incompat,unused-externs-silent",
+      "--crate-type",
+      "lib",
+      "--emit=dep-info,metadata",
+      "-C",
+      "opt-level=3",
+      "-C",
+      "embed-bitcode=no",
+      "--check-cfg",
+      "cfg(docsrs,test)",
+      "--check-cfg",
+      "cfg(feature, values())",
+      "-C",
+      "metadata=a0f637e83eebace3",
+      "-C",
+      "extra-filename=-c8f2a756b684da13",
+      "--out-dir",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/metal-oxide-kernels-83c404e35e7ef3ce/c8f2a756b684da13/out",
+      "--target",
+      "/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/metal64-unknown-none.json",
+      "-Zunstable-options",
+      "-C",
+      "strip=debuginfo",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/metal-oxide-macros/497325279becf239/out",
+      "-L",
+      "dependency=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/release/build/metal-oxide-kernels-83c404e35e7ef3ce/c8f2a756b684da13/out",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:compiler_builtins=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/compiler_builtins/54278bf0bd98e551/out/libcompiler_builtins-54278bf0bd98e551.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "noprelude,nounused:core=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/core/47ad8b7e0cf7192b/out/libcore-47ad8b7e0cf7192b.rmeta",
+      "--extern",
+      "metal_oxide=/Users/danixx/Desktop/metal-oxide/.claude/worktrees/buffer-lengths/target/metal/rust/760392cb2d5f697fe75514d2f1df3bf9bc6a1b0c50f896aa70764e2bb2b57cbb/metal64-unknown-none/release/build/metal-oxide-device/a95972460302bd72/out/libmetal_oxide_device-a95972460302bd72.rmeta",
+      "-Z",
+      "unstable-options",
+      "--force-warn=unused_crate_dependencies",
+      "-Zcrate-attr=no_std",
+      "-Zcrate-attr=allow(warnings)"
+    ],
+    "metal_flags": [
+      "-std=metal3.2",
+      "-mmacosx-version-min=15.0",
+      "-fmetal-math-mode=safe",
+      "-fmetal-math-fp32-functions=precise",
+      "-ffp-contract=off",
+      "-O2"
+    ]
+  }
+}

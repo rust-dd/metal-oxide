@@ -1,9 +1,5 @@
 [package]
-name = "external-helper"
+name = "installed-helper"
 edition.workspace = true
-license.workspace = true
 publish.workspace = true
 version.workspace = true
-
-[lints]
-workspace = true

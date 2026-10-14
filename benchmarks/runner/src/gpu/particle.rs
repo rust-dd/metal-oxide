@@ -1,6 +1,6 @@
 use super::*;
 use metal_oxide::{Argument, LaunchConfig};
-use records::{Config as ParticleConfig, Motion, Particle};
+use particle_update::particles::{Config as ParticleConfig, Motion, Particle, advance};
 
 pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Case> {
     let n = config.elements;
@@ -36,20 +36,7 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         let start = Instant::now();
         let expected = values
             .iter()
-            .map(|original| {
-                let mut value = *original;
-                if value.tag != 0 {
-                    for _ in 0..2 {
-                        value.motion.velocity[0] += parameters.acceleration.0 * parameters.dt;
-                        value.motion.velocity[1] += parameters.acceleration.1 * parameters.dt;
-                        value.motion.position.0 += value.motion.velocity[0] * parameters.dt;
-                        value.motion.position.1 += value.motion.velocity[1] * parameters.dt;
-                    }
-                    value.flags = value.flags.wrapping_add(2);
-                    value.color[1] = original.color[0];
-                }
-                value
-            })
+            .map(|particle| advance::<2>(*particle, parameters))
             .collect::<Vec<_>>();
         let cpu = elapsed(start);
         let start = Instant::now();
@@ -60,8 +47,8 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         output.upload();
         let upload = elapsed(start);
         let mut sample = dispatch(|batch| {
-            // SAFETY: generated codecs match the shared layouts; the generated kernel stops at the
-            // buffer lengths, the handwritten one at n, which both distinct buffers cover.
+            // SAFETY: the records' codecs match the shared layouts; the generated kernel stops at
+            // the buffer lengths, the handwritten one at n, which both distinct buffers cover.
             unsafe {
                 if variant == "rust" {
                     batch

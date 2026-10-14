@@ -1,11 +1,15 @@
-#[cfg(metal_oxide_bench)]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod gpu;
-#[cfg(any(test, metal_oxide_bench))]
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 mod stats;
 
+/// Runs the workloads of the configuration that `scripts/bench.py` writes.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(metal_oxide_bench)]
-    return gpu::run();
-    #[cfg(not(metal_oxide_bench))]
-    Err("build and run with python3 scripts/bench.py".into())
+    gpu::run()
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn main() {
+    eprintln!("benchmarks run on macOS with Apple Silicon");
 }

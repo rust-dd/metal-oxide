@@ -2,14 +2,12 @@
 
 mod arithmetic;
 mod atomics;
-mod bindings;
 mod checks;
 mod control;
 mod emit;
 mod expressions;
 mod floating;
 mod gates;
-mod host_types;
 mod integer;
 mod interface;
 mod layout;
@@ -24,8 +22,6 @@ use checks::CheckTable;
 use interface::KernelInterfaces;
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::{Error, FunctionAnalysis, Module};
-
-pub use bindings::bindings;
 
 /// Validated IR and its shared kernel parameter bindings.
 #[derive(Debug)]

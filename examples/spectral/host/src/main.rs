@@ -1,26 +1,35 @@
-#[cfg(any(test, metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod cpu;
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod euler;
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod fgn;
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod native;
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod sheet;
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod validation;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
-#[allow(dead_code)]
-mod kernels {
-    include!(env!("METAL_OXIDE_BINDINGS"));
-}
+#[cfg_attr(
+    feature = "fast",
+    metal_oxide::kernels(path = "../kernels", math = "fast")
+)]
+#[cfg_attr(not(feature = "fast"), metal_oxide::kernels(path = "../kernels"))]
+mod kernels {}
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+/// The numerical mode of the kernels, which the native references follow.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const MATH_MODE: metal_oxide_artifact::MathMode = if cfg!(feature = "fast") {
+    metal_oxide_artifact::MathMode::Fast
+} else {
+    metal_oxide_artifact::MathMode::Precise
+};
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn main() -> Result<()> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     if arguments.is_empty() {
@@ -49,22 +58,16 @@ fn main() -> Result<()> {
     }
 }
 
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact)))]
-fn main() -> std::process::ExitCode {
-    eprintln!("run with cargo metal run -p spectral on macOS Apple Silicon");
-    std::process::ExitCode::FAILURE
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+fn main() {
+    eprintln!("spectral runs on macOS with Apple Silicon");
 }
 
-#[cfg(all(
-    test,
-    target_os = "macos",
-    target_arch = "aarch64",
-    metal_oxide_artifact
-))]
+#[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[test]
-#[ignore = "requires a Metal device and generated artifact"]
+#[ignore = "requires a Metal device"]
 fn generated_spectral_kernels_match_cpu_and_native() {
     validation::run().unwrap();
 }
-#[cfg(all(target_os = "macos", target_arch = "aarch64", metal_oxide_artifact))]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod bench;

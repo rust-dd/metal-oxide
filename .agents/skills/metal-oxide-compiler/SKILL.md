@@ -19,7 +19,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   Generic buffer handles and helpers need monomorphization from the start.
 - Carry const block dimensions from typed launch configurations into
   shape-dependent kernel variants. Record the shape in artifact metadata and
-  cache keys; generated bindings must enforce the matching configuration type
+  cache keys; generated launch functions must enforce the matching configuration type
   or validate a dynamic shape. Host const generics alone do not specialize MSL.
 - Keep IR/codegen/artifact contracts independent of rustc_private. Track types,
   source locations, address spaces, and resource access explicitly in IR.
@@ -31,7 +31,7 @@ Implement the next acceptance criterion; create crates when their code is needed
   (`thread_position_in_grid.x`), which proofs treat as one value however often it is read.
   A kernel that reads it, directly or through a helper, records `one_dimensional` in its
   ABI, and the runtime rejects other launches.
-- A safe `fn` kernel records `safe` in its ABI and gets a safe binding method.
+- A safe `fn` kernel records `safe` in its ABI and gets a safe launch function.
   `#[kernel(requires(...))]` relations are parsed from their source text (lengths of buffer
   parameters, integer parameters, literals, `+ - *`, one comparison) into the kernel's IR and
   ABI; proofs assume those over plain atoms at entry, and an assumed equality makes its two
@@ -105,9 +105,11 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Validate cooperative participation transitively through helpers. Varying
   branches, early returns, and loops must not bypass required barriers or SIMD
   collectives. Threadgroup allocations have distinct storage per callsite.
-- Emit one binding per entrypoint that returns its `Launch` operation, generic over
-  the borrowed, owned and `Arc` buffer forms, and enforce the const block shape and
-  parameter types.
+- The kernel macros generate one launch function per entrypoint from its signature,
+  generic over the borrowed, owned and `Arc` buffer forms, returning its `Launch`;
+  they check it against the built ABI and enforce the const block shape. Kernels in a
+  host crate build from a copy of their file in which everything outside the item is
+  blanked, so spans keep their lines and columns.
 - Keep MSL supported; direct AIR is deferred until measurements justify it.
 
 Run compiler tests and Clippy from `crates/metal-oxide-compiler` with
@@ -118,7 +120,7 @@ marker macro natively; preserve that target separation.
 
 Use UI diagnostics, IR/MSL checks, ABI validation, and GPU comparisons as the
 implementation reaches those boundaries. Generated-kernel acceptance tests must execute
-MSL generated from the separate Rust kernel crate. A handwritten replacement,
+MSL generated from Rust kernel source. A handwritten replacement,
 synthetic IR example, or MIR dump does not satisfy that criterion.
 
 Run generated-kernel hardware tests from the compiler directory with
@@ -129,12 +131,13 @@ proofs assert which checks remain in `checks.json`. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
 
 `bash scripts/test-gpu.sh` from the root verifies both native runtime APIs and
-offline artifacts. The `pipeline` example covers external struct helpers,
-const specializations, async binding calls, and ordered kernel chains.
+offline artifacts. The `pipeline` example covers struct helpers, const
+specializations, async launches, and ordered kernel chains.
 
 Include sources/dependencies, compiler/Rust/Metal/SDK versions, target
 settings, and numerical options in artifact cache identity. `metal-oxide-build`
-drives kernel builds for `cargo-metal` and host build scripts; a committed artifact
-records its source files and locked packages in `inputs.json` and is rebuilt only
-when they change. Report the milestone
+drives kernel builds for the kernel macros; each build saves its artifact in the
+crate's `metal/` directory with its inputs in `inputs.json`: the item's source digest,
+locked packages and path packages' files. Fetched packages, builds without the toolchain
+and `METAL_OXIDE_ARTIFACTS=locked` use the saved artifact while those are unchanged. Report the milestone
 actually completed and keep planned APIs clearly marked.

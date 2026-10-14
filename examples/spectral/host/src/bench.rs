@@ -1,7 +1,6 @@
 use std::{path::Path, time::Instant};
 
 use metal_oxide::Device;
-use metal_oxide_artifact::Manifest;
 use serde_json::json;
 
 use crate::{
@@ -16,12 +15,8 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
         return Err("samples, warmup and max rows must be positive".into());
     }
     let device = Device::system_default()?;
-    let directory = env!("METAL_OXIDE_ARTIFACT_DIR");
-    let manifest = Manifest::from_json(&std::fs::read_to_string(format!(
-        "{directory}/manifest.json"
-    ))?)?;
-    let generated = fgn::Context::new(&device, directory)?;
-    let reference = native::Context::new(&device, manifest.abi.math_mode)?;
+    let generated = fgn::Context::new(&device)?;
+    let reference = native::Context::new(&device, crate::MATH_MODE)?;
     let max_threads = generated
         .max_threads()
         .min(reference.max_threads())
@@ -96,7 +91,7 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
     }
     let report = json!({
         "device": device.name(), "backend": std::env::var("METAL_OXIDE_BACKEND")?,
-        "math_mode": manifest.abi.math_mode, "artifact": directory,
+        "math_mode": crate::MATH_MODE,
         "samples": samples, "warmup": warmup, "pair_order": "alternating",
         "native_backend": "classic MTL, setBytes, one encoder per pass",
         "working_set_budget_bytes": budget,

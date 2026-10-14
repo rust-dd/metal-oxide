@@ -6,7 +6,10 @@ pub(crate) fn block_shape(
     tcx: TyCtxt<'_>,
     definition: DefId,
 ) -> Result<Option<[u32; 3]>, (rustc_span::Span, String)> {
-    let path = [Symbol::intern("metal_oxide"), Symbol::intern("block_shape")];
+    let path = [
+        Symbol::intern("metal_oxide_compiler"),
+        Symbol::intern("block_shape"),
+    ];
     let Some(attribute) = tcx.get_attrs_by_path(definition, &path).next() else {
         return Ok(None);
     };
@@ -44,7 +47,10 @@ pub(crate) fn requires(
     tcx: TyCtxt<'_>,
     definition: DefId,
 ) -> Result<Vec<(String, rustc_span::Span)>, (rustc_span::Span, String)> {
-    let path = [Symbol::intern("metal_oxide"), Symbol::intern("requires")];
+    let path = [
+        Symbol::intern("metal_oxide_compiler"),
+        Symbol::intern("requires"),
+    ];
     let mut relations = Vec::new();
     for attribute in tcx.get_attrs_by_path(definition, &path) {
         let rustc_attr_ir::Attribute::Unparsed(item) = attribute else {
@@ -103,7 +109,10 @@ pub(crate) fn parameter_name(body: &rustc_middle::mir::Body<'_>, index: usize) -
 
 /// Kernel entrypoints, after reporting unsupported code they can reach.
 pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Instance<'tcx>> {
-    let marker = [Symbol::intern("metal_oxide"), Symbol::intern("kernel")];
+    let marker = [
+        Symbol::intern("metal_oxide_compiler"),
+        Symbol::intern("kernel"),
+    ];
     let mut entries = Vec::new();
     for definition in tcx.hir_crate_items(()).definitions() {
         let definition = definition.to_def_id();

@@ -5,7 +5,7 @@ use proc_macro::{Delimiter, Group, TokenStream, TokenTree};
 /// between buffer lengths and integer parameters that every launch checks.
 #[proc_macro_attribute]
 pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
-    let mut output = "#[cfg_attr(target_env = \"metal\", metal_oxide::kernel)]"
+    let mut output = "#[cfg_attr(target_env = \"metal\", metal_oxide_compiler::kernel)]"
         .parse::<TokenStream>()
         .unwrap();
     let tokens = attributes.into_iter().collect::<Vec<_>>();
@@ -16,12 +16,14 @@ pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
                 if name.to_string() == "requires"
                     && relations.delimiter() == Delimiter::Parenthesis =>
             {
-                let mut attribute = "metal_oxide::requires".parse::<TokenStream>().unwrap();
+                let mut attribute = "metal_oxide_compiler::requires"
+                    .parse::<TokenStream>()
+                    .unwrap();
                 attribute.extend([TokenTree::Group(relations.clone())]);
                 attribute
             }
             _ => match block_shape(option) {
-                Some([x, y, z]) => format!("metal_oxide::block_shape = \"{x},{y},{z}\"")
+                Some([x, y, z]) => format!("metal_oxide_compiler::block_shape = \"{x},{y},{z}\"")
                     .parse()
                     .unwrap(),
                 None => {

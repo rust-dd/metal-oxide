@@ -21,6 +21,8 @@ objc2-metal = { workspace = true }
 [dependencies]
 half = { workspace = true }
 metal-oxide-artifact = { workspace = true }
+metal-oxide-device = { workspace = true }
+metal-oxide-kernels = { workspace = true }
 
 [target.'cfg(not(loom))'.dev-dependencies]
 tokio = { workspace = true }

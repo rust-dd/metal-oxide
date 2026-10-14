@@ -97,7 +97,7 @@ fn narrow_overflow_checks_stop_the_thread_at_the_first_failure() {
 }
 
 #[test]
-fn threadgroup_kernels_emit_shape_and_typed_bindings() {
+fn threadgroup_kernels_record_their_shape_and_atomic_access() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/cooperative.rs",
         &["-C", "overflow-checks=off"],
@@ -115,9 +115,18 @@ fn threadgroup_kernels_emit_shape_and_typed_bindings() {
             .required_block,
         Some([256, 1, 1])
     );
-    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("LaunchConfig<256, 1, 1>"));
-    assert!(bindings.contains("Argument::atomic"));
+    assert!(
+        abi.kernels
+            .iter()
+            .flat_map(|k| &k.parameters)
+            .any(|p| matches!(
+                p.ty,
+                metal_oxide_artifact::ParameterType::Buffer {
+                    access: metal_oxide_artifact::Access::Atomic,
+                    ..
+                }
+            ))
+    );
 }
 
 #[test]
@@ -153,7 +162,7 @@ fn simd_requirements_are_recorded_in_the_abi() {
 }
 
 #[test]
-fn parameter_names_produce_valid_metadata_and_rust_bindings() {
+fn parameter_names_produce_valid_metadata() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/m3_names.rs",
         &[],
@@ -171,8 +180,6 @@ fn parameter_names_produce_valid_metadata_and_rust_bindings() {
             .collect::<Vec<_>>(),
         ["arg_0", "type", "arg_2"]
     );
-    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("r#type: f32"));
 }
 
 #[test]

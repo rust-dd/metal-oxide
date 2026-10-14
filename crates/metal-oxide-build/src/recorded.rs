@@ -1,4 +1,7 @@
-use crate::{metadata::Project, process::Result};
+use crate::{
+    metadata::{Metadata, Project},
+    process::Result,
+};
 use metal_oxide_artifact::{MathMode, sha256};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,20 +13,32 @@ use std::{
 mod tests;
 
 /// Increments when recording changes, which makes older records stale.
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 
-/// The inputs a committed artifact was built from. Paths are relative to the kernel package.
+/// What a kernel build is asked for besides its packages' files.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Request {
+    /// SHA-256 of what names the kernels with its file and item: the source that kernels
+    /// written in a host crate copy, or a kernel crate's path.
+    pub(crate) source: String,
+    pub(crate) math_mode: MathMode,
+    /// Line tables and sources for a GPU capture.
+    pub(crate) debug_info: bool,
+}
+
+/// The inputs an artifact was built from. Paths are relative to the host package.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Recorded {
     pub(crate) format: u32,
     /// The fingerprint in the artifact's manifest.
     pub(crate) artifact: String,
-    pub(crate) math_mode: MathMode,
+    pub(crate) request: Request,
     pub(crate) lock: String,
     /// The kernels' dependencies as `name version source` from the lock file.
     pub(crate) packages: Vec<String>,
-    /// SHA-256 of each manifest and source file that the kernel build read.
+    /// SHA-256 of each manifest and source file of the path packages that the build read.
     pub(crate) files: BTreeMap<String, String>,
 }
 
@@ -32,7 +47,6 @@ pub(crate) struct Recorded {
 enum Message {
     #[serde(rename = "compiler-artifact")]
     Artifact {
-        package_id: String,
         manifest_path: PathBuf,
         filenames: Vec<PathBuf>,
     },
@@ -41,45 +55,54 @@ enum Message {
 }
 
 impl Recorded {
-    /// Records the packages and files in Cargo's messages, skipping the toolchain under `sysroot`.
+    /// Records the packages and files in Cargo's messages from building `project`'s kernels,
+    /// skipping the toolchain under `sysroot`. For a crate copied from a host crate, `host`
+    /// resolves the packages it names by path and its lock file pins them; the copied crate's
+    /// own files are left out.
     pub(crate) fn from_build(
         project: &Project,
+        host: Option<&Metadata>,
         messages: &str,
         sysroot: &Path,
+        base: &Path,
         artifact: &str,
-        math_mode: MathMode,
+        request: Request,
     ) -> Result<Self> {
-        let base = project.kernel().manifest_path.parent().unwrap();
-        let root = &project.metadata.workspace_root;
-        let lock = root.join("Cargo.lock");
+        let copied = host.is_some();
+        let host = host.unwrap_or(&project.metadata);
+        let lock = host.workspace_root.join("Cargo.lock");
         let entries = lock_entries(&std::fs::read_to_string(&lock)?);
+        let kernel = &project.kernel().manifest_path;
         let mut packages = Vec::new();
         let mut files = BTreeMap::new();
         for line in messages.lines() {
             let Message::Artifact {
-                package_id,
                 manifest_path,
                 filenames,
             } = serde_json::from_str(line)?
             else {
                 continue;
             };
-            if manifest_path.starts_with(sysroot) {
+            if manifest_path.starts_with(sysroot) || copied && manifest_path == *kernel {
                 continue;
             }
-            let local = package_id.starts_with("path+");
+            let package = host
+                .packages
+                .iter()
+                .find(|package| package.manifest_path == manifest_path)
+                .ok_or_else(|| {
+                    format!(
+                        "{} is missing from the host's Cargo metadata",
+                        manifest_path.display()
+                    )
+                })?;
+            let local = package.id.starts_with("path+");
             // A path dependency that becomes a git or registry package changes its lock entry.
-            if package_id != project.kernel().id {
-                let package = project
-                    .metadata
-                    .packages
-                    .iter()
-                    .find(|package| package.id == package_id)
-                    .ok_or_else(|| format!("missing Cargo package for {package_id}"))?;
+            if manifest_path != *kernel {
                 let prefix = if local {
                     format!("{} {} ", package.name, package.version)
                 } else {
-                    let source = package_id.rsplit_once('#').map_or("", |(source, _)| source);
+                    let source = package.id.rsplit_once('#').map_or("", |(source, _)| source);
                     format!("{} {} {source}", package.name, package.version)
                 };
                 let found = entries
@@ -94,7 +117,7 @@ impl Recorded {
                     .cloned()
                     .collect::<Vec<_>>();
                 if found.is_empty() {
-                    return Err(format!("{package_id} is missing from {}", lock.display()).into());
+                    return Err(format!("{} is missing from {}", package.id, lock.display()).into());
                 }
                 packages.extend(found);
             }
@@ -109,7 +132,10 @@ impl Recorded {
                 let stem = output.file_stem().unwrap().to_string_lossy();
                 let info = output
                     .with_file_name(format!("{}.d", stem.strip_prefix("lib").unwrap_or(&stem)));
-                sources.extend(dependencies(&std::fs::read_to_string(&info)?, root));
+                sources.extend(dependencies(
+                    &std::fs::read_to_string(&info)?,
+                    &project.metadata.workspace_root,
+                ));
             }
             for source in sources
                 .into_iter()
@@ -124,7 +150,7 @@ impl Recorded {
         Ok(Self {
             format: FORMAT,
             artifact: artifact.into(),
-            math_mode,
+            request,
             lock: relative(&lock, base).to_string_lossy().into_owned(),
             packages,
             files,
@@ -182,7 +208,7 @@ fn lock_entries(lock: &str) -> Vec<String> {
 }
 
 /// The dependencies of the first rule in a rustc dep-info file, resolved against `root`.
-fn dependencies(info: &str, root: &Path) -> Vec<PathBuf> {
+pub(crate) fn dependencies(info: &str, root: &Path) -> Vec<PathBuf> {
     let Some((_, rest)) = info.lines().next().and_then(|line| line.split_once(": ")) else {
         return vec![];
     };

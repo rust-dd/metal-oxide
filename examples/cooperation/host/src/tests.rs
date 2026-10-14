@@ -2,16 +2,16 @@ use super::{program::Program, verify};
 use metal_oxide::{Device, sequence};
 
 #[test]
-#[ignore = "requires a Metal device and generated artifact"]
+#[ignore = "requires a Metal device"]
 fn ordered_workloads_match_cpu_and_handwritten_msl() {
     verify::all().unwrap();
 }
 
 #[test]
-#[ignore = "requires a Metal device and generated artifact"]
+#[ignore = "requires a Metal device"]
 fn scan_propagates_offsets_across_three_levels() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let program = Program::generated(&device)?;
+    let program = Program::generated(&device);
     let values = (0..1_000_003_u32)
         .map(|i| if i % 7 == 0 { u32::MAX } else { i % 11 })
         .collect::<Vec<_>>();
@@ -19,10 +19,10 @@ fn scan_propagates_offsets_across_three_levels() -> metal_oxide::Result<()> {
 }
 
 #[test]
-#[ignore = "requires a Metal device and generated artifact"]
+#[ignore = "requires a Metal device"]
 fn compaction_retains_resources_after_its_operation_is_forgotten() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let program = Program::generated(&device)?;
+    let program = Program::generated(&device);
     let n = 1_000_003;
     let values = (0..n).map(|i| i % 127).collect::<Vec<u32>>();
     let input = device.buffer_from_slice(&values)?;

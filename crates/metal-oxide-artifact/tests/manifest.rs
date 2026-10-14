@@ -41,7 +41,6 @@ fn manifest() -> Manifest {
             oxide_ir: sha256(b"oxide ir"),
             ir: sha256(b"ir"),
             metallib: sha256(b"library"),
-            bindings: sha256(b"bindings"),
         },
         build: BuildInfo {
             fingerprint: sha256(b"build"),

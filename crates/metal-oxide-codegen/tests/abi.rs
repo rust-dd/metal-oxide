@@ -118,10 +118,6 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
             layout: Layout::scalar(Scalar::U32)
         }
     );
-    let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
-    assert!(bindings.contains("MetalOxideBuffer0: metal_oxide::ReadArgument<f32>"));
-    assert!(bindings.contains("MetalOxideBuffer1: metal_oxide::WriteArgument<f32>"));
-    assert!(bindings.contains("r#arg_2: u32"));
     assert_eq!(
         abi.kernels[0].parameters[3].ty,
         ParameterType::Buffer {
@@ -130,74 +126,15 @@ fn abi_slots_match_msl_and_typed_host_arguments() {
             access: Access::ReadWrite,
         }
     );
-    assert!(bindings.contains(
-        "metal_oxide::Argument::read_write(metal_oxide::WriteArgument::buffer_mut(r#arg_3))"
-    ));
-    assert!(bindings.contains("metal_oxide::Argument::value(*r#arg_2)?"));
-    assert!(bindings.contains(
-        "pub unsafe fn r#vec_add<MetalOxideBuffer0, MetalOxideBuffer1, MetalOxideBuffer3>"
-    ));
-    assert!(bindings.contains(
-        "-> metal_oxide::Launch<(MetalOxideBuffer0, MetalOxideBuffer1, u32, MetalOxideBuffer3), 4>"
-    ));
-    assert!(bindings.contains(
-        "metal_oxide::Launch::new(\n                self::metal_oxide_pipeline(&self.device, &self.module, &self.pipeline_0"
-    ));
-    assert!(!bindings.contains("enqueue"));
 }
 
 #[test]
-fn buffer_type_parameters_keep_record_names_apart() {
-    use ir::{Aggregate, RecordField};
-    let mut module = module(vec![]);
-    let record = module.types.intern(Aggregate::Record {
-        name: "MetalOxideBuffer0".into(),
-        fields: vec![RecordField {
-            name: "value".into(),
-            ty: Type::Scalar(ir::Scalar::U32),
-        }],
-    });
-    let ir::Type::Aggregate(id) = record else {
-        panic!()
-    };
-    module.functions[0].parameters = 2;
-    module.functions[0].locals.extend([
-        Type::Buffer {
-            element: ir::Element::Aggregate(id),
-            access: ir::Access::Read,
-            address_space: ir::AddressSpace::Device,
-        },
-        record,
-    ]);
-    let abi = metal_oxide_codegen::Codegen::new(&module)
-        .unwrap()
-        .abi()
-        .unwrap();
-    let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
-    assert!(bindings.contains("pub struct r#MetalOxideBuffer02"));
-    assert!(
-        bindings.contains("MetalOxideBuffer0: metal_oxide::ReadArgument<r#MetalOxideBuffer02>")
-    );
-    assert!(bindings.contains("r#arg_1: r#MetalOxideBuffer02"));
-}
-
-#[test]
-fn handles_no_parameters_and_rust_name_collisions() {
+fn handles_no_parameters_and_rejects_bool_parameters() {
     let empty = metal_oxide_codegen::Codegen::new(&module(vec![]))
         .unwrap()
         .abi()
         .unwrap();
     assert!(empty.kernels[0].parameters.is_empty());
-    metal_oxide_codegen::bindings(&empty).unwrap();
-    let mut abi = metal_oxide_codegen::Codegen::new(&module(vec![Type::Scalar(ir::Scalar::U32)]))
-        .unwrap()
-        .abi()
-        .unwrap();
-    abi.kernels[0].name = "type".into();
-    abi.kernels[0].parameters[0].name = "config".into();
-    let source = metal_oxide_codegen::bindings(&abi).unwrap();
-    assert!(source.contains("fn r#type"));
-    assert!(source.contains("r#arg_0_config: u32"));
     assert!(
         metal_oxide_codegen::Codegen::new(&module(vec![Type::Scalar(ir::Scalar::Bool)])).is_err()
     );
@@ -355,13 +292,6 @@ fn nested_record_layout_matches_the_emitted_msl_declarations() {
         panic!()
     };
     assert_eq!((layout.size, layout.alignment), (28, 4));
-    let bindings = metal_oxide_codegen::bindings(&abi).unwrap();
-    assert!(bindings.contains("pub struct r#Particle"));
-    assert!(bindings.contains("pub r#position: (f32, f32, f32,)"));
-    assert!(bindings.contains("pub r#velocity: [f32; 2]"));
-    assert!(bindings.contains("bytes[8..20]"));
-    assert!(bindings.contains("bytes[20..28]"));
-    assert!(bindings.contains("module.verify_abi("));
     let Type::Aggregate(id) = particle else {
         panic!()
     };

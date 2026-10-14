@@ -8,9 +8,6 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
-[package.metadata.metal]
-kernels = "../kernels/Cargo.toml"
-
 [dependencies]
 metal-oxide.workspace = true
 metal-oxide-artifact.workspace = true
@@ -21,6 +18,10 @@ serde_json.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-metal.workspace = true
+
+[features]
+# Builds the kernels with fast math instead of precise math.
+fast = []
 
 [lints]
 workspace = true

@@ -21,10 +21,6 @@ fn dynamic_shared_arguments_have_independent_slots_and_typed_counts() {
     assert!(msl.contains("[[threadgroup(0)]]"));
     assert!(msl.contains("[[threadgroup(1)]]"));
     assert!(msl.contains("[[buffer(3)]]"));
-    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("Argument::threadgroup::<f32>"));
-    assert!(bindings.contains("Argument::threadgroup::<(u8, u64,)>"));
-    assert!(bindings.contains("r#scratch: usize"));
 }
 
 #[test]

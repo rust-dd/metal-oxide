@@ -96,7 +96,7 @@ pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Res
 
 pub(super) fn all() -> Result<()> {
     let device = Device::system_default()?;
-    for program in [Program::generated(&device)?, Program::reference(&device)?] {
+    for program in [Program::generated(&device), Program::reference(&device)?] {
         for n in [0_u32, 1, 255, 256, 257, 1_000_003] {
             let values = (0..n).map(|i| i % 17).collect::<Vec<_>>();
             histogram(&device, &program, &values)?;

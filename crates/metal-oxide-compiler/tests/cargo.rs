@@ -43,7 +43,7 @@ fn cargo_kernel(package: &str, crate_name: &str) -> (PathBuf, Command) {
 }
 
 #[test]
-fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
+fn cargo_builds_device_core_and_host_macros_and_names_parameters() {
     let (output, mut cargo) = cargo_kernel("vec-add-kernels", "vec_add_kernels");
     support::checked(cargo.output().unwrap());
     let abi = metal_oxide_artifact::Abi::from_json(
@@ -61,9 +61,13 @@ fn cargo_builds_device_core_and_host_macros_and_emits_named_bindings() {
         ["a", "b", "out"]
     );
     assert!(kernel.lengths && kernel.one_dimensional);
-    let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("r#out: MetalOxideBuffer2"));
-    assert!(bindings.contains("MetalOxideBuffer2: metal_oxide::WriteArgument<f32>"));
+    assert!(matches!(
+        kernel.parameters[2].ty,
+        metal_oxide_artifact::ParameterType::Buffer {
+            access: metal_oxide_artifact::Access::Write,
+            ..
+        }
+    ));
     assert!(
         std::fs::read_to_string(output.join("kernels.metal"))
             .unwrap()
@@ -86,7 +90,7 @@ fn a_rejected_rebuild_leaves_no_stale_outputs() {
     // The tile offset can overflow on some threads before the block's barrier.
     cargo.env("RUSTFLAGS", "-Zunstable-options -Coverflow-checks=on");
     support::rejected(cargo.output().unwrap(), "must be proved or uniform");
-    for name in ["kernels.metal", "abi.json", "checks.json", "bindings.rs"] {
+    for name in ["kernels.metal", "abi.json", "checks.json"] {
         assert!(
             !output.join(name).exists(),
             "stale {name} after rejected rebuild"
@@ -165,8 +169,4 @@ fn cargo_imports_external_struct_helpers_and_const_specializations() {
     assert!(msl.contains("metal_oxide_aggregate_"));
     assert!(msl.contains("kernel void scale_128"));
     assert!(msl.contains("kernel void scale_256"));
-    let bindings = std::fs::read_to_string(output.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("fn r#scale_128<"));
-    assert!(bindings.contains("config: metal_oxide::LaunchConfig<128, 1, 1>"));
-    assert!(bindings.contains("config: metal_oxide::LaunchConfig<256, 1, 1>"));
 }

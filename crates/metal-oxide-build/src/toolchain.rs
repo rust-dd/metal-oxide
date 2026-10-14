@@ -1,5 +1,5 @@
 use crate::process::{self, Result};
-use metal_oxide_artifact::{Abi, ArtifactFile, LOGGING_FLAG};
+use metal_oxide_artifact::{Abi, ArtifactFile, COMPILER_NIGHTLY, LOGGING_FLAG};
 use std::{
     io::Write,
     path::{Path, PathBuf},
@@ -28,6 +28,19 @@ pub(crate) fn debug_flags(root: &Path) -> [String; 3] {
         RECORD_SOURCES.into(),
         format!("-fdebug-compilation-dir={}", root.display()),
     ]
+}
+
+/// Whether the pinned nightly that builds kernels is installed.
+pub(crate) fn nightly() -> Result<()> {
+    let toolchains = process::capture(Command::new("rustup").args(["toolchain", "list"]))?;
+    if toolchains
+        .lines()
+        .any(|line| line.starts_with(COMPILER_NIGHTLY))
+    {
+        Ok(())
+    } else {
+        Err(format!("{COMPILER_NIGHTLY} is not installed; run cargo metal setup").into())
+    }
 }
 
 pub(crate) struct Metal {
@@ -143,15 +156,20 @@ impl Metal {
             directory.join("metal-commands.json"),
             serde_json::to_vec_pretty(&commands)?,
         )?;
+        // Warnings stay in the log; the kernels' authors cannot act on generated MSL.
         let mut log = std::fs::File::create(directory.join("metal.log"))?;
         for command in [&mut compile, &mut link] {
             let output = command.output()?;
             log.write_all(&output.stdout)?;
             log.write_all(&output.stderr)?;
-            std::io::stdout().write_all(&output.stdout)?;
-            std::io::stderr().write_all(&output.stderr)?;
             if !output.status.success() {
-                return Err(format!("{command:?} exited with {}", output.status).into());
+                let messages = String::from_utf8_lossy(&output.stderr);
+                return Err(format!(
+                    "{command:?} exited with {}:\n{}",
+                    output.status,
+                    messages.trim()
+                )
+                .into());
             }
         }
         Ok(())

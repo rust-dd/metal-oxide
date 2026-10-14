@@ -1,0 +1,15 @@
+[package]
+name = "vec-add-kernels"
+description = "Vector addition kernels that the compiler tests build through Cargo"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device = { workspace = true }
+
+[lints]
+workspace = true

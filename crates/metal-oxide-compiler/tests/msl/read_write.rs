@@ -1,7 +1,7 @@
 use super::support;
 
 #[test]
-fn read_write_buffer_runs_in_place_and_has_exclusive_bindings() {
+fn read_write_buffer_runs_in_place_with_read_write_access() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/read_write.rs",
         &["-C", "overflow-checks=off"],
@@ -9,9 +9,6 @@ fn read_write_buffer_runs_in_place_and_has_exclusive_bindings() {
     support::checked(output);
     let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
     assert!(abi.contains("read_write"), "{abi}");
-    let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
-    assert!(bindings.contains("metal_oxide::WriteArgument<f32>"));
-    assert!(bindings.contains("Argument::read_write"));
     assert_eq!(
         support::execute_msl(
             &directory,

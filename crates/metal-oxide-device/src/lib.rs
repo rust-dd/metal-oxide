@@ -10,6 +10,8 @@ pub mod simdgroup;
 mod thread;
 pub mod threadgroup;
 
+/// Kernels written in a host crate name this API `metal_oxide::device`, also in their device build.
+pub use crate as device;
 pub use atomic::{AtomicBuffer, AtomicThreadgroupBuffer};
 pub use buffer::{DisjointBuffer, ReadBuffer, ReadWriteBuffer, WriteBuffer};
 pub use half::F16;

@@ -1,9 +1,9 @@
-use crate::kernels::Kernels;
+use crate::kernels;
 use metal_oxide::{
     Argument, Device, Dim3, F16, Launch, LaunchConfig, Module, Operation, Pipeline, sequence,
 };
 
-pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<()> {
+pub(super) fn verify(device: &Device) -> metal_oxide::Result<()> {
     let module = Module::from_source(
         device,
         include_str!("../../../../benchmarks/reference-msl/matmul_half.metal"),
@@ -36,17 +36,17 @@ pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<
         let launch = LaunchConfig::<16, 16>::new(Dim3::xy(columns.div_ceil(16), rows.div_ceil(16)));
         // SAFETY: distinct buffers cover the matrix sizes; the 16x16 blocks guard padded cells.
         unsafe {
-            kernels
-                .matmul_half(
-                    launch,
-                    &input_a,
-                    &input_b,
-                    &mut output,
-                    rows,
-                    columns,
-                    inner,
-                )
-                .wait()?;
+            kernels::matmul_half(
+                device,
+                launch,
+                &input_a,
+                &input_b,
+                &mut output,
+                rows,
+                columns,
+                inner,
+            )
+            .wait()?;
             Launch::new(
                 Ok(&reference),
                 launch,
@@ -112,7 +112,8 @@ pub(super) fn verify(device: &Device, kernels: &Kernels) -> metal_oxide::Result<
             let mut queued = device.buffer_from_slice(&vec![SENTINEL; count + 8])?;
             // SAFETY: the same checked sizes and block shape apply; wait retains all arguments.
             sequence(|batch| unsafe {
-                batch.push(kernels.matmul_half(
+                batch.push(kernels::matmul_half(
+                    device,
                     launch,
                     &input_a,
                     &input_b,

@@ -1,37 +1,44 @@
-mod build;
 mod cli;
 mod compiler;
-mod doctor;
-mod metadata;
+mod inspect;
+mod run;
+mod setup;
 
 use cli::Command;
 use std::process::ExitCode;
 
+const HELP: &str = "\
+cargo metal setup [--check]
+    Installs the pinned nightly, Apple's Metal Toolchain and the metal-oxide compiler, then
+    checks them; --check only checks.
+cargo metal run|test [--validate] [--capture FILE.gputrace] [CARGO ARGUMENTS]
+    cargo run or cargo test under Metal API and shader validation, or recording the GPU work
+    of the first Metal device with Rust line tables.
+cargo metal inspect --emit ir|msl|air [--kernel NAME] [CARGO BUILD ARGUMENTS]
+    Builds the packages and prints the kernels their builds compiled.";
+
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let borrowed = arguments.iter().map(String::as_str).collect::<Vec<_>>();
-    match cli::parse(&borrowed) {
-        Ok(Command::Doctor) => doctor::run(),
+    let result = match cli::parse(&borrowed) {
         Ok(Command::Help) => {
-            println!(
-                "cargo metal build|run|test [-p HOST] [--manifest-path PATH] [--release] [--math-mode precise|fast]\ncargo metal inspect --emit ir|msl|air [-p HOST] [--manifest-path PATH] [--math-mode precise|fast]\ncargo metal doctor\n\nMath defaults to precise. Fast permits reassociation and contraction with fast math functions; arithmetic honors NaN and infinity.\nrun and test accept host arguments after --, --validate enables Metal API and shader validation, and --capture FILE.gputrace records the GPU work of the first Metal device with Rust line tables."
-            );
-            ExitCode::SUCCESS
+            println!("{HELP}");
+            return ExitCode::SUCCESS;
         }
         Ok(Command::Version) => {
             println!("cargo-metal {}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
+            return ExitCode::SUCCESS;
         }
-        Ok(Command::Build(options)) => match build::execute(&options) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("cargo-metal: {error}");
-                ExitCode::FAILURE
-            }
-        },
+        Ok(Command::Setup { check }) => return setup::run(check),
+        Ok(Command::Cargo(options)) => run::execute(&options),
+        Ok(Command::Inspect(options)) => inspect::execute(&options).map(|()| ExitCode::SUCCESS),
         Err(error) => {
             eprintln!("cargo-metal: {error}");
-            ExitCode::from(2)
+            return ExitCode::from(2);
         }
-    }
+    };
+    result.unwrap_or_else(|error| {
+        eprintln!("cargo-metal: {error}");
+        ExitCode::FAILURE
+    })
 }

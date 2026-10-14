@@ -4,7 +4,7 @@ use metal_oxide_artifact::{Abi, MathMode};
 const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/transcendentals.rs";
 
 #[test]
-fn numerical_modes_change_msl_and_binding_identity() {
+fn numerical_modes_change_msl_and_abi() {
     let mut artifacts = Vec::new();
     for mode in [None, Some("precise"), Some("fast")] {
         let mut arguments = vec!["-C", "overflow-checks=off"];
@@ -16,7 +16,6 @@ fn numerical_modes_change_msl_and_binding_identity() {
         let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
         let abi =
             Abi::from_json(&std::fs::read_to_string(directory.join("abi.json")).unwrap()).unwrap();
-        let bindings = std::fs::read_to_string(directory.join("bindings.rs")).unwrap();
         let expected = if mode == Some("fast") {
             MathMode::Fast
         } else {
@@ -38,10 +37,10 @@ fn numerical_modes_change_msl_and_binding_identity() {
             msl.contains("FP_CONTRACT OFF"),
             expected == MathMode::Precise
         );
-        artifacts.push((msl, abi, bindings));
+        artifacts.push((msl, abi));
     }
     assert_eq!(artifacts[0], artifacts[1]);
-    assert_ne!(artifacts[0].2, artifacts[2].2);
+    assert_ne!(artifacts[0].1, artifacts[2].1);
 }
 
 #[test]

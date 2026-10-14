@@ -1,0 +1,15 @@
+[package]
+name = "reduction"
+description = "A block reduction through threadgroup memory"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true

@@ -20,6 +20,7 @@ pub(crate) struct Package {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) version: String,
+    pub(crate) edition: String,
     pub(crate) manifest_path: PathBuf,
     pub(crate) targets: Vec<Target>,
 }
@@ -54,13 +55,7 @@ pub(crate) fn load(manifest: &Path) -> Result<Project> {
     let manifest = manifest
         .canonicalize()
         .map_err(|error| format!("kernel manifest {}: {error}", manifest.display()))?;
-    let json = process::capture(
-        Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
-            .args(["metadata", "--format-version", "1", "--locked"])
-            .arg("--manifest-path")
-            .arg(&manifest),
-    )?;
-    let metadata: Metadata = serde_json::from_str(&json)?;
+    let metadata = workspace(&manifest, true)?;
     let kernel = metadata
         .packages
         .iter()
@@ -77,7 +72,45 @@ pub(crate) fn load(manifest: &Path) -> Result<Project> {
     Ok(Project { metadata, kernel })
 }
 
+/// The Cargo that runs this build, or the one on `PATH`.
+pub(crate) fn cargo() -> Command {
+    Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+}
+
+/// The Cargo workspace of the package whose Cargo.toml is `manifest`, with Cargo's
+/// configuration from the package's directory; `dependencies` resolves the packages beyond
+/// the workspace members.
+pub(crate) fn workspace(manifest: &Path, dependencies: bool) -> Result<Metadata> {
+    let mut command = cargo();
+    command
+        .current_dir(manifest.parent().unwrap())
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .arg("--manifest-path")
+        .arg(manifest);
+    if !dependencies {
+        command.arg("--no-deps");
+    }
+    Ok(serde_json::from_str(&process::capture(&mut command)?)?)
+}
+
 impl Metadata {
+    /// The `metal-oxide-compiler` package beside `metal-oxide-device`, as in a git checkout or
+    /// a local path dependency of the metal-oxide repository.
+    pub(crate) fn compiler_source(&self) -> Option<PathBuf> {
+        self.packages
+            .iter()
+            .filter(|package| package.name == "metal-oxide-device")
+            .filter_map(|package| {
+                let source = package
+                    .manifest_path
+                    .parent()?
+                    .parent()?
+                    .join("metal-oxide-compiler/Cargo.toml");
+                source.is_file().then_some(source)
+            })
+            .next()
+    }
+
     pub(crate) fn validate_units(&self, json: &str) -> Result<()> {
         let graph: UnitGraph = serde_json::from_str(json)?;
         for unit in graph.units.into_iter().filter(|unit| !unit.is_std) {
@@ -118,23 +151,5 @@ impl Project {
             .find(|t| t.kind.iter().any(|k| k == "lib" || k == "rlib"))
             .unwrap()
             .name
-    }
-
-    /// The `metal-oxide-compiler` package beside the kernels' `metal-oxide-device`, as in a
-    /// git checkout or a local path dependency of the metal-oxide repository.
-    pub(crate) fn compiler_source(&self) -> Option<PathBuf> {
-        self.metadata
-            .packages
-            .iter()
-            .filter(|package| package.name == "metal-oxide-device")
-            .filter_map(|package| {
-                let source = package
-                    .manifest_path
-                    .parent()?
-                    .parent()?
-                    .join("metal-oxide-compiler/Cargo.toml");
-                source.is_file().then_some(source)
-            })
-            .next()
     }
 }

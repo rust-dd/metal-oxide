@@ -34,7 +34,7 @@ impl Callbacks for Frontend {
         config.make_codegen_backend = Some(Box::new(|_| Box::new(crate::backend::FrontendBackend)));
         config.opts.unstable_opts.crate_attr.extend([
             "feature(register_tool)".into(),
-            "register_tool(metal_oxide)".into(),
+            "register_tool(metal_oxide_compiler)".into(),
             "allow(internal_features)".into(),
         ]);
         config.opts.unstable_opts.mir_opt_level = Some(0);

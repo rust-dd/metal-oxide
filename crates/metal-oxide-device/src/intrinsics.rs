@@ -1,9 +1,39 @@
 use crate::{Dim3, F16};
 
-unsafe extern "Rust" {
-    pub(crate) fn __metal_atomic_load(ptr: *mut (), index: u32, out: *mut (), size: usize);
-    pub(crate) fn __metal_atomic_store(ptr: *mut (), index: u32, value: *const (), size: usize);
-    pub(crate) fn __metal_atomic_compare_exchange_weak(
+/// Declares the device intrinsics that the compiler lowers; host builds, which type-check
+/// kernels in ordinary crates, get definitions that panic.
+macro_rules! intrinsics {
+    ($($safety:ident fn $name:ident($($argument:ident: $ty:ty),* $(,)?) $(-> $output:ty)?;)*) => {
+        #[cfg(target_env = "metal")]
+        unsafe extern "Rust" {
+            $(pub(crate) $safety fn $name($($argument: $ty),*) $(-> $output)?;)*
+        }
+        $(intrinsics!(@host $safety fn $name($($argument: $ty),*) $(-> $output)?);)*
+    };
+    (@host safe fn $name:ident($($argument:ident: $ty:ty),*) $(-> $output:ty)?) => {
+        #[cfg(not(target_env = "metal"))]
+        pub(crate) fn $name($(_: $ty),*) $(-> $output)? {
+            host()
+        }
+    };
+    (@host unsafe fn $name:ident($($argument:ident: $ty:ty),*) $(-> $output:ty)?) => {
+        #[cfg(not(target_env = "metal"))]
+        pub(crate) unsafe fn $name($(_: $ty),*) $(-> $output)? {
+            host()
+        }
+    };
+}
+
+#[cfg(not(target_env = "metal"))]
+#[cold]
+fn host() -> ! {
+    panic!("metal-oxide device functions run only in kernels on the GPU")
+}
+
+intrinsics! {
+    unsafe fn __metal_atomic_load(ptr: *mut (), index: u32, out: *mut (), size: usize);
+    unsafe fn __metal_atomic_store(ptr: *mut (), index: u32, value: *const (), size: usize);
+    unsafe fn __metal_atomic_compare_exchange_weak(
         ptr: *mut (),
         index: u32,
         current: *const (),
@@ -11,56 +41,54 @@ unsafe extern "Rust" {
         out: *mut (),
         size: usize,
     ) -> bool;
-    pub(crate) safe fn __metal_thread_idx() -> Dim3;
-    pub(crate) safe fn __metal_thread_index() -> usize;
-    pub(crate) safe fn __metal_block_idx() -> Dim3;
-    pub(crate) safe fn __metal_block_dim() -> Dim3;
-    pub(crate) safe fn __metal_grid_dim() -> Dim3;
-    pub(crate) safe fn __metal_sqrt_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_fma_f32(a: f32, b: f32, c: f32) -> f32;
-    pub(crate) safe fn __metal_ln_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_exp_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_sin_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_cos_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_sin_cos_f32(value: f32) -> (f32, f32);
-    pub(crate) safe fn __metal_powf_f32(base: f32, exponent: f32) -> f32;
-    pub(crate) safe fn __metal_tanh_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_atan_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_floor_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_round_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_ceil_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_trunc_f32(value: f32) -> f32;
-    pub(crate) safe fn __metal_f16_from_f32(value: f32) -> F16;
-    pub(crate) safe fn __metal_f16_to_f32(value: F16) -> f32;
-    pub(crate) safe fn __metal_simd_lane() -> u32;
-    pub(crate) safe fn __metal_simd_size() -> u32;
-    pub(crate) safe fn __metal_simd_group() -> u32;
-    pub(crate) safe fn __metal_simd_count() -> u32;
-    pub(crate) fn __metal_threadgroup_barrier();
-    pub(crate) fn __metal_log(format: *const (), length: usize, arguments: *const (), bytes: usize);
-    pub(crate) fn __metal_uninit(out: *mut (), bytes: usize);
-    pub(crate) fn __metal_threadgroup_alloc(bytes: usize, alignment: usize) -> *mut ();
-    pub(crate) fn __metal_buffer_length(buffer: *const ()) -> usize;
-    pub(crate) fn __metal_buffer_load(buffer: *const (), index: u32, out: *mut (), bytes: usize);
-    pub(crate) fn __metal_buffer_store(buffer: *mut (), index: u32, value: *const (), bytes: usize);
-    pub(crate) fn __metal_threadgroup_load(
-        buffer: *const (),
-        index: u32,
-        out: *mut (),
-        bytes: usize,
-    );
-    pub(crate) fn __metal_threadgroup_store(
+    safe fn __metal_thread_idx() -> Dim3;
+    safe fn __metal_thread_index() -> usize;
+    safe fn __metal_block_idx() -> Dim3;
+    safe fn __metal_block_dim() -> Dim3;
+    safe fn __metal_grid_dim() -> Dim3;
+    safe fn __metal_sqrt_f32(value: f32) -> f32;
+    safe fn __metal_fma_f32(a: f32, b: f32, c: f32) -> f32;
+    safe fn __metal_ln_f32(value: f32) -> f32;
+    safe fn __metal_exp_f32(value: f32) -> f32;
+    safe fn __metal_sin_f32(value: f32) -> f32;
+    safe fn __metal_cos_f32(value: f32) -> f32;
+    safe fn __metal_sin_cos_f32(value: f32) -> (f32, f32);
+    safe fn __metal_powf_f32(base: f32, exponent: f32) -> f32;
+    safe fn __metal_tanh_f32(value: f32) -> f32;
+    safe fn __metal_atan_f32(value: f32) -> f32;
+    safe fn __metal_floor_f32(value: f32) -> f32;
+    safe fn __metal_round_f32(value: f32) -> f32;
+    safe fn __metal_ceil_f32(value: f32) -> f32;
+    safe fn __metal_trunc_f32(value: f32) -> f32;
+    safe fn __metal_f16_from_f32(value: f32) -> F16;
+    safe fn __metal_f16_to_f32(value: F16) -> f32;
+    safe fn __metal_simd_lane() -> u32;
+    safe fn __metal_simd_size() -> u32;
+    safe fn __metal_simd_group() -> u32;
+    safe fn __metal_simd_count() -> u32;
+    unsafe fn __metal_threadgroup_barrier();
+    unsafe fn __metal_log(format: *const (), length: usize, arguments: *const (), bytes: usize);
+    unsafe fn __metal_uninit(out: *mut (), bytes: usize);
+    unsafe fn __metal_threadgroup_alloc(bytes: usize, alignment: usize) -> *mut ();
+    unsafe fn __metal_buffer_length(buffer: *const ()) -> usize;
+    unsafe fn __metal_buffer_load(buffer: *const (), index: u32, out: *mut (), bytes: usize);
+    unsafe fn __metal_buffer_store(buffer: *mut (), index: u32, value: *const (), bytes: usize);
+    unsafe fn __metal_threadgroup_load(buffer: *const (), index: u32, out: *mut (), bytes: usize);
+    unsafe fn __metal_threadgroup_store(
         buffer: *mut (),
         index: u32,
         value: *const (),
         bytes: usize,
     );
+    unsafe fn __metal_simd_any(predicate: bool) -> bool;
+    unsafe fn __metal_simd_all(predicate: bool) -> bool;
+    unsafe fn __metal_simd_ballot(predicate: bool) -> [u32; 2];
 }
 
 macro_rules! atomic_modify {
     ($($name:ident),* $(,)?) => {
-        unsafe extern "Rust" {
-            $(pub(crate) fn $name(ptr: *mut (), index: u32, value: *const (), out: *mut (), size: usize);)*
+        intrinsics! {
+            $(unsafe fn $name(ptr: *mut (), index: u32, value: *const (), out: *mut (), size: usize);)*
         }
     };
 }
@@ -77,8 +105,8 @@ atomic_modify!(
 
 macro_rules! simd_reduce {
     ($($name:ident),* $(,)?) => {
-        unsafe extern "Rust" {
-            $(pub(crate) fn $name(value: *const (), out: *mut (), size: usize);)*
+        intrinsics! {
+            $(unsafe fn $name(value: *const (), out: *mut (), size: usize);)*
         }
     };
 }
@@ -92,10 +120,11 @@ simd_reduce!(
     __metal_simd_inclusive_sum,
     __metal_simd_exclusive_sum
 );
+
 macro_rules! simd_permute {
     ($($name:ident),* $(,)?) => {
-        unsafe extern "Rust" {
-            $(pub(crate) fn $name(value: *const (), control: u32, out: *mut (), size: usize);)*
+        intrinsics! {
+            $(unsafe fn $name(value: *const (), control: u32, out: *mut (), size: usize);)*
         }
     };
 }
@@ -105,8 +134,3 @@ simd_permute!(
     __metal_simd_shuffle_down,
     __metal_simd_shuffle_xor
 );
-unsafe extern "Rust" {
-    pub(crate) fn __metal_simd_any(predicate: bool) -> bool;
-    pub(crate) fn __metal_simd_all(predicate: bool) -> bool;
-    pub(crate) fn __metal_simd_ballot(predicate: bool) -> [u32; 2];
-}

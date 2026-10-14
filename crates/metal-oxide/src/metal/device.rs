@@ -15,9 +15,10 @@ use objc2_metal::{
 use crate::{Dim3, Error, GpuValue, Result};
 
 use super::{
-    Buffer, Module,
+    Buffer, Library, Module, Pipeline,
     backend::Backend,
     failures::{FailurePool, SNAPSHOT_KERNEL, SNAPSHOT_SOURCE},
+    library::Libraries,
 };
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
@@ -39,6 +40,7 @@ struct Context {
     failures: Arc<FailurePool>,
     snapshot: OnceLock<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
     log: OnceLock<Retained<ProtocolObject<dyn MTLLogState>>>,
+    libraries: Libraries,
     capture: bool,
 }
 
@@ -94,6 +96,7 @@ impl Device {
                 failures: Arc::default(),
                 snapshot: OnceLock::new(),
                 log: OnceLock::new(),
+                libraries: Libraries::default(),
                 capture,
             })))
         })
@@ -159,6 +162,16 @@ impl Device {
         let module = Module::from_source(self, SNAPSHOT_SOURCE)?;
         let pipeline = super::pipeline::compile(self, &module, SNAPSHOT_KERNEL)?;
         Ok(self.0.snapshot.get_or_init(|| pipeline))
+    }
+
+    /// The pipeline of a kernel that the kernel macros embedded, created on its first launch.
+    pub(super) fn kernel(
+        &self,
+        library: &'static Library,
+        entry: &'static str,
+    ) -> Result<Pipeline> {
+        let compiled = self.0.libraries.pipeline(self, library, entry)?;
+        Ok(Pipeline::from_compiled(self.clone(), compiled))
     }
 
     /// The log state that command buffers carry once a logging artifact is loaded.

@@ -1,11 +1,13 @@
 # Spectral kernels
 
-Separate `no_std` Rust kernels exercise general compiler/runtime features using
-FFT, fractional Gaussian noise, sheet transforms and Euler sampling patterns.
+A separate `no_std` kernel crate, which the host launches through
+`#[metal_oxide::kernels(path = "../kernels")]`, exercises general compiler/runtime
+features using FFT, fractional Gaussian noise, sheet transforms and Euler sampling
+patterns. The `fast` feature builds the kernels with fast math.
 
 ```sh
-METAL_OXIDE_BACKEND=classic cargo run -p cargo-metal -- run -p spectral --release
-METAL_OXIDE_BACKEND=metal4 cargo run -p cargo-metal -- run -p spectral --release --math-mode fast
+METAL_OXIDE_BACKEND=classic cargo run -p spectral --release
+METAL_OXIDE_BACKEND=metal4 cargo run -p spectral --release --features fast
 python3 scripts/bench-spectral.py --samples 20 --warmup 5
 ```
 
@@ -26,7 +28,7 @@ tile plan and numerical mode. Native fGN uses raw classic Metal, `setBytes`, and
 separate encoders for successive passes. Generated fGN uses the public runtime
 on each backend. Buffers are reused; large batches stream through bounded chunks
 derived from the device budget. Reports distinguish logical rows from allocated
-chunk rows and separate build/cache, setup, allocation/upload, pipeline, encode,
+chunk rows and separate build/rebuild, setup, allocation/upload, pipeline, encode,
 submit, wait, GPU and CPU-view costs. Samples alternate execution order and check
 the final chunk against native output. Setup and allocation costs are reported
 separately from repeated end-to-end execution. Ratios are measurements, not an

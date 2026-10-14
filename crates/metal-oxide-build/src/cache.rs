@@ -1,6 +1,18 @@
 use crate::process::Result;
 use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, sha256};
-use std::path::Path;
+use std::{path::Path, time::SystemTime};
+
+/// Dates the files that hosts embed back to 1970: Cargo takes a file written during a build
+/// for a change and would build the host once more, and an artifact never changes in place.
+pub(crate) fn settle(directory: &Path) -> Result<()> {
+    for file in [ArtifactFile::Manifest, ArtifactFile::Metallib] {
+        let file = std::fs::File::options()
+            .write(true)
+            .open(directory.join(file.name()))?;
+        file.set_modified(SystemTime::UNIX_EPOCH)?;
+    }
+    Ok(())
+}
 
 pub(crate) fn discard_abandoned(root: &Path) -> Result<()> {
     for entry in std::fs::read_dir(root)? {
@@ -112,8 +124,7 @@ mod tests {
                 msl: hash.clone(),
                 oxide_ir: hash.clone(),
                 ir: hash.clone(),
-                metallib: hash.clone(),
-                bindings: hash,
+                metallib: hash,
             },
             build: BuildInfo {
                 fingerprint: fingerprint.clone(),
@@ -137,7 +148,6 @@ mod tests {
             "kernels.oxide-ir",
             "kernels.ir",
             "kernels.metallib",
-            "bindings.rs",
         ];
         for name in files {
             std::fs::write(directory.0.join(name), b"file").unwrap();
