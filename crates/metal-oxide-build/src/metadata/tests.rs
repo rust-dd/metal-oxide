@@ -20,8 +20,11 @@ impl Workspace {
             "[workspace]\nmembers=[\"host\",\"kernels\",\"test-support\"]\nresolver=\"3\"\n",
         )
         .unwrap();
-        std::fs::write(path.join("host/Cargo.toml"),
-            "[package]\nname=\"audit-host\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[package.metadata.metal]\nkernels=\"../kernels/Cargo.toml\"\n").unwrap();
+        std::fs::write(
+            path.join("host/Cargo.toml"),
+            "[package]\nname=\"audit-host\"\nversion=\"0.1.0\"\nedition=\"2024\"\n",
+        )
+        .unwrap();
         std::fs::write(path.join("host/src/main.rs"), "fn main() {}\n").unwrap();
         std::fs::write(path.join("kernels/Cargo.toml"), format!(
             "[package]\nname=\"audit-kernels\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[{kind}]\naudit-test-support={{path=\"../test-support\"}}\n")).unwrap();

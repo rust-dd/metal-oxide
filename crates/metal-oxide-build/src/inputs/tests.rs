@@ -23,11 +23,7 @@ impl Workspace {
         std::fs::write(path.join("Cargo.toml"),
             "[workspace]\nmembers=[\"host\",\"kernels\",\"helper\",\"unused\"]\nresolver=\"3\"\n[workspace.dependencies]\ninput-helper={path=\"helper\"}\nunused-helper={path=\"unused\"}\n").unwrap();
         for (directory, name, settings) in [
-            (
-                "host",
-                "input-host",
-                "[package.metadata.metal]\nkernels=\"../kernels/Cargo.toml\"\n",
-            ),
+            ("host", "input-host", ""),
             (
                 "kernels",
                 "input-kernels",

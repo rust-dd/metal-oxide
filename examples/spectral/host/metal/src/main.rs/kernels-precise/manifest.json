@@ -978,11 +978,11 @@
   "files": {
     "msl": "f72e90803ef86e9c77a45fa34411bb0f12f3cec5673198cfd6242af1f032020b",
     "oxide_ir": "cf9eaedd757c2e60b21ab92ebabded5916293cb327b076bf5318ec86361452e5",
-    "ir": "0d967036167da6aefdca06b61a91c20d8150c89a3864267e762f01f7796a0099",
+    "ir": "fb0b12a81ebb8e1cc9b382e4e553f8943f891fca3afca3d77367926254d4f27f",
     "metallib": "1e3d0f47b90d9bcd81096e6abaca659826a5dd98623bed96e08e902e060bfefe"
   },
   "build": {
-    "fingerprint": "e145f95778b061b1bddaf2905455baa01ea2e2b0c5acf064678b256237626004",
+    "fingerprint": "104f357ae824f9d8a0407adc767202e477a3c6ac74154ba87c20812aedf1267b",
     "compiler": "aa68a60116d4279a90d0c1b885cac4e2d4c1928f9d48bd77c73407f657c8464a",
     "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
     "metal": "Apple metal version 32023.883 (metalfe-32023.883)\nTarget: air64-apple-darwin25.2.0\nThread model: posix\nInstalledDir: /Users/danixx/Library/Developer/DVTDownloads/MetalToolchain/mounts/5f4a441a6d0a11f2e9b28c67384263afe92320f7/Metal.xctoolchain/usr/metal/current/bin",

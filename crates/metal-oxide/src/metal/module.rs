@@ -103,7 +103,7 @@ impl Module {
             checks: manifest.checks.into(),
         })
     }
-    /// Checks that generated bindings describe this artifact's exact ABI.
+    /// Checks that launch functions generated for the ABI with this digest match the artifact.
     pub fn verify_abi(&self, expected: &str) -> Result<()> {
         let abi = self.abi.as_ref().ok_or_else(|| {
             Error::Artifact(metal_oxide_artifact::Error(
@@ -112,7 +112,7 @@ impl Module {
         })?;
         if metal_oxide_artifact::sha256(abi.to_json()?.as_bytes()) != expected {
             return Err(Error::Artifact(metal_oxide_artifact::Error(
-                "generated bindings do not match the artifact ABI".into(),
+                "the launch functions do not match the artifact ABI".into(),
             )));
         }
         Ok(())

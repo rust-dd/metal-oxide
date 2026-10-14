@@ -4,7 +4,7 @@
 //! payloads and signaling behavior are unspecified. The documented edge cases
 //! apply to the default precise mode, with Metal's precise accuracy bounds.
 //!
-//! `cargo metal build --math-mode fast` selects Metal's fast
+//! `#[kernels(math = "fast")]` selects Metal's fast
 //! math functions and permits reassociation, reciprocal approximations and
 //! contraction. Zero signs and the precise edge cases below are not guaranteed
 //! in that mode. Arithmetic still honors NaN and infinity, and float-to-integer
