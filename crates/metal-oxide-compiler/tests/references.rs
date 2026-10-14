@@ -94,3 +94,15 @@ fn slice_iterators_visit_elements_and_chunks_without_runtime_checks() {
         "{checks}"
     );
 }
+
+#[test]
+fn a_reference_into_two_address_spaces_is_rejected_where_the_second_begins() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/reference_spaces.rs",
+        &[],
+    );
+    let error = String::from_utf8_lossy(&output.stderr).into_owned();
+    support::rejected(output, "a reference must point into one address space");
+    assert!(error.contains("reference_spaces.rs:8:48"), "{error}");
+    assert!(!directory.join("kernels.metal").exists());
+}

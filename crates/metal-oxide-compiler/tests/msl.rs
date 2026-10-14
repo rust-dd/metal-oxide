@@ -51,10 +51,12 @@ fn records_with_references_are_rejected() {
         "crates/metal-oxide-compiler/tests/fixtures/record_pointer.rs",
         &[],
     );
+    let error = String::from_utf8_lossy(&output.stderr).into_owned();
     support::rejected(
         output,
         "references cannot be stored in records, tuples or arrays",
     );
+    assert!(error.contains("record_pointer.rs:6:9"), "{error}");
     assert!(!directory.join("kernels.metal").exists());
 }
 
