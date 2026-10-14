@@ -6,8 +6,8 @@ use std::process::Command;
 pub(crate) fn execute(options: &Options) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let host = crate::metadata::host(options)?;
     let kernels = Kernels::new(&host.kernels, crate::compiler::find()?, options.math_mode)?;
-    if options.action == Action::Inspect {
-        print!("{}", kernels.msl()?);
+    if let Action::Inspect(emit) = options.action {
+        print!("{}", kernels.emit(emit)?);
         return Ok(());
     }
     let directory = kernels.compile()?;
@@ -18,7 +18,7 @@ pub(crate) fn execute(options: &Options) -> Result<(), Box<dyn std::error::Error
             Action::Build => "build",
             Action::Run => "run",
             Action::Test => "test",
-            Action::Inspect => unreachable!(),
+            Action::Inspect(_) => unreachable!(),
         })
         .args(["--package", &host.name, "--locked"])
         .arg("--manifest-path")

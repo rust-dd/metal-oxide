@@ -15,6 +15,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+/// A representation of the kernels that [`Kernels::emit`] returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Emit {
+    Ir,
+    Msl,
+    Air,
+}
+
 /// A kernel crate that the metal-oxide compiler builds for Metal.
 pub struct Kernels {
     project: Project,
@@ -62,18 +70,25 @@ impl Kernels {
         &self.project
     }
 
-    /// The generated MSL; Apple's Metal toolchain is not needed.
-    pub fn msl(&self) -> std::result::Result<String, Error> {
-        let msl = || -> Result<String> {
+    /// The kernels as metal-oxide IR or MSL, which need no Metal toolchain, or as the AIR
+    /// that Apple's compiler builds from the MSL.
+    pub fn emit(&self, emit: Emit) -> std::result::Result<String, Error> {
+        let text = || -> Result<String> {
+            let file = match emit {
+                Emit::Ir => ArtifactFile::OxideIr,
+                Emit::Msl => ArtifactFile::Msl,
+                Emit::Air => {
+                    let air = self.compiled()?.directory.join(ArtifactFile::Air.name());
+                    return Metal::find()?.disassemble(&air);
+                }
+            };
             let root = self.root()?;
             let _lock = lock(&root)?;
             let rust = Rust::prepare(&self.project, self.math_mode, &self.compiler, self.isolated)?;
             let kernels = rust.kernels(&self.project)?;
-            Ok(std::fs::read_to_string(
-                kernels.output.join(ArtifactFile::Msl.name()),
-            )?)
+            Ok(std::fs::read_to_string(kernels.output.join(file.name()))?)
         };
-        msl().map_err(Error)
+        text().map_err(Error)
     }
 
     /// Builds the artifact under the Cargo target directory, or reuses the build with

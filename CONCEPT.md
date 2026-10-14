@@ -485,7 +485,8 @@ The artifact is stored under `target/metal/<build-hash>/`:
 
 `kernels.oxide-ir` and `kernels.ir` are different representations produced
 by different compilers. The runtime consumes `manifest.json` and
-`kernels.metallib`; diagnostic IR is for inspection.
+`kernels.metallib`; diagnostic IR is for inspection. `cargo metal inspect --emit ir`,
+`--emit msl` and `--emit air` print the first two and the AIR as text.
 
 The cache identity includes sources and dependencies, compiler and toolchain
 versions, target configuration, enabled features, and compilation options.

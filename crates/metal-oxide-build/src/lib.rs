@@ -30,7 +30,7 @@ mod rust;
 mod toolchain;
 
 pub use artifact::Artifact;
-pub use compile::Kernels;
+pub use compile::{Emit, Kernels};
 pub use compiler::Compiler;
 pub use metal_oxide_artifact::MathMode;
 pub use process::Error;

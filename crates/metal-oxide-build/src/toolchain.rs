@@ -80,6 +80,26 @@ impl Metal {
         Err("Metal compiler unavailable; run xcodebuild -downloadComponent MetalToolchain".into())
     }
 
+    /// The textual form of an AIR file, from the toolchain's `metal-opt`.
+    pub(crate) fn disassemble(&self, air: &Path) -> Result<String> {
+        let mut command = match self.prefix.as_slice() {
+            [] => Command::new(self.program.with_file_name("metal-opt")),
+            [sdk @ .., _] => {
+                let mut command = Command::new(&self.program);
+                command.args(sdk).arg("metal-opt");
+                command
+            }
+        };
+        command
+            .env("SDKROOT", &self.sdk_path)
+            .args(["-S", "-o", "-"])
+            .arg(air);
+        process::capture(&mut command).map(|text| {
+            text + "
+"
+        })
+    }
+
     pub(crate) fn command(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.prefix).env("SDKROOT", &self.sdk_path);

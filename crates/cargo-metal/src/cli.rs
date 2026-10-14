@@ -1,4 +1,5 @@
 use metal_oxide_artifact::MathMode;
+use metal_oxide_build::Emit;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -6,7 +7,7 @@ pub(crate) enum Action {
     Build,
     Run,
     Test,
-    Inspect,
+    Inspect(Emit),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,7 +40,7 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         Some("build") => Action::Build,
         Some("run") => Action::Run,
         Some("test") => Action::Test,
-        Some("inspect") => Action::Inspect,
+        Some("inspect") => Action::Inspect(Emit::Msl),
         _ => return Err("available commands: build, run, test, inspect, doctor".into()),
     };
     let mut options = Options {
@@ -51,7 +52,7 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         arguments: vec![],
     };
     let mut index = 1;
-    let mut emit = false;
+    let mut emit = None;
     let mut manifest = false;
     let mut math_mode = false;
     while index < arguments.len() {
@@ -76,8 +77,13 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
                     "--package" | "-p" if options.package.is_none() => {
                         options.package = Some((*value).to_owned())
                     }
-                    "--emit" if action == Action::Inspect && *value == "msl" && !emit => {
-                        emit = true
+                    "--emit" if matches!(action, Action::Inspect(_)) && emit.is_none() => {
+                        emit = Some(match *value {
+                            "ir" => Emit::Ir,
+                            "msl" => Emit::Msl,
+                            "air" => Emit::Air,
+                            _ => return Err("--emit takes ir, msl or air".into()),
+                        });
                     }
                     _ => return Err(format!("invalid or repeated option {option}")),
                 }
@@ -93,8 +99,8 @@ pub(crate) fn parse(arguments: &[&str]) -> Result<Command, String> {
         }
         index += 1;
     }
-    if action == Action::Inspect && !emit {
-        return Err("inspect requires --emit msl".into());
+    if let Action::Inspect(_) = options.action {
+        options.action = Action::Inspect(emit.ok_or("inspect requires --emit ir|msl|air")?);
     }
     Ok(Command::Build(options))
 }
@@ -140,7 +146,8 @@ mod tests {
             &["doctor", "--unknown"][..],
             &["build", "--"][..],
             &["inspect"][..],
-            &["inspect", "--emit", "air"][..],
+            &["inspect", "--emit", "llvm"][..],
+            &["inspect", "--emit", "ir", "--emit", "air"][..],
             &["run", "-p"][..],
             &["run", "-p", "a", "-p", "b"][..],
             &["run", "-p", ""][..],

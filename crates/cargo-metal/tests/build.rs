@@ -249,3 +249,24 @@ fn concurrent_builds_wait_before_writing_and_publish_valid_artifacts() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn inspect_prints_the_kernels_as_ir_msl_and_air() {
+    let workspace = Workspace::new();
+    for (emit, expected) in [
+        ("ir", "name: \"empty\""),
+        ("msl", "kernel void empty"),
+        ("air", "define void @empty"),
+    ] {
+        let output = checked(
+            workspace
+                .command("inspect")
+                .args(["--emit", emit])
+                .output()
+                .unwrap(),
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains(expected), "{emit}:\n{text}");
+    }
+}
