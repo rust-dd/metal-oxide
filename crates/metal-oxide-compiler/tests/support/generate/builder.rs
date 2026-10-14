@@ -14,6 +14,9 @@ pub struct Builder {
     pub random: Random,
     pub records: Vec<Record>,
     pub helpers: Vec<Function>,
+    /// Emits checked operations on values of the thread that fail for some of them: indices past
+    /// the length, plain arithmetic and division, and assertions.
+    pub fallible: bool,
     names: usize,
 }
 
@@ -30,6 +33,8 @@ pub struct Scope {
     locals: Vec<Local>,
     labels: Vec<String>,
     pub generic: Option<String>,
+    /// Integer parameters, whose values differ between threads.
+    pub varying: Vec<String>,
 }
 
 impl Scope {
@@ -64,11 +69,8 @@ fn collect(records: &[Record], place: Expr, ty: &Type, wanted: &Type, found: &mu
     }
     match ty {
         Type::Array(element, length) => {
-            let index = Expr::Index(
-                Box::new(place),
-                Box::new(Expr::Literal("0".into())),
-                *length,
-            );
+            let zero = Box::new(Expr::Literal("0".into()));
+            let index = Expr::Index(Box::new(place), zero, Some(*length));
             collect(records, index, element, wanted, found);
         }
         Type::Tuple(fields) => {
@@ -127,6 +129,7 @@ impl Builder {
             random: Random::new(seed),
             records: Vec::new(),
             helpers: Vec::new(),
+            fallible: false,
             names: 0,
         }
     }
@@ -170,11 +173,12 @@ impl Builder {
     fn block(&mut self, scope: &mut Scope, count: u64, nesting: u32) -> Vec<Stmt> {
         let mut stmts = Vec::new();
         for _ in 0..count {
-            let stmt = match self.random.below(10) {
+            let stmt = match self.random.below(11) {
                 4..=6 => self.assign(scope),
                 7 if nesting > 0 => Some(self.branch(scope, nesting)),
                 8 if nesting > 0 => Some(self.repeat(scope, nesting)),
                 9 if !scope.labels.is_empty() => Some(self.exit(scope)),
+                10 if self.fallible => Some(self.assertion(scope)),
                 _ => None,
             };
             stmts.push(stmt.unwrap_or_else(|| self.declare(scope)));
@@ -251,6 +255,21 @@ impl Builder {
         Stmt::Exit(condition, kind, label)
     }
 
+    /// An assertion, mostly one that compares a value of the thread with a literal, so that it
+    /// fails for some threads only.
+    fn assertion(&mut self, scope: &Scope) -> Stmt {
+        if self.random.chance(1, 4) {
+            return Stmt::Assert(self.expr(scope, &Type::Bool, 2));
+        }
+        let int = *self.random.pick(&INTS);
+        let value = self.expr(scope, &Type::Int(int), 2);
+        let varying = self.varying(scope, int);
+        let mixed = Expr::Binary(Box::new(value), "^", Box::new(varying));
+        let comparison = self.random.pick(&["!=", "!=", "<", ">="]);
+        let literal = Expr::Literal(int.literal(&mut self.random));
+        Stmt::Assert(Expr::Binary(Box::new(mixed), comparison, Box::new(literal)))
+    }
+
     /// A helper that the helpers after it and `run` may call; it calls only earlier ones.
     pub fn helper(&mut self) {
         let name = format!("h{}", self.helpers.len());
@@ -261,6 +280,11 @@ impl Builder {
         let result = self.ty(1);
         let mut scope = Scope {
             generic: generic.clone(),
+            varying: parameters
+                .iter()
+                .filter(|(_, ty)| matches!(ty, Type::Int(_)))
+                .map(|(name, _)| name.clone())
+                .collect(),
             ..Scope::default()
         };
         for (name, ty) in &parameters {
@@ -285,7 +309,10 @@ impl Builder {
 
     /// `run(input) -> [u32; words]`, the code that every thread executes.
     pub fn run(&mut self, words: u32) -> (Function, Vec<Word>) {
-        let mut scope = Scope::default();
+        let mut scope = Scope {
+            varying: vec!["input".into()],
+            ..Scope::default()
+        };
         scope.locals.push(Local {
             name: "input".into(),
             ty: U32,

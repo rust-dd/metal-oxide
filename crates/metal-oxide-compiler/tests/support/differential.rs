@@ -1,4 +1,5 @@
 use super::generate::{Program, Word};
+use metal_oxide_artifact::{ArtifactFile, Check};
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -26,6 +27,14 @@ pub const SEEDS: [u64; 16] = [
 ];
 
 const THREADS: usize = 257;
+
+/// What one thread produced: its words, or the location of the panic or failed check that
+/// stopped it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Words(Vec<u32>),
+    Panic { line: u32, column: u32 },
+}
 
 /// A generated program, its inputs and the directory that holds its outputs.
 pub struct Case {
@@ -55,34 +64,55 @@ impl Case {
         }
     }
 
+    fn overflow_checks(&self) -> &'static str {
+        if self.program.overflow_checks {
+            "overflow-checks=on"
+        } else {
+            "overflow-checks=off"
+        }
+    }
+
     pub fn compile(&self) -> PathBuf {
         let output = self.directory.join("generated");
         super::checked(super::emit_into(
             self.source.to_str().unwrap(),
-            &["-C", "overflow-checks=off"],
+            &["-C", self.overflow_checks()],
             &output,
         ));
         output
     }
 
-    /// The words of every thread, from rustc's build of the program for the host.
-    pub fn cpu(&self) -> Vec<Vec<u32>> {
+    /// What every thread produces in rustc's build of the program for the host.
+    pub fn cpu(&self) -> Vec<Outcome> {
         let binary = self.directory.join("cpu");
         let mut rustc = Command::new("rustc");
         rustc
             .arg(&self.source)
-            .args(["--edition=2024", "--cfg", "cpu_reference", "-O"])
-            .args(["-C", "overflow-checks=off", "-o"])
+            .args(["--edition=2024", "--cfg", "cpu_reference", "-O", "-C"])
+            .arg(self.overflow_checks())
+            .arg("-o")
             .arg(&binary);
         super::checked(super::process::output(&mut rustc, Duration::from_secs(120)).unwrap());
         let result = super::checked(
             super::process::output(&mut Command::new(binary), Duration::from_secs(10)).unwrap(),
         );
-        words(&result)
+        result
+            .lines()
+            .map(|line| match line.strip_prefix("panic ") {
+                Some(location) => {
+                    let (line, column) = location.split_once(':').unwrap();
+                    Outcome::Panic {
+                        line: line.parse().unwrap(),
+                        column: column.parse().unwrap(),
+                    }
+                }
+                None => Outcome::Words(words(line)),
+            })
+            .collect()
     }
 
-    /// The words of every thread, from the emitted MSL compiled for the host.
-    pub fn msl(&self, directory: &Path) -> Vec<Vec<u32>> {
+    /// What every thread produces when the emitted MSL runs on the host, one thread at a time.
+    pub fn msl(&self, directory: &Path) -> Vec<Outcome> {
         let words = self.program.words.len();
         let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
         let inputs = self
@@ -92,18 +122,30 @@ impl Case {
             .collect::<Vec<_>>();
         let main = format!(
             "uint input[] = {{{}}}; uint output[{}] = {{}}; uint n = {THREADS}; ulong lengths[] = {{{THREADS}, {}, 0}}; \
-             for (uint i = 0; i < n; ++i) {{ generated({}); }} \
-             for (uint i = 0; i < n * {words}; ++i) {{ std::cout << output[i] << ((i + 1) % {words} == 0 ? '\\n' : ' '); }}",
+             for (uint i = 0; i < n; ++i) {{ \
+                 generated({}); \
+                 uint failure = atomic_load_explicit(metal_oxide_failure, memory_order_relaxed); \
+                 atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); \
+                 if (failure != 0u) {{ std::cout << \"check \" << failure - 2u << '\\n'; continue; }} \
+                 for (uint k = 0; k < {words}; ++k) {{ std::cout << output[i * {words} + k] << (k + 1 == {words} ? '\\n' : ' '); }} \
+             }}",
             inputs.join(","),
             THREADS * words,
             THREADS * words,
             invocation(&msl)
         );
-        self::words(&super::execute_msl(directory, &main))
+        let checks = checks(directory);
+        super::execute_msl(directory, &main)
+            .lines()
+            .map(|line| match line.strip_prefix("check ") {
+                Some(check) => checks[check.parse::<usize>().unwrap()].clone(),
+                None => Outcome::Words(self::words(line)),
+            })
+            .collect()
     }
 
-    /// The first word in which `actual` differs from `expected`.
-    pub fn mismatch(&self, expected: &[Vec<u32>], actual: &[Vec<u32>]) -> Option<String> {
+    /// The first thread whose outcome in `actual` differs from `expected`.
+    pub fn mismatch(&self, expected: &[Outcome], actual: &[Outcome]) -> Option<String> {
         if expected.len() != actual.len() {
             return Some(format!(
                 "{} threads, expected {}",
@@ -111,23 +153,81 @@ impl Case {
                 expected.len()
             ));
         }
-        for (thread, (expected, actual)) in expected.iter().zip(actual).enumerate() {
-            for (index, ((&expected, &actual), kind)) in expected
+        expected
+            .iter()
+            .zip(actual)
+            .position(|outcomes| match outcomes {
+                (Outcome::Words(expected), Outcome::Words(actual)) => {
+                    !self.words_agree(expected, actual)
+                }
+                (expected, actual) => expected != actual,
+            })
+            .map(|thread| {
+                format!(
+                    "thread {thread} (input {:#x}): expected {:x?}, got {:x?}",
+                    self.inputs[thread], expected[thread], actual[thread]
+                )
+            })
+    }
+
+    /// Compares a GPU run with the CPU outcomes. The GPU reports one failed check, which must be
+    /// one of the CPU's panics; every thread that the CPU completes must have written its words.
+    pub fn gpu_mismatch(
+        &self,
+        expected: &[Outcome],
+        failure: Option<Outcome>,
+        words: &[u32],
+    ) -> Option<String> {
+        let panics = expected
+            .iter()
+            .filter(|outcome| matches!(outcome, Outcome::Panic { .. }))
+            .collect::<Vec<_>>();
+        match &failure {
+            None if !panics.is_empty() => {
+                return Some(format!(
+                    "the GPU completed, the CPU panicked at {:?}",
+                    panics[0]
+                ));
+            }
+            Some(failure) if !panics.contains(&failure) => {
+                return Some(format!(
+                    "the GPU failed {failure:?}, which no CPU thread panicked at"
+                ));
+            }
+            _ => {}
+        }
+        let actual = expected
+            .iter()
+            .zip(words.chunks(self.program.words.len()))
+            .map(|(expected, words)| match expected {
+                Outcome::Words(_) => Outcome::Words(words.to_vec()),
+                Outcome::Panic { .. } => expected.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.mismatch(expected, &actual)
+    }
+
+    fn words_agree(&self, expected: &[u32], actual: &[u32]) -> bool {
+        expected.len() == actual.len()
+            && expected
                 .iter()
                 .zip(actual)
                 .zip(&self.program.words)
-                .enumerate()
-            {
-                if !agree(*kind, expected, actual) {
-                    return Some(format!(
-                        "thread {thread} (input {:#x}), word {index}: expected {expected:#010x}, got {actual:#010x}",
-                        self.inputs[thread]
-                    ));
-                }
-            }
-        }
-        None
+                .all(|((&expected, &actual), kind)| agree(*kind, expected, actual))
     }
+}
+
+/// The source location of each runtime check of a compiled case, by check index.
+fn checks(directory: &Path) -> Vec<Outcome> {
+    let checks = std::fs::read_to_string(directory.join(ArtifactFile::Checks.name())).unwrap();
+    serde_json::from_str::<Vec<Check>>(&checks)
+        .unwrap()
+        .into_iter()
+        .map(|check| Outcome::Panic {
+            line: check.location.line,
+            column: check.location.column,
+        })
+        .collect()
 }
 
 fn agree(kind: Word, expected: u32, actual: u32) -> bool {
@@ -139,10 +239,8 @@ fn agree(kind: Word, expected: u32, actual: u32) -> bool {
         && (expected.is_nan() && actual.is_nan() || expected.is_subnormal() && actual == 0.0)
 }
 
-fn words(text: &str) -> Vec<Vec<u32>> {
-    text.lines()
-        .map(|line| line.split(' ').map(|word| word.parse().unwrap()).collect())
-        .collect()
+fn words(line: &str) -> Vec<u32> {
+    line.split(' ').map(|word| word.parse().unwrap()).collect()
 }
 
 /// The arguments of the emitted `generated` entry, by the names of its parameters.

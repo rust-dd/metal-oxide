@@ -23,6 +23,8 @@ pub enum Word {
 
 pub struct Program {
     pub seed: u64,
+    /// Whether the program builds with `-C overflow-checks=on`.
+    pub overflow_checks: bool,
     records: Vec<Record>,
     helpers: Vec<Function>,
     run: Function,
@@ -32,6 +34,8 @@ pub struct Program {
 impl Program {
     pub fn generate(seed: u64) -> Self {
         let mut builder = Builder::new(seed);
+        builder.fallible = builder.random.chance(1, 2);
+        let overflow_checks = builder.random.chance(1, 2);
         for _ in 0..builder.random.below(3) {
             builder.record();
         }
@@ -42,6 +46,7 @@ impl Program {
         let (run, words) = builder.run(words);
         Self {
             seed,
+            overflow_checks,
             records: builder.records,
             helpers: builder.helpers,
             run,
@@ -56,7 +61,7 @@ impl Program {
             text: String::new(),
         };
         printer.text.push_str(
-            "#![cfg_attr(not(cpu_reference), no_std)]\n#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, dead_code, unreachable_code)]\n\n",
+            "#![cfg_attr(not(cpu_reference), no_std)]\n#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]\n\n",
         );
         for record in &self.records {
             let fields = record
@@ -103,9 +108,20 @@ pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32
 
 #[cfg(cpu_reference)]
 fn main() {{
+    let location = std::sync::Arc::new(std::sync::Mutex::new((0, 0)));
+    let recorded = std::sync::Arc::clone(&location);
+    std::panic::set_hook(Box::new(move |info| {{
+        let panicked = info.location().unwrap();
+        *recorded.lock().unwrap() = (panicked.line(), panicked.column());
+    }}));
     for input in [{inputs}] {{
-        let words = run(input).map(|word| word.to_string());
-        println!("{{}}", words.join(" "));
+        match std::panic::catch_unwind(|| run(input)) {{
+            Ok(words) => println!("{{}}", words.map(|word| word.to_string()).join(" ")),
+            Err(_) => {{
+                let (line, column) = *location.lock().unwrap();
+                println!("panic {{line}}:{{column}}");
+            }}
+        }}
     }}
 }}
 "#,

@@ -15,8 +15,9 @@ pub enum Expr {
     /// A helper with its const argument, if it takes one.
     Call(String, Option<u32>, Vec<Expr>),
     Field(Box<Expr>, String),
-    /// An index kept in bounds by a remainder of the array length.
-    Index(Box<Expr>, Box<Expr>, u32),
+    /// An index taken modulo the given value, if any; a modulus above the length, or none, can
+    /// fail the bounds check.
+    Index(Box<Expr>, Box<Expr>, Option<u32>),
     Aggregate(Type, Vec<Expr>),
 }
 
@@ -35,6 +36,7 @@ pub enum Stmt {
     For(String, String, u32, Vec<Stmt>),
     /// `if condition { break|continue 'label; }`
     Exit(Expr, &'static str, String),
+    Assert(Expr),
 }
 
 #[derive(Clone, Debug)]
@@ -94,12 +96,12 @@ impl Printer<'_> {
                 format!("{name}{generic}({})", arguments.join(", "))
             }
             Expr::Field(value, field) => format!("{}.{field}", self.expr(value)),
-            Expr::Index(array, index, length) => {
-                format!(
-                    "{}[({} as usize) % {length}]",
-                    self.expr(array),
-                    self.expr(index)
-                )
+            Expr::Index(array, index, Some(modulus)) => {
+                let (array, index) = (self.expr(array), self.expr(index));
+                format!("{array}[({index} as usize) % {modulus}]")
+            }
+            Expr::Index(array, index, None) => {
+                format!("{}[{} as usize]", self.expr(array), self.expr(index))
             }
             Expr::Aggregate(ty, fields) => {
                 let fields = fields.iter().map(|f| self.expr(f)).collect::<Vec<_>>();
@@ -173,6 +175,13 @@ impl Printer<'_> {
                 Stmt::Exit(condition, kind, label) => {
                     let condition = self.expr(condition);
                     self.line(indent, &format!("if {condition} {{ {kind} '{label}; }}"));
+                }
+                Stmt::Assert(condition) => {
+                    let condition = self.expr(condition);
+                    self.line(
+                        indent,
+                        &format!("assert!({condition}, \"generated assertion\");"),
+                    );
                 }
             }
         }

@@ -59,13 +59,19 @@ impl Builder {
     fn indexed(&mut self, scope: &Scope, expr: Expr) -> Expr {
         match expr {
             Expr::Field(value, field) => Expr::Field(Box::new(self.indexed(scope, *value)), field),
-            Expr::Index(value, _, length) => {
+            Expr::Index(value, _, modulus) => {
                 let int = *self.random.pick(&INTS);
-                let index = self.leaf(scope, &Type::Int(int));
+                let (index, modulus) = match modulus {
+                    Some(length) if self.fallible && self.random.chance(1, 4) => {
+                        let index = self.varying(scope, int);
+                        (index, (!self.random.chance(1, 4)).then_some(length + 1))
+                    }
+                    modulus => (self.leaf(scope, &Type::Int(int)), modulus),
+                };
                 Expr::Index(
                     Box::new(self.indexed(scope, *value)),
                     Box::new(index),
-                    length,
+                    modulus,
                 )
             }
             other => other,
@@ -121,6 +127,18 @@ impl Builder {
     fn int(&mut self, scope: &Scope, int: Int, depth: u32) -> Expr {
         let ty = Type::Int(int);
         let operand = |this: &mut Self| Box::new(this.expr(scope, &ty, depth));
+        if self.fallible && self.random.chance(1, 10) {
+            let varying = Box::new(self.varying(scope, int));
+            if int.signed && self.random.chance(1, 8) {
+                return Expr::Unary("-", varying);
+            }
+            let operator = *self.random.pick(&["+", "-", "*", "/", "%", "<<", ">>"]);
+            return if matches!(operator, "+" | "-" | "*") && self.random.chance(1, 2) {
+                Expr::Binary(varying, operator, operand(self))
+            } else {
+                Expr::Binary(operand(self), operator, varying)
+            };
+        }
         match self.random.below(11) {
             0 => {
                 let method = *self
@@ -213,6 +231,15 @@ impl Builder {
             }
             _ => Expr::Method(operand(self), "wrapping_add", vec![*operand(self)]),
         }
+    }
+
+    /// An integer of `int` that differs between threads, from a parameter when there is one.
+    pub fn varying(&mut self, scope: &Scope, int: Int) -> Expr {
+        if scope.varying.is_empty() {
+            return self.leaf(scope, &Type::Int(int));
+        }
+        let name = self.random.pick(&scope.varying).clone();
+        Expr::Cast(Box::new(Expr::Local(name)), Type::Int(int))
     }
 
     fn any_int(&mut self, scope: &Scope, depth: u32) -> Expr {

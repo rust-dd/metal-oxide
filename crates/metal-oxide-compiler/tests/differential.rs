@@ -3,6 +3,7 @@
 mod support;
 
 use std::{process::Command, time::Duration};
+use support::differential::Outcome;
 
 #[test]
 fn differential_process_deadline_stops_nonterminating_programs() {
@@ -48,14 +49,62 @@ fn generated_programs_match_cpu_and_emitted_msl() {
 
 #[test]
 fn a_kernel_that_writes_other_words_is_reported() {
-    let case = support::differential::Case::generated(5);
-    let expected = case.cpu();
+    let (case, expected) = (5..)
+        .map(|seed| {
+            let case = support::differential::Case::generated(seed);
+            let expected = case.cpu();
+            (case, expected)
+        })
+        .find(|(_, expected)| {
+            expected
+                .iter()
+                .all(|outcome| matches!(outcome, Outcome::Words(_)))
+        })
+        .unwrap();
     let source = std::fs::read_to_string(&case.source).unwrap();
     let changed = source.replacen("words[0]);", "words[0] ^ 1);", 1);
     assert_ne!(changed, source);
     std::fs::write(&case.source, changed).unwrap();
     let generated = case.compile();
     assert!(case.mismatch(&expected, &case.msl(&generated)).is_some());
+}
+
+#[test]
+fn failures_are_compared_by_location_and_completed_threads_by_words() {
+    let case = support::differential::Case::generated(0);
+    let words = case.program.words.len();
+    let panic = Outcome::Panic { line: 9, column: 5 };
+    let expected = [Outcome::Words(vec![0; words]), panic.clone()];
+    let zeros = vec![0; 2 * words];
+    assert_eq!(
+        case.gpu_mismatch(&expected, Some(panic.clone()), &zeros),
+        None
+    );
+    assert!(case.gpu_mismatch(&expected, None, &zeros).is_some());
+    let elsewhere = Outcome::Panic { line: 9, column: 6 };
+    assert!(
+        case.gpu_mismatch(&expected, Some(elsewhere.clone()), &zeros)
+            .is_some()
+    );
+    let mut changed = zeros.clone();
+    changed[0] = 1;
+    assert!(
+        case.gpu_mismatch(&expected, Some(panic.clone()), &changed)
+            .is_some()
+    );
+    let completed = [
+        Outcome::Words(vec![0; words]),
+        Outcome::Words(vec![0; words]),
+    ];
+    assert!(
+        case.gpu_mismatch(&completed, Some(panic.clone()), &zeros)
+            .is_some()
+    );
+    assert!(
+        case.mismatch(&expected, &[expected[0].clone(), elsewhere])
+            .is_some()
+    );
+    assert!(case.mismatch(&expected, &completed).is_some());
 }
 
 #[test]
@@ -125,6 +174,12 @@ fn generated_programs_cover_the_supported_constructs() {
         "<const K: u32>",
         "::<",
         "let mut ",
+        "\"generated assertion\"",
+        " as usize]",
+        " as usize) % 5]",
+        " << ",
+        " >> ",
+        "(-(",
     ] {
         assert!(
             sources.contains(construct),
@@ -202,7 +257,7 @@ fn duplicate_entrypoint_names_have_source_diagnostics() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
 fn generated_programs_match_cpu_on_gpu() {
-    use metal_oxide::{Argument, Device, Launch, LaunchConfig, Operation, Pipeline};
+    use metal_oxide::{Argument, Device, Error, Launch, LaunchConfig, Operation, Pipeline};
     let device = Device::system_default().unwrap();
     for seed in support::differential::SEEDS {
         let case = support::differential::Case::generated(seed);
@@ -217,7 +272,7 @@ fn generated_programs_match_cpu_on_gpu() {
         let n = case.inputs.len() as u32;
         // SAFETY: the buffers are disjoint; padded threads are guarded and thread i alone
         // writes the words at i * words.
-        unsafe {
+        let result = unsafe {
             Launch::new(
                 Ok(&pipeline),
                 LaunchConfig::<64>::for_elements(n).unwrap(),
@@ -231,15 +286,16 @@ fn generated_programs_match_cpu_on_gpu() {
                 },
             )
             .wait()
-            .unwrap();
-        }
-        let gpu = output
-            .read()
-            .wait()
-            .chunks(words)
-            .map(<[u32]>::to_vec)
-            .collect::<Vec<_>>();
-        if let Some(mismatch) = case.mismatch(&case.cpu(), &gpu) {
+        };
+        let failure = match result {
+            Ok(_) => None,
+            Err(Error::KernelFailed(failure)) => Some(Outcome::Panic {
+                line: failure.line,
+                column: failure.column,
+            }),
+            Err(error) => panic!("seed {seed:#x}: {error}"),
+        };
+        if let Some(mismatch) = case.gpu_mismatch(&case.cpu(), failure, output.read().wait()) {
             panic!("seed {seed:#x}, {}: {mismatch}", case.source.display());
         }
     }
