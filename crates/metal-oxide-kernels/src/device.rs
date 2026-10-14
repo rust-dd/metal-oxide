@@ -48,10 +48,12 @@ pub(crate) struct Request {
 }
 
 /// Whether this expansion builds for the GPU: rust-analyzer expands macros on every edit and
-/// needs the launch functions only, and hosts without Metal cannot build them.
+/// needs the launch functions only, and hosts without Metal only check saved artifacts, when
+/// `METAL_OXIDE_ARTIFACTS=locked` asks for that.
 fn builds() -> bool {
-    std::env::var_os("RUST_ANALYZER_INTERNALS_DO_NOT_USE").is_none()
-        && cfg!(all(target_os = "macos", target_arch = "aarch64"))
+    let metal = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+    let locked = std::env::var_os(ARTIFACTS).is_some_and(|value| value == "locked");
+    std::env::var_os("RUST_ANALYZER_INTERNALS_DO_NOT_USE").is_none() && (metal || locked)
 }
 
 fn package() -> syn::Result<PathBuf> {

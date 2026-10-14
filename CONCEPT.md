@@ -452,7 +452,7 @@ a kernel build
   whose sources stay as published;
 - without the kernel toolchain, while its recorded inputs are unchanged;
 - with `METAL_OXIDE_ARTIFACTS=locked`, which builds no kernels and makes a missing or stale
-  saved artifact an error.
+  saved artifact an error, also on hosts without Metal, which otherwise skip kernels.
 
 A build with the toolchain rewrites a saved artifact whose inputs changed. Commit and
 publish the `metal/` directory. A removed kernel leaves its directory behind; deleting
