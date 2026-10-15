@@ -341,13 +341,17 @@ coordinate parameters from the dispatch:
 | `grid_dim()` | `threadgroups_per_grid` |
 | `thread_index()` | `thread_position_in_grid` (x) |
 
-The generated MSL avoids two Apple compiler defects that differential fuzzing found:
+The generated MSL avoids three Apple compiler defects that differential fuzzing found:
 
 - 32-bit division and remainder can be wrong when Metal's GPU compiler knows the numerator
   as a constant: a `uint` numerator from `0xFFFFFF80` to `0xFFFFFFFD` overflows its float
   estimate, and other numerators fail once the divisor also becomes constant there, as after
   it folds `reverse_bits`. Division by a variable XORs the numerator with
   `uint(thread_idx.x >= block_dim.x)`, which is zero but unknown to the compiler.
+- The M1 and M2 GPU compilers fail on an 8- or 16-bit `count_ones`, or a 16-bit
+  `trailing_zeros`, of a value they fold to a constant. Narrow counts run on the value
+  zero-extended to `uint` and XORed with the same zero, which they can neither fold nor
+  narrow back.
 - On the Apple Paravirtual device of hosted CI, 64-bit integer to `float` conversions of
   values that become constant on the device are wrong. They convert through 32 bits,
   rounding to nearest even as Rust does.

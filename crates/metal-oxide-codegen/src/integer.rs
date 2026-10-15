@@ -13,7 +13,17 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
         IntegerOp::SaturatingAdd => format!("addsat({}, {})", values[0], values[1]),
         IntegerOp::SaturatingSub => format!("subsat({}, {})", values[0], values[1]),
         IntegerOp::LeadingZeros => format!("uint(clz({}))", values[0]),
+        IntegerOp::TrailingZeros if scalar.bits() < 32 => {
+            format!(
+                "ctz({} | {:#x}u)",
+                widened(scalar, &values[0]),
+                1_u32 << scalar.bits()
+            )
+        }
         IntegerOp::TrailingZeros => format!("uint(ctz({}))", values[0]),
+        IntegerOp::CountOnes if scalar.bits() < 32 => {
+            format!("popcount({})", widened(scalar, &values[0]))
+        }
         IntegerOp::CountOnes => format!("uint(popcount({}))", values[0]),
         IntegerOp::ReverseBits => format!("reverse_bits({})", values[0]),
         IntegerOp::RotateLeft => {
@@ -26,4 +36,18 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
             )
         }
     }
+}
+
+/// `value` zero-extended to `uint` and kept unknown: the M1 and M2 GPU compilers crash on 8-
+/// and 16-bit counts of values they fold, and narrow a plain extension back.
+fn widened(scalar: Scalar, value: &str) -> String {
+    let unsigned = if scalar.bits() == 8 {
+        "uchar"
+    } else {
+        "ushort"
+    };
+    format!(
+        "(uint(as_type<{unsigned}>({value})) ^ {})",
+        crate::arithmetic::OPAQUE_ZERO
+    )
 }
