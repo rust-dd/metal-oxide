@@ -90,6 +90,11 @@ fn generated_programs_agree_until_the_time_budget_ends() {
                 &output.join(format!("{seed:016x}")),
             );
             failures.push(seed);
+            // A device that failed once may fail every later program.
+            if matches!(failure, Failure::Device(_)) {
+                eprintln!("stopping after the device failed");
+                break;
+            }
         }
         checked += 1;
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);

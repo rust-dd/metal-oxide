@@ -10,19 +10,34 @@ pub enum Failure {
     Compiler(String),
     /// The emitted MSL does not run on the host, or its words differ from the CPU's.
     Msl(String),
-    /// Metal rejects the emitted MSL, or the GPU differs from the CPU.
+    /// The GPU's words, failed check or counters differ from the CPU's.
     Gpu(String),
+    /// Metal rejects the emitted MSL or the device cannot run it; later runs may fail with it.
+    Device(String),
 }
 
 impl Failure {
-    /// Whether `other` fails at the same stage and, for the compiler, with the same first
-    /// diagnostic, wherever it points.
+    /// Whether `other` fails at the same stage in the same way: with the same first compiler
+    /// diagnostic, wherever it points, or the same kind of GPU difference.
     pub fn same_as(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Compiler(a), Self::Compiler(b)) => diagnostic(a) == diagnostic(b),
+            (Self::Gpu(a), Self::Gpu(b)) => difference(a) == difference(b),
             _ => std::mem::discriminant(self) == std::mem::discriminant(other),
         }
     }
+}
+
+/// The kind of a GPU difference: thread words, a missing or unknown failed check, or counters.
+fn difference(failure: &str) -> &str {
+    let kinds = [
+        "thread ",
+        "counters ",
+        "the GPU completed",
+        "the GPU failed",
+    ];
+    let kind = kinds.into_iter().find(|kind| failure.starts_with(kind));
+    kind.unwrap_or(failure)
 }
 
 impl std::fmt::Display for Failure {
@@ -32,6 +47,7 @@ impl std::fmt::Display for Failure {
             Self::Compiler(detail) => ("the compiler fails", detail),
             Self::Msl(detail) => ("the emitted MSL differs on the host", detail),
             Self::Gpu(detail) => ("the GPU differs", detail),
+            Self::Device(detail) => ("the device fails", detail),
         };
         write!(f, "{stage}: {detail}")
     }
@@ -61,7 +77,7 @@ impl Case {
         expected: &Run,
         generated: &std::path::Path,
     ) -> Result<(), Failure> {
-        let gpu = self.gpu(device, generated).map_err(Failure::Gpu)?;
+        let gpu = self.gpu(device, generated).map_err(Failure::Device)?;
         match self.gpu_mismatch(expected, gpu.failure, &gpu.words, &gpu.counters) {
             Some(mismatch) => Err(Failure::Gpu(mismatch)),
             None => Ok(()),
