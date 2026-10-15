@@ -315,10 +315,11 @@ pub(crate) fn expression(
                     else {
                         unreachable!("validated slice")
                     };
+                    let length = format!("{}ul", module.types.get(id).unwrap().len());
                     format!(
-                        "metal_oxide_pointer_{pointer}{{(*{}).elements, {}ul}}",
+                        "metal_oxide_pointer_{pointer}{{(*{}).elements, {}}}",
                         op(data),
-                        module.types.get(id).unwrap().len()
+                        slice_length(module, pointer, length)
                     )
                 }
             }
@@ -328,7 +329,7 @@ pub(crate) fn expression(
             format!(
                 "metal_oxide_pointer_{pointer}{{{}, {}}}",
                 op(data),
-                op(length)
+                slice_length(module, pointer, op(length))
             )
         }
         Expression::PointerCast(pointer, to) => {
@@ -350,9 +351,10 @@ pub(crate) fn expression(
         Expression::Subslice { slice, start, end } => {
             let pointer = result_pointer(module, function, value, source)?;
             let (slice, start) = (op(slice), op(start));
+            let length = format!("{} - {start}", op(end));
             format!(
-                "metal_oxide_pointer_{pointer}{{{slice}.data + {start}, {} - {start}}}",
-                op(end)
+                "metal_oxide_pointer_{pointer}{{{slice}.data + {start}, {}}}",
+                slice_length(module, pointer, length)
             )
         }
         Expression::Call {
@@ -387,6 +389,21 @@ pub(crate) fn expression(
             crate::arithmetic::binary(*operation, &numerator, &op(b), operands)
         }
     })
+}
+
+/// The length of a new slice. Apple's GPU compilers read a private array as it was before a
+/// loop over it with a known end, so private slices hide their length.
+fn slice_length(module: &Module, pointer: usize, length: String) -> String {
+    match module
+        .types
+        .pointer(Type::Pointer(pointer))
+        .map(|p| p.space)
+    {
+        Some(AddressSpace::Thread) => {
+            format!("(({length}) ^ ulong({}))", crate::arithmetic::OPAQUE_ZERO)
+        }
+        _ => length,
+    }
 }
 
 fn result_pointer(
