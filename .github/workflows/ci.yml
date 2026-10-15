@@ -44,6 +44,28 @@ jobs:
       - name: Benchmark driver
         run: python3 scripts/test_bench.py
 
+  dependencies:
+    name: Dependency licenses, advisories and sources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+        with:
+          rust-version: "1.99.0"
+
+  miri:
+    name: Miri on host code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install Miri
+        run: rustup toolchain install nightly-2026-10-04 --profile minimal --component miri --component rust-src
+      - name: Artifact contracts and layouts
+        run: cargo +nightly-2026-10-04 miri test --locked -p metal-oxide-artifact
+      - name: Launch validation and value encoding
+        # The Metal module is absent on Linux, and trybuild runs Cargo, which Miri cannot.
+        run: cargo +nightly-2026-10-04 miri test --locked -p metal-oxide --lib --test values --test half
+
   compiler:
     name: Rust compiler (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

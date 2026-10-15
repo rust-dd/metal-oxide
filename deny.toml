@@ -1,0 +1,17 @@
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["Apache-2.0", "BSD-2-Clause", "MIT", "Unicode-3.0", "Unlicense", "Zlib"]
+private = { ignore = true }
+
+[bans]
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
