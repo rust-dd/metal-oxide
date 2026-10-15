@@ -119,6 +119,25 @@ fn signed_division_by_constant_operands_keeps_the_overflow_check() {
     );
 }
 
+#[test]
+fn divisors_with_a_set_bit_are_proved_nonzero() {
+    let checks = {
+        let (output, directory) = support::emit(
+            "crates/metal-oxide-compiler/tests/fixtures/proofs_bit_ranges.rs",
+            &["-C", "overflow-checks=on"],
+        );
+        support::checked(output);
+        serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(directory.join("checks.json")).unwrap(),
+        )
+        .unwrap()
+    };
+    // Only `b % (c | 1)` can fail: `c | 1` is -1 when `c` is.
+    assert_eq!(checks.as_array().unwrap().len(), 1, "{checks}");
+    assert_eq!(checks[0]["kind"], serde_json::json!({"overflow": "rem"}));
+    assert_eq!(checks[0]["location"]["line"], 10);
+}
+
 /// The kernel of `proofs_merged_division.rs`, or `None` where Rust panics.
 fn merged_division(input: u32) -> Option<i16> {
     let offset = if input & 1 == 0 { 2 } else { 5 };

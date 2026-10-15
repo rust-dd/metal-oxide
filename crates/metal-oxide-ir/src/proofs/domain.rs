@@ -247,7 +247,16 @@ fn interval(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> (Range, Range
                 None
             }
         }
-        BitAnd if a.lo >= 0 && b.lo >= 0 => Some((0, a.hi.min(b.hi))),
+        // A non-negative operand clears the sign bit and every bit above its own.
+        BitAnd if a.lo >= 0 || b.lo >= 0 => {
+            let masks = [a, b].into_iter().filter(|range| range.lo >= 0);
+            Some((0, masks.map(|range| range.hi).min().unwrap()))
+        }
+        // Neither sets a bit above the highest of its non-negative operands; OR keeps them all.
+        BitOr | BitXor if a.lo >= 0 && b.lo >= 0 => {
+            let lo = if op == BitOr { a.lo.max(b.lo) } else { 0 };
+            Some((lo, ones(a.hi.max(b.hi))))
+        }
         _ => None,
     };
     let overflow = match bounds {
@@ -255,12 +264,24 @@ fn interval(op: BinaryOp, a: &Range, b: &Range, scalar: Scalar) -> (Range, Range
         Some((lo, hi)) if hi < full.lo || lo > full.hi => Range::exact(1),
         _ => Range::full(Scalar::Bool),
     };
-    let value = match bounds {
+    let mut value = match bounds {
         Some((lo, hi)) if lo >= full.lo && hi <= full.hi => Range::new(lo, hi),
         Some((lo, hi)) if lo == hi => Range::exact(wrap(lo, scalar)),
         _ => full,
     };
+    if op == BitOr && (!a.contains(0) || !b.contains(0)) {
+        value.exclude(0);
+    }
     (value, overflow)
+}
+
+/// The least `2^k - 1` that is at least `value`, which is not negative.
+fn ones(value: i128) -> i128 {
+    if value == 0 {
+        0
+    } else {
+        (1 << (i128::BITS - value.leading_zeros())) - 1
+    }
 }
 
 /// Launch validation keeps `grid_dim * block_dim` within u32 on every axis, so a block's start
