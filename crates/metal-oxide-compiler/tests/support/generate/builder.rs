@@ -301,6 +301,11 @@ impl Builder {
                 .filter(|(_, ty)| matches!(ty, Type::Int(_)))
                 .map(|(name, _)| name.clone())
                 .collect(),
+            owned: parameters
+                .iter()
+                .filter(|(_, ty)| matches!(ty, Type::Closure(..)))
+                .map(|(name, _)| name.clone())
+                .collect(),
             ..Scope::default()
         };
         for (name, ty) in &parameters {

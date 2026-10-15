@@ -23,6 +23,9 @@ pub struct Scope {
     pub varying: Vec<String>,
     /// The enclosing helper's `Option` or `Result` result, into which `?` propagates.
     pub question: Option<Type>,
+    /// The `impl Fn` parameters, which are not `Copy`: a `move` closure inside an `FnMut` one
+    /// could not take them, so closures do not capture them.
+    pub owned: Vec<String>,
 }
 
 impl Scope {
@@ -67,9 +70,10 @@ impl Scope {
             labels: Vec::new(),
             ..self.clone()
         };
-        scope
-            .locals
-            .retain(|local| !matches!(local.ty, Type::Ref(_, true) | Type::Slice(_, true)));
+        scope.locals.retain(|local| {
+            !matches!(local.ty, Type::Ref(_, true) | Type::Slice(_, true))
+                && !self.owned.contains(&local.name)
+        });
         scope.bind(parameters)
     }
 
