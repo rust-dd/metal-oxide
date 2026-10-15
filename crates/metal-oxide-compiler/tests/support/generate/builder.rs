@@ -3,7 +3,7 @@ use super::{
     ast::{Expr, Function, Stmt},
     random::Random,
     scope::{Local, Scope},
-    types::{Enum, INTS, Record, Type, U32},
+    types::{Enum, INTS, Record, Type, U32, zero_sized},
 };
 
 pub struct Builder {
@@ -276,7 +276,13 @@ impl Builder {
     fn parameter(&mut self) -> Type {
         match self.random.below(9) {
             0 => Type::Ref(Box::new(self.ty(1)), self.random.chance(1, 2)),
-            1 => Type::Slice(Box::new(self.ty(1)), self.random.chance(1, 2)),
+            1 => {
+                let element = self.ty(1);
+                if zero_sized(&element, &self.records, &self.enums) {
+                    return element;
+                }
+                Type::Slice(Box::new(element), self.random.chance(1, 2))
+            }
             2 => {
                 let parameters = (0..self.random.below(3)).map(|_| self.ty(1)).collect();
                 Type::Closure(parameters, Box::new(self.ty(1)))

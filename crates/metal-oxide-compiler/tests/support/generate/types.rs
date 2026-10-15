@@ -166,6 +166,25 @@ pub fn render(ty: &Type, records: &[Record]) -> String {
     }
 }
 
+/// Whether values of `ty` take no bytes, as a single variant without payload does. The
+/// compiler rejects slices of such elements, so iterators and slices avoid them.
+pub fn zero_sized(ty: &Type, records: &[Record], enums: &[Enum]) -> bool {
+    let all = |types: &[Type]| types.iter().all(|ty| zero_sized(ty, records, enums));
+    match ty {
+        Type::Array(element, length) => *length == 0 || zero_sized(element, records, enums),
+        Type::Tuple(fields) => all(fields),
+        Type::Record(index) => records[*index]
+            .fields
+            .iter()
+            .all(|(_, ty)| zero_sized(ty, records, enums)),
+        Type::Enum(index) => match enums[*index].variants.as_slice() {
+            [payload] => all(payload),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 pub fn mutability(mutable: bool) -> &'static str {
     if mutable { "mut " } else { "" }
 }

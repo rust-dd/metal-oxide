@@ -2,7 +2,7 @@ use super::{
     ast::{Expr, Stmt},
     builder::Builder,
     scope::{Local, Scope},
-    types::{Type, U32},
+    types::{Type, U32, zero_sized},
 };
 
 /// An iterator, the type of its items and the local whose array it borrows.
@@ -45,7 +45,7 @@ impl Builder {
         let arrays = scope
             .targets(&self.records)
             .into_iter()
-            .filter(|(_, _, ty)| matches!(ty, Type::Array(..)))
+            .filter(|(_, _, ty)| self.sliceable(ty))
             .collect::<Vec<_>>();
         let (iterable, item, mut inner) = if !arrays.is_empty() && self.random.chance(1, 3) {
             let target = self.random.pick(&arrays).clone();
@@ -79,7 +79,7 @@ impl Builder {
         let arrays = scope
             .every_place(&self.records)
             .into_iter()
-            .filter(|(_, ty)| matches!(ty, Type::Array(..)))
+            .filter(|(_, ty)| self.sliceable(ty))
             .collect::<Vec<_>>();
         let (mut iterator, mut item, root) = if !arrays.is_empty() && self.random.chance(3, 4) {
             let (array, Type::Array(element, _)) = self.random.pick(&arrays).clone() else {
@@ -112,6 +112,11 @@ impl Builder {
             };
         }
         (iterator, item, root)
+    }
+
+    /// Whether `ty` is an array whose elements a slice can hold.
+    fn sliceable(&self, ty: &Type) -> bool {
+        matches!(ty, Type::Array(element, _) if !zero_sized(element, &self.records, &self.enums))
     }
 
     /// `iterator` reversed, then skipping, taking or stepping; the items keep their type.
