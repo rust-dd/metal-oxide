@@ -10,6 +10,9 @@ pub(crate) struct StructuredGraph<'a> {
     pub(crate) cfg: &'a ControlFlowGraph,
     pub(crate) loops: HashMap<usize, Loop>,
     forward: Vec<Vec<usize>>,
+    /// Blocks on a straight line into a return or panic, which a branch that leaves the
+    /// function repeats instead of joining.
+    tails: Vec<bool>,
     pub(crate) postdominators: &'a Dominators,
 }
 
@@ -20,9 +23,12 @@ enum Reachability {
 }
 
 impl<'a> StructuredGraph<'a> {
+    /// Where the branches to `targets` meet. Joining at a tail would repeat the blocks that
+    /// several branches share before it, so they look for an earlier join first.
     pub(crate) fn branch_join(&self, targets: &[usize], stop: usize) -> usize {
         let join = self.postdominators.closest_common(targets);
         if join != self.cfg.exit_block()
+            && (!self.tails[join] || !self.shared_before_tail(targets, stop))
             && (stop == self.cfg.exit_block() || !self.reaches_before(targets, stop, join))
         {
             return join;
@@ -53,15 +59,46 @@ impl<'a> StructuredGraph<'a> {
             .collect::<Vec<_>>();
         candidates.sort_by_key(|&(id, (count, distance))| (std::cmp::Reverse(count), distance, id));
         for (candidate, _) in candidates {
+            let continuation = self.reachable(candidate);
             let mut results = vec![None; self.cfg.exit_block()];
-            if targets
-                .iter()
-                .all(|&target| self.returns_or_reaches(target, candidate, stop, &mut results))
-            {
+            if targets.iter().all(|&target| {
+                self.returns_or_reaches(target, candidate, stop, &continuation, &mut results)
+            }) {
                 return candidate;
             }
         }
         join
+    }
+
+    /// Whether two of `targets` reach the same block before a tail or `stop`.
+    fn shared_before_tail(&self, targets: &[usize], stop: usize) -> bool {
+        let mut owner = vec![None; self.cfg.exit_block()];
+        for &target in targets {
+            let mut pending = vec![target];
+            while let Some(id) = pending.pop() {
+                if id == stop || self.tails[id] {
+                    continue;
+                }
+                match owner[id] {
+                    Some(other) if other != target => return true,
+                    Some(_) => continue,
+                    None => owner[id] = Some(target),
+                }
+                pending.extend(self.cfg.successors(id));
+            }
+        }
+        false
+    }
+
+    fn reachable(&self, start: usize) -> Vec<bool> {
+        let mut reached = vec![false; self.cfg.exit_block()];
+        let mut pending = vec![start];
+        while let Some(id) = pending.pop() {
+            if !std::mem::replace(&mut reached[id], true) {
+                pending.extend(self.cfg.successors(id));
+            }
+        }
+        reached
     }
 
     fn reaches_before(&self, starts: &[usize], target: usize, boundary: usize) -> bool {
@@ -79,17 +116,20 @@ impl<'a> StructuredGraph<'a> {
         false
     }
 
+    /// Whether every path from `id` reaches `candidate` or leaves through a tail, never entering
+    /// the candidate's `continuation` on the way, which the join would then emit twice.
     fn returns_or_reaches(
         &self,
         id: usize,
         candidate: usize,
         stop: usize,
+        continuation: &[bool],
         results: &mut [Option<Reachability>],
     ) -> bool {
-        if id == candidate || self.cfg.successors(id).is_empty() {
+        if id == candidate || self.tails[id] {
             return true;
         }
-        if id == stop {
+        if id == stop || continuation[id] {
             return false;
         }
         match results[id] {
@@ -102,7 +142,7 @@ impl<'a> StructuredGraph<'a> {
             .cfg
             .successors(id)
             .iter()
-            .all(|&next| self.returns_or_reaches(next, candidate, stop, results));
+            .all(|&next| self.returns_or_reaches(next, candidate, stop, continuation, results));
         results[id] = Some(Reachability::Resolved(valid));
         valid
     }
@@ -138,9 +178,9 @@ impl<'a> StructuredGraph<'a> {
             .copied()
             .filter(|&id| incoming[id] == 0)
             .collect::<Vec<_>>();
-        let mut count = 0;
+        let mut order = Vec::with_capacity(all.len());
         while let Some(id) = ready.pop() {
-            count += 1;
+            order.push(id);
             for &target in &forward[id] {
                 incoming[target] -= 1;
                 if incoming[target] == 0 {
@@ -148,11 +188,19 @@ impl<'a> StructuredGraph<'a> {
                 }
             }
         }
-        if count != all.len() {
+        if order.len() != all.len() {
             return Err(Error::new(
                 &function.source,
                 "irreducible control flow is not supported",
             ));
+        }
+        let mut tails = vec![false; n];
+        for &id in order.iter().rev() {
+            tails[id] = match cfg.successors(id) {
+                [] => true,
+                [next] => forward[id] == [*next] && tails[*next],
+                _ => false,
+            };
         }
         let mut loops = HashMap::new();
         for (header, members) in loop_members {
@@ -185,6 +233,7 @@ impl<'a> StructuredGraph<'a> {
             cfg,
             loops,
             forward,
+            tails,
             postdominators,
         })
     }
