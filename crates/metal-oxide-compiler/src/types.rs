@@ -101,6 +101,12 @@ impl<'tcx> TypeLowering<'tcx> {
             if definition.is_enum() {
                 return self.enumeration(ty, &mut std::iter::empty(), span);
             }
+            if definition.repr().simd() {
+                return Err((
+                    span,
+                    "repr(simd) vector types are not supported in Metal kernels".into(),
+                ));
+            }
             if definition.is_struct() {
                 if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
                     return Err((span, "destructors cannot be imported".into()));

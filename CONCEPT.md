@@ -262,8 +262,11 @@ done:
 
 The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
-Unsupported operations produce diagnostics. MIR assertions remain in the IR
-until a typed constant or range proof establishes that they cannot fail.
+Unsupported operations produce diagnostics. Calls into `core::simd` and `repr(simd)` vector
+types are rejected where kernel code uses them: Apple GPUs compute each thread's lanes as
+scalars, so arrays cost the same, and cross-thread operations are `device::simdgroup`. MIR
+assertions remain in the IR until a typed constant or range proof establishes that they
+cannot fail.
 The guards prove both bounds assertions, so `vec_add` has no runtime checks.
 Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
 `block_idx * block_dim + thread_idx` needs no overflow check; under a required block,

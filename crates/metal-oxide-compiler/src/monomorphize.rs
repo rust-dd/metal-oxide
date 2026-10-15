@@ -1,6 +1,9 @@
 use std::{borrow::Cow, collections::HashSet};
 
-use rustc_hir::def::{CtorKind, DefKind};
+use rustc_hir::{
+    def::{CtorKind, DefKind},
+    def_id::DefId,
+};
 use rustc_middle::{
     mir::{BasicBlock, Body, Operand, Rvalue, StatementKind, TerminatorKind, traversal},
     ty::{self, EarlyBinder, Instance, TyCtxt, TypingEnv},
@@ -192,6 +195,19 @@ fn folded<'tcx>(
     }
 }
 
+/// Whether `definition` belongs to `core::simd`, which core defines in its `core_simd` module, or
+/// to the SIMD intrinsics; calls into them are reported where the kernel code makes them.
+fn portable_simd(tcx: TyCtxt<'_>, definition: DefId) -> bool {
+    let path = tcx.def_path(definition);
+    let mut modules = path.data.iter().map(|data| data.data.get_opt_name());
+    tcx.crate_name(definition.krate) == sym::core
+        && match (modules.next().flatten(), modules.next().flatten()) {
+            (Some(module), _) if module.as_str() == "core_simd" => true,
+            (Some(module), Some(inner)) => module == sym::intrinsics && inner == sym::simd,
+            _ => false,
+        }
+}
+
 struct Collector<'tcx> {
     tcx: TyCtxt<'tcx>,
     seen: HashSet<Instance<'tcx>>,
@@ -354,6 +370,12 @@ impl<'tcx> Collector<'tcx> {
             return;
         }
         match Instance::try_resolve(tcx, environment, definition, arguments) {
+            Ok(Some(instance)) if portable_simd(tcx, instance.def_id()) => {
+                tcx.dcx().span_err(
+                    span,
+                    "core::simd vectors are not supported in Metal kernels",
+                );
+            }
             Ok(Some(instance)) => self.visit(instance, span),
             Ok(None) => {
                 tcx.dcx().span_err(
