@@ -101,7 +101,7 @@ fn zero_sized_enums_keep_their_tag_inside_records_and_behind_references() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "uint out[1] = {0}; zero_sized(out, 7u, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0];",
+            "uint out[1] = {0}; zero_sized(out, 7u, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0];",
         ),
         "18"
     );

@@ -343,9 +343,11 @@ coordinate parameters from the dispatch:
 
 The generated MSL avoids two Apple compiler defects that differential fuzzing found:
 
-- `uint` division and remainder by a variable are wrong when Metal folds the numerator into
-  a constant from `0xFFFFFF80` to `0xFFFFFFFD`, which may happen only after Metal inlines.
-  These divisions go through helpers that first subtract the divisor from such numerators.
+- 32-bit division and remainder can be wrong when Metal's GPU compiler knows the numerator
+  as a constant: a `uint` numerator from `0xFFFFFF80` to `0xFFFFFFFD` overflows its float
+  estimate, and other numerators fail once the divisor also becomes constant there, as after
+  it folds `reverse_bits`. Division by a variable XORs the numerator with
+  `uint(thread_idx.x >= block_dim.x)`, which is zero but unknown to the compiler.
 - On the Apple Paravirtual device of hosted CI, 64-bit integer to `float` conversions of
   values that become constant on the device are wrong. They convert through 32 bits,
   rounding to nearest even as Rust does.

@@ -11,7 +11,7 @@ fn signed_narrow_values_preserve_rust_wrapping_and_casts() {
     support::checked(output);
     let actual = support::execute_msl(
         &directory,
-        "char a[8] = {}; short b[8] = {}; signed_narrow(a, b, char(-128), short(-32768), 9u, {}, {}, {}, {}, metal_oxide_gate); for (auto value : a) std::cout << int(value) << ','; for (auto value : b) std::cout << int(value) << ',';",
+        "char a[8] = {}; short b[8] = {}; signed_narrow(a, b, char(-128), short(-32768), 9u, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (auto value : a) std::cout << int(value) << ','; for (auto value : b) std::cout << int(value) << ',';",
     );
     let a = i8::MIN;
     let b = i16::MIN;

@@ -383,16 +383,8 @@ pub(crate) fn expression(
         Expression::Unary(operation, v) => crate::arithmetic::unary(*operation, &op(v), ty(v)?),
         Expression::Binary(operation, a, b) => {
             let operands = ty(a)?;
-            if crate::arithmetic::guarded_division(*operation, a, b, operands) {
-                let name = if *operation == BinaryOp::Div {
-                    "udiv"
-                } else {
-                    "urem"
-                };
-                format!("metal_oxide_{name}_u32({}, {})", op(a), op(b))
-            } else {
-                crate::arithmetic::binary(*operation, &op(a), &op(b), operands)
-            }
+            let numerator = crate::arithmetic::division_numerator(*operation, op(a), b, operands);
+            crate::arithmetic::binary(*operation, &numerator, &op(b), operands)
         }
     })
 }

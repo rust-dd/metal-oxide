@@ -85,7 +85,7 @@ fn core_paths_of_adapted_iterators_compile_and_compute() {
         support::execute_msl(
             &directory,
             "for (uint input : {4u, 7u}) { uint out[7] = {}; \
-             adapter_paths(out, input, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); \
+             adapter_paths(out, input, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); \
              for (uint x : out) std::cout << x << ' '; std::cout << ';'; }",
         ),
         "0 4 7 12 2 9 10 ;1 4 7 12 2 9 10 ;"

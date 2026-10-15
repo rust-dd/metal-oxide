@@ -55,7 +55,7 @@ fn references_to_constants_borrow_local_copies_unless_they_escape() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "float out[1] = {}; pointer(out, {}, {}, {}, {}, metal_oxide_gate); std::cout << out[0];",
+            "float out[1] = {}; pointer(out, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); std::cout << out[0];",
         ),
         "1"
     );
@@ -100,7 +100,7 @@ fn narrow_overflow_checks_stop_the_thread_at_the_first_failure() {
         for (uchar a : {uchar(0), uchar(255)}) {
             uchar out8[6] = {7,7,7,7,7,7}; ushort out16[6] = {};
             atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed);
-            narrow_math(out8, out16, a, 0, 0, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure);
+            narrow_math(out8, out16, a, 0, 0, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure);
             std::cout << uint(out8[0]) << ',' << uint(out8[1]) << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';';
         }
     "#,
@@ -286,7 +286,7 @@ fn integer_division_by_zero_is_checked_in_wrapping_builds() {
         r#"
         for (uint n : {5u, 0u}) {
             uint out[1] = {99};
-            divide(out, n, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure);
+            divide(out, n, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure);
             std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';';
         }
     "#,

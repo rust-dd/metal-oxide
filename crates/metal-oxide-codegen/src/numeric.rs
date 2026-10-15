@@ -136,20 +136,5 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
     if wide {
         output.push_str(crate::arithmetic::WIDE_TO_FLOAT);
     }
-    for function in &module.functions {
-        for statement in function.blocks.iter().flat_map(|block| &block.statements) {
-            if let Expression::Binary(op, a, b) = &statement.value
-                && crate::arithmetic::guarded_division(
-                    *op,
-                    a,
-                    b,
-                    operand_type(module, function, a, &statement.source)?,
-                )
-            {
-                output.push_str(crate::arithmetic::GUARDED_DIVISION);
-                return Ok(output);
-            }
-        }
-    }
     Ok(output)
 }

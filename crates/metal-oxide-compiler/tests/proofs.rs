@@ -30,7 +30,7 @@ fn helper_proofs_keep_different_argument_ranges_separate() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "for (uint divisor : {4u, 0u}) { uint out[1] = {7}; proof_inputs(out, divisor, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; }"
+            "for (uint divisor : {4u, 0u}) { uint out[1] = {7}; proof_inputs(out, divisor, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; }"
         ),
         format!("48,0;7,{};", zero + 2)
     );
@@ -45,7 +45,7 @@ fn guarded_arithmetic_and_array_loops_preserve_checked_rust() {
     support::checked(output);
     let actual = support::execute_msl(
         &directory,
-        "int out[3] = {}; guarded_division(out, -123, -7, {}, {}, {}, {}, metal_oxide_gate); for (auto value : out) std::cout << value << ','; uint scalar = 0; checked_range(&scalar, 15u, {}, {}, {}, {}, metal_oxide_gate); std::cout << scalar << ','; uint array[4] = {}; checked_array_loop(array, {}, {}, {}, {}, metal_oxide_gate); for (auto value : array) std::cout << value << ','; uint sums[64] = {}; uint count = 5; nested_reverse_sums(sums, count, {}, {}, {}, {}, metal_oxide_gate); for (int i = 0; i < 8; ++i) std::cout << sums[i] << ',';",
+        "int out[3] = {}; guarded_division(out, -123, -7, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (auto value : out) std::cout << value << ','; uint scalar = 0; checked_range(&scalar, 15u, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); std::cout << scalar << ','; uint array[4] = {}; checked_array_loop(array, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (auto value : array) std::cout << value << ','; uint sums[64] = {}; uint count = 5; nested_reverse_sums(sums, count, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (int i = 0; i < 8; ++i) std::cout << sums[i] << ',';",
     );
     assert_eq!(actual, "17,-4,-29,24,11,21,31,41,1,3,6,10,15,0,0,0,");
 }
@@ -112,8 +112,8 @@ fn signed_division_by_constant_operands_keeps_the_overflow_check() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "for (int divisor : {2, -1}) { int out[1] = {7}; constant_dividend(out, divisor, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); } \
-             for (char value : {char(5), char(-128)}) { char out[1] = {7}; constant_divisor(out, value, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << int(out[0]) << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); }"
+            "for (int divisor : {2, -1}) { int out[1] = {7}; constant_dividend(out, divisor, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); } \
+             for (char value : {char(5), char(-128)}) { char out[1] = {7}; constant_divisor(out, value, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << int(out[0]) << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); }"
         ),
         format!("-1073741824,0;7,{};0,0;7,{};", dividend + 2, divisor + 2)
     );

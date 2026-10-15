@@ -16,7 +16,7 @@ fn unknown_u64_overflow_is_checked_at_runtime() {
         for (auto& c : cases) {
             ulong out[1] = {7};
             atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed);
-            checked(out, c[0], c[1], {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure);
+            checked(out, c[0], c[1], {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure);
             std::cout << out[0] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';';
         }
     "#,

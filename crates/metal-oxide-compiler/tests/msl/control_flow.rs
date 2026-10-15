@@ -115,7 +115,7 @@ fn repeated_diamonds_after_early_returns_share_their_continuation() {
         "for (uint selector : {0u, 1u}) for (uint skip : {0u, 1u, 2u}) \
          for (uint bits : {0u, 1u, 0x155555u, 0x3fffffu}) { \
          uint value = 0xffffffffu; \
-         join_cost(&value, selector, skip, bits, {}, {}, {}, {}, metal_oxide_gate); \
+         join_cost(&value, selector, skip, bits, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); \
          std::cout << value << ','; }",
     );
     let mut expected = Vec::new();

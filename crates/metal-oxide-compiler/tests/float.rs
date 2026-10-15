@@ -30,7 +30,7 @@ fn unchecked_float_conversions_skip_saturation() {
     assert!(!msl.contains("isnan"), "{msl}");
     let result = support::execute_msl(
         &directory,
-        "float input[1] = {7.75f}; uint u[1] = {}; int s[1] = {}; unchecked_casts(input, u, s, {}, {}, {}, {}, metal_oxide_gate); std::cout << u[0] << ',' << s[0];",
+        "float input[1] = {7.75f}; uint u[1] = {}; int s[1] = {}; unchecked_casts(input, u, s, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); std::cout << u[0] << ',' << s[0];",
     );
     assert_eq!(result, "7,-7");
 }
@@ -44,7 +44,7 @@ fn precise_math_keeps_explicit_fma_separate_from_ordinary_arithmetic() {
     support::checked(output);
     let result = support::execute_msl(
         &directory,
-        "float out[7]={}; float_math(out, 1.0f+as_type<float>(0x34000000u), 1.0f-as_type<float>(0x34000000u), -1.0f, {}, {}, {}, {}, metal_oxide_gate); std::cout << as_type<uint>(out[4]) << ',' << as_type<uint>(out[5]) << ',' << as_type<uint>(out[6]);",
+        "float out[7]={}; float_math(out, 1.0f+as_type<float>(0x34000000u), 1.0f-as_type<float>(0x34000000u), -1.0f, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); std::cout << as_type<uint>(out[4]) << ',' << as_type<uint>(out[5]) << ',' << as_type<uint>(out[6]);",
     );
     let a = 1.0_f32 + f32::EPSILON;
     let b = 1.0_f32 - f32::EPSILON;

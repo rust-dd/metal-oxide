@@ -17,7 +17,7 @@ fn a_mutable_reference_to_a_local_writes_through() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "uint out[1] = {}; reference_use(out, 41u, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0];",
+            "uint out[1] = {}; reference_use(out, 41u, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0];",
         ),
         "42"
     );
@@ -29,7 +29,7 @@ fn slices_of_local_arrays_index_subslice_and_reborrow_without_runtime_checks() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "float out[8] = {}; slices(out, 1.0f, {}, {}, {}, {}, metal_oxide_gate); for (float x : out) std::cout << x << ' ';",
+            "float out[8] = {}; slices(out, 1.0f, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (float x : out) std::cout << x << ' ';",
         ),
         "11 5 8 3 11 5 1 10 "
     );
@@ -84,7 +84,7 @@ fn slice_iterators_visit_elements_and_chunks_without_runtime_checks() {
     assert_eq!(
         support::execute_msl(
             &directory,
-            "float out[3] = {}; slice_iterators(out, 2.0f, {}, {}, {}, {}, metal_oxide_gate); for (float x : out) std::cout << x << ' ';",
+            "float out[3] = {}; slice_iterators(out, 2.0f, {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate); for (float x : out) std::cout << x << ' ';",
         ),
         "30 56 -76 "
     );
