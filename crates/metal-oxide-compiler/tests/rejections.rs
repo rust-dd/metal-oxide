@@ -26,10 +26,12 @@ fn messages() -> BTreeMap<String, String> {
         "metal-oxide-codegen",
     ] {
         let root = support::root().join("crates").join(crate_name).join("src");
-        for path in sources(&root) {
+        // Unit tests, which live in tests.rs modules, build errors of their own.
+        for path in sources(&root)
+            .into_iter()
+            .filter(|path| !path.ends_with("tests.rs"))
+        {
             let text = std::fs::read_to_string(&path).unwrap();
-            // Unit tests build errors of their own.
-            let text = text.split("#[cfg(test)]").next().unwrap();
             for report in REPORTS {
                 for (at, _) in text.match_indices(report) {
                     if let Some(message) = literal(&text[at + report.len() - 1..]) {

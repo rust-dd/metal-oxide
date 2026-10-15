@@ -30,6 +30,8 @@ working features. Add crates and modules when they have an implementation.
 - Inherit workspace package settings and lints in each member.
 - Keep handwritten Rust files below 600 lines, with a target of 400. Split by
   responsibility rather than compressing code or deleting useful documentation.
+- Keep tests out of source files: unit tests go in a sibling `tests.rs` module
+  declared with `#[cfg(test)] mod tests;`, integration tests in the crate's `tests/`.
 - Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
