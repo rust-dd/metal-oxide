@@ -30,6 +30,10 @@ jobs:
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Unit tests only in tests.rs modules
+        if: runner.os == 'Linux'
+        run: |
+          ! grep -rnE '^[[:space:]]*(#\[test\]|mod tests \{)' crates/*/src | grep -vE '/(tests|loom)\.rs:'
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Portable tests and compile-fail examples
