@@ -13,12 +13,14 @@ impl Builder {
         if depth == 0 || self.random.chance(1, 4) {
             return self.leaf(scope, ty);
         }
-        if self.random.chance(1, 8)
+        if !self.plain
+            && self.random.chance(1, 8)
             && let Some(call) = self.call(scope, ty, depth)
         {
             return call;
         }
-        if self.random.chance(1, 4)
+        if !self.plain
+            && self.random.chance(1, 4)
             && let Some((_, call)) = self.call_closure(scope, Some(ty), depth - 1)
         {
             return call;
@@ -26,7 +28,7 @@ impl Builder {
         if self.random.chance(1, 10) {
             return self.unpack(scope, ty, depth - 1);
         }
-        if self.random.chance(1, 12) {
+        if !self.plain && self.random.chance(1, 12) {
             return self.iterated(scope, ty, depth - 1);
         }
         match ty {

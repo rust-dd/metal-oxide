@@ -14,6 +14,8 @@ pub struct Builder {
     /// Emits checked operations on values of the thread that fail for some of them: indices past
     /// the length, plain arithmetic and division, and assertions.
     pub fallible: bool,
+    /// Calls no helpers or closures and iterates nothing, for code before cooperative operations.
+    pub plain: bool,
     names: usize,
 }
 
@@ -25,6 +27,7 @@ impl Builder {
             enums: Vec::new(),
             helpers: Vec::new(),
             fallible: false,
+            plain: false,
             names: 0,
         }
     }
@@ -172,7 +175,7 @@ impl Builder {
         Some(self.random.pick(&borrowed).clone())
     }
 
-    fn assign(&mut self, scope: &Scope) -> Option<Stmt> {
+    pub fn assign(&mut self, scope: &Scope) -> Option<Stmt> {
         let targets = scope.targets(&self.records);
         if targets.is_empty() {
             return None;
@@ -320,17 +323,24 @@ impl Builder {
         });
     }
 
-    /// `run(input) -> [u32; words]`, the code that every thread executes.
-    pub fn run(&mut self, words: u32) -> (Function, Vec<Word>) {
+    /// `run(input, k0, ..) -> [u32; words]`, the code that every thread executes, which also
+    /// takes the `values` that `cooperate` computed.
+    pub fn run(&mut self, words: u32, values: u32) -> (Function, Vec<Word>) {
+        let parameters = std::iter::once("input".to_owned())
+            .chain((0..values).map(|value| format!("k{value}")))
+            .map(|name| (name, U32))
+            .collect::<Vec<_>>();
         let mut scope = Scope {
-            varying: vec!["input".into()],
+            varying: parameters.iter().map(|(name, _)| name.clone()).collect(),
             ..Scope::default()
         };
-        scope.locals.push(Local {
-            name: "input".into(),
-            ty: U32,
-            mutable: false,
-        });
+        for (name, ty) in &parameters {
+            scope.locals.push(Local {
+                name: name.clone(),
+                ty: ty.clone(),
+                mutable: false,
+            });
+        }
         let count = 3 + self.random.below(5);
         let body = self.block(&mut scope, count, 2);
         let mut values = Vec::new();
@@ -349,7 +359,7 @@ impl Builder {
         let run = Function {
             name: "run".into(),
             generic: None,
-            parameters: vec![("input".into(), U32)],
+            parameters,
             result: result.clone(),
             body,
             value: Expr::Aggregate(result, values),

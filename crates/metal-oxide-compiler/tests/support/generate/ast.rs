@@ -1,4 +1,7 @@
-use super::types::{Record, Type, mutability, render as render_type};
+use super::{
+    cooperation::Cooperative,
+    types::{Record, Type, mutability, render as render_type},
+};
 
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -105,6 +108,8 @@ pub enum Stmt {
     Call(Expr),
     /// `let name = closure;`
     Closure(String, Expr),
+    /// A statement of `cooperate`, which all threads of a block reach together.
+    Cooperative(Cooperative),
 }
 
 #[derive(Clone, Debug)]
@@ -258,7 +263,7 @@ impl Printer<'_> {
         }
     }
 
-    fn line(&mut self, indent: usize, text: &str) {
+    pub fn line(&mut self, indent: usize, text: &str) {
         self.text.push_str(&"    ".repeat(indent));
         self.text.push_str(text);
         self.text.push('\n');
@@ -313,6 +318,7 @@ impl Printer<'_> {
                         &format!("assert!({condition}, \"generated assertion\");"),
                     );
                 }
+                Stmt::Cooperative(cooperative) => self.cooperative(cooperative, indent),
             }
         }
     }

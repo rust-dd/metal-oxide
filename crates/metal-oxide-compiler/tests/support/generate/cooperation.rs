@@ -1,0 +1,342 @@
+use super::{
+    ast::{Expr, Function, Printer, Stmt},
+    builder::Builder,
+    scope::{Local, Scope},
+    types::{I32, Int, Type, U32, render as render_type},
+};
+
+/// Threads per block of cooperative programs: two SIMD groups.
+pub const BLOCK: u32 = 64;
+
+const REDUCTIONS: [&str; 8] = [
+    "sum",
+    "min",
+    "max",
+    "and",
+    "or",
+    "xor",
+    "inclusive_sum",
+    "exclusive_sum",
+];
+
+const PERMUTATIONS: [&str; 4] = ["shuffle", "shuffle_up", "shuffle_down", "shuffle_xor"];
+
+const ATOMICS: [&str; 7] = ["add", "sub", "min", "max", "and", "or", "xor"];
+
+/// What the threads of a block compute together; each binds a mutable local.
+#[derive(Clone, Debug)]
+pub enum Cooperative {
+    /// `simdgroup::op(value)`: a reduction, a scan or a vote.
+    Collective {
+        binding: String,
+        ty: Type,
+        op: &'static str,
+        value: Expr,
+    },
+    /// `simdgroup::op(value, control & 31)`: a shuffle from the lane that `control` names, or by a
+    /// uniform literal amount.
+    Permute {
+        binding: String,
+        ty: Type,
+        op: &'static str,
+        value: Expr,
+        control: Expr,
+    },
+    /// Each thread stores `value` at `lane ^ mask` of `buffer`; after a barrier, the binding reads
+    /// the element at `index`.
+    Exchange {
+        buffer: String,
+        binding: String,
+        ty: Type,
+        mask: u32,
+        value: Expr,
+        index: Expr,
+    },
+    /// The threads set the cells of `buffer` to `initial`, apply `op` with `value` at `index`, and
+    /// after a barrier the binding reads the cell at `read`.
+    Accumulate {
+        buffer: String,
+        binding: String,
+        int: Int,
+        cells: u32,
+        op: &'static str,
+        initial: String,
+        index: Expr,
+        value: Expr,
+        read: Expr,
+    },
+}
+
+impl Cooperative {
+    /// The expressions of the statement, in the order the printer writes them.
+    pub fn operands_mut(&mut self) -> Vec<&mut Expr> {
+        match self {
+            Self::Collective { value, .. } => vec![value],
+            Self::Permute { value, control, .. } => vec![value, control],
+            Self::Exchange { value, index, .. } => vec![value, index],
+            Self::Accumulate {
+                index, value, read, ..
+            } => vec![index, value, read],
+        }
+    }
+}
+
+impl Printer<'_> {
+    pub fn cooperative(&mut self, cooperative: &Cooperative, indent: usize) {
+        let barrier = "unsafe { threadgroup::barrier() };";
+        match cooperative {
+            Cooperative::Collective {
+                binding,
+                ty,
+                op,
+                value,
+            } => {
+                let (ty, value) = (render_type(ty, self.records), self.expr(value));
+                let text =
+                    format!("let mut {binding}: {ty} = unsafe {{ simdgroup::{op}({value}) }};");
+                self.line(indent, &text);
+            }
+            Cooperative::Permute {
+                binding,
+                ty,
+                op,
+                value,
+                control,
+            } => {
+                let (ty, value) = (render_type(ty, self.records), self.expr(value));
+                let control = self.expr(control);
+                let text = format!(
+                    "let mut {binding}: {ty} = unsafe {{ simdgroup::{op}({value}, {control} & 31) }};"
+                );
+                self.line(indent, &text);
+            }
+            Cooperative::Exchange {
+                buffer,
+                binding,
+                ty,
+                mask,
+                value,
+                index,
+            } => {
+                let (ty, value) = (render_type(ty, self.records), self.expr(value));
+                let index = self.expr(index);
+                let store =
+                    format!("unsafe {{ {buffer}.store_unchecked(lane ^ {mask}, {value}) }};");
+                self.line(indent, &store);
+                self.line(indent, barrier);
+                let last = BLOCK - 1;
+                let load = format!(
+                    "let mut {binding}: {ty} = unsafe {{ {buffer}.load_unchecked({index} & {last}) }};"
+                );
+                self.line(indent, &load);
+                self.line(indent, barrier);
+            }
+            Cooperative::Accumulate {
+                buffer,
+                binding,
+                int,
+                cells,
+                op,
+                initial,
+                index,
+                value,
+                read,
+            } => {
+                let (index, value, read) = (self.expr(index), self.expr(value), self.expr(read));
+                let int = int.name();
+                let set =
+                    format!("unsafe {{ {buffer}.store_relaxed(lane % {cells}, {initial}) }};");
+                self.line(indent, &set);
+                self.line(indent, barrier);
+                let apply = format!(
+                    "unsafe {{ {buffer}.fetch_{op}_relaxed({index} % {cells}, {value}) }};"
+                );
+                self.line(indent, &apply);
+                self.line(indent, barrier);
+                let load = format!(
+                    "let mut {binding}: {int} = unsafe {{ {buffer}.load_relaxed({read} % {cells}) }};"
+                );
+                self.line(indent, &load);
+                self.line(indent, barrier);
+            }
+        }
+    }
+}
+
+impl Builder {
+    /// `cooperate(input, lane, buffers..) -> [u32; values]`, which a block's threads run together.
+    /// Checks before cooperative operations must be proved, so it calls nothing that may check.
+    pub fn cooperation(&mut self, values: u32) -> Function {
+        let fallible = std::mem::replace(&mut self.fallible, false);
+        self.plain = true;
+        let mut scope = Scope {
+            varying: vec!["input".into(), "lane".into()],
+            ..Scope::default()
+        };
+        let mut parameters = Vec::new();
+        for name in ["input", "lane"] {
+            scope.locals.push(Local {
+                name: name.into(),
+                ty: U32,
+                mutable: false,
+            });
+            parameters.push((name.to_owned(), U32));
+        }
+        let mut body = Vec::new();
+        for _ in 0..2 + self.random.below(4) {
+            let stmt = if self.random.chance(1, 4) {
+                self.uniform_loop(&scope, &mut parameters)
+            } else {
+                self.cooperative(&mut scope, &mut parameters)
+            };
+            body.push(stmt);
+        }
+        let result = Type::Array(Box::new(U32), values);
+        let words = (0..values)
+            .map(|_| {
+                let ty = self.ty(0);
+                Expr::Cast(Box::new(self.expr(&scope, &ty, 3)), U32)
+            })
+            .collect();
+        self.fallible = fallible;
+        self.plain = false;
+        Function {
+            name: "cooperate".into(),
+            generic: None,
+            parameters,
+            result: result.clone(),
+            body,
+            value: Expr::Aggregate(result, words),
+        }
+    }
+
+    /// `for c in 0..bound { .. }` around cooperative statements and assignments to the locals
+    /// before them; every thread runs the same iterations.
+    fn uniform_loop(&mut self, scope: &Scope, parameters: &mut Vec<(String, Type)>) -> Stmt {
+        let label = self.fresh("o");
+        let counter = self.fresh("c");
+        let mut inner = scope.clone();
+        inner.locals.push(Local {
+            name: counter.clone(),
+            ty: U32,
+            mutable: false,
+        });
+        let mut body = Vec::new();
+        for _ in 0..1 + self.random.below(3) {
+            let assignment = self.random.chance(1, 3).then(|| self.assign(&inner));
+            match assignment.flatten() {
+                Some(assignment) => body.push(assignment),
+                None => body.push(self.cooperative(&mut inner, parameters)),
+            }
+        }
+        let bound = 1 + self.random.below(3);
+        let range = Expr::Literal(format!("0..{bound}_u32"));
+        Stmt::For(label, counter, range, body)
+    }
+
+    /// A cooperative statement, whose binding the code after it can read; buffers that it uses
+    /// join `parameters`.
+    fn cooperative(&mut self, scope: &mut Scope, parameters: &mut Vec<(String, Type)>) -> Stmt {
+        let binding = self.fresh("l");
+        let elements = [U32, I32, Type::Float];
+        let integers = [U32, I32];
+        let (cooperative, ty) = match self.random.below(5) {
+            0 => {
+                let ty = self.random.pick(&integers).clone();
+                let op = *self.random.pick(&REDUCTIONS);
+                let value = self.expr(scope, &ty, 3);
+                let collective = Cooperative::Collective {
+                    binding: binding.clone(),
+                    ty: ty.clone(),
+                    op,
+                    value,
+                };
+                (collective, ty)
+            }
+            1 => {
+                let op = *self.random.pick(&["any", "all", "ballot"]);
+                let ty = match op {
+                    "ballot" => Type::Array(Box::new(U32), 2),
+                    _ => Type::Bool,
+                };
+                let value = self.expr(scope, &Type::Bool, 3);
+                let vote = Cooperative::Collective {
+                    binding: binding.clone(),
+                    ty: ty.clone(),
+                    op,
+                    value,
+                };
+                (vote, ty)
+            }
+            2 => {
+                let ty = self.random.pick(&elements).clone();
+                let op = *self.random.pick(&PERMUTATIONS);
+                let value = self.expr(scope, &ty, 3);
+                // Shifts and masks are uniform; each lane may read its own source.
+                let control = match op {
+                    "shuffle" => self.expr(scope, &U32, 2),
+                    _ => Expr::Literal(format!("{}_u32", self.random.below(32))),
+                };
+                let permute = Cooperative::Permute {
+                    binding: binding.clone(),
+                    ty: ty.clone(),
+                    op,
+                    value,
+                    control,
+                };
+                (permute, ty)
+            }
+            3 => {
+                let ty = self.random.pick(&elements).clone();
+                let buffer = self.fresh("s");
+                parameters.push((
+                    buffer.clone(),
+                    Type::Threadgroup(Box::new(ty.clone()), BLOCK),
+                ));
+                let mask = self.random.below(u64::from(BLOCK)) as u32;
+                let value = self.expr(scope, &ty, 3);
+                let index = self.expr(scope, &U32, 2);
+                let exchange = Cooperative::Exchange {
+                    buffer,
+                    binding: binding.clone(),
+                    ty: ty.clone(),
+                    mask,
+                    value,
+                    index,
+                };
+                (exchange, ty)
+            }
+            _ => {
+                let Type::Int(int) = self.random.pick(&integers).clone() else {
+                    unreachable!()
+                };
+                let buffer = self.fresh("a");
+                let cells = 1 + self.random.below(4) as u32;
+                parameters.push((buffer.clone(), Type::AtomicThreadgroup(int, cells)));
+                let op = *self.random.pick(&ATOMICS);
+                let initial = int.literal(&mut self.random);
+                let index = self.expr(scope, &U32, 2);
+                let value = self.expr(scope, &Type::Int(int), 3);
+                let read = self.expr(scope, &U32, 2);
+                let accumulate = Cooperative::Accumulate {
+                    buffer,
+                    binding: binding.clone(),
+                    int,
+                    cells,
+                    op,
+                    initial,
+                    index,
+                    value,
+                    read,
+                };
+                (accumulate, Type::Int(int))
+            }
+        };
+        scope.locals.push(Local {
+            name: binding,
+            ty,
+            mutable: true,
+        });
+        Stmt::Cooperative(cooperative)
+    }
+}

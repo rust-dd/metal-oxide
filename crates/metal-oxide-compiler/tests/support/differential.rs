@@ -42,6 +42,8 @@ pub struct Case {
     pub source: PathBuf,
     pub words: Vec<Word>,
     pub overflow_checks: bool,
+    /// Whether the threads of a block first run `cooperate` together.
+    pub cooperative: bool,
     pub inputs: Vec<u32>,
 }
 
@@ -61,12 +63,13 @@ impl Case {
             source,
             words: program.words.clone(),
             overflow_checks: program.overflow_checks,
+            cooperative: program.cooperative(),
             inputs,
         }
     }
 
-    /// A program that [`Program::source`] wrote, such as a minimized fixture: its header names
-    /// the words and the overflow checks, and its CPU entry lists the inputs.
+    /// A program that [`Program::source`] wrote, such as a minimized fixture; its header and CPU
+    /// entry give the words, overflow checks, cooperation and inputs.
     pub fn saved(path: &Path) -> Self {
         let text = std::fs::read_to_string(path).unwrap();
         let field = |prefix: &str| {
@@ -83,8 +86,8 @@ impl Case {
                 other => panic!("{}: unknown word {other}", path.display()),
             })
             .collect();
-        let inputs = field("    for input in [")
-            .trim_end_matches("] {")
+        let inputs = field("    let inputs = [")
+            .trim_end_matches("];")
             .split(", ")
             .map(|input| input.trim_end_matches("_u32").parse().unwrap())
             .collect();
@@ -93,6 +96,7 @@ impl Case {
             source: path.to_path_buf(),
             words,
             overflow_checks: field("// overflow checks: ") == "on",
+            cooperative: text.lines().any(|line| line == "// cooperative"),
             inputs,
         }
     }

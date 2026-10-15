@@ -1,13 +1,15 @@
-//! Seeded programs from the supported Rust subset, for differential tests: every thread runs
-//! `run(input[i])` and writes its words, which the CPU, the host-compiled MSL and the GPU
-//! must agree on.
+//! Seeded programs of the supported subset whose words the CPU, the host MSL and the GPU must
+//! agree on; in cooperative programs, a block's threads run `cooperate` together first.
 
 mod ast;
 mod borrows;
 mod builder;
 mod closures;
+mod cooperation;
+mod entry;
 mod expressions;
 mod iterators;
+pub mod model;
 mod random;
 mod scope;
 mod shrink;
@@ -35,6 +37,8 @@ pub struct Program {
     records: Vec<Record>,
     enums: Vec<Enum>,
     helpers: Vec<Function>,
+    /// What the threads of a block compute together before `run`.
+    cooperation: Option<Function>,
     run: Function,
     pub words: Vec<Word>,
 }
@@ -54,17 +58,27 @@ impl Program {
         for _ in 0..builder.random.below(4) {
             builder.helper();
         }
+        let values = builder
+            .random
+            .chance(1, 3)
+            .then(|| 1 + builder.random.below(3) as u32);
+        let cooperation = values.map(|values| builder.cooperation(values));
         let words = 1 + builder.random.below(4) as u32;
-        let (run, words) = builder.run(words);
+        let (run, words) = builder.run(words, values.unwrap_or(0));
         Self {
             seed,
             overflow_checks,
             records: builder.records,
             enums: builder.enums,
             helpers: builder.helpers,
+            cooperation,
             run,
             words,
         }
+    }
+
+    pub fn cooperative(&self) -> bool {
+        self.cooperation.is_some()
     }
 
     /// The records and enums that `functions` names, directly or through other definitions.
@@ -134,67 +148,33 @@ impl Program {
             "// words: {}\n// overflow checks: {checks}\n",
             words.join(" ")
         ));
+        if self.cooperative() {
+            printer.text.push_str("// cooperative\n");
+        }
         printer.text.push_str(
-            "#![cfg_attr(not(cpu_reference), no_std)]\n#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]\n\n",
+            "#![cfg_attr(not(cpu_reference), no_std)]\n#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]\n\n",
         );
         let mut functions = Printer {
             records: &self.records,
             text: String::new(),
         };
-        for helper in &self.helpers {
-            functions.function(helper);
+        for function in self.helpers.iter().chain(&self.cooperation) {
+            functions.function(function);
             functions.text.push('\n');
         }
         functions.function(&self.run);
         printer.text.push_str(&self.definitions(&functions.text));
         printer.text.push_str(&functions.text);
-        let words = self.words.len();
-        let stores = (0..words)
-            .map(|word| {
-                format!("        output.store_unchecked(i * {words} + {word}, words[{word}]);\n")
-            })
-            .collect::<String>();
         let inputs = inputs
             .iter()
             .map(|input| format!("{input}_u32"))
-            .collect::<Vec<_>>();
-        printer.text.push_str(&format!(
-            r#"
-#[cfg(not(cpu_reference))]
-use metal_oxide_device::{{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
-
-#[cfg(not(cpu_reference))]
-#[kernel]
-pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {{
-    let i = block_idx().x * block_dim().x + thread_idx().x;
-    if i < n {{
-        let words = run(unsafe {{ input.load_unchecked(i) }});
-        unsafe {{
-{stores}        }}
-    }}
-}}
-
-#[cfg(cpu_reference)]
-fn main() {{
-    let location = std::sync::Arc::new(std::sync::Mutex::new((0, 0)));
-    let recorded = std::sync::Arc::clone(&location);
-    std::panic::set_hook(Box::new(move |info| {{
-        let panicked = info.location().unwrap();
-        *recorded.lock().unwrap() = (panicked.line(), panicked.column());
-    }}));
-    for input in [{inputs}] {{
-        match std::panic::catch_unwind(|| run(input)) {{
-            Ok(words) => println!("{{}}", words.map(|word| word.to_string()).join(" ")),
-            Err(_) => {{
-                let (line, column) = *location.lock().unwrap();
-                println!("panic {{line}}:{{column}}");
-            }}
-        }}
-    }}
-}}
-"#,
-            inputs = inputs.join(", ")
-        ));
+            .collect::<Vec<_>>()
+            .join(", ");
+        let entry = match &self.cooperation {
+            Some(cooperation) => entry::cooperative(cooperation, self.words.len(), &inputs),
+            None => entry::independent(self.words.len(), &inputs),
+        };
+        printer.text.push_str(&entry);
         printer.text
     }
 }

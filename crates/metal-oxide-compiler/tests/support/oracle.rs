@@ -38,11 +38,14 @@ impl std::fmt::Display for Failure {
 }
 
 impl Case {
-    /// The oracle on the host: rustc's build on the CPU, the compiler, and the emitted MSL
-    /// built for the host. Returns the CPU outcomes and the directory of the emitted kernels.
+    /// The CPU outcomes and emitted kernels, after comparing the host-built MSL with the CPU;
+    /// the host runs one thread at a time, so cooperative programs skip the MSL.
     pub fn check(&self) -> Result<(Vec<Outcome>, PathBuf), Failure> {
         let expected = self.cpu().map_err(Failure::Invalid)?;
         let generated = self.compile().map_err(Failure::Compiler)?;
+        if self.cooperative {
+            return Ok((expected, generated));
+        }
         let actual = self.msl(&generated).map_err(Failure::Msl)?;
         match self.mismatch(&expected, &actual) {
             Some(mismatch) => Err(Failure::Msl(mismatch)),

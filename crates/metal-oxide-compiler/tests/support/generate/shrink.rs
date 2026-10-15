@@ -33,14 +33,14 @@ impl Program {
             program.helpers.remove(index);
             candidates.push(program);
         }
-        for function in 0..=self.helpers.len() {
+        for function in 0..self.functions() {
             for body in removals(&self.function(function).body) {
                 let mut program = self.clone();
                 program.function_mut(function).body = body;
                 candidates.push(program);
             }
         }
-        for function in 0..=self.helpers.len() {
+        for function in 0..self.functions() {
             let mut expressions = Vec::new();
             each_expression(&mut self.function(function).clone(), &mut |expr| {
                 expressions.push(simpler(expr));
@@ -66,16 +66,19 @@ impl Program {
         candidates
     }
 
-    /// The helpers in order, then `run`.
+    /// The number of functions: the helpers, `cooperate` if there is one, then `run`.
+    fn functions(&self) -> usize {
+        self.helpers.len() + usize::from(self.cooperation.is_some()) + 1
+    }
+
     fn function(&self, index: usize) -> &Function {
-        self.helpers.get(index).unwrap_or(&self.run)
+        let functions = self.helpers.iter().chain(&self.cooperation);
+        functions.chain([&self.run]).nth(index).unwrap()
     }
 
     fn function_mut(&mut self, index: usize) -> &mut Function {
-        match self.helpers.get_mut(index) {
-            Some(helper) => helper,
-            None => &mut self.run,
-        }
+        let functions = self.helpers.iter_mut().chain(&mut self.cooperation);
+        functions.chain([&mut self.run]).nth(index).unwrap()
     }
 }
 
@@ -142,6 +145,10 @@ fn statements(stmts: &mut [Stmt], visit: &mut dyn FnMut(&mut Expr) -> bool) -> b
             expression(condition, visit) && statements(then, visit) && statements(otherwise, visit)
         }
         Stmt::For(_, _, iterable, body) => expression(iterable, visit) && statements(body, visit),
+        Stmt::Cooperative(cooperative) => cooperative
+            .operands_mut()
+            .into_iter()
+            .all(|operand| expression(operand, visit)),
     })
 }
 

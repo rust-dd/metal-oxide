@@ -53,10 +53,11 @@ fn a_kernel_that_writes_other_words_is_reported() {
             let expected = case.cpu().unwrap();
             (case, expected)
         })
-        .find(|(_, expected)| {
-            expected
-                .iter()
-                .all(|outcome| matches!(outcome, Outcome::Words(_)))
+        .find(|(case, expected)| {
+            !case.cooperative
+                && expected
+                    .iter()
+                    .all(|outcome| matches!(outcome, Outcome::Words(_)))
         })
         .unwrap();
     let source = std::fs::read_to_string(&case.source).unwrap();
@@ -245,12 +246,74 @@ fn generated_programs_cover_the_supported_constructs() {
         ": impl Fn(",
         " = (move |a",
         "(move || -> ",
+        "// cooperative",
+        "simdgroup::sum(",
+        "simdgroup::inclusive_sum(",
+        "simdgroup::exclusive_sum(",
+        "simdgroup::ballot(",
+        "simdgroup::all(",
+        "simdgroup::shuffle(",
+        "simdgroup::shuffle_up(",
+        "simdgroup::shuffle_xor(",
+        "store_unchecked(lane ^ ",
+        "threadgroup::barrier()",
+        ".fetch_sub_relaxed(",
+        ".fetch_min_relaxed(",
+        "ThreadgroupBuffer<f32, 64>",
+        "AtomicThreadgroupBuffer<i32, ",
+        "    'o",
     ] {
         assert!(
             sources.contains(construct),
             "no generated program uses {construct:?}"
         );
     }
+}
+
+#[test]
+fn the_cpu_model_runs_the_threads_of_a_block_together() {
+    use support::generate::model::{launch, simdgroup, thread_idx, threadgroup};
+    let outcomes = launch(64, 96, |i| {
+        let shared = threadgroup::shared::<u32, 64>();
+        let counts = threadgroup::shared_atomic::<u32, 2>();
+        let lane = thread_idx().x;
+        // SAFETY: every thread of the block reaches each operation, and each stores its own cell.
+        let words = unsafe {
+            shared.store_unchecked(lane ^ 1, i);
+            counts.store_relaxed(lane % 2, 0);
+            threadgroup::barrier();
+            counts.fetch_add_relaxed(lane % 2, lane);
+            threadgroup::barrier();
+            [
+                shared.load_unchecked(lane),
+                counts.load_relaxed(1),
+                simdgroup::sum(i),
+                simdgroup::exclusive_sum(1_u32),
+                simdgroup::shuffle_up(i, 1),
+                simdgroup::ballot(lane.is_multiple_of(3))[0],
+            ]
+        };
+        assert!(i != 70, "thread 70 fails after the cooperative operations");
+        words
+    });
+    assert_eq!(outcomes.len(), 128);
+    for (i, outcome) in (0..).zip(&outcomes) {
+        let (first, lane) = (i / 64 * 64, i % 64);
+        let group = first + lane / 32 * 32;
+        let expected = [
+            first + (lane ^ 1),
+            (1..64).step_by(2).sum(),
+            (group..group + 32).sum(),
+            lane % 32,
+            if lane % 32 == 0 { i } else { i - 1 },
+            0x4924_9249 << (lane / 32),
+        ];
+        match outcome {
+            Ok(words) => assert_eq!(*words, expected, "thread {i}"),
+            Err((line, _)) => assert!(i == 70 && *line > 0, "thread {i} panicked"),
+        }
+    }
+    assert!(outcomes[70].is_err());
 }
 
 #[test]

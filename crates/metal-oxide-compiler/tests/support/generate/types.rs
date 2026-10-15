@@ -9,6 +9,8 @@ pub struct Int {
 
 pub const U32: Type = Type::Int(Int::unsigned(32));
 
+pub const I32: Type = Type::Int(Int::signed(32));
+
 pub const INTS: [Int; 7] = [
     Int::unsigned(8),
     Int::unsigned(16),
@@ -94,6 +96,10 @@ pub enum Type {
     Slice(Box<Type>, bool),
     /// A closure local, or a helper's `impl Fn` parameter, with its parameter and result types.
     Closure(Vec<Type>, Box<Type>),
+    /// Threadgroup memory of the given length that the kernel allocates.
+    Threadgroup(Box<Type>, u32),
+    /// Threadgroup atomics of the given length that the kernel allocates.
+    AtomicThreadgroup(Int, u32),
 }
 
 #[derive(Clone)]
@@ -144,6 +150,12 @@ pub fn render(ty: &Type, records: &[Record]) -> String {
                 parameters.join(", "),
                 render(result, records)
             )
+        }
+        Type::Threadgroup(element, length) => {
+            format!("ThreadgroupBuffer<{}, {length}>", render(element, records))
+        }
+        Type::AtomicThreadgroup(int, length) => {
+            format!("AtomicThreadgroupBuffer<{}, {length}>", int.name())
         }
     }
 }
