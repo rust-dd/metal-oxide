@@ -76,8 +76,9 @@ impl Kernels {
         base: &Path,
         request: Request,
         state: &Path,
+        lock: &BuildLock,
     ) -> Result<(BuiltKernels, Recorded)> {
-        let compiled = self.compiled()?;
+        let compiled = self.compiled(lock)?;
         let sysroot = process::capture(Command::new("rustup").args([
             "run",
             COMPILER_NIGHTLY,
@@ -107,9 +108,8 @@ impl Kernels {
         Ok((built, inputs))
     }
 
-    fn compiled(&self) -> Result<Compiled> {
+    fn compiled(&self, _lock: &BuildLock) -> Result<Compiled> {
         let root = self.root()?;
-        let lock = lock(&root)?;
         cache::discard_abandoned(&root)?;
         let rust = self.rust()?;
         let kernels = rust.kernels(&self.project)?;
@@ -173,7 +173,6 @@ impl Kernels {
             }
             std::fs::rename(&stage, &directory)?;
         }
-        drop(lock);
         Ok(Compiled {
             directory,
             kernels,
@@ -197,22 +196,31 @@ impl Kernels {
     }
 }
 
-fn lock(root: &Path) -> Result<File> {
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(root.join(".lock"))?;
-    match lock.try_lock() {
-        Ok(()) => {}
-        Err(TryLockError::WouldBlock) => {
-            eprintln!("Blocking waiting for Metal build lock");
-            lock.lock()?;
+/// The lock on a target directory's Metal builds, which one process at a time holds.
+pub(crate) struct BuildLock {
+    _file: File,
+}
+
+impl BuildLock {
+    pub(crate) fn acquire(target_directory: &Path) -> Result<Self> {
+        let root = target_directory.join("metal");
+        std::fs::create_dir_all(&root)?;
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".lock"))?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                eprintln!("Blocking waiting for Metal build lock");
+                lock.lock()?;
+            }
+            Err(TryLockError::Error(error)) => return Err(error.into()),
         }
-        Err(TryLockError::Error(error)) => return Err(error.into()),
+        Ok(Self { _file: lock })
     }
-    Ok(lock)
 }
 
 fn create(

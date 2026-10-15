@@ -1,6 +1,6 @@
 use crate::{
     BuiltKernels, Compiler, Error,
-    compile::Kernels,
+    compile::{BuildLock, Kernels},
     metadata,
     process::Result,
     recorded::Request,
@@ -111,10 +111,12 @@ impl KernelCrate {
                 let debug_info = self
                     .debug_info
                     .then(|| project.metadata.workspace_root.clone());
+                let lock = BuildLock::acquire(&project.metadata.target_directory)?;
                 Kernels::new(project, compiler, self.math_mode, None, debug_info).record(
                     &self.package,
                     request.clone(),
                     &state,
+                    &lock,
                 )
             },
         )

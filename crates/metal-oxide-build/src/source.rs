@@ -1,6 +1,6 @@
 use crate::{
     BuiltKernels, Compiler, Error,
-    compile::Kernels,
+    compile::{BuildLock, Kernels},
     metadata::{self, Metadata},
     process::{self, Result},
     recorded::{Recorded, Request},
@@ -122,6 +122,9 @@ impl SourceKernels {
         compiler: Compiler,
     ) -> Result<(BuiltKernels, Recorded)> {
         let (directory, key) = self.directory()?;
+        // The expansions of one item for several targets share its directory; the lock keeps
+        // one from rewriting it while another builds from it.
+        let lock = BuildLock::acquire(&host.target_directory)?;
         write(&directory.join(&self.file), text)?;
         let config = format!(
             "[build]\ntarget-dir = {:?}\n",
@@ -146,6 +149,7 @@ impl SourceKernels {
             &self.package,
             request.clone(),
             &directory,
+            &lock,
         )
     }
 
