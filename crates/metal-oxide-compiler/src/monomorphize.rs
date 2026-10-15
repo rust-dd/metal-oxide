@@ -232,11 +232,16 @@ impl<'tcx> Collector<'tcx> {
                 .span_err(span, format!("unsupported function instance: {instance}"));
             return;
         }
-        // Constructors such as `Err` called as functions build their value.
-        if !matches!(
-            tcx.def_kind(instance.def_id()),
-            DefKind::Fn | DefKind::AssocFn | DefKind::Closure | DefKind::Ctor(_, CtorKind::Fn)
-        ) {
+        // Constructors such as `Err` called as functions build their value. Coroutines and async
+        // closures share the closure kind but not the closure type.
+        let callable = match tcx.def_kind(instance.def_id()) {
+            DefKind::Fn | DefKind::AssocFn | DefKind::Ctor(_, CtorKind::Fn) => true,
+            DefKind::Closure => instance
+                .ty(tcx, TypingEnv::fully_monomorphized())
+                .is_closure(),
+            _ => false,
+        };
+        if !callable {
             tcx.dcx().span_err(
                 span,
                 "coroutines and other callable shims are not supported in Metal kernels",

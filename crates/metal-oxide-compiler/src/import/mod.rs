@@ -16,7 +16,7 @@ mod references;
 mod slices;
 mod values;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{EarlyBinder, Instance, TyCtxt, TypingEnv};
@@ -43,6 +43,8 @@ struct FunctionKey<'tcx> {
 
 pub(crate) struct ModuleImporter<'tcx> {
     tcx: TyCtxt<'tcx>,
+    /// The kernel entrypoints, which no function may call.
+    entries: HashSet<Instance<'tcx>>,
     ids: HashMap<FunctionKey<'tcx>, usize>,
     /// Empty while the function is being imported.
     functions: Vec<Option<ir::Function>>,
@@ -53,6 +55,7 @@ impl<'tcx> ModuleImporter<'tcx> {
     pub(crate) fn new(tcx: TyCtxt<'tcx>) -> Self {
         Self {
             tcx,
+            entries: HashSet::new(),
             ids: HashMap::new(),
             functions: Vec::new(),
             types: TypeLowering::new(tcx),
@@ -66,6 +69,7 @@ impl<'tcx> ModuleImporter<'tcx> {
                 "no kernel entrypoints were found".into(),
             ));
         }
+        self.entries = entries.iter().copied().collect();
         for &entry in entries {
             let body = self.tcx.instance_mir(entry.def);
             let parameters = body

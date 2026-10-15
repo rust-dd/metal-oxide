@@ -119,6 +119,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 .collect::<Result<Vec<_>>>()?;
             return self.intrinsic(intrinsic, callee.arguments, arguments, span);
         }
+        // A call would import the kernel as a helper before its entry does.
+        if self.module.entries.contains(&callee.instance) {
+            return Err((span, "calling a kernel entrypoint is unsupported".into()));
+        }
         let args = self.spread(func, args, body)?;
         let args = args.as_slice();
         let Signature { types, messages } = self

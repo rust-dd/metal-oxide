@@ -126,6 +126,10 @@ fn unsupported_reachable_calls_are_reported() {
             "destructor",
             "destructors are not supported in Metal kernels",
         ),
+        (
+            "rejections/async_block",
+            "coroutines and other callable shims are not supported in Metal kernels",
+        ),
     ] {
         support::rejected(support::fixture(fixture), error);
     }
