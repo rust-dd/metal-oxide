@@ -49,7 +49,12 @@ fn main() {{
 
 /// The kernel of a cooperative program, where every thread runs `cooperate` and those with an
 /// input run `run`; with `--cfg cpu_reference`, the CPU model of blocks runs the same code.
-pub fn cooperative(cooperation: &Function, words: usize, inputs: &str) -> String {
+pub fn cooperative(
+    cooperation: &Function,
+    counters: Option<&str>,
+    words: usize,
+    inputs: &str,
+) -> String {
     let stores = stores(words, 2);
     let allocations = |indent: usize| {
         cooperation
@@ -91,15 +96,27 @@ pub fn cooperative(cooperation: &Function, words: usize, inputs: &str) -> String
         .map(|value| format!("k[{value}]"))
         .collect::<Vec<_>>()
         .join(", ");
+    let parameter = counters
+        .map(|int| format!(", counters: AtomicBuffer<{int}>"))
+        .unwrap_or_default();
+    let (create, print) = match counters {
+        Some(int) => (
+            format!("    let counters = model::AtomicBuffer::<{int}>::new(&model::COUNTERS);\n"),
+            "    let words = counters.words().iter().map(u32::to_string).collect::<Vec<_>>();\n    \
+             println!(\"counters {}\", words.join(\" \"));\n"
+                .to_owned(),
+        ),
+        None => Default::default(),
+    };
     let model = include_str!("model.rs");
     format!(
         r#"
 #[cfg(not(cpu_reference))]
-use metal_oxide_device::{{AtomicThreadgroupBuffer, ReadBuffer, ThreadgroupBuffer, WriteBuffer, block_idx, kernel, simdgroup, thread_idx, threadgroup}};
+use metal_oxide_device::{{AtomicBuffer, AtomicThreadgroupBuffer, ReadBuffer, ThreadgroupBuffer, WriteBuffer, block_idx, kernel, simdgroup, thread_idx, threadgroup}};
 
 #[cfg(not(cpu_reference))]
 #[kernel(block = ({BLOCK}, 1, 1))]
-pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {{
+pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32{parameter}) {{
     let i = block_idx().x * {BLOCK} + thread_idx().x;
     let value = if i < n {{ unsafe {{ input.load_unchecked(i) }} }} else {{ 0 }};
 {kernel}    let k = cooperate({arguments});
@@ -111,7 +128,7 @@ pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32
 }}
 
 #[cfg(cpu_reference)]
-use model::{{AtomicThreadgroupBuffer, ThreadgroupBuffer, simdgroup, thread_idx, threadgroup}};
+use model::{{AtomicBuffer, AtomicThreadgroupBuffer, ThreadgroupBuffer, simdgroup, thread_idx, threadgroup}};
 
 #[cfg(cpu_reference)]
 mod model {{
@@ -121,7 +138,7 @@ mod model {{
 fn main() {{
     let inputs = [{inputs}];
     let n = inputs.len() as u32;
-    let outcomes = model::launch({BLOCK}, n, |i| {{
+{create}    let outcomes = model::launch({BLOCK}, n, |i| {{
         let value = if i < n {{ inputs[i as usize] }} else {{ 0 }};
 {cpu}        let k = cooperate({arguments});
         (i < n).then(|| run(value, {values}))
@@ -133,7 +150,7 @@ fn main() {{
             Err((line, column)) => println!("panic {{line}}:{{column}}"),
         }}
     }}
-}}
+{print}}}
 "#
     )
 }

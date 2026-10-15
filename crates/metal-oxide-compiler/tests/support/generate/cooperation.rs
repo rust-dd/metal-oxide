@@ -1,6 +1,7 @@
 use super::{
     ast::{Expr, Function, Printer, Stmt},
     builder::Builder,
+    model::COUNTERS,
     scope::{Local, Scope},
     types::{I32, Int, Type, U32, render as render_type},
 };
@@ -65,6 +66,20 @@ pub enum Cooperative {
         value: Expr,
         read: Expr,
     },
+    /// Every thread applies the program's one counter operation with `value` at `index` of the
+    /// device counters, whose final words the host reads.
+    Count {
+        op: &'static str,
+        index: Expr,
+        value: Expr,
+    },
+}
+
+/// What the statements of `cooperate` share: its parameters, which gain the buffers they use,
+/// and the element type and operation of its device counters.
+struct Phase {
+    parameters: Vec<(String, Type)>,
+    counters: Option<(Int, &'static str)>,
 }
 
 impl Cooperative {
@@ -77,6 +92,7 @@ impl Cooperative {
             Self::Accumulate {
                 index, value, read, ..
             } => vec![index, value, read],
+            Self::Count { index, value, .. } => vec![index, value],
         }
     }
 }
@@ -159,6 +175,14 @@ impl Printer<'_> {
                 self.line(indent, &load);
                 self.line(indent, barrier);
             }
+            Cooperative::Count { op, index, value } => {
+                let (index, value) = (self.expr(index), self.expr(value));
+                let cells = COUNTERS.len();
+                let count = format!(
+                    "unsafe {{ counters.fetch_{op}_relaxed({index} % {cells}, {value}) }};"
+                );
+                self.line(indent, &count);
+            }
         }
     }
 }
@@ -173,21 +197,32 @@ impl Builder {
             varying: vec!["input".into(), "lane".into()],
             ..Scope::default()
         };
-        let mut parameters = Vec::new();
+        let mut phase = Phase {
+            parameters: Vec::new(),
+            counters: None,
+        };
         for name in ["input", "lane"] {
             scope.locals.push(Local {
                 name: name.into(),
                 ty: U32,
                 mutable: false,
             });
-            parameters.push((name.to_owned(), U32));
+            phase.parameters.push((name.to_owned(), U32));
+        }
+        if self.random.chance(1, 2) {
+            let int = *self.random.pick(&[Int::U32, Int::I32]);
+            let op = *self.random.pick(&ATOMICS);
+            phase
+                .parameters
+                .push(("counters".into(), Type::Atomic(int)));
+            phase.counters = Some((int, op));
         }
         let mut body = Vec::new();
         for _ in 0..2 + self.random.below(4) {
             let stmt = if self.random.chance(1, 4) {
-                self.uniform_loop(&scope, &mut parameters)
+                self.uniform_loop(&scope, &mut phase)
             } else {
-                self.cooperative(&mut scope, &mut parameters)
+                self.cooperative(&mut scope, &mut phase)
             };
             body.push(stmt);
         }
@@ -203,7 +238,7 @@ impl Builder {
         Function {
             name: "cooperate".into(),
             generic: None,
-            parameters,
+            parameters: phase.parameters,
             result: result.clone(),
             body,
             value: Expr::Aggregate(result, words),
@@ -212,7 +247,7 @@ impl Builder {
 
     /// `for c in 0..bound { .. }` around cooperative statements and assignments to the locals
     /// before them; every thread runs the same iterations.
-    fn uniform_loop(&mut self, scope: &Scope, parameters: &mut Vec<(String, Type)>) -> Stmt {
+    fn uniform_loop(&mut self, scope: &Scope, phase: &mut Phase) -> Stmt {
         let label = self.fresh("o");
         let counter = self.fresh("c");
         let mut inner = scope.clone();
@@ -226,7 +261,7 @@ impl Builder {
             let assignment = self.random.chance(1, 3).then(|| self.assign(&inner));
             match assignment.flatten() {
                 Some(assignment) => body.push(assignment),
-                None => body.push(self.cooperative(&mut inner, parameters)),
+                None => body.push(self.cooperative(&mut inner, phase)),
             }
         }
         let bound = 1 + self.random.below(3);
@@ -234,13 +269,13 @@ impl Builder {
         Stmt::For(label, counter, range, body)
     }
 
-    /// A cooperative statement, whose binding the code after it can read; buffers that it uses
-    /// join `parameters`.
-    fn cooperative(&mut self, scope: &mut Scope, parameters: &mut Vec<(String, Type)>) -> Stmt {
+    /// A cooperative statement, whose binding the code after it can read.
+    fn cooperative(&mut self, scope: &mut Scope, phase: &mut Phase) -> Stmt {
         let binding = self.fresh("l");
         let elements = [U32, I32, Type::Float];
         let integers = [U32, I32];
-        let (cooperative, ty) = match self.random.below(5) {
+        let kinds = if phase.counters.is_some() { 6 } else { 5 };
+        let (cooperative, ty) = match self.random.below(kinds) {
             0 => {
                 let ty = self.random.pick(&integers).clone();
                 let op = *self.random.pick(&REDUCTIONS);
@@ -289,10 +324,8 @@ impl Builder {
             3 => {
                 let ty = self.random.pick(&elements).clone();
                 let buffer = self.fresh("s");
-                parameters.push((
-                    buffer.clone(),
-                    Type::Threadgroup(Box::new(ty.clone()), BLOCK),
-                ));
+                let buffer_type = Type::Threadgroup(Box::new(ty.clone()), BLOCK);
+                phase.parameters.push((buffer.clone(), buffer_type));
                 let mask = self.random.below(u64::from(BLOCK)) as u32;
                 let value = self.expr(scope, &ty, 3);
                 let index = self.expr(scope, &U32, 2);
@@ -306,13 +339,12 @@ impl Builder {
                 };
                 (exchange, ty)
             }
-            _ => {
-                let Type::Int(int) = self.random.pick(&integers).clone() else {
-                    unreachable!()
-                };
+            4 => {
+                let int = *self.random.pick(&[Int::U32, Int::I32]);
                 let buffer = self.fresh("a");
                 let cells = 1 + self.random.below(4) as u32;
-                parameters.push((buffer.clone(), Type::AtomicThreadgroup(int, cells)));
+                let buffer_type = Type::AtomicThreadgroup(int, cells);
+                phase.parameters.push((buffer.clone(), buffer_type));
                 let op = *self.random.pick(&ATOMICS);
                 let initial = int.literal(&mut self.random);
                 let index = self.expr(scope, &U32, 2);
@@ -330,6 +362,12 @@ impl Builder {
                     read,
                 };
                 (accumulate, Type::Int(int))
+            }
+            _ => {
+                let (int, op) = phase.counters.unwrap();
+                let index = self.expr(scope, &U32, 2);
+                let value = self.expr(scope, &Type::Int(int), 3);
+                return Stmt::Cooperative(Cooperative::Count { op, index, value });
             }
         };
         scope.locals.push(Local {

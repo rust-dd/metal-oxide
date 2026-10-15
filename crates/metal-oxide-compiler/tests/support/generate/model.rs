@@ -206,6 +206,85 @@ impl<T: Bits, const N: usize> ThreadgroupBuffer<T, N> {
     }
 }
 
+/// The initial words of the device counters that cooperative programs may count in.
+pub const COUNTERS: [u32; 4] = [0, u32::MAX, 0x7fff_ffff, 0x8000_0000];
+
+macro_rules! atomics {
+    () => {
+        pub unsafe fn load_relaxed(self, index: u32) -> T {
+            T::from_word(self.cells[index as usize].load(Relaxed))
+        }
+
+        pub unsafe fn store_relaxed(self, index: u32, value: T) {
+            self.cells[index as usize].store(value.into_word(), Relaxed);
+        }
+
+        fn update(self, index: u32, change: impl Fn(T) -> T) -> T {
+            let cell = &self.cells[index as usize];
+            let mut word = cell.load(Relaxed);
+            loop {
+                let next = change(T::from_word(word)).into_word();
+                match cell.compare_exchange_weak(word, next, Relaxed, Relaxed) {
+                    Ok(previous) => return T::from_word(previous),
+                    Err(current) => word = current,
+                }
+            }
+        }
+
+        pub unsafe fn fetch_add_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old.plus(value))
+        }
+
+        pub unsafe fn fetch_sub_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old.minus(value))
+        }
+
+        pub unsafe fn fetch_min_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old.min(value))
+        }
+
+        pub unsafe fn fetch_max_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old.max(value))
+        }
+
+        pub unsafe fn fetch_and_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old & value)
+        }
+
+        pub unsafe fn fetch_or_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old | value)
+        }
+
+        pub unsafe fn fetch_xor_relaxed(self, index: u32, value: T) -> T {
+            self.update(index, |old| old ^ value)
+        }
+    };
+}
+
+/// Device atomics that the threads of every block share.
+#[derive(Clone, Copy)]
+pub struct AtomicBuffer<T> {
+    cells: &'static [AtomicU64],
+    element: PhantomData<T>,
+}
+
+impl<T: Integer> AtomicBuffer<T> {
+    pub fn new(words: &[u32]) -> Self {
+        let cells = words.iter().map(|&word| AtomicU64::new(word.into()));
+        Self {
+            cells: cells.collect::<Vec<_>>().leak(),
+            element: PhantomData,
+        }
+    }
+
+    pub fn words(self) -> Vec<u32> {
+        let words = self.cells.iter().map(|cell| cell.load(Relaxed) as u32);
+        words.collect()
+    }
+
+    atomics!();
+}
+
 #[derive(Clone, Copy)]
 pub struct AtomicThreadgroupBuffer<T, const N: usize> {
     cells: &'static [AtomicU64],
@@ -213,53 +292,7 @@ pub struct AtomicThreadgroupBuffer<T, const N: usize> {
 }
 
 impl<T: Integer, const N: usize> AtomicThreadgroupBuffer<T, N> {
-    pub unsafe fn load_relaxed(self, index: u32) -> T {
-        T::from_word(self.cells[index as usize].load(Relaxed))
-    }
-
-    pub unsafe fn store_relaxed(self, index: u32, value: T) {
-        self.cells[index as usize].store(value.into_word(), Relaxed);
-    }
-
-    fn update(self, index: u32, change: impl Fn(T) -> T) -> T {
-        let cell = &self.cells[index as usize];
-        let mut word = cell.load(Relaxed);
-        loop {
-            let next = change(T::from_word(word)).into_word();
-            match cell.compare_exchange_weak(word, next, Relaxed, Relaxed) {
-                Ok(previous) => return T::from_word(previous),
-                Err(current) => word = current,
-            }
-        }
-    }
-
-    pub unsafe fn fetch_add_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old.plus(value))
-    }
-
-    pub unsafe fn fetch_sub_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old.minus(value))
-    }
-
-    pub unsafe fn fetch_min_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old.min(value))
-    }
-
-    pub unsafe fn fetch_max_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old.max(value))
-    }
-
-    pub unsafe fn fetch_and_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old & value)
-    }
-
-    pub unsafe fn fetch_or_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old | value)
-    }
-
-    pub unsafe fn fetch_xor_relaxed(self, index: u32, value: T) -> T {
-        self.update(index, |old| old ^ value)
-    }
+    atomics!();
 }
 
 pub mod threadgroup {

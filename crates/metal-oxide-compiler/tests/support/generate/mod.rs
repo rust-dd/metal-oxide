@@ -81,6 +81,18 @@ impl Program {
         self.cooperation.is_some()
     }
 
+    /// The element type of the device counters that `cooperate` counts in, if it does.
+    pub fn counters(&self) -> Option<String> {
+        let parameters = self
+            .cooperation
+            .iter()
+            .flat_map(|function| &function.parameters);
+        parameters.map(|(_, ty)| ty).find_map(|ty| match ty {
+            types::Type::Atomic(int) => Some(int.name()),
+            _ => None,
+        })
+    }
+
     /// The records and enums that `functions` names, directly or through other definitions.
     fn definitions(&self, functions: &str) -> String {
         let records = self.records.iter().map(|record| {
@@ -151,6 +163,9 @@ impl Program {
         if self.cooperative() {
             printer.text.push_str("// cooperative\n");
         }
+        if let Some(counters) = self.counters() {
+            printer.text.push_str(&format!("// counters: {counters}\n"));
+        }
         printer.text.push_str(
             "#![cfg_attr(not(cpu_reference), no_std)]\n#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]\n\n",
         );
@@ -171,7 +186,10 @@ impl Program {
             .collect::<Vec<_>>()
             .join(", ");
         let entry = match &self.cooperation {
-            Some(cooperation) => entry::cooperative(cooperation, self.words.len(), &inputs),
+            Some(cooperation) => {
+                let counters = self.counters();
+                entry::cooperative(cooperation, counters.as_deref(), self.words.len(), &inputs)
+            }
             None => entry::independent(self.words.len(), &inputs),
         };
         printer.text.push_str(&entry);

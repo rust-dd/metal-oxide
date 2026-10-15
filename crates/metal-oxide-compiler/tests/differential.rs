@@ -3,7 +3,11 @@
 mod support;
 
 use std::{process::Command, time::Duration};
-use support::{differential::Outcome, generate::Program, oracle::Failure};
+use support::{
+    differential::{Outcome, Run},
+    generate::Program,
+    oracle::Failure,
+};
 
 #[test]
 fn differential_process_deadline_stops_nonterminating_programs() {
@@ -56,6 +60,7 @@ fn a_kernel_that_writes_other_words_is_reported() {
         .find(|(case, expected)| {
             !case.cooperative
                 && expected
+                    .threads
                     .iter()
                     .all(|outcome| matches!(outcome, Outcome::Words(_)))
         })
@@ -67,7 +72,7 @@ fn a_kernel_that_writes_other_words_is_reported() {
     assert!(matches!(case.check(), Err(Failure::Msl(_))));
     let generated = case.compile().unwrap();
     assert!(
-        case.mismatch(&expected, &case.msl(&generated).unwrap())
+        case.mismatch(&expected.threads, &case.msl(&generated).unwrap())
             .is_some()
     );
 }
@@ -89,7 +94,11 @@ fn compiler_failures_match_by_their_first_diagnostic_wherever_it_points() {
 #[test]
 fn shrinking_keeps_what_fails_and_drops_the_rest() {
     let fails = |program: &Program| program.source(&[]).contains("\"generated assertion\"");
-    let program = (0..).map(Program::generate).find(fails).unwrap();
+    // Cooperative sources carry the CPU model, which no simplification removes.
+    let program = (0..)
+        .map(Program::generate)
+        .find(|program| !program.cooperative() && fails(program))
+        .unwrap();
     let size = program.source(&[]).len();
     let shrunk = program.shrink(fails);
     assert!(fails(&shrunk));
@@ -112,22 +121,27 @@ fn failures_are_compared_by_location_and_completed_threads_by_words() {
     let case = support::differential::Case::generated(0);
     let words = case.words.len();
     let panic = Outcome::Panic { line: 9, column: 5 };
-    let expected = [Outcome::Words(vec![0; words]), panic.clone()];
+    let run = |threads: &[Outcome], counters: &[u32]| Run {
+        threads: threads.to_vec(),
+        counters: counters.to_vec(),
+    };
+    let threads = [Outcome::Words(vec![0; words]), panic.clone()];
+    let expected = run(&threads, &[]);
     let zeros = vec![0; 2 * words];
     assert_eq!(
-        case.gpu_mismatch(&expected, Some(panic.clone()), &zeros),
+        case.gpu_mismatch(&expected, Some(panic.clone()), &zeros, &[]),
         None
     );
-    assert!(case.gpu_mismatch(&expected, None, &zeros).is_some());
+    assert!(case.gpu_mismatch(&expected, None, &zeros, &[]).is_some());
     let elsewhere = Outcome::Panic { line: 9, column: 6 };
     assert!(
-        case.gpu_mismatch(&expected, Some(elsewhere.clone()), &zeros)
+        case.gpu_mismatch(&expected, Some(elsewhere.clone()), &zeros, &[])
             .is_some()
     );
     let mut changed = zeros.clone();
     changed[0] = 1;
     assert!(
-        case.gpu_mismatch(&expected, Some(panic.clone()), &changed)
+        case.gpu_mismatch(&expected, Some(panic.clone()), &changed, &[])
             .is_some()
     );
     let completed = [
@@ -135,14 +149,23 @@ fn failures_are_compared_by_location_and_completed_threads_by_words() {
         Outcome::Words(vec![0; words]),
     ];
     assert!(
-        case.gpu_mismatch(&completed, Some(panic.clone()), &zeros)
+        case.gpu_mismatch(&run(&completed, &[]), Some(panic.clone()), &zeros, &[])
+            .is_some()
+    );
+    let counted = run(&threads, &[1, 2]);
+    assert_eq!(
+        case.gpu_mismatch(&counted, Some(panic.clone()), &zeros, &[1, 2]),
+        None
+    );
+    assert!(
+        case.gpu_mismatch(&counted, Some(panic.clone()), &zeros, &[1, 3])
             .is_some()
     );
     assert!(
-        case.mismatch(&expected, &[expected[0].clone(), elsewhere])
+        case.mismatch(&threads, &[threads[0].clone(), elsewhere])
             .is_some()
     );
-    assert!(case.mismatch(&expected, &completed).is_some());
+    assert!(case.mismatch(&threads, &completed).is_some());
 }
 
 #[test]
@@ -261,6 +284,9 @@ fn generated_programs_cover_the_supported_constructs() {
         ".fetch_min_relaxed(",
         "ThreadgroupBuffer<f32, 64>",
         "AtomicThreadgroupBuffer<i32, ",
+        "counters: AtomicBuffer<i32>",
+        "counters.fetch_max_relaxed(",
+        "// counters: u32",
         "    'o",
     ] {
         assert!(

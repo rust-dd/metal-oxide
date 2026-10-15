@@ -7,9 +7,9 @@ pub struct Int {
     pub signed: bool,
 }
 
-pub const U32: Type = Type::Int(Int::unsigned(32));
+pub const U32: Type = Type::Int(Int::U32);
 
-pub const I32: Type = Type::Int(Int::signed(32));
+pub const I32: Type = Type::Int(Int::I32);
 
 pub const INTS: [Int; 7] = [
     Int::unsigned(8),
@@ -22,6 +22,9 @@ pub const INTS: [Int; 7] = [
 ];
 
 impl Int {
+    pub const U32: Self = Self::unsigned(32);
+    pub const I32: Self = Self::signed(32);
+
     const fn unsigned(bits: u32) -> Self {
         Self {
             bits,
@@ -100,6 +103,8 @@ pub enum Type {
     Threadgroup(Box<Type>, u32),
     /// Threadgroup atomics of the given length that the kernel allocates.
     AtomicThreadgroup(Int, u32),
+    /// Device atomics, a kernel parameter.
+    Atomic(Int),
 }
 
 #[derive(Clone)]
@@ -157,6 +162,7 @@ pub fn render(ty: &Type, records: &[Record]) -> String {
         Type::AtomicThreadgroup(int, length) => {
             format!("AtomicThreadgroupBuffer<{}, {length}>", int.name())
         }
+        Type::Atomic(int) => format!("AtomicBuffer<{}>", int.name()),
     }
 }
 

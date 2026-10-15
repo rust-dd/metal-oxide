@@ -1,4 +1,4 @@
-use super::differential::{Case, Outcome};
+use super::differential::{Case, Run};
 use std::path::PathBuf;
 
 /// Why a program fails the oracle.
@@ -40,14 +40,14 @@ impl std::fmt::Display for Failure {
 impl Case {
     /// The CPU outcomes and emitted kernels, after comparing the host-built MSL with the CPU;
     /// the host runs one thread at a time, so cooperative programs skip the MSL.
-    pub fn check(&self) -> Result<(Vec<Outcome>, PathBuf), Failure> {
+    pub fn check(&self) -> Result<(Run, PathBuf), Failure> {
         let expected = self.cpu().map_err(Failure::Invalid)?;
         let generated = self.compile().map_err(Failure::Compiler)?;
         if self.cooperative {
             return Ok((expected, generated));
         }
         let actual = self.msl(&generated).map_err(Failure::Msl)?;
-        match self.mismatch(&expected, &actual) {
+        match self.mismatch(&expected.threads, &actual) {
             Some(mismatch) => Err(Failure::Msl(mismatch)),
             None => Ok((expected, generated)),
         }
@@ -58,11 +58,11 @@ impl Case {
     pub fn check_gpu(
         &self,
         device: &metal_oxide::Device,
-        expected: &[Outcome],
+        expected: &Run,
         generated: &std::path::Path,
     ) -> Result<(), Failure> {
-        let (failure, words) = self.gpu(device, generated).map_err(Failure::Gpu)?;
-        match self.gpu_mismatch(expected, failure, &words) {
+        let gpu = self.gpu(device, generated).map_err(Failure::Gpu)?;
+        match self.gpu_mismatch(expected, gpu.failure, &gpu.words, &gpu.counters) {
             Some(mismatch) => Err(Failure::Gpu(mismatch)),
             None => Ok(()),
         }

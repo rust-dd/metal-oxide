@@ -36,6 +36,22 @@ pub enum Outcome {
     Panic { line: u32, column: u32 },
 }
 
+/// What a program computed: an outcome for each thread with an input, and the final words of its
+/// device counters.
+#[derive(Clone, Debug, Default)]
+pub struct Run {
+    pub threads: Vec<Outcome>,
+    pub counters: Vec<u32>,
+}
+
+/// What a GPU run produced: the check that failed, if one did, the words that the threads wrote
+/// and the final words of the device counters.
+pub struct Gpu {
+    pub failure: Option<Outcome>,
+    pub words: Vec<u32>,
+    pub counters: Vec<u32>,
+}
+
 /// A program, its inputs and the directory that holds its outputs.
 pub struct Case {
     pub directory: PathBuf,
@@ -44,6 +60,8 @@ pub struct Case {
     pub overflow_checks: bool,
     /// Whether the threads of a block first run `cooperate` together.
     pub cooperative: bool,
+    /// The element type of the device counters that `cooperate` counts in, if it does.
+    pub counters: Option<String>,
     pub inputs: Vec<u32>,
 }
 
@@ -64,6 +82,7 @@ impl Case {
             words: program.words.clone(),
             overflow_checks: program.overflow_checks,
             cooperative: program.cooperative(),
+            counters: program.counters(),
             inputs,
         }
     }
@@ -97,6 +116,10 @@ impl Case {
             words,
             overflow_checks: field("// overflow checks: ") == "on",
             cooperative: text.lines().any(|line| line == "// cooperative"),
+            counters: text
+                .lines()
+                .find_map(|line| line.strip_prefix("// counters: "))
+                .map(str::to_owned),
             inputs,
         }
     }
@@ -120,8 +143,8 @@ impl Case {
         Ok(output)
     }
 
-    /// What every thread produces in rustc's build of the program for the host.
-    pub fn cpu(&self) -> Result<Vec<Outcome>, String> {
+    /// What rustc's build of the program for the host computes.
+    pub fn cpu(&self) -> Result<Run, String> {
         let binary = self.directory.join("cpu");
         let mut rustc = Command::new("rustc");
         rustc
@@ -135,19 +158,21 @@ impl Case {
         super::succeeded(build)?;
         let run = super::process::output(&mut Command::new(binary), Duration::from_secs(10))
             .map_err(|error| format!("the CPU build: {error}"))?;
-        Ok(super::succeeded(run)?
-            .lines()
-            .map(|line| match line.strip_prefix("panic ") {
-                Some(location) => {
-                    let (line, column) = location.split_once(':').unwrap();
-                    Outcome::Panic {
-                        line: line.parse().unwrap(),
-                        column: column.parse().unwrap(),
-                    }
-                }
-                None => Outcome::Words(words(line)),
-            })
-            .collect())
+        let mut computed = Run::default();
+        for line in super::succeeded(run)?.lines() {
+            if let Some(counters) = line.strip_prefix("counters ") {
+                computed.counters = words(counters);
+            } else if let Some(location) = line.strip_prefix("panic ") {
+                let (line, column) = location.split_once(':').unwrap();
+                computed.threads.push(Outcome::Panic {
+                    line: line.parse().unwrap(),
+                    column: column.parse().unwrap(),
+                });
+            } else {
+                computed.threads.push(Outcome::Words(words(line)));
+            }
+        }
+        Ok(computed)
     }
 
     /// What every thread produces when the emitted MSL runs on the host, one thread at a time.
@@ -183,51 +208,6 @@ impl Case {
             .collect())
     }
 
-    /// The check that the GPU reports as failed, if any, and the words that its threads wrote.
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub fn gpu(
-        &self,
-        device: &metal_oxide::Device,
-        generated: &Path,
-    ) -> Result<(Option<Outcome>, Vec<u32>), String> {
-        use metal_oxide::{Argument, Error, Launch, LaunchConfig, Operation, Pipeline};
-        let module = super::artifact::module(device, generated).map_err(|e| e.to_string())?;
-        let pipeline = Pipeline::new(device, &module, "generated").map_err(|e| e.to_string())?;
-        let input = device
-            .buffer_from_slice(&self.inputs)
-            .map_err(|e| e.to_string())?;
-        let mut output = device
-            .buffer_zeroed::<u32>(self.inputs.len() * self.words.len())
-            .map_err(|e| e.to_string())?;
-        let n = self.inputs.len() as u32;
-        // SAFETY: the buffers are disjoint; padded threads are guarded and thread i alone
-        // writes the words at i * words.
-        let result = unsafe {
-            Launch::new(
-                Ok(&pipeline),
-                LaunchConfig::<64>::for_elements(n).map_err(|e| e.to_string())?,
-                (&input, &mut output, n),
-                |(input, output, n)| {
-                    Ok([
-                        Argument::read(input),
-                        Argument::write(output),
-                        Argument::value(*n)?,
-                    ])
-                },
-            )
-            .wait()
-        };
-        let failure = match result {
-            Ok(_) => None,
-            Err(Error::KernelFailed(failure)) => Some(Outcome::Panic {
-                line: failure.line,
-                column: failure.column,
-            }),
-            Err(error) => return Err(error.to_string()),
-        };
-        Ok((failure, output.read().wait().to_vec()))
-    }
-
     /// The first thread whose outcome in `actual` differs from `expected`.
     pub fn mismatch(&self, expected: &[Outcome], actual: &[Outcome]) -> Option<String> {
         if expected.len() != actual.len() {
@@ -254,15 +234,21 @@ impl Case {
             })
     }
 
-    /// Compares a GPU run with the CPU outcomes. The GPU reports one failed check, which must be
-    /// one of the CPU's panics; every thread that the CPU completes must have written its words.
+    /// Compares a GPU run with the CPU's: the one failed check must be a CPU panic, completed
+    /// threads must have written their words, and the counters must end the same.
     pub fn gpu_mismatch(
         &self,
-        expected: &[Outcome],
+        expected: &Run,
         failure: Option<Outcome>,
         words: &[u32],
+        counters: &[u32],
     ) -> Option<String> {
+        if counters != expected.counters {
+            let expected = &expected.counters;
+            return Some(format!("counters {counters:x?}, expected {expected:x?}"));
+        }
         let panics = expected
+            .threads
             .iter()
             .filter(|outcome| matches!(outcome, Outcome::Panic { .. }))
             .collect::<Vec<_>>();
@@ -281,6 +267,7 @@ impl Case {
             _ => {}
         }
         let actual = expected
+            .threads
             .iter()
             .zip(words.chunks(self.words.len()))
             .map(|(expected, words)| match expected {
@@ -288,7 +275,7 @@ impl Case {
                 Outcome::Panic { .. } => expected.clone(),
             })
             .collect::<Vec<_>>();
-        self.mismatch(expected, &actual)
+        self.mismatch(&expected.threads, &actual)
     }
 
     fn words_agree(&self, expected: &[u32], actual: &[u32]) -> bool {
