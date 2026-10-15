@@ -157,7 +157,7 @@ built for the host, and on the GPU: every thread's outputs must agree, and a fai
 must be one the CPU panicked at, with its Rust location. Failing programs are shrunk and
 kept as regression fixtures, and a workflow fuzzes nightly on hosted classic Metal. Each
 compiler rejection is either reached by a fixture at its expected location or documented as
-unreachable from kernel source. The fuzzing found four Apple compiler defects that the
+unreachable from kernel source. The fuzzing found five Apple compiler defects that the
 generated MSL avoids; see [MSL](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#msl).
 
 Math defaults to precise functions without implicit floating-point contraction.

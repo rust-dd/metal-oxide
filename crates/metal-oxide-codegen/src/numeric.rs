@@ -67,6 +67,9 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 let maximum = (1_u32 << scalar.bits()) - 1;
                 let overflow = match operation {
                     BinaryOp::SubWithOverflow => "a < b".into(),
+                    // Metal's GPU compiler can misjudge the narrow overflow intrinsic that a
+                    // range test of the wide product becomes; `mulhi` stays a plain multiply.
+                    BinaryOp::MulWithOverflow => format!("mulhi(a, b) != {ty}(0)"),
                     _ => format!("(uint(a) {symbol} uint(b)) > {maximum}u"),
                 };
                 writeln!(

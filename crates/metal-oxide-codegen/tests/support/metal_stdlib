@@ -36,6 +36,12 @@ template<class To, class From> To as_type(From value) {
     std::memcpy(&result, &value, sizeof(result));
     return result;
 }
+inline uchar mulhi(uchar a, uchar b) {
+    return uchar((uint(a) * b) >> 8);
+}
+inline ushort mulhi(ushort a, ushort b) {
+    return ushort((uint(a) * b) >> 16);
+}
 inline uint mulhi(uint a, uint b) {
     return uint((ulong(a) * b) >> 32);
 }
