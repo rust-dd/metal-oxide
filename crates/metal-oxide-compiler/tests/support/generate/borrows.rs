@@ -123,11 +123,18 @@ impl Builder {
     /// `&array[start..end]`: nonempty and in bounds, or in fallible programs with bounds from
     /// values of the thread, which can fail the slice checks or leave the slice empty.
     fn subslice(&mut self, scope: &Scope, array: Expr, length: u32, mutable: bool) -> Expr {
+        // A bound that reads the array would use it while `&mut` borrows it.
+        let borrowed = mutable.then(|| super::iterators::root(&array)).flatten();
         let array = Box::new(array);
         if self.fallible && self.random.chance(1, 3) {
             let bound = |this: &mut Self| {
                 let int = *this.random.pick(&INTS);
-                Bound::Varying(Box::new(this.varying(scope, int)), length + 2)
+                let index = this.varying(scope, int);
+                if borrowed.as_ref().is_some_and(|name| index.mentions(name)) {
+                    Bound::Constant(0)
+                } else {
+                    Bound::Varying(Box::new(index), length + 2)
+                }
             };
             let start = if self.random.chance(1, 2) {
                 bound(self)

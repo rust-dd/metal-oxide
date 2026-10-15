@@ -139,7 +139,7 @@ impl Builder {
 }
 
 /// The local that a place expression starts from.
-fn root(place: &Expr) -> Option<String> {
+pub(super) fn root(place: &Expr) -> Option<String> {
     match place {
         Expr::Local(name) => Some(name.clone()),
         Expr::Field(inner, _)
