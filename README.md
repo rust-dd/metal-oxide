@@ -103,6 +103,14 @@ its generated kernels and returns `Error::DependencyFailed` with the same failur
 before a barrier or SIMD collective must be proved or uniform. `metal_oxide::device::log!`
 prints from kernels to stderr through Metal shader logging.
 
+Kernels, and the `no_std` crates that `dependencies(...)` names, compile from rustc's MIR
+against `core`: references and slices, records, tuples and arrays, enums with payloads,
+`Option` and `Result` with `?`, closures, core's iterators and generic helpers, over `bool`,
+`f32`, `F16`, the 8- to 32-bit integers, `u64`, `usize` and `isize`. The compiler rejects
+what it cannot lower with a diagnostic at the Rust source, such as recursion, calls through
+function pointers or trait objects, destructors, coroutines, `f64`, `i64` and 128-bit
+integers.
+
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Launch functions take an element count; raw `Launch`
 operations use `Argument::threadgroup::<T>(elements)`. Both paths validate combined
@@ -144,6 +152,14 @@ depend on, as in this checkout or a git dependency.
 | M4 Max | 26.2 | 26.6 | classic Metal, Metal 4 |
 | Apple Paravirtual device, GitHub-hosted M1 VM (CI) | 15.7, 26.6 | 16.4, 26.6 | classic Metal |
 
+Beyond these suites, seeded generated programs run on the CPU through rustc, as their MSL
+built for the host, and on the GPU: every thread's outputs must agree, and a failed check
+must be one the CPU panicked at, with its Rust location. Failing programs are shrunk and
+kept as regression fixtures, and a workflow fuzzes nightly on hosted classic Metal. Each
+compiler rejection is either reached by a fixture at its expected location or documented as
+unreachable from kernel source. The fuzzing found two Apple compiler defects that the
+generated MSL avoids; see [MSL](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#msl).
+
 Math defaults to precise functions without implicit floating-point contraction.
 `#[kernels(math = "fast")]` opts into fast functions, reassociation, reciprocal
 approximations and contraction. Arithmetic keeps NaN and infinity support; fast functions
@@ -154,5 +170,45 @@ recorded in the artifact; see [numerical compilation](https://github.com/rust-dd
 `--capture FILE.gputrace` records a GPU trace that Xcode shows with Rust lines, and
 `cargo metal inspect --emit ir|msl|air` prints what the kernels compiled to; see
 [debugging](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#debugging).
+
+## Compared with other Rust GPU projects
+
+As of October 2026:
+
+| Project | Kernels | Compiled | Targets | On Apple GPUs |
+| --- | --- | --- | --- | --- |
+| metal-oxide | Rust functions | from rustc MIR to MSL at `cargo build`; saved artifacts | Apple Silicon | native Metal and Metal 4 |
+| [CubeCL](https://github.com/tracel-ai/cubecl) | `#[cube]` Rust functions, which a macro rewrites to build its IR | JIT at first launch, with a cache | NVIDIA, AMD, Apple, Vulkan, WebGPU, CPU | MSL through wgpu or its Metal runtime |
+| [Burn](https://github.com/tracel-ai/burn) | tensor operations; custom kernels in CubeCL | through CubeCL | CubeCL's | through CubeCL |
+| [Candle](https://github.com/huggingface/candle) | tensor operations | Metal kernels from MSL source at run time | CPU, NVIDIA, Apple | hand-written MSL |
+| [Rust GPU](https://github.com/Rust-GPU/rust-gpu) | `no_std` Rust | rustc backend to SPIR-V, in a build script | Vulkan; others through naga | SPIR-V translated to MSL, through wgpu or MoltenVK |
+| [CUDA Rust](https://github.com/NVIDIA/cuda-rust) (NVIDIA) | Rust (cuda-oxide) or a tile DSL (cuTile Rust) | rustc backend to PTX; tile kernels JIT | NVIDIA on Linux | no |
+| [Rust CUDA](https://github.com/Rust-GPU/rust-cuda) | `no_std` Rust | rustc backend to NVVM IR and PTX, in a build script | NVIDIA | no |
+| [wgpu](https://github.com/gfx-rs/wgpu) | WGSL | naga, at run time | Vulkan, Metal, D3D12, OpenGL, WebGPU | WGSL translated to MSL |
+| [objc2-metal](https://github.com/madsmtm/objc2) | MSL | Apple's compiler | Apple | bindings to the Metal API |
+
+The closest design is NVIDIA's cuda-oxide, which also compiles `#[kernel]` Rust functions
+from MIR, with `get_mut` on a thread index for disjoint writes and launch relations checked
+on the host, for PTX. Compared with the others:
+
+- **Rust compiled from MIR.** CubeCL rewrites `#[cube]` functions and cuTile Rust
+  parses a tile DSL; wgpu, objc2-metal and Candle's Metal kernels take WGSL or MSL. Like
+  Rust GPU, Rust CUDA and cuda-oxide, metal-oxide compiles what rustc checked, so generics,
+  traits, closures, core's iterators and `no_std` crates keep their Rust meaning.
+- **Failed checks are errors.** An unproved bounds, overflow, division or `unwrap` check
+  stops its thread, and the operation returns `Error::KernelFailed` with the Rust location
+  and message.
+- **Ahead of time.** CubeCL and cuTile Rust compile at the first launch; wgpu and Candle
+  compile shader source at run time. metal-oxide compiles during `cargo build` and saves
+  the artifacts beside the sources, so dependents and end users need neither the nightly
+  compiler nor the Metal toolchain. At run time, Metal only creates pipelines from the
+  saved library, after the runtime validates its ABI version.
+- **Native Metal.** Rust GPU and wgpu reach Apple GPUs through translation into MSL, and
+  Rust CUDA and CUDA Rust do not run there. metal-oxide emits MSL for Apple's compiler and
+  drives classic Metal and Metal 4 behind one API, with SIMD-group collectives,
+  threadgroup memory and atomics. It runs only on Apple Silicon; for other GPUs, use
+  CubeCL, Burn, Rust GPU or wgpu.
+- **Not yet released.** Depend on the git repository; the API may change before the first
+  release.
 
 [Architecture](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md) · [Build, test, benchmarks](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md) · [MIT](https://github.com/rust-dd/metal-oxide/blob/main/LICENSE)

@@ -341,6 +341,15 @@ coordinate parameters from the dispatch:
 | `grid_dim()` | `threadgroups_per_grid` |
 | `thread_index()` | `thread_position_in_grid` (x) |
 
+The generated MSL avoids two Apple compiler defects that differential fuzzing found:
+
+- `uint` division and remainder by a variable are wrong when Metal folds the numerator into
+  a constant from `0xFFFFFF80` to `0xFFFFFFFD`, which may happen only after Metal inlines.
+  These divisions go through helpers that first subtract the divisor from such numerators.
+- On the Apple Paravirtual device of hosted CI, 64-bit integer to `float` conversions of
+  values that become constant on the device are wrong. They convert through 32 bits,
+  rounding to nearest even as Rust does.
+
 ### ABI
 
 The ABI is the host-kernel argument contract. Its rules and supported
