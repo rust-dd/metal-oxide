@@ -6,16 +6,29 @@ use serde_json::Value;
 use std::{collections::BTreeMap, path::Path};
 
 /// The calls that report a rejection of kernel source or options, each followed by its message.
-const REPORTS: [&str; 8] = [
+const REPORTS: [&str; 7] = [
     "Error::new(",
     "span_err(",
     "span_fatal(",
-    "(span, ",
     "Err(\"",
     "Err(format!(\"",
     "error(\"",
     "error(&format!(\"",
 ];
+
+/// Where the reports in `text` start their arguments: the calls in [`REPORTS`], and
+/// `(span, message)` errors, whose message rustfmt may wrap onto the next line.
+fn reports(text: &str) -> impl Iterator<Item = usize> + '_ {
+    let calls = REPORTS.iter().flat_map(move |report| {
+        text.match_indices(report)
+            .map(|(at, _)| at + report.len() - 1)
+    });
+    let spans = text
+        .match_indices("span,")
+        .filter(move |(at, _)| text[..*at].trim_end().ends_with('('))
+        .map(|(at, _)| at + "span".len());
+    calls.chain(spans)
+}
 
 /// The rejection messages in the compiler, IR and codegen sources, with a site of each.
 fn messages() -> BTreeMap<String, String> {
@@ -32,13 +45,11 @@ fn messages() -> BTreeMap<String, String> {
             .filter(|path| !path.ends_with("tests.rs"))
         {
             let text = std::fs::read_to_string(&path).unwrap();
-            for report in REPORTS {
-                for (at, _) in text.match_indices(report) {
-                    if let Some(message) = literal(&text[at + report.len() - 1..]) {
-                        let line = text[..at].lines().count();
-                        let site = format!("{}:{line}", path.display());
-                        found.entry(message).or_insert(site);
-                    }
+            for at in reports(&text) {
+                if let Some(message) = literal(&text[at..]) {
+                    let line = text[..at].lines().count();
+                    let site = format!("{}:{line}", path.display());
+                    found.entry(message).or_insert(site);
                 }
             }
         }
