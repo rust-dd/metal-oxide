@@ -37,7 +37,7 @@ impl<'tcx> TypeLowering<'tcx> {
         }
         // `PhantomData`, fn items and closures without captures need no storage, nor do
         // references to them. Enums keep their tag; zero-length arrays are rejected below.
-        if (!ty.is_enum() && !matches!(ty.kind(), ty::Array(..)) && is_zero_sized(self.tcx, ty))
+        if (!matches!(ty.kind(), ty::Array(..)) && stores_nothing(self.tcx, ty))
             || addresses_nothing(self.tcx, ty)
         {
             return Ok(ir::Type::Unit);
@@ -397,10 +397,37 @@ fn pointee(ty: Ty<'_>) -> Option<Ty<'_>> {
     }
 }
 
-/// Whether `ty` is a reference or raw pointer to a zero-sized value, directly or through further
-/// such references, which the IR stores nowhere; it needs no address.
+/// Whether `ty` is a reference or raw pointer to a value that the IR stores nowhere, directly or
+/// through further such references; it needs no address.
 fn addresses_nothing<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
-    pointee(ty).is_some_and(|target| is_zero_sized(tcx, target) || addresses_nothing(tcx, target))
+    pointee(ty).is_some_and(|target| stores_nothing(tcx, target) || addresses_nothing(tcx, target))
+}
+
+/// Whether values of `ty` lower to no storage: they occupy none and hold no enum, whose tag the
+/// IR keeps even when it has a single variant.
+pub(crate) fn stores_nothing<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
+    is_zero_sized(tcx, ty) && !holds_enum(tcx, ty)
+}
+
+fn holds_enum<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
+    match ty.kind() {
+        ty::Adt(definition, _) if definition.is_enum() => true,
+        ty::Adt(definition, arguments) => definition.all_fields().any(|field| {
+            let field = tcx.normalize_erasing_regions(
+                TypingEnv::fully_monomorphized(),
+                field.ty(tcx, arguments),
+            );
+            holds_enum(tcx, field)
+        }),
+        ty::Tuple(fields) => fields.iter().any(|field| holds_enum(tcx, field)),
+        ty::Array(element, _) | ty::Pat(element, _) => holds_enum(tcx, *element),
+        ty::Closure(_, arguments) => arguments
+            .as_closure()
+            .upvar_tys()
+            .iter()
+            .any(|upvar| holds_enum(tcx, upvar)),
+        _ => false,
+    }
 }
 
 /// Whether values of `ty` occupy no storage.

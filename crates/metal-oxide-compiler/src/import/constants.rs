@@ -5,9 +5,7 @@ use rustc_middle::{
 };
 
 pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Option<ir::Constant> {
-    if constant.ty().is_unit()
-        || !constant.ty().is_enum() && crate::types::is_zero_sized(tcx, constant.ty())
-    {
+    if constant.ty().is_unit() || crate::types::stores_nothing(tcx, constant.ty()) {
         return Some(ir::Constant::Unit);
     }
     let bits = constant.try_eval_bits(tcx, TypingEnv::fully_monomorphized())?;

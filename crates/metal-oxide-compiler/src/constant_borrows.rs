@@ -128,7 +128,7 @@ fn copied<'tcx>(
     let ty::Ref(_, target, _) = value.ty().kind() else {
         return None;
     };
-    if !target.is_sized(tcx, typing) || crate::types::is_zero_sized(tcx, *target) {
+    if !target.is_sized(tcx, typing) || crate::types::stores_nothing(tcx, *target) {
         return None;
     }
     let ConstValue::Scalar(Scalar::Ptr(pointer, _)) =

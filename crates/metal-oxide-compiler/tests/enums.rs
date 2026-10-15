@@ -94,3 +94,15 @@ fn question_marks_unwraps_and_expects_report_their_callers() {
         assert!(reported.contains(&expected), "{reported:?}");
     }
 }
+
+#[test]
+fn zero_sized_enums_keep_their_tag_inside_records_and_behind_references() {
+    let directory = emit("zero_sized_enums");
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "uint out[1] = {0}; zero_sized(out, 7u, {}, {}, {}, {}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0];",
+        ),
+        "18"
+    );
+}

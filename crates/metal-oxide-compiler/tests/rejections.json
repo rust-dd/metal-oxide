@@ -43,7 +43,7 @@
   {"message": "device log arguments must be a tuple", "internal": "log::write's arguments implement the sealed Arguments trait, which only tuples of printable scalars implement, and such a tuple operand imports as a place, an aggregate constant or the unit constant, never a scalar constant."},
   {"message": "device log formats must be string literals", "fixture": "rejections/log_format_variable.rs", "line": 7, "column": 5},
   {"message": "device log formats support only `{}` placeholders", "fixture": "rejections/debug_log_format.rs", "line": 7, "column": 5},
-  {"message": "discriminants require an enum", "fixture": "rejections/zero_sized_match.rs", "line": 15, "column": 9},
+  {"message": "discriminants require an enum", "fixture": "rejections/struct_discriminant.rs", "line": 10, "column": 9},
   {"message": "duplicate kernel name", "fixture": "rejections/duplicate_kernel_name.rs", "line": 10, "column": 5},
   {"message": "duplicate switch case value", "internal": "Switch cases come from MIR SwitchInt values, which are distinct and fit the discriminant type the importer converts them to (enum tags are sized to the variant count)."},
   {"message": "duplicate threadgroup allocation ID", "internal": "The importer numbers each function's threadgroup allocations with a per-function counter."},
