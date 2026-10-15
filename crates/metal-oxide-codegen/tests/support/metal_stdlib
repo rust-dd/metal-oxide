@@ -43,6 +43,7 @@ inline ulong mulhi(ulong a, ulong b) {
     return ulong((static_cast<unsigned __int128>(a) * b) >> 64);
 }
 using std::fmod;
+using std::ldexp;
 using std::isnan;
 using std::fmin;
 using std::fmax;

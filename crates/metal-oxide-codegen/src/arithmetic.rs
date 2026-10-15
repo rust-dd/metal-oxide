@@ -32,11 +32,42 @@ pub(crate) fn cast(
     {
         return Err(Error::new(source, "unsupported boolean cast"));
     }
+    if let Some(helper) = wide_to_float(from, to) {
+        return Ok(format!("{helper}({value})"));
+    }
     Ok(if to.is_integer() {
         integer_value(to, value)
     } else {
         format!("{}({value})", scalar_name(to))
     })
+}
+
+/// The Apple Paravirtual device folds a 64-bit integer that becomes constant on the device into
+/// a wrong float; these convert through 32 bits, rounding to nearest even like Rust.
+pub(crate) const WIDE_TO_FLOAT: &str = "static inline float metal_oxide_u64_to_f32(ulong x) {
+    uint high = uint(x >> 32);
+    if (high == 0u) {
+        return float(uint(x));
+    }
+    uint shift = 32u - clz(high);
+    uint sticky = uint((x & ((1ul << shift) - 1ul)) != 0ul);
+    return ldexp(float(uint(x >> shift) | sticky), int(shift));
+}
+
+static inline float metal_oxide_i64_to_f32(long x) {
+    float magnitude = metal_oxide_u64_to_f32(x < 0 ? 0ul - ulong(x) : ulong(x));
+    return x < 0 ? -magnitude : magnitude;
+}
+
+";
+
+/// The [`WIDE_TO_FLOAT`] helper that converts `from` to `to`, if one does.
+pub(crate) fn wide_to_float(from: Type, to: Scalar) -> Option<&'static str> {
+    match (from, to) {
+        (Type::Scalar(Scalar::U64 | Scalar::Usize), Scalar::F32) => Some("metal_oxide_u64_to_f32"),
+        (Type::Scalar(Scalar::Isize), Scalar::F32) => Some("metal_oxide_i64_to_f32"),
+        _ => None,
+    }
 }
 
 pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {

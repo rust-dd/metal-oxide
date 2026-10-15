@@ -124,6 +124,18 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
             writeln!(output, "    return {{{value}, {overflow}}};\n}}\n").unwrap();
         }
     }
+    let mut wide = false;
+    for function in &module.functions {
+        for statement in function.blocks.iter().flat_map(|block| &block.statements) {
+            if let Expression::Cast(value, to) = &statement.value {
+                let from = operand_type(module, function, value, &statement.source)?;
+                wide |= crate::arithmetic::wide_to_float(from, *to).is_some();
+            }
+        }
+    }
+    if wide {
+        output.push_str(crate::arithmetic::WIDE_TO_FLOAT);
+    }
     for function in &module.functions {
         for statement in function.blocks.iter().flat_map(|block| &block.statements) {
             if let Expression::Binary(op, a, b) = &statement.value
