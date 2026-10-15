@@ -31,6 +31,17 @@ fn uniform_device_results_preserve_cooperative_branches() {
 }
 
 #[test]
+fn short_circuit_early_returns_join_before_the_barrier() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/short_circuit_barrier.rs",
+        &[],
+    );
+    support::checked(output);
+    let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+    assert_eq!(msl.matches("threadgroup_barrier(").count(), 1, "{msl}");
+}
+
+#[test]
 fn helper_participation_depends_on_the_arguments_it_uses() {
     let (output, directory) = support::emit(
         "crates/metal-oxide-compiler/tests/fixtures/uniform_helpers.rs",

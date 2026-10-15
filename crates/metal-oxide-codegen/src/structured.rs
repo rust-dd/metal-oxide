@@ -405,6 +405,9 @@ impl<'a> Emitter<'a> {
             self.line(&format!("uint metal_oxide_exit_{header} = 0u;"));
         }
         let function = self.function;
+        if self.graph.loops[&header].writes_borrowed_array(self.module, function) {
+            self.line("#pragma clang loop unroll(disable)");
+        }
         self.line_at("while (true) {", &function.blocks[header].source);
         self.indent += 1;
         let mut inner = contexts.to_vec();

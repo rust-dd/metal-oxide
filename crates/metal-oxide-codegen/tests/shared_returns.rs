@@ -72,6 +72,85 @@ fn a_shared_terminal_barrier_is_emitted_once() {
 }
 
 #[test]
+fn short_circuit_branches_join_before_a_cooperative_tail() {
+    for indirect in [false, true] {
+        let mut module = module(
+            3,
+            vec![
+                Type::Unit,
+                Type::Scalar(Scalar::U32),
+                Type::Scalar(Scalar::U32),
+                Type::Scalar(Scalar::U32),
+                Type::Unit,
+            ],
+            vec![
+                block(
+                    vec![],
+                    Terminator::Switch {
+                        discriminant: local(1),
+                        cases: vec![(Constant::U32(0), 1)],
+                        otherwise: 2,
+                    },
+                ),
+                block(vec![], Terminator::Goto(6)),
+                block(
+                    vec![],
+                    Terminator::Switch {
+                        discriminant: local(2),
+                        cases: vec![(Constant::U32(0), 3)],
+                        otherwise: 4,
+                    },
+                ),
+                block(
+                    vec![],
+                    Terminator::Switch {
+                        discriminant: local(3),
+                        cases: vec![(Constant::U32(0), 5)],
+                        otherwise: 4,
+                    },
+                ),
+                block(
+                    vec![],
+                    Terminator::Switch {
+                        discriminant: local(1),
+                        cases: vec![(Constant::U32(0), 5)],
+                        otherwise: 6,
+                    },
+                ),
+                block(vec![], Terminator::Goto(6)),
+                block(
+                    vec![(4, Expression::ThreadgroupBarrier)],
+                    Terminator::Return,
+                ),
+            ],
+        );
+        module.functions[0].kernel = true;
+        if indirect {
+            let helper = support::module(
+                0,
+                vec![Type::Unit; 2],
+                vec![block(
+                    vec![(1, Expression::ThreadgroupBarrier)],
+                    Terminator::Return,
+                )],
+            )
+            .functions
+            .remove(0);
+            module.functions.push(helper);
+            module.functions[0].blocks[6].statements[0].value = Expression::Call {
+                function: 1,
+                arguments: vec![],
+            };
+        }
+        let msl = metal_oxide_codegen::Codegen::new(&module)
+            .unwrap()
+            .emit()
+            .unwrap();
+        assert_eq!(msl.matches("threadgroup_barrier(").count(), 1, "{msl}");
+    }
+}
+
+#[test]
 fn nested_terminal_joins_preserve_the_enclosing_barrier_continuation() {
     let mut module = module(
         3,

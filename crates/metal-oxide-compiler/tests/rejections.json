@@ -38,7 +38,7 @@
   {"message": "casts require scalar types", "internal": "Cast comes from MIR IntToInt, IntToFloat, FloatToInt and FloatToFloat casts of primitive numbers, which lower to scalars, from the niche transmute's bool flag, and from the F16/F32 bridge calls."},
   {"message": "checked tuple requires integer value", "internal": "Type::Checked is created only for (integer, bool) tuples (types.rs lower) and integer overflow operations, so Checked expressions built for those destinations always carry an integer scalar."},
   {"message": "chunk iterators advance through a borrowed local", "internal": "chunk_type runs only for the ChunksExact::next calls that expanded_next accepts, and expanded_next requires the receiver to be a handle local, which is what chunk_type looks up."},
-  {"message": "control flow requires excessive or cooperative block duplication", "fixture": "rejections/duplicated_barrier.rs", "line": 10, "column": 14},
+  {"message": "control flow requires excessive or cooperative block duplication", "fixture": "rejections/duplicated_barrier.rs", "line": 21, "column": 18},
   {"message": "cooperative operation requires uniform participation; divergent control flow is unsupported", "fixture": "divergent_barrier.rs", "line": 7, "column": 18},
   {"message": "core::simd vectors are not supported in Metal kernels", "fixture": "rejections/core_simd.rs", "line": 9, "column": 17},
   {"message": "coroutines and other callable shims are not supported in Metal kernels", "fixture": "rejections/async_block.rs", "line": 10, "column": 34},

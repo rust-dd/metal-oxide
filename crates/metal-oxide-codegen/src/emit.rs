@@ -132,7 +132,7 @@ impl<'a> ModuleEmitter<'a> {
         }
         self.output.push('\n');
         for (id, function) in module.functions.iter().enumerate() {
-            let graph = StructuredGraph::new(function, &self.analyses[id])?;
+            let graph = StructuredGraph::new(function, id, self.analyses)?;
             for (index, block) in function.blocks.iter().enumerate() {
                 if !graph.cfg.is_reachable(index) {
                     continue;

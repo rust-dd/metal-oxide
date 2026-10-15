@@ -1,4 +1,7 @@
-use metal_oxide_ir::{ControlFlowGraph, Dominators, Error, Function, FunctionAnalysis, Terminator};
+use metal_oxide_ir::{
+    Aggregate, ControlFlowGraph, Dominators, Error, Expression, Function, FunctionAnalysis, Module,
+    Operand, Terminator, Type, TypeTable,
+};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 pub(crate) struct Loop {
@@ -6,12 +9,51 @@ pub(crate) struct Loop {
     pub(crate) exits: Vec<usize>,
 }
 
+impl Loop {
+    /// Metal's GPU unroller can lose array updates observed through a later borrow.
+    pub(crate) fn writes_borrowed_array(&self, module: &Module, function: &Function) -> bool {
+        let borrowed = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.statements)
+            .filter_map(|statement| match &statement.value {
+                Expression::Ref {
+                    place: Operand::Place(place),
+                    ..
+                } if !place.is_indirect()
+                    && contains_array(&module.types, function.locals[place.local]) =>
+                {
+                    Some(place.local)
+                }
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        self.members.iter().any(|&id| {
+            function.blocks[id].statements.iter().any(|statement| {
+                !statement.destination.is_indirect()
+                    && borrowed.contains(&statement.destination.local)
+            })
+        })
+    }
+}
+
+fn contains_array(types: &TypeTable, ty: Type) -> bool {
+    let Type::Aggregate(id) = ty else {
+        return false;
+    };
+    let aggregate = types.get(id).unwrap();
+    matches!(aggregate, Aggregate::Array { .. })
+        || aggregate
+            .component_types()
+            .any(|ty| contains_array(types, ty))
+}
+
 pub(crate) struct StructuredGraph<'a> {
     pub(crate) cfg: &'a ControlFlowGraph,
     pub(crate) loops: HashMap<usize, Loop>,
     forward: Vec<Vec<usize>>,
-    /// Blocks on a straight line into a return or panic, which a branch that leaves the
-    /// function repeats instead of joining.
+    /// Blocks on a straight line into a return or panic without cooperative operations,
+    /// which a branch that leaves the function repeats instead of joining.
     tails: Vec<bool>,
     pub(crate) postdominators: &'a Dominators,
 }
@@ -147,7 +189,12 @@ impl<'a> StructuredGraph<'a> {
         valid
     }
 
-    pub(crate) fn new(function: &Function, analysis: &'a FunctionAnalysis) -> Result<Self, Error> {
+    pub(crate) fn new(
+        function: &Function,
+        id: usize,
+        analyses: &'a [FunctionAnalysis],
+    ) -> Result<Self, Error> {
+        let analysis = &analyses[id];
         let n = function.blocks.len();
         let cfg = &analysis.cfg;
         let all = cfg.reachable_blocks().collect::<BTreeSet<_>>();
@@ -196,11 +243,16 @@ impl<'a> StructuredGraph<'a> {
         }
         let mut tails = vec![false; n];
         for &id in order.iter().rev() {
-            tails[id] = match cfg.successors(id) {
-                [] => true,
-                [next] => forward[id] == [*next] && tails[*next],
-                _ => false,
-            };
+            let cooperative = function.blocks[id]
+                .statements
+                .iter()
+                .any(|statement| statement.value.is_cooperative(analyses));
+            tails[id] = !cooperative
+                && match cfg.successors(id) {
+                    [] => true,
+                    [next] => forward[id] == [*next] && tails[*next],
+                    _ => false,
+                };
         }
         let mut loops = HashMap::new();
         for (header, members) in loop_members {
