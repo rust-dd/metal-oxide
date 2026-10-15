@@ -57,6 +57,30 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
     }
 }
 
+/// Metal divides a constant `uint` numerator from 0xFFFFFF80 to 0xFFFFFFFD by a variable through a
+/// float estimate that overflows; subtracting the divisor first keeps it off that path.
+pub(crate) const GUARDED_DIVISION: &str =
+    "static inline uint metal_oxide_udiv_u32(uint a, uint b) {
+    uint borrow = a >= 0xffffff80u && a >= b ? b : 0u;
+    return (a - borrow) / b + uint(borrow != 0u);
+}
+
+static inline uint metal_oxide_urem_u32(uint a, uint b) {
+    uint borrow = a >= 0xffffff80u && a >= b ? b : 0u;
+    return (a - borrow) % b;
+}
+
+";
+
+/// Whether `a / b` or `a % b` goes through [`GUARDED_DIVISION`]: a `u32` division by a variable,
+/// unless the numerator is a smaller constant. Metal folds values that our IR cannot see.
+pub(crate) fn guarded_division(op: BinaryOp, a: &Operand, b: &Operand, ty: Type) -> bool {
+    matches!(op, BinaryOp::Div | BinaryOp::Rem)
+        && ty == Type::Scalar(Scalar::U32)
+        && !matches!(b, Operand::Constant(_))
+        && !matches!(a, Operand::Constant(Constant::U32(value)) if *value < 0xffff_ff80)
+}
+
 pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     use BinaryOp::*;
     let symbol = match op {

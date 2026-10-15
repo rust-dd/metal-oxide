@@ -36,6 +36,9 @@ template<class To, class From> To as_type(From value) {
     std::memcpy(&result, &value, sizeof(result));
     return result;
 }
+inline uint mulhi(uint a, uint b) {
+    return uint((ulong(a) * b) >> 32);
+}
 inline ulong mulhi(ulong a, ulong b) {
     return ulong((static_cast<unsigned __int128>(a) * b) >> 64);
 }

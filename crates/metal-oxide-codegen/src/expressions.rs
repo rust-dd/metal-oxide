@@ -382,7 +382,17 @@ pub(crate) fn expression(
         Expression::Cast(v, to) => crate::arithmetic::cast(&op(v), ty(v)?, *to, source)?,
         Expression::Unary(operation, v) => crate::arithmetic::unary(*operation, &op(v), ty(v)?),
         Expression::Binary(operation, a, b) => {
-            crate::arithmetic::binary(*operation, &op(a), &op(b), ty(a)?)
+            let operands = ty(a)?;
+            if crate::arithmetic::guarded_division(*operation, a, b, operands) {
+                let name = if *operation == BinaryOp::Div {
+                    "udiv"
+                } else {
+                    "urem"
+                };
+                format!("metal_oxide_{name}_u32({}, {})", op(a), op(b))
+            } else {
+                crate::arithmetic::binary(*operation, &op(a), &op(b), operands)
+            }
         }
     })
 }

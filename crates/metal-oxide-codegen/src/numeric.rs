@@ -102,7 +102,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                     BinaryOp::AddWithOverflow => "value < a",
                     BinaryOp::SubWithOverflow => "a < b",
                     BinaryOp::MulWithOverflow if scalar.bits() == 64 => "mulhi(a, b) != 0ul",
-                    _ => "b != 0u && a > 0xffffffffu / b",
+                    _ => "mulhi(a, b) != 0u",
                 };
                 ("value", overflow)
             } else {
@@ -122,6 +122,21 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 ("as_type<int>(value)", overflow)
             };
             writeln!(output, "    return {{{value}, {overflow}}};\n}}\n").unwrap();
+        }
+    }
+    for function in &module.functions {
+        for statement in function.blocks.iter().flat_map(|block| &block.statements) {
+            if let Expression::Binary(op, a, b) = &statement.value
+                && crate::arithmetic::guarded_division(
+                    *op,
+                    a,
+                    b,
+                    operand_type(module, function, a, &statement.source)?,
+                )
+            {
+                output.push_str(crate::arithmetic::GUARDED_DIVISION);
+                return Ok(output);
+            }
         }
     }
     Ok(output)
