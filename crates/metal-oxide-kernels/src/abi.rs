@@ -1,6 +1,7 @@
 use crate::launch::{Access, Kernel, Kind};
 use metal_oxide_artifact::{Abi, ParameterType};
 use proc_macro2::Span;
+use syn::ext::IdentExt;
 
 /// Checks the launch functions read from the source against the kernels the compiler built.
 pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()> {
@@ -11,7 +12,7 @@ pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()
         ))
     };
     for kernel in kernels {
-        let name = kernel.name.to_string();
+        let name = kernel.name.unraw().to_string();
         let Some(compiled) = abi.kernels.iter().find(|compiled| compiled.name == name) else {
             return mismatch(&name, "the compiler found no such kernel".into());
         };
@@ -27,7 +28,7 @@ pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()
                 }
                 _ => false,
             };
-            if !matches || parameter.name != built.name {
+            if !matches || parameter.name.unraw() != built.name {
                 return mismatch(
                     &name,
                     format!("parameter `{}` has another kind", parameter.name),
@@ -41,11 +42,11 @@ pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()
             return mismatch(&name, "the block shapes differ".into());
         }
     }
-    if let Some(extra) = abi
-        .kernels
-        .iter()
-        .find(|compiled| !kernels.iter().any(|kernel| kernel.name == compiled.name))
-    {
+    if let Some(extra) = abi.kernels.iter().find(|compiled| {
+        !kernels
+            .iter()
+            .any(|kernel| kernel.name.unraw() == compiled.name)
+    }) {
         return mismatch(&extra.name, "it has no `#[kernel]` function here".into());
     }
     Ok(())

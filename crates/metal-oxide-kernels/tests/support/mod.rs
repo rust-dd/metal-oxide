@@ -91,6 +91,7 @@ impl Project {
     }
 
     /// The target directory that projects share, so each builds the runtime once.
+    /// Tests that run its shared `host` binary must execute sequentially.
     pub fn target() -> PathBuf {
         root().join("target/kernel-tests/target")
     }

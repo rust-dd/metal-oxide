@@ -2,6 +2,13 @@ use rustc_hir::{def::DefKind, def_id::DefId};
 use rustc_middle::ty::{Instance, Ty, TyCtxt, TypingEnv};
 use rustc_span::Symbol;
 
+mod instances;
+
+pub(crate) struct Entry<'tcx> {
+    pub(crate) name: String,
+    pub(crate) instance: Instance<'tcx>,
+}
+
 pub(crate) fn block_shape(
     tcx: TyCtxt<'_>,
     definition: DefId,
@@ -108,25 +115,50 @@ pub(crate) fn parameter_name(body: &rustc_middle::mir::Body<'_>, index: usize) -
 }
 
 /// Kernel entrypoints, after reporting unsupported code they can reach.
-pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Instance<'tcx>> {
+pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Entry<'tcx>> {
     let marker = [
         Symbol::intern("metal_oxide_compiler"),
         Symbol::intern("kernel"),
     ];
-    let mut entries = Vec::new();
-    for definition in tcx.hir_crate_items(()).definitions() {
+    let definitions = tcx.hir_crate_items(()).definitions().collect::<Vec<_>>();
+    let mut entries = instances::collect(tcx, &definitions);
+    for definition in definitions {
         let definition = definition.to_def_id();
-        if tcx.get_attrs_by_path(definition, &marker).next().is_some() && validate(tcx, definition)
+        if tcx.get_attrs_by_path(definition, &marker).next().is_none() {
+            continue;
+        }
+        if tcx.def_kind(definition) != DefKind::Fn {
+            tcx.dcx().span_err(
+                tcx.def_span(definition),
+                "#[kernel] requires a free function",
+            );
+        } else if tcx.generics_of(definition).count() == 0 {
+            entries.push(Entry {
+                name: tcx.item_name(definition).to_string(),
+                instance: Instance::mono(tcx, definition),
+            });
+        } else if !entries
+            .iter()
+            .any(|entry| entry.instance.def_id() == definition)
         {
-            entries.push(Instance::mono(tcx, definition));
+            tcx.dcx().span_err(
+                tcx.def_span(definition),
+                "generic kernels require explicit instances(name(Type, CONST), ...)",
+            );
         }
     }
+    entries.retain(|entry| validate(tcx, entry));
     tcx.dcx().abort_if_errors();
-    crate::monomorphize::validate(tcx, &entries);
+    let instances = entries
+        .iter()
+        .map(|entry| entry.instance)
+        .collect::<Vec<_>>();
+    crate::monomorphize::validate(tcx, &instances);
     entries
 }
 
-fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
+fn validate<'tcx>(tcx: TyCtxt<'tcx>, entry: &Entry<'tcx>) -> bool {
+    let definition = entry.instance.def_id();
     let error = |message: &str| {
         tcx.dcx()
             .span_err(tcx.def_span(definition), message.to_owned());
@@ -135,13 +167,10 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
     if tcx.def_kind(definition) != DefKind::Fn {
         return error("#[kernel] requires a free function");
     }
-    if tcx.generics_of(definition).count() != 0 {
-        return error("kernel entrypoints must not have generic parameters");
-    }
     let signature = tcx
         .normalize_erasing_regions(
             TypingEnv::fully_monomorphized(),
-            tcx.fn_sig(definition).instantiate_identity(),
+            tcx.fn_sig(definition).instantiate(tcx, entry.instance.args),
         )
         .skip_binder();
     if !signature.abi().is_rustic_abi() {
@@ -153,7 +182,7 @@ fn validate(tcx: TyCtxt<'_>, definition: DefId) -> bool {
     crate::trace(|| {
         println!(
             "kernel: {} parameters={}",
-            tcx.item_name(definition),
+            entry.name,
             signature.inputs().len()
         );
     });

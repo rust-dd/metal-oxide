@@ -4,14 +4,17 @@ use syn::{Expr, ExprLit, ExprTuple, Lit, LitStr, parse::Parser};
 
 /// The arguments of `#[kernel(...)]` that shape its launch function; the device build checks
 /// `requires(...)` itself.
+#[derive(Default)]
 pub(crate) struct KernelOptions {
     pub(crate) block: Option<[u32; 3]>,
+    pub(crate) instances: Vec<crate::instances::Instance>,
 }
 
 impl KernelOptions {
     pub(crate) fn parse(tokens: TokenStream) -> syn::Result<Self> {
         let mut block = None;
         let mut requires = false;
+        let mut instances = None;
         syn::meta::parser(|meta| {
             if meta.path.is_ident("block") && block.is_none() {
                 block = Some(block_shape(&meta.value()?.parse::<ExprTuple>()?)?);
@@ -21,12 +24,20 @@ impl KernelOptions {
                 let relations;
                 syn::parenthesized!(relations in meta.input);
                 relations.parse::<TokenStream>().map(drop)
+            } else if meta.path.is_ident("instances") && instances.is_none() {
+                let entries;
+                syn::parenthesized!(entries in meta.input);
+                instances = Some(crate::instances::parse(&entries)?);
+                Ok(())
             } else {
-                Err(meta.error("expected one `block = (X, Y, Z)` and one `requires(...)`"))
+                Err(meta.error("expected one each of `block = (X, Y, Z)`, `requires(...)` and `instances(name(Type, CONST), ...)`"))
             }
         })
         .parse2(tokens)?;
-        Ok(Self { block })
+        Ok(Self {
+            block,
+            instances: instances.unwrap_or_default(),
+        })
     }
 }
 

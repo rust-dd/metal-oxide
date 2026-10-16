@@ -5,6 +5,7 @@
 mod abi;
 mod device;
 mod diagnostics;
+mod instances;
 mod launch;
 mod mirror;
 mod options;
@@ -23,7 +24,8 @@ use syn::{Attribute, Item, ItemFn, ItemMod, LitStr, Meta, ext::IdentExt};
 /// Compiles a function as a Metal kernel and replaces it with a function of the same name and
 /// visibility that launches it: `vec_add(&device, config, &a, &b, &mut out)` returns a
 /// `Launch`. `block = (X, Y, Z)` fixes the block shape and `requires(...)` lists relations
-/// that every launch checks.
+/// that every launch checks. `instances(name(Type, CONST), ...)` generates a named launch
+/// function for each listed instance of a generic kernel.
 ///
 /// The kernel sees the device prelude, `core`, items it defines and `no_std` crates by full
 /// path; kernels that share types or helpers go in a `#[kernels]` module.
@@ -116,8 +118,8 @@ fn source_library(library: &syn::Ident, request: Request, kernels: &[Kernel]) ->
 fn standalone(attributes: Tokens, item: Tokens, source: Source) -> syn::Result<Tokens> {
     let options = KernelOptions::parse(attributes)?;
     let function = syn::parse2::<ItemFn>(item)?;
-    let kernel = Kernel::new(&function, options.block)?;
-    let name = kernel.name.unraw();
+    let kernels = instances::kernels(&function, options)?;
+    let name = function.sig.ident.unraw();
     let library = format_ident!("__METAL_OXIDE_{}", name.to_string().to_uppercase());
     let hidden = format_ident!("__metal_oxide_kernel_{name}");
     let defaults = ModuleOptions {
@@ -126,8 +128,8 @@ fn standalone(attributes: Tokens, item: Tokens, source: Source) -> syn::Result<T
         path: None,
     };
     let request = source.request(name.to_string(), true, defaults);
-    let library_static = source_library(&library, request, std::slice::from_ref(&kernel));
-    let launcher = kernel.launcher(&library);
+    let library_static = source_library(&library, request, &kernels);
+    let launchers = kernels.iter().map(|kernel| kernel.launcher(&library));
     Ok(quote! {
         #[doc(hidden)]
         #[allow(dead_code, non_snake_case)]
@@ -136,7 +138,7 @@ fn standalone(attributes: Tokens, item: Tokens, source: Source) -> syn::Result<T
             #function
         }
         #library_static
-        #launcher
+        #(#launchers)*
     })
 }
 
@@ -211,13 +213,13 @@ fn written(
             continue;
         };
         let options = match &function.attrs.remove(index).meta {
-            Meta::Path(_) => KernelOptions { block: None },
+            Meta::Path(_) => KernelOptions::default(),
             Meta::List(list) => KernelOptions::parse(list.tokens.clone())?,
             Meta::NameValue(value) => {
                 return Err(syn::Error::new_spanned(value, "expected `#[kernel(...)]`"));
             }
         };
-        kernels.push(Kernel::new(&function, options.block)?);
+        kernels.extend(instances::kernels(&function, options)?);
         functions.push(function);
     }
     if kernels.is_empty() {

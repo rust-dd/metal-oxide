@@ -17,7 +17,7 @@ pub(crate) fn write<'tcx>(
     directory: &Path,
     module: &metal_oxide_ir::Module,
     tcx: rustc_middle::ty::TyCtxt<'tcx>,
-    entries: &[rustc_middle::ty::Instance<'tcx>],
+    entries: &[crate::collect::Entry<'tcx>],
     arguments: &[String],
     math_mode: metal_oxide_artifact::MathMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -31,8 +31,9 @@ pub(crate) fn write<'tcx>(
     for kernel in &mut abi.kernels {
         let entry = entries
             .iter()
-            .find(|e| tcx.item_name(e.def_id()).as_str() == kernel.name)
-            .unwrap();
+            .find(|entry| entry.name == kernel.name)
+            .unwrap()
+            .instance;
         kernel.safe = tcx.fn_sig(entry.def_id()).skip_binder().safety().is_safe();
         let body = tcx.instance_mir(entry.def);
         let mut used = std::collections::HashSet::new();

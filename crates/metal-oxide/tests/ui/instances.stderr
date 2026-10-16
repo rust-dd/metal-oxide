@@ -1,0 +1,25 @@
+error: unexpected end of input, instances(...) needs at least one named instance
+ --> tests/ui/instances.rs:1:33
+  |
+1 | #[metal_oxide::kernel(instances())]
+  |                                 ^
+
+error: duplicate kernel instance name
+ --> tests/ui/instances.rs:4:44
+  |
+4 | #[metal_oxide::kernel(instances(same(f32), same(u32)))]
+  |                                            ^^^^
+
+error: an instance supplies every type and const parameter
+ --> tests/ui/instances.rs:7:1
+  |
+7 | #[metal_oxide::kernel(instances(missing(f32)))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `metal_oxide::kernel` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: instances(...) requires a generic kernel
+  --> tests/ui/instances.rs:11:5
+   |
+11 | pub fn nongeneric(value: f32) {}
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -421,6 +421,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             None => {
                 let key = super::FunctionKey {
                     instance: callee.instance,
+                    entry: None,
                     parameters: types,
                     messages,
                     caller: self.caller_of(&callee, fn_span),

@@ -1,17 +1,34 @@
 use proc_macro::{Delimiter, Group, TokenStream, TokenTree};
 
-/// Marks a concrete kernel entrypoint for the Metal compiler; a safe `fn` gets a safe launch
+mod instances;
+
+/// Marks a kernel entrypoint for the Metal compiler; a safe `fn` gets a safe launch
 /// method. `block = (X, Y, Z)` fixes the block shape, and `requires(...)` lists relations
 /// between buffer lengths and integer parameters that every launch checks.
+/// `instances(name(Type, CONST), ...)` names the concrete instances of a generic kernel.
 #[proc_macro_attribute]
 pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
     let mut output = "#[cfg_attr(target_env = \"metal\", metal_oxide_compiler::kernel)]"
         .parse::<TokenStream>()
         .unwrap();
     let tokens = attributes.into_iter().collect::<Vec<_>>();
+    let mut instances = None;
     for option in tokens.split(|token| matches!(token, TokenTree::Punct(p) if p.as_char() == ',')) {
         let attribute = match option {
             [] => continue,
+            [TokenTree::Ident(name), TokenTree::Group(arguments)]
+                if name.to_string() == "instances"
+                    && arguments.delimiter() == Delimiter::Parenthesis
+                    && instances.is_none() =>
+            {
+                match instances::markers(arguments, &item) {
+                    Ok(markers) => instances = Some(markers),
+                    Err(message) => {
+                        return format!("compile_error!({message:?});").parse().unwrap();
+                    }
+                }
+                continue;
+            }
             [TokenTree::Ident(name), TokenTree::Group(relations)]
                 if name.to_string() == "requires"
                     && relations.delimiter() == Delimiter::Parenthesis =>
@@ -27,7 +44,7 @@ pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
                     .parse()
                     .unwrap(),
                 None => {
-                    return "compile_error!(\"expected #[kernel(block = (X, Y, Z), requires(...))] with positive integer block literals\");"
+                    return "compile_error!(\"expected #[kernel(block = (X, Y, Z), requires(...), instances(name(Type, CONST), ...))]\");"
                         .parse()
                         .unwrap();
                 }
@@ -41,6 +58,7 @@ pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
         output.extend([TokenTree::Group(Group::new(Delimiter::Bracket, cfg_attr))]);
     }
     output.extend(item);
+    output.extend(instances.unwrap_or_default());
     output
 }
 

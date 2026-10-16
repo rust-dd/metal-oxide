@@ -1,5 +1,8 @@
 mod support;
 
+#[path = "frontend/generic_entries.rs"]
+mod generic_entries;
+
 #[test]
 fn device_target_has_explicit_scalar_and_pointer_layout() {
     let report = support::checked(support::compile(
@@ -100,7 +103,7 @@ fn unsupported_kernel_signatures_are_reported() {
     for (fixture, error) in [
         (
             "generic_kernel",
-            "kernel entrypoints must not have generic parameters",
+            "generic kernels require explicit instances(name(Type, CONST), ...)",
         ),
         ("invalid_entry", "#[kernel] requires a free function"),
         ("bool_parameter", "unsupported kernel parameter type: bool"),

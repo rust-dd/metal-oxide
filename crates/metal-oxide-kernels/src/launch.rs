@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
     Attribute, FnArg, GenericArgument, Ident, ItemFn, Pat, PathArguments, ReturnType, Safety, Type,
-    Visibility,
+    Visibility, ext::IdentExt,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,7 +38,7 @@ impl Kernel {
     pub(crate) fn new(function: &ItemFn, block: Option<[u32; 3]>) -> syn::Result<Self> {
         let signature = &function.sig;
         let unsupported = if !signature.generics.params.is_empty() {
-            Some("kernels cannot be generic")
+            Some("generic kernels require explicit instances(name(Type, CONST), ...)")
         } else if signature.asyncness.is_some() || signature.constness.is_some() {
             Some("kernels cannot be `async` or `const`")
         } else if signature.abi.is_some() || signature.variadic.is_some() {
@@ -104,7 +104,7 @@ impl Kernel {
             docs,
             ..
         } = self;
-        let entry = name.to_string();
+        let entry = name.unraw().to_string();
         let mut generics = Vec::new();
         let mut bounds = Vec::new();
         let mut parameters = Vec::new();
@@ -112,7 +112,8 @@ impl Kernel {
         let mut names = Vec::new();
         let mut arguments = Vec::new();
         for (index, parameter) in self.parameters.iter().enumerate() {
-            let reserved = ["device", "config", "_"].contains(&parameter.name.to_string().as_str());
+            let reserved =
+                ["device", "config", "_"].contains(&parameter.name.unraw().to_string().as_str());
             let name = if reserved || names.contains(&parameter.name) {
                 format_ident!("argument_{index}")
             } else {

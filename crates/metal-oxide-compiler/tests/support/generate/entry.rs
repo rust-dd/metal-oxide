@@ -7,15 +7,15 @@ use super::{
 /// The kernel that runs `run` for each thread with an input and, with `--cfg cpu_reference`, a
 /// program that prints what each thread of `inputs` computes, one thread at a time.
 pub fn independent(words: usize, inputs: &str) -> String {
-    let stores = stores(words, 2);
+    let stores = stores(words, "WORDS", 2);
     format!(
         r#"
 #[cfg(not(cpu_reference))]
 use metal_oxide_device::{{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
 
 #[cfg(not(cpu_reference))]
-#[kernel]
-pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {{
+#[kernel(instances(generated({words})))]
+pub unsafe fn generated_body<const WORDS: u32>(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {{
     let i = block_idx().x * block_dim().x + thread_idx().x;
     if i < n {{
         let words = run(unsafe {{ input.load_unchecked(i) }});
@@ -55,7 +55,7 @@ pub fn cooperative(
     words: usize,
     inputs: &str,
 ) -> String {
-    let stores = stores(words, 2);
+    let stores = stores(words, &words.to_string(), 2);
     let allocations = |indent: usize| {
         cooperation
             .parameters
@@ -156,11 +156,11 @@ fn main() {{
 }
 
 /// The stores of a thread's `words` into `output`, at `indent` levels.
-fn stores(words: usize, indent: usize) -> String {
+fn stores(words: usize, stride: &str, indent: usize) -> String {
     (0..words)
         .map(|word| {
             let indent = "    ".repeat(indent);
-            format!("{indent}output.store_unchecked(i * {words} + {word}, words[{word}]);\n")
+            format!("{indent}output.store_unchecked(i * {stride} + {word}, words[{word}]);\n")
         })
         .collect()
 }

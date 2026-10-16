@@ -1,4 +1,4 @@
-error: kernels cannot be generic
+error: generic kernels require explicit instances(name(Type, CONST), ...)
  --> tests/ui/generic.rs:2:5
   |
 2 | pub fn scale<T>(value: T) {}

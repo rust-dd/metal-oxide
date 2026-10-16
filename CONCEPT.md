@@ -135,8 +135,12 @@ Representation. MIR expresses operations on typed locals and control flow
 between basic blocks.
 
 The driver collects marked kernel entries and reachable concrete function
-instances after analysis. This includes resolving type and const arguments for
-supported generic helpers and device methods.
+instances after analysis. A generic kernel lists its entries with
+`#[kernel(instances(scale_f32(f32, 2), scale_u32(u32, 3)))]`. Rustc checks the
+arguments and trait bounds; the compiler imports each concrete instance's MIR
+directly under its listed name. Each gets its own ABI entry and launch function,
+with the template's safety, `requires` relations and literal `block` shape.
+Generic helpers and device methods are instantiated from their callers.
 
 The kernel and its device dependencies use the custom
 [`metal64-unknown-none` target](crates/metal-oxide-build/targets/metal64-unknown-none.json), with matching

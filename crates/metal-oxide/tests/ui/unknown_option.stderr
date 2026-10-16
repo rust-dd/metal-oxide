@@ -1,4 +1,4 @@
-error: expected one `block = (X, Y, Z)` and one `requires(...)`
+error: expected one each of `block = (X, Y, Z)`, `requires(...)` and `instances(name(Type, CONST), ...)`
  --> tests/ui/unknown_option.rs:1:23
   |
 1 | #[metal_oxide::kernel(threads = 64)]

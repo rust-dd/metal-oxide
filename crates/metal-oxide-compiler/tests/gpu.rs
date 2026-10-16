@@ -68,6 +68,8 @@ mod enums;
 mod fast_math;
 #[path = "gpu/float.rs"]
 mod float;
+#[path = "gpu/generic_entries.rs"]
+mod generic_entries;
 #[path = "gpu/half.rs"]
 mod half;
 #[path = "gpu/integer_bits.rs"]

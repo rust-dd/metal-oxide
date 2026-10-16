@@ -31,6 +31,7 @@ type Result<T> = std::result::Result<T, (Span, String)>;
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct FunctionKey<'tcx> {
     instance: Instance<'tcx>,
+    entry: Option<String>,
     parameters: Vec<ir::Type>,
     /// The literals of the message parameters.
     messages: Vec<Option<String>>,
@@ -62,15 +63,16 @@ impl<'tcx> ModuleImporter<'tcx> {
         }
     }
 
-    pub(crate) fn import(mut self, entries: &[Instance<'tcx>]) -> Result<ir::Module> {
+    pub(crate) fn import(mut self, entries: &[crate::collect::Entry<'tcx>]) -> Result<ir::Module> {
         if entries.is_empty() {
             return Err((
                 rustc_span::DUMMY_SP,
                 "no kernel entrypoints were found".into(),
             ));
         }
-        self.entries = entries.iter().copied().collect();
-        for &entry in entries {
+        self.entries = entries.iter().map(|entry| entry.instance).collect();
+        for named in entries {
+            let entry = named.instance;
             let body = self.tcx.instance_mir(entry.def);
             let parameters = body
                 .args_iter()
@@ -87,6 +89,7 @@ impl<'tcx> ModuleImporter<'tcx> {
             let messages = vec![None; parameters.len()];
             let key = FunctionKey {
                 instance: entry,
+                entry: Some(named.name.clone()),
                 parameters,
                 messages,
                 caller: None,
@@ -108,7 +111,11 @@ impl<'tcx> ModuleImporter<'tcx> {
         let id = self.functions.len();
         self.functions.push(None);
         self.ids.insert(key.clone(), id);
-        let function = FunctionImporter::new(self, key).import(kernel)?;
+        let entry = key.entry.clone();
+        let mut function = FunctionImporter::new(self, key).import(kernel)?;
+        if let Some(name) = entry {
+            function.name = name;
+        }
         self.functions[id] = Some(function);
         Ok(id)
     }

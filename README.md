@@ -111,6 +111,13 @@ its generated kernels and returns `Error::DependencyFailed` with the same failur
 before a barrier or SIMD collective must be proved or uniform. `metal_oxide::device::log!`
 prints from kernels to stderr through Metal shader logging.
 
+Generic kernels list their concrete type and const arguments explicitly:
+`#[kernel(instances(scale_f32(f32, 2), scale_u32(u32, 3)))]` on
+`fn scale<T, const N: usize>(...)` produces `scale_f32` and `scale_u32` launch functions.
+Each instance keeps the function's safety, `block` shape and `requires` relations.
+This works in host functions, inline modules and separate kernel crates.
+Host signatures spell associated types as `<T as Trait>::Type`.
+
 Kernels, and the `no_std` crates that `dependencies(...)` names, compile from rustc's MIR
 against `core`: references and slices, records, tuples and arrays, enums with payloads,
 `Option` and `Result` with `?`, closures, core's iterators and generic helpers, over `bool`,
