@@ -102,9 +102,9 @@ or `None` past the end, and the witness cannot be forged, copied or cloned. The 
 accepts only one-dimensional launches.
 
 Primitive scalar buffers expose shared Metal storage directly through `read` and
-`write`, which wait for pending GPU work first: awaiting them never blocks the thread,
-and `wait` does. Owned records, arrays, and tuples retain explicit `GpuValue` codecs
-and a CPU mirror. Scalars include `u64`
+`write`, which wait for pending GPU work first: awaiting them polls completion,
+while `wait` blocks the calling thread. Owned records, arrays, and tuples retain explicit
+`GpuValue` codecs and a CPU mirror. Scalars include `u64`
 with eight-byte ABI alignment, wrapping arithmetic and saturating f32 casts.
 
 Thread coordinates, math, and cooperative operations use bodyless
@@ -262,19 +262,18 @@ done:
 
 The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
-Unsupported operations produce diagnostics. Calls into `core::simd` and `repr(simd)` vector
-types are rejected where kernel code uses them: Apple GPUs compute each thread's lanes as
-scalars, so arrays cost the same, and cross-thread operations are `device::simdgroup`. MIR
-assertions remain in the IR until a typed constant or range proof establishes that they
-cannot fail.
+Unsupported operations produce diagnostics. `core::simd` and `repr(simd)` vector types
+are currently rejected. Fixed arrays provide within-thread storage; cross-thread
+collectives use `device::simdgroup`. MIR assertions remain in the IR until a typed
+constant or range proof establishes that they cannot fail.
 The guards prove both bounds assertions, so `vec_add` has no runtime checks.
 Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so
 `block_idx * block_dim + thread_idx` needs no overflow check; under a required block,
 neither does `block_idx * B + thread_idx` for a constant `B` up to the block size.
 `ThreadIndex` is Metal's `thread_position_in_grid.x`; the runtime launches a kernel
 that reads it only in one dimension, where no two threads share it.
-Metal has no device trap, so each unproved assertion, each literal `panic!` or
-`assert!` and each `unwrap` or `expect` becomes a runtime check: a failing thread stores
+Each unproved assertion, literal `panic!`/`assert!`, and fallible `unwrap`/`expect`
+becomes a runtime check: a failing thread stores
 the check in its dispatch's failure word and returns. Checks report Rust's location, the
 caller of a `#[track_caller]` function included, and Rust's message; a `Result`'s error
 is not formatted. A check before a barrier or SIMD collective
@@ -344,7 +343,7 @@ coordinate parameters from the dispatch:
 | `grid_dim()` | `threadgroups_per_grid` |
 | `thread_index()` | `thread_position_in_grid` (x) |
 
-The generated MSL avoids five Apple compiler defects that differential fuzzing found:
+The generated MSL includes these workarounds for Apple compiler defects found by fuzzing:
 
 - 32-bit division and remainder can be wrong when Metal's GPU compiler knows the numerator
   as a constant: a `uint` numerator from `0xFFFFFF80` to `0xFFFFFFFD` overflows its float
@@ -359,6 +358,8 @@ The generated MSL avoids five Apple compiler defects that differential fuzzing f
   array as it was before the loop and miss later stores, as in `values[i]` after
   `for value in values.iter_mut() { *value *= 10; }`. Slices of private memory XOR their
   length with the same zero, which hides the loop's end.
+- Unrolling a loop that updates a private array later borrowed by an iterator can lose
+  those updates. Loops that write borrowed private arrays disable unrolling.
 - Metal's GPU compiler can report overflow for an 8- or 16-bit unsigned product that fits,
   once the frontend turns the range test of the 32-bit product into a narrow overflow
   intrinsic. Narrow checked products test `mulhi(a, b)`, as 32-bit ones do.
@@ -440,7 +441,9 @@ ABI: the kernels, their parameters' names, kinds and access, safety and block sh
 crate embeds the manifest and library in a hidden static. A `Device` loads an embedded
 library on its first launch, verifies the ABI digest the functions were generated for, and
 keeps the library and each kernel's pipeline for all of its clones. A load or pipeline
-failure is returned when that operation runs.
+failure is returned when that operation runs. Its first poll starts library loading and
+pipeline creation on a worker when the pipeline is not cached. Constructing the operation
+loads nothing. Explicit `Module` and `Pipeline` constructors remain synchronous.
 
 The ABI determines the signature: read buffers accept a shared borrow, an exclusive
 borrow, an owned buffer or an `Arc` (`ReadArgument`); write, read-write and atomic
@@ -448,8 +451,8 @@ buffers accept an exclusive borrow or an owned buffer (`WriteArgument`). Scalar
 parameters use their canonical Rust types. Parameter order determines Metal binding
 slots. The operation returns its arguments in the form they were passed, so owned
 buffers come back after the GPU work. `sequence(|batch| ...)` pushes several
-operations into one ordered command buffer. Required block shapes remain encoded in
-the configuration type and checked by the runtime.
+operations into one command buffer, ordered by their buffer dependencies. Required
+block shapes remain encoded in the configuration type and checked by the runtime.
 
 A `#[kernels]` module also gets `module(&device)`, its library as a `Module` for pipelines
 that code encodes itself. Its `#[repr(C)]` records that kernels take implement `GpuValue`
@@ -586,17 +589,14 @@ The runtime performs these steps:
 
 1. `Device::system_default` requires macOS 15, creates the GPU context and
    selects a native backend.
-2. `vec_add` returns a `Launch` operation that holds the device, the embedded library,
-   the configuration and the arguments; nothing is loaded or encoded yet.
-3. On the device's first launch from that library, it validates the manifest's format
-   and requirements, verifies the library bytes and the ABI digest, and loads the bytes
-   into Metal. It then creates the native `vec_add` pipeline and retains that
-   entrypoint's ABI. Later launches through any clone of the device reuse both.
-5. `wait` (or the first poll of its future) creates a `Batch`, which binds the three
-   ordered arguments, checks resource context, ABI types/access, block
-   requirements, the one-dimensional launch of a kernel that reads its thread index,
-   and dispatch limits, and records the dispatch.
-6. The batch commits. It places each recorded dispatch in the first phase after every
+2. `vec_add` returns a `Launch` with its library entry, configuration and arguments.
+3. `wait` (or the first poll of its future) creates a `Batch`, checks resource context
+   and records the arguments while reserving their buffers. A worker loads uncached
+   libraries, verifies their requirements and ABI digest, and creates native pipelines.
+   Once ready, the batch checks ABI types/access, host contracts, required block shape,
+   one-dimensional restrictions and dispatch limits, including for empty grids.
+   The future yields while compilation or command storage is pending.
+4. The batch commits. It places each recorded dispatch in the first phase after every
    dispatch that wrote a buffer it uses or read a buffer it writes, and encodes the
    phases with a barrier between them; the dispatches of a phase may run concurrently.
    A dispatch binds a gate word, for a kernel that can fail a check its own failure
@@ -606,12 +606,12 @@ The runtime performs these steps:
    earlier phase has failed. The dispatches of a phase share a gate that none of them
    writes: zero, an earlier failure word, or a snapshot of several, which one thread
    per word sets after the previous barrier.
-7. `wait` blocks until GPU completion, and the future resolves then; either reports
+5. `wait` blocks until GPU completion, and the future resolves then; either reports
    command errors, or `Error::KernelFailed` with the kernel, dispatch, Rust location
    and message of the failed check. A batch that reads buffers written by operations
    still running when it commits gates its generated kernels on their words as well,
    and reports their failure as `Error::DependencyFailed`.
-8. The host reads the output buffer.
+6. The host reads the output buffer.
 
 The runtime's `Module` holds a loaded Metal library and ABI metadata.
 `metal_oxide_ir::Module` holds the compiler's program representation.
@@ -667,8 +667,9 @@ the operation that ran them.
 
 `Device`, `Module`, `Pipeline`, `Buffer`, `Argument`, `Launch` and the operation
 futures are `Send + Sync` when their arguments are. `Device` and `Pipeline` are cheap
-handles: device clones share its four command queues. An operation commits when it is first
-polled or waited and runs after the operations committed before it that use its buffers: it
+handles: device clones share its four command queues. Polling or waiting prepares an operation;
+submission follows once its pipelines and command storage are ready. It runs after the
+operations committed before it that use its buffers: it
 joins the queue of that work, and waits for work on other queues through events. Without such
 work it takes the least busy queue. Completion arrives in commit order per queue, so
 independent work is not held behind long work on another queue. A `Batch` records its
@@ -677,6 +678,13 @@ any thread wait for every registered GPU access; GPU writes require an exclusive
 borrow or ownership, so codec buffers decode a GPU write once even when several
 threads read concurrently. [The threading tests](crates/metal-oxide/tests/threads.rs)
 cover shared devices and pipelines, cross-thread readback, awaiting and dropping.
+
+Recording reserves each buffer before preparing its bytes. CPU reads reject recorded
+writes; CPU writes, upload and native export reject any recording. A conflicting nested
+batch returns `InvalidBuffer`. Later dispatches in the same batch share the reservation, and independent
+read-only batches may overlap. Reservations remain active through native submission, then
+pending completions protect the buffers. Errors, unwinding and cancellation before
+submission release the reservations without dispatching work.
 
 ## Classic Metal and Metal 4
 
@@ -711,7 +719,7 @@ forcing Metal 4 on an unsupported device returns an error.
 | Entries and concrete instances | [`compiler/src/collect.rs`](crates/metal-oxide-compiler/src/collect.rs), [`monomorphize.rs`](crates/metal-oxide-compiler/src/monomorphize.rs) |
 | MIR import and intrinsic lowering | [`compiler/src/import/mod.rs`](crates/metal-oxide-compiler/src/import/mod.rs) |
 | IR data and validation | [`ir/src/model.rs`](crates/metal-oxide-ir/src/model.rs), [`validate.rs`](crates/metal-oxide-ir/src/validate.rs) |
-| MSL and ABI | [`codegen/src/emit.rs`](crates/metal-oxide-codegen/src/emit.rs), [`abi.rs`](crates/metal-oxide-codegen/src/abi.rs) |
+| MSL and ABI | [`codegen/src/emit.rs`](crates/metal-oxide-codegen/src/emit.rs), [`interface.rs`](crates/metal-oxide-codegen/src/interface.rs) |
 | Compiler output files | [`compiler/src/output.rs`](crates/metal-oxide-compiler/src/output.rs) |
 | Artifact model and validation | [`artifact/src/model.rs`](crates/metal-oxide-artifact/src/model.rs), [`validate.rs`](crates/metal-oxide-artifact/src/validate.rs) |
 | Kernel build and Apple compiler | [`build/src/rust.rs`](crates/metal-oxide-build/src/rust.rs), [`toolchain.rs`](crates/metal-oxide-build/src/toolchain.rs) |

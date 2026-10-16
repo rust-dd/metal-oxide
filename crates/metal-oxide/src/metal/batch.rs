@@ -1,16 +1,20 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    task::{Context, Poll, ready},
+};
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLSize};
 
 use super::{
     Argument, Device, Operation, Pipeline,
-    argument::Binding,
+    argument::{ArgumentInfo, Binding},
     backend::Backend,
     classic::ClassicBatch,
     completion::Completion,
     failures::{Failures, Gate, Segment, Slot},
     metal4::Metal4Batch,
+    pipeline::Source,
     queue::{Finish, Placement, Signal},
     record::Recording,
 };
@@ -57,40 +61,65 @@ impl Batch {
         operation.encode(self)
     }
 
-    /// Records a kernel dispatch after validating it.
+    /// Records a kernel dispatch for validation and submission.
     ///
     /// # Safety
     ///
     /// The dispatch must satisfy the launch contract of [`Launch::new`](super::Launch::new).
     pub(super) unsafe fn launch(
         &mut self,
-        pipeline: &Pipeline,
+        source: Source,
         config: DynamicLaunchConfig,
         arguments: &[Argument<'_>],
     ) -> Result<()> {
-        let device = self.device.get_or_insert_with(|| pipeline.device().clone());
-        if pipeline.device().id() != device.id()
+        let device = self.device.get_or_insert_with(|| source.device().clone());
+        if source.device().id() != device.id()
             || arguments
                 .iter()
                 .any(|a| a.device_id().is_some_and(|id| id != device.id()))
         {
             return Err(Error::DeviceMismatch);
         }
-        validate(device, pipeline, config, arguments)?;
-        if !config.is_empty() {
-            self.recording.record(pipeline, config, arguments);
-        }
-        Ok(())
+        self.recording.record(source, config, arguments)
     }
 
     /// Encodes and commits the recorded dispatches; a batch without any finishes immediately.
-    pub(super) fn commit(self) -> Result<Arc<Completion>> {
+    pub(super) fn poll_commit(&mut self, cx: &mut Context<'_>) -> Poll<Result<Arc<Completion>>> {
+        let mut pending = false;
+        for dispatch in &mut self.recording.dispatches {
+            pending |= dispatch.source.poll(cx)?.is_pending();
+        }
+        if pending {
+            return Poll::Pending;
+        }
+        if let Some(device) = &self.device {
+            for dispatch in &self.recording.dispatches {
+                validate(
+                    device,
+                    dispatch.source.pipeline(),
+                    dispatch.config,
+                    &dispatch.arguments,
+                )?;
+            }
+        }
+        self.recording
+            .dispatches
+            .retain(|dispatch| !dispatch.config.is_empty());
+        for (index, dispatch) in self.recording.dispatches.iter_mut().enumerate() {
+            dispatch.index = index;
+        }
         let completion = Arc::new(Completion::default());
-        match self.device {
+        match &self.device {
             Some(device) if !self.recording.dispatches.is_empty() => {
                 let (conflicts, upstream) = self.recording.conflicts();
                 let placement = Placement::new(&device.backend().running(), &conflicts);
-                let encoder = Encoder::new(&device, &self.recording, &placement, upstream)?;
+                let encoder = ready!(Encoder::poll_new(
+                    device,
+                    &self.recording,
+                    &placement,
+                    upstream,
+                    cx
+                ))?;
                 let signal = match device.backend() {
                     Backend::Classic { signals, .. } => Some(signals.take(device.raw())?),
                     Backend::Metal4 { .. } => None,
@@ -99,7 +128,7 @@ impl Batch {
                 self.recording
                     .register(&completion, placement.queue, signal.as_ref(), &failures);
                 encoder.native.commit(
-                    &device,
+                    device,
                     &completion,
                     &placement,
                     signal,
@@ -109,7 +138,7 @@ impl Batch {
             }
             _ => completion.finish(Ok(None)),
         }
-        Ok(completion)
+        Poll::Ready(Ok(completion))
     }
 }
 
@@ -117,9 +146,9 @@ fn validate(
     device: &Device,
     pipeline: &Pipeline,
     config: DynamicLaunchConfig,
-    arguments: &[Argument<'_>],
+    arguments: &[ArgumentInfo],
 ) -> Result<()> {
-    let mut shared = arguments.iter().filter_map(Argument::threadgroup_bytes);
+    let mut shared = arguments.iter().filter_map(ArgumentInfo::threadgroup_bytes);
     let shared_count = shared.clone().count();
     let buffer_count = arguments.len() - shared_count;
     if buffer_count > 31 {
@@ -159,12 +188,13 @@ enum NativeBatch {
 impl Encoder {
     /// Encodes the recorded dispatches level by level, with a barrier between levels, on the
     /// queue of `placement`, after the command buffers in `upstream` whose writes they read.
-    fn new(
+    fn poll_new(
         device: &Device,
         recording: &Recording,
         placement: &Placement,
         upstream: Vec<Arc<Failures>>,
-    ) -> Result<Self> {
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self>> {
         let native = match device.backend() {
             Backend::Classic { queues, .. } => {
                 let mut waits = Vec::<Signal>::new();
@@ -179,20 +209,24 @@ impl Encoder {
                         waits.push(signal.clone());
                     }
                 }
-                NativeBatch::Classic(ClassicBatch::new(
+                NativeBatch::Classic(ready!(ClassicBatch::poll_new(
                     &queues[placement.queue].native,
                     device.log_state(),
                     recording.is_chain(),
                     &waits,
-                )?)
+                    cx,
+                ))?)
             }
-            Backend::Metal4 { queues, cache, .. } => NativeBatch::Metal4(Metal4Batch::new(
-                device.raw(),
-                &queues[placement.queue].native.raw,
-                cache,
-                device.log_state(),
-                placement.local,
-            )?),
+            Backend::Metal4 { queues, cache, .. } => {
+                NativeBatch::Metal4(ready!(Metal4Batch::poll_new(
+                    device.raw(),
+                    &queues[placement.queue].native.raw,
+                    cache,
+                    device.log_state(),
+                    placement.local,
+                    cx,
+                ))?)
+            }
         };
         let mut encoder = Self {
             native,
@@ -215,15 +249,16 @@ impl Encoder {
             }
             let gated = level
                 .iter()
-                .any(|dispatch| dispatch.pipeline.checks().is_some());
+                .any(|dispatch| dispatch.source.pipeline().checks().is_some());
             let gate = if gated {
                 Some(encoder.gate(device)?)
             } else {
                 None
             };
             for dispatch in level {
+                let pipeline = dispatch.source.pipeline();
                 let mut slots = Vec::new();
-                if let (Some(kernel), Some(gate)) = (dispatch.pipeline.checks(), gate) {
+                if let (Some(kernel), Some(gate)) = (pipeline.checks(), gate) {
                     let binding = kernel.gate_binding as usize;
                     slots.push((binding, gate));
                     if kernel.fallible {
@@ -249,17 +284,17 @@ impl Encoder {
                 unsafe {
                     encoder.native.launch(
                         device,
-                        dispatch.pipeline.raw(),
+                        pipeline.raw(),
                         dispatch.config,
                         bindings,
                         &recording.store,
                         &words,
                     )?
                 };
-                encoder.pipelines.push(dispatch.pipeline.raw().clone());
+                encoder.pipelines.push(pipeline.raw().clone());
             }
         }
-        Ok(encoder)
+        Poll::Ready(Ok(encoder))
     }
 
     /// The gate of a level's generated dispatches, set by snapshots if it covers several words.

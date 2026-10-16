@@ -66,6 +66,7 @@ impl Completion {
         state
     }
 
+    #[cfg(test)]
     pub(super) fn wait(&self) -> Result<GpuTime> {
         self.finished().result.clone().unwrap().map_err(Error::from)
     }

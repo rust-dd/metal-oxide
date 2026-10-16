@@ -40,7 +40,6 @@ unsafe fn add<V: WriteArgument<u32>>(
     }
 }
 
-/// Polls an operation once, which encodes and commits it, and returns its future.
 fn started<F: IntoFuture<IntoFuture: Unpin>>(operation: F) -> F::IntoFuture {
     let mut future = operation.into_future();
     let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));

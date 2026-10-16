@@ -123,7 +123,6 @@ where
     })
 }
 
-/// Polls an operation once, which encodes and commits it, and returns its future.
 fn started<F: IntoFuture<IntoFuture: Unpin>>(operation: F) -> F::IntoFuture {
     let mut future = operation.into_future();
     let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
@@ -185,9 +184,10 @@ fn structured_chains_and_cancelled_operations_keep_readback_current() -> metal_o
         assert_eq!(out.read().wait(), vec![updated(1); n as usize]);
     }
     sequence(|batch| {
-        let (_, out, n) = batch.push(update(&pipeline, &middle, &mut out, n)?)?;
-        // CPU inspection precedes commit, so it still sees the previous values.
-        assert_eq!(out.read().wait(), vec![updated(1); n as usize]);
+        let (_, out, _) = batch.push(update(&pipeline, &middle, &mut out, n)?)?;
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| out.read().wait())).is_err()
+        );
         Ok(())
     })
     .wait()?;

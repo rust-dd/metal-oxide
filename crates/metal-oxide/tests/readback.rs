@@ -113,8 +113,7 @@ fn decoder_panic_retries_readback_after_a_committed_write() -> metal_oxide::Resu
                 |(out,)| Ok([Argument::write(out)]),
             )
         })?;
-        // CPU inspection precedes commit, so it still sees the old values.
-        assert_eq!(out.read().wait(), [Value(0); 3]);
+        assert!(catch_unwind(AssertUnwindSafe(|| out.read().wait())).is_err());
         Ok(())
     })
     .wait()?;

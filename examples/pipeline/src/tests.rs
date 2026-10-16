@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::stages;
-use metal_oxide::{Device, LaunchConfig};
+use metal_oxide::{Device, LaunchConfig, Operation};
 
 #[test]
 #[ignore = "requires a Metal device"]
@@ -21,6 +21,10 @@ fn cancelled_generated_operation_keeps_buffers_synchronized() -> metal_oxide::Re
     let input = device.buffer_from_slice(&vec![2.0_f32; n])?;
     let mut output = device.buffer_zeroed::<f32>(n)?;
     let config = LaunchConfig::<128>::for_elements(n as u32)?;
+    // Warm the pipeline so cancellation follows submission on the first poll.
+    // SAFETY: the grid has one writer per valid index and disjoint n-element buffers.
+    unsafe { stages::scale_128(&device, config, &input, &mut output, n as u32) }.wait()?;
+    output.write().wait().fill(0.0);
     // SAFETY: the specialized grid has one writer per valid index and disjoint n-element buffers.
     let operation = unsafe { stages::scale_128(&device, config, &input, &mut output, n as u32) };
     let mut future = operation.into_future();

@@ -111,7 +111,6 @@ use metal_oxide::{
     sequence,
 };
 
-/// Polls an operation once, which encodes and commits it, and returns its future.
 fn started<O: IntoFuture<IntoFuture: Unpin>>(operation: O) -> O::IntoFuture {
     let mut future = operation.into_future();
     let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));

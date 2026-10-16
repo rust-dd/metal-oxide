@@ -1,18 +1,5 @@
-use std::{
-    future::{Future, IntoFuture},
-    pin::Pin,
-    task::{Context, Waker},
-};
-
 use super::{program::Program, workloads::Scan};
-use metal_oxide::{Device, Result, sequence};
-
-/// Polls an operation once, which encodes and commits it, and returns its future.
-pub(super) fn started<O: IntoFuture<IntoFuture: Unpin>>(operation: O) -> O::IntoFuture {
-    let mut future = operation.into_future();
-    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
-    future
-}
+use metal_oxide::{Device, Operation, Result, sequence};
 
 pub(super) fn prefix(values: &[u32]) -> (Vec<u32>, u32) {
     let mut sum = 0_u32;
@@ -31,9 +18,7 @@ pub(super) fn scan(device: &Device, program: &Program, values: &[u32]) -> Result
     let input = device.buffer_from_slice(values)?;
     let mut scan = Scan::new(device, values.len() as u32)?;
     // SAFETY: complete blocks use neutral padding, and every global dependency follows its producer.
-    drop(started(sequence(|batch| unsafe {
-        scan.encode(batch, program, &input)
-    })));
+    sequence(|batch| unsafe { scan.encode(batch, program, &input) }).wait()?;
     let (expected, total) = prefix(values);
     assert_eq!(scan.output().read().wait(), expected);
     assert_eq!(scan.total(), total);
@@ -44,9 +29,8 @@ pub(super) fn histogram(device: &Device, program: &Program, values: &[u32]) -> R
     let input = device.buffer_from_slice(values)?;
     let mut bins = device.buffer_zeroed::<u32>(16)?;
     // SAFETY: initialized bins are exclusively atomic during the 1D launch.
-    drop(started(sequence(|batch| unsafe {
-        program.histogram(batch, &input, &mut bins, values.len() as u32)
-    })));
+    sequence(|batch| unsafe { program.histogram(batch, &input, &mut bins, values.len() as u32) })
+        .wait()?;
     let mut expected = [0_u32; 16];
     for &value in values {
         expected[(value & 15) as usize] += 1;
@@ -63,7 +47,7 @@ pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Res
     let mut output = device.buffer_from_slice(&vec![u32::MAX; values.len()])?;
     let mut count = device.buffer_zeroed::<u32>(1)?;
     // SAFETY: ordered flag/scan/scatter passes give every selected input a distinct output position.
-    drop(started(sequence(|batch| unsafe {
+    sequence(|batch| unsafe {
         program.mark(batch, &input, &mut flags, n)?;
         scan.encode(batch, program, &flags)?;
         program.scatter(
@@ -75,7 +59,8 @@ pub(super) fn compact(device: &Device, program: &Program, values: &[u32]) -> Res
             &mut count,
             n,
         )
-    })));
+    })
+    .wait()?;
     drop(input);
     drop(flags);
     drop(scan);

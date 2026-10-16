@@ -38,7 +38,7 @@ impl<T: GpuValue> Mirror<T> {
     ///
     /// # Safety
     ///
-    /// `bytes` must address this buffer's canonical values, with no pending GPU access.
+    /// `bytes` must address this buffer's canonical values, with no recorded or pending GPU write.
     pub(in crate::metal) unsafe fn download(
         &self,
         access: &AccessState,
@@ -52,7 +52,7 @@ impl<T: GpuValue> Mirror<T> {
             self.values.with_mut(|values| {
                 // SAFETY: the lock serializes decoding; no slice exists while the copy is stale.
                 let values = unsafe { &mut *values };
-                // SAFETY: the caller provides the idle canonical bytes of all values.
+                // SAFETY: the caller provides initialized canonical bytes with no GPU writes.
                 let bytes =
                     unsafe { std::slice::from_raw_parts(bytes.as_ptr(), values.len() * T::SIZE) };
                 for (value, encoded) in values.iter_mut().zip(bytes.chunks_exact(T::SIZE)) {
@@ -70,7 +70,7 @@ impl<T: GpuValue> Mirror<T> {
     ///
     /// # Safety
     ///
-    /// The same contract as [`Mirror::download`].
+    /// `bytes` must address this buffer's canonical values, with no recorded or pending GPU access.
     pub(in crate::metal) unsafe fn download_mut(
         &mut self,
         access: &AccessState,

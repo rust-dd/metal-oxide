@@ -42,8 +42,9 @@ separate.
   every classic command buffer sets a pooled event when its work finishes, and a batch waits
   for the events of conflicting work on other queues. Metal 4 signals a queue's timeline on
   demand after the work committed to it, and starts a batch with a queue barrier only when
-  conflicting work runs on its own queue. `Batch` records dispatches and lives only
-  inside the first poll or `wait` of its operation. Put `unsafe impl Send/Sync` only on small leaf types that own
+  conflicting work runs on its own queue. `Batch` records dispatches and may remain
+  pending across polls while pipelines or command storage are unavailable. Put
+  `unsafe impl Send/Sync` only on small leaf types that own
   non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
   protocol that makes them sound; never on `Device` or `Buffer` as a whole.
 - Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
@@ -62,8 +63,8 @@ separate.
   Both paths share validation. The grid counts blocks and each block maps to a
   Metal threadgroup via dispatchThreadgroups.
 - Const host configuration does not specialize handwritten MSL. Keep shader
-  shape assumptions in the unsafe caller contract until launch functions and
-  artifact metadata can enforce them for specialized Rust kernels.
+  shape assumptions in the unsafe caller contract. Generated Rust kernels record
+  required shapes in their ABI and enforce them at launch.
 - A `Device` loads each embedded `Library` on its first launch, verifies the ABI digest
   its launch functions were generated for, and caches the module and each entry's
   pipeline for all clones; the cache holds no `Device`.
@@ -120,12 +121,21 @@ configurations when changing launch geometry. Use
 compile-fail examples to verify public borrowing constraints when changing the
 argument API.
 
-An operation encodes nothing until its first poll or `wait`; then one `Batch` records
-the whole operation (a `Launch`, or the operations a `sequence` closure pushes), encodes
-it and commits. The futures (`Pending`, `TimedPending`, `Read`, `Write`) never block, and
-`Completion` wakes every distinct waker. Native completion callbacks
-retain buffers, pipelines, queues, and Metal 4 allocation/binding/residency state
+An operation records nothing until its first poll or `wait`. Its `Batch` may then yield
+while a worker prepares an uncached pipeline or native command capacity is full.
+Validate captured argument metadata before native encoding, including empty grids.
+Explicit `Module` and `Pipeline` constructors remain synchronous. `Read` and `Write`
+poll GPU completion without waiting on the calling thread. `Completion` wakes every
+distinct waker. Native completion callbacks retain buffers, pipelines, queues, and
+Metal 4 allocation/binding/residency state
 independently of the future. Do not replace this with waiting in `Drop`.
+
+Reserve buffer accesses before preparing a recording. CPU reads reject recorded writes;
+CPU writes, upload and native export reject any recording; conflicting batches return
+`InvalidBuffer`.
+Same-batch accesses share a reservation, and independent read-only reservations coexist.
+Keep reservations through native submission, register pending accesses before releasing
+them, and release unsubmitted reservations on error, unwind or cancellation.
 
 Keep argument tables and constant buffers immutable after encoding. Metal 4
 packs each dispatch's constants into aligned, immutable shared storage; classic
@@ -140,8 +150,9 @@ Do not reset or release a command allocator before GPU completion.
 The context pools the command buffer, allocator, residency set and binding storage
 of up to 64 committed batches, like a classic queue's in-flight command buffers. A fresh
 allocator costs a kernel call on its first encoder, so with every pooled batch running
-the next batch waits for the oldest instead (back-to-back launches: 28 to 10 µs each on
-M4 Max). Reuse requires completed feedback and an empty residency set; reset the
+the next batch yields until storage completes. Classic queues reserve capacity before
+native command-buffer allocation and release it only after native completion handlers
+return. Reuse requires completed feedback and an empty residency set; reset the
 allocator only then. Retain constant allocations only up to 4 KiB each, rewrite active
 bindings and clear unused slots. Each dispatch owns distinct immutable binding storage
 through completion. Failed encoding must remain safe without waiting in Drop.

@@ -1,6 +1,7 @@
 use std::{
     ptr::NonNull,
     sync::{Arc, Mutex, MutexGuard},
+    task::{Context, Poll, ready},
 };
 
 use block2::RcBlock;
@@ -91,25 +92,30 @@ const MAX_BATCHES: usize = 64;
 pub(super) struct BatchCache(Mutex<Vec<(CommandStorage, Arc<Completion>)>>);
 
 impl BatchCache {
-    /// Finished storage, or `None` while new storage may be created. Once `MAX_BATCHES`
-    /// batches are running, waits for the oldest instead.
-    fn take(&self) -> Option<CommandStorage> {
-        let (storage, completion) = {
+    /// Reuses finished storage, allocates below capacity, or wakes when storage is available.
+    fn poll_take(&self, cx: &mut Context<'_>) -> Poll<Option<CommandStorage>> {
+        loop {
             let mut entries = self.entries();
-            let index = match entries
+            if let Some(index) = entries
                 .iter()
                 .position(|(_, completion)| completion.is_finished())
             {
-                Some(index) => index,
-                None if entries.len() >= MAX_BATCHES => 0,
-                None => return None,
-            };
-            entries.remove(index)
-        };
-        completion.block();
-        // Commit feedback has confirmed that the GPU no longer reads these commands.
-        storage.allocator.reset();
-        Some(storage)
+                let (storage, _) = entries.remove(index);
+                drop(entries);
+                // Commit feedback has confirmed that the GPU no longer reads these commands.
+                storage.allocator.reset();
+                return Poll::Ready(Some(storage));
+            }
+            if entries.len() < MAX_BATCHES {
+                return Poll::Ready(None);
+            }
+            if !entries
+                .iter()
+                .any(|(_, completion)| completion.poll_finished(cx).is_ready())
+            {
+                return Poll::Pending;
+            }
+        }
     }
 
     /// Keeps the storage of a committed batch.
@@ -139,20 +145,21 @@ pub(super) struct Metal4Batch {
 impl Metal4Batch {
     /// A command buffer that starts with a queue barrier when `ordered`, so it follows the
     /// conflicting work committed before it to the same queue.
-    pub(super) fn new(
+    pub(super) fn poll_new(
         device: &ProtocolObject<dyn MTLDevice>,
         queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
         cache: &BatchCache,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
         ordered: bool,
-    ) -> Result<Self> {
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self>> {
         let CommandStorage {
             allocator,
             command,
             residency,
             constants: reusable_constants,
             tables: reusable_tables,
-        } = match cache.take() {
+        } = match ready!(cache.poll_take(cx)) {
             Some(storage) => storage,
             None => CommandStorage::new(device)?,
         };
@@ -161,9 +168,9 @@ impl Metal4Batch {
         command.beginCommandBufferWithAllocator_options(&allocator, &options);
         let Some(encoder) = command.computeCommandEncoder() else {
             command.endCommandBuffer();
-            return Err(Error::Command(
+            return Poll::Ready(Err(Error::Command(
                 "could not create Metal 4 compute encoder".into(),
-            ));
+            )));
         };
         if ordered {
             encoder.barrierAfterQueueStages_beforeStages_visibilityOptions(
@@ -172,7 +179,7 @@ impl Metal4Batch {
                 MTL4VisibilityOptions::Device,
             );
         }
-        Ok(Self {
+        Poll::Ready(Ok(Self {
             command,
             allocator,
             encoder: Some(encoder),
@@ -184,7 +191,7 @@ impl Metal4Batch {
             constants: Vec::new(),
             reusable_constants,
             threadgroup_slots: 0,
-        })
+        }))
     }
 
     pub(super) unsafe fn launch(
@@ -239,9 +246,9 @@ impl Metal4Batch {
                 Binding::Value { .. } => constants.as_ref().unwrap().address(buffer_slot),
                 Binding::Buffer(buffer) => {
                     self.residency
-                        .addAllocation(ProtocolObject::from_ref(&**buffer));
-                    self.bindings.push(buffer.clone());
-                    buffer.gpuAddress()
+                        .addAllocation(ProtocolObject::from_ref(&*buffer.0));
+                    self.bindings.push(buffer.0.clone());
+                    buffer.0.gpuAddress()
                 }
             };
             // SAFETY: the table has this slot; the aligned, immutable bytes stay

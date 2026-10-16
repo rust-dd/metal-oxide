@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, PoisonError, TryLockError},
 };
 
 use crate::{Error, Result};
@@ -50,6 +50,20 @@ struct Loaded {
 }
 
 impl Libraries {
+    pub(super) fn cached(
+        &self,
+        library: &'static Library,
+        entry: &'static str,
+    ) -> Option<Arc<Compiled>> {
+        let loaded = match self.0.try_lock() {
+            Ok(loaded) => loaded,
+            Err(TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(TryLockError::WouldBlock) => return None,
+        };
+        let key = std::ptr::from_ref(library).addr();
+        loaded.get(&key)?.pipelines.get(entry).cloned()
+    }
+
     pub(super) fn pipeline(
         &self,
         device: &Device,

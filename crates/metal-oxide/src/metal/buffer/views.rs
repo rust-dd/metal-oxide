@@ -22,9 +22,13 @@ impl<'a, T: GpuValue> Read<'a, T> {
     }
 
     /// Blocks the calling thread until pending GPU work on the buffer has finished.
+    ///
+    /// # Panics
+    ///
+    /// Panics while an uncommitted batch has recorded a write to this buffer.
     pub fn wait(self) -> &'a [T] {
-        self.0.access.synchronize();
-        // SAFETY: every registered GPU access has finished; new ones need `&mut Buffer`.
+        self.0.access.synchronize(false);
+        // SAFETY: no GPU write is recorded or pending, and new writes need `&mut`.
         unsafe { self.0.values() }
     }
 }
@@ -34,8 +38,8 @@ impl<'a, T: GpuValue> Future for Read<'a, T> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<&'a [T]> {
         let buffer = self.0;
-        ready!(buffer.access.poll(cx));
-        // SAFETY: every registered GPU access has finished; new ones need `&mut Buffer`.
+        ready!(buffer.access.poll(false, cx));
+        // SAFETY: no GPU write is recorded or pending, and new writes need `&mut`.
         Poll::Ready(unsafe { buffer.values() })
     }
 }
@@ -46,10 +50,14 @@ impl<'a, T: GpuValue> Write<'a, T> {
     }
 
     /// Blocks the calling thread until pending GPU work on the buffer has finished.
+    ///
+    /// # Panics
+    ///
+    /// Panics while an uncommitted batch has recorded this buffer.
     pub fn wait(mut self) -> &'a mut [T] {
         let buffer = self.0.take().unwrap();
-        buffer.access.synchronize();
-        // SAFETY: every registered GPU access has finished, and `&mut` excludes new ones.
+        buffer.access.synchronize(true);
+        // SAFETY: no recording exists, every pending access finished, and `&mut` excludes new ones.
         unsafe { buffer.values_mut() }
     }
 }
@@ -63,9 +71,9 @@ impl<'a, T: GpuValue> Future for Write<'a, T> {
             .0
             .as_ref()
             .expect("a buffer write future was polled after it completed");
-        ready!(buffer.access.poll(cx));
+        ready!(buffer.access.poll(true, cx));
         let buffer = this.0.take().unwrap();
-        // SAFETY: every registered GPU access has finished, and `&mut` excludes new ones.
+        // SAFETY: no recording exists, every pending access finished, and `&mut` excludes new ones.
         Poll::Ready(unsafe { buffer.values_mut() })
     }
 }

@@ -126,6 +126,10 @@ pub(super) fn verify_cancelled() -> metal_oxide::Result<()> {
     let initial = particles(257);
     let input = device.buffer_from_slice(&initial)?;
     let launch = LaunchConfig::<64>::for_elements(257)?;
+    // Warm the pipeline so each cancelled launch submits on its first poll.
+    let mut warmup = device.buffer_zeroed::<Particle>(257)?;
+    particles::particle_update(&device, launch, &input, &mut warmup, config()).wait()?;
+    drop(warmup);
     for forget in [false, true] {
         let mut output = device.buffer_zeroed::<Particle>(257)?;
         let operation = particles::particle_update(&device, launch, &input, &mut output, config());

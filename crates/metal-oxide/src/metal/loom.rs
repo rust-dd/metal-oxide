@@ -3,6 +3,7 @@
 
 use std::{
     cell::UnsafeCell,
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
     sync::{
         Arc,
@@ -17,6 +18,7 @@ use metal_oxide_artifact::{Access, Layout};
 use super::{
     access::AccessState,
     buffer::{Location, Mirror},
+    classic::capacity::{Capacity, LIMIT},
     completion::Completion,
 };
 use crate::GpuValue;
@@ -132,12 +134,12 @@ fn loom_polled_readback_is_ready_only_after_a_registered_write() {
         let flag = Arc::new(Flag(AtomicBool::new(false)));
         let waker = Waker::from(Arc::clone(&flag));
         let mut cx = Context::from_waker(&waker);
-        if access.poll(&mut cx).is_ready() {
+        if access.poll(false, &mut cx).is_ready() {
             assert!(write.is_finished());
         }
         finisher.join().unwrap();
-        assert!(flag.0.load(Ordering::SeqCst) || access.poll(&mut cx).is_ready());
-        assert!(access.poll(&mut cx).is_ready());
+        assert!(flag.0.load(Ordering::SeqCst) || access.poll(false, &mut cx).is_ready());
+        assert!(access.poll(false, &mut cx).is_ready());
         assert!(access.is_idle());
     });
 }
@@ -152,15 +154,141 @@ fn loom_concurrent_readers_wait_for_a_registered_write() {
         let reader = {
             let (access, write) = (Arc::clone(&access), Arc::clone(&write));
             thread::spawn(move || {
-                access.synchronize();
+                access.synchronize(false);
                 assert!(write.is_finished());
             })
         };
-        access.synchronize();
+        access.synchronize(false);
         assert!(write.is_finished());
         reader.join().unwrap();
         finisher.join().unwrap();
         assert!(access.is_idle());
+    });
+}
+
+#[test]
+fn loom_recording_commit_never_exposes_an_idle_buffer() {
+    loom::model(|| {
+        let access = Arc::new(AccessState::default());
+        let mut reservation = access.reserve(true).unwrap();
+        let completion = Arc::new(Completion::default());
+        let committer = {
+            let completion = Arc::clone(&completion);
+            thread::spawn(move || {
+                reservation.register(super::access::write(&completion));
+                drop(reservation);
+                thread::yield_now();
+                completion.finish(Ok(None));
+            })
+        };
+        let polled = catch_unwind(AssertUnwindSafe(|| {
+            access.poll(false, &mut Context::from_waker(Waker::noop()))
+        }));
+        if polled.is_ok_and(|poll| poll.is_ready()) {
+            assert!(completion.is_finished());
+        }
+        committer.join().unwrap();
+        access.synchronize(false);
+        assert!(access.take_written());
+        assert!(access.is_idle());
+    });
+}
+
+#[test]
+fn loom_conflicting_recordings_never_overlap() {
+    loom::model(|| {
+        let access = Arc::new(AccessState::default());
+        let active = Arc::new(AtomicBool::new(false));
+        let workers = [0, 1].map(|_| {
+            let (access, active) = (Arc::clone(&access), Arc::clone(&active));
+            thread::spawn(move || {
+                if let Ok(_reservation) = access.reserve(true) {
+                    assert!(!active.swap(true, Ordering::SeqCst));
+                    thread::yield_now();
+                    active.store(false, Ordering::SeqCst);
+                }
+            })
+        });
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert!(access.is_idle());
+    });
+}
+
+#[test]
+fn loom_shared_recordings_exclude_write_upgrades_until_released() {
+    loom::model(|| {
+        let access = Arc::new(AccessState::default());
+        let reservation = access.reserve(false).unwrap();
+        let reader = {
+            let access = Arc::clone(&access);
+            thread::spawn(move || {
+                let other = access.reserve(false).unwrap();
+                access.synchronize(false);
+                assert!(
+                    access
+                        .poll(false, &mut Context::from_waker(Waker::noop()))
+                        .is_ready()
+                );
+                assert!(other.upgrade(true).is_err());
+            })
+        };
+        reader.join().unwrap();
+        reservation.upgrade(true).unwrap().keep();
+        assert!(access.reserve(false).is_err());
+        drop(reservation);
+        assert!(access.is_idle());
+    });
+}
+
+#[test]
+fn loom_registration_excludes_other_batches_until_native_submission() {
+    loom::model(|| {
+        let access = Arc::new(AccessState::default());
+        let mut reservation = access.reserve(true).unwrap();
+        let completion = Arc::new(Completion::default());
+        let submitted = Arc::new(AtomicBool::new(false));
+        let writer = {
+            let submitted = Arc::clone(&submitted);
+            thread::spawn(move || {
+                reservation.register(super::access::write(&completion));
+                thread::yield_now();
+                submitted.store(true, Ordering::SeqCst);
+                drop(reservation);
+                completion.finish(Ok(None));
+            })
+        };
+        if let Ok(_reader) = access.reserve(false) {
+            assert!(submitted.load(Ordering::SeqCst));
+        }
+        writer.join().unwrap();
+        access.synchronize(false);
+        assert!(access.is_idle());
+    });
+}
+
+#[test]
+fn loom_capacity_release_wakes_a_racing_waiter() {
+    loom::model(|| {
+        let capacity = Arc::new(Capacity::default());
+        let mut permits = (0..LIMIT)
+            .map(|_| {
+                let std::task::Poll::Ready(permit) =
+                    capacity.poll(&mut Context::from_waker(Waker::noop()))
+                else {
+                    panic!("expected available command storage");
+                };
+                permit
+            })
+            .collect::<Vec<_>>();
+        let permit = permits.pop().unwrap();
+        let releaser = thread::spawn(move || drop(permit));
+        let flag = Arc::new(Flag(AtomicBool::new(false)));
+        let waker = Waker::from(Arc::clone(&flag));
+        let polled = capacity.poll(&mut Context::from_waker(&waker));
+        releaser.join().unwrap();
+        assert!(polled.is_ready() || flag.0.load(Ordering::SeqCst));
     });
 }
 
@@ -200,10 +328,18 @@ fn loom_readback_and_encoding_agree_on_cpu_written_values() {
         ));
         let storage = Storage::new(&[0, 0]);
         let encoder = {
-            let (mirror, storage) = (Arc::clone(&mirror), Arc::clone(&storage));
-            // SAFETY: CPU-modified values guarantee that no GPU access is pending.
-            thread::spawn(move || unsafe { mirror.prepare(Access::Read, storage.bytes()) })
+            let (access, mirror, storage) = (
+                Arc::clone(&access),
+                Arc::clone(&mirror),
+                Arc::clone(&storage),
+            );
+            thread::spawn(move || {
+                let _reservation = access.reserve(false).unwrap();
+                // SAFETY: CPU-modified values guarantee that no GPU access is pending.
+                unsafe { mirror.prepare(Access::Read, storage.bytes()) }
+            })
         };
+        access.synchronize(false);
         // SAFETY: the storage holds two canonical values and no GPU access is pending.
         let values = unsafe { mirror.download(&access, storage.bytes()) }.to_vec();
         encoder.join().unwrap();

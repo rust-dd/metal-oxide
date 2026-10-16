@@ -119,5 +119,6 @@ vec-add, reduction, scan, histogram, particle update and matmul with
 CPU results and matching handwritten MSL on both backends. The JSON report
 separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
 native GPU times. Every sample is checked; unavailable GPU timestamps are null.
-Submit time is the first poll, which encodes and commits. Host wait includes
-execution and scheduling, so it does not measure queue latency alone.
+Submit time measures the first poll with prepared pipelines. Under saturation, later
+polls may submit the command. Host wait includes preparation, execution and scheduling,
+so it does not measure queue latency alone.

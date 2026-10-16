@@ -1,6 +1,11 @@
-use std::{ptr::NonNull, sync::Arc};
+use std::{
+    ptr::NonNull,
+    sync::Arc,
+    task::{Context, Poll, ready},
+};
 
 use block2::RcBlock;
+use dispatch2::{DispatchQueue, DispatchQueueGlobalPriority, GlobalQueueIdentifier};
 use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
@@ -18,8 +23,29 @@ use super::{
     failure::CommandFailure,
     failures::Failures,
     queue::{Finish, Signal},
+    sync::{Mutex, lock},
 };
 use crate::{DynamicLaunchConfig, Error, Result};
+
+pub(super) mod capacity;
+use capacity::{Capacity, LIMIT, Permit};
+
+pub(super) struct ClassicQueue {
+    pub(super) raw: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    capacity: Arc<Capacity>,
+}
+
+impl ClassicQueue {
+    pub(super) fn new(device: &ProtocolObject<dyn MTLDevice>) -> Result<Self> {
+        let raw = device
+            .newCommandQueueWithMaxCommandBufferCount(LIMIT)
+            .ok_or_else(|| Error::Command("could not create command queue".into()))?;
+        Ok(Self {
+            raw,
+            capacity: Arc::default(),
+        })
+    }
+}
 
 pub(super) struct ClassicBatch {
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
@@ -27,21 +53,35 @@ pub(super) struct ClassicBatch {
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     bindings: Vec<Retained<ProtocolObject<dyn MTLBuffer>>>,
     threadgroup_slots: usize,
+    permit: Option<Permit>,
+}
+
+struct CompletedCommand(Retained<ProtocolObject<dyn MTLCommandBuffer>>);
+
+// SAFETY: created only in a completed handler; the waiter observes immutable command status
+// and retains the native object until all completion handlers have returned.
+unsafe impl Send for CompletedCommand {}
+
+impl CompletedCommand {
+    fn wait(self) {
+        self.0.waitUntilCompleted();
+    }
 }
 
 impl ClassicBatch {
     /// A command buffer that first waits for `waits`, with one compute encoder: serial when every
     /// dispatch waits for the previous one, which beats barriers in a concurrent encoder there.
-    pub(super) fn new(
-        queue: &Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    pub(super) fn poll_new(
+        queue: &ClassicQueue,
         log: Option<&ProtocolObject<dyn MTLLogState>>,
         serial: bool,
         waits: &[Signal],
-    ) -> Result<Self> {
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self>> {
+        let permit = ready!(queue.capacity.poll(cx));
         let descriptor = MTLCommandBufferDescriptor::new();
         descriptor.setLogState(log);
-        let command = queue
-            .commandBufferWithDescriptor(&descriptor)
+        let command = autoreleasepool(|_| queue.raw.commandBufferWithDescriptor(&descriptor))
             .ok_or_else(|| Error::Command("could not create command buffer".into()))?;
         for wait in waits {
             command.encodeWaitForEvent_value(ProtocolObject::from_ref(&*wait.event), wait.value);
@@ -51,16 +91,16 @@ impl ClassicBatch {
         } else {
             MTLDispatchType::Concurrent
         };
-        let encoder = command
-            .computeCommandEncoderWithDispatchType(dispatch)
+        let encoder = autoreleasepool(|_| command.computeCommandEncoderWithDispatchType(dispatch))
             .ok_or_else(|| Error::Command("could not create compute encoder".into()))?;
-        Ok(Self {
+        Poll::Ready(Ok(Self {
             command,
             encoder: Some(encoder),
-            queue: queue.clone(),
+            queue: queue.raw.clone(),
             bindings: Vec::new(),
             threadgroup_slots: 0,
-        })
+            permit: Some(permit),
+        }))
     }
 
     pub(super) unsafe fn launch(
@@ -110,8 +150,8 @@ impl ClassicBatch {
                 }
                 Binding::Buffer(buffer) => {
                     // SAFETY: Batch validated bindings; buffers stay retained through completion.
-                    unsafe { encoder.setBuffer_offset_atIndex(Some(buffer), 0, buffer_slot) };
-                    self.bindings.push(buffer.clone());
+                    unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer.0), 0, buffer_slot) };
+                    self.bindings.push(buffer.0.clone());
                 }
             }
             buffer_slot += 1;
@@ -154,6 +194,7 @@ impl ClassicBatch {
             .encodeSignalEvent_value(ProtocolObject::from_ref(&*signal.event), signal.value);
         let queue = self.queue.clone();
         let bindings = std::mem::take(&mut self.bindings);
+        let permit = Mutex::new(self.permit.take());
         let handler = RcBlock::new(
             move |command: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
                 let _keepalive = (&pipelines, &queue, &bindings);
@@ -179,6 +220,17 @@ impl ClassicBatch {
                     }
                 });
                 finish.run();
+                let permit = lock(&permit).take().unwrap();
+                // SAFETY: Metal keeps this completed command alive throughout its callback.
+                let command =
+                    CompletedCommand(unsafe { Retained::retain(command.as_ptr()).unwrap() });
+                DispatchQueue::global_queue(GlobalQueueIdentifier::Priority(
+                    DispatchQueueGlobalPriority::Default,
+                ))
+                .exec_async(move || {
+                    command.wait();
+                    drop(permit);
+                });
                 completion.finish(result);
             },
         );
@@ -196,3 +248,6 @@ impl Drop for ClassicBatch {
         }
     }
 }
+
+#[cfg(all(test, not(loom)))]
+mod tests;

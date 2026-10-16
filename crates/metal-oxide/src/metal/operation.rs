@@ -2,7 +2,7 @@ use std::{
     future::{Future, IntoFuture},
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll, ready},
+    task::{Context, Poll, Wake, Waker, ready},
     time::Duration,
 };
 
@@ -12,6 +12,7 @@ use super::{
     Argument, Device, Library, Pipeline,
     batch::Batch,
     completion::{Completion, GpuTime},
+    pipeline::Source,
 };
 use crate::{DynamicLaunchConfig, Result};
 
@@ -19,8 +20,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// GPU work that encodes into one command buffer and commits when first polled or waited,
-/// which also fixes its place in the device's queue; dropped before that, it encodes nothing.
+/// GPU work submitted when awaited or waited. Preparation may yield while a pipeline
+/// compiles or command storage is busy; a dropped operation submits no further work.
 pub trait Operation: sealed::Sealed + Sized {
     /// What the operation returns after its GPU work has finished.
     type Output;
@@ -62,7 +63,7 @@ pub trait Operation: sealed::Sealed + Sized {
 /// ```
 #[must_use = "operations do nothing until awaited or waited"]
 pub struct Launch<A, const N: usize> {
-    pipeline: Result<Pipeline>,
+    pipeline: Result<Source>,
     config: DynamicLaunchConfig,
     arguments: A,
     bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
@@ -83,7 +84,7 @@ impl<A, const N: usize> Launch<A, N> {
         bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
     ) -> Self {
         Self {
-            pipeline: pipeline.cloned(),
+            pipeline: pipeline.cloned().map(Source::ready),
             config: config.into(),
             arguments,
             bind,
@@ -106,7 +107,7 @@ impl<A, const N: usize> Launch<A, N> {
         bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
     ) -> Self {
         Self {
-            pipeline: device.kernel(library, entry),
+            pipeline: Ok(Source::embedded(device, library, entry)),
             config: config.into(),
             arguments,
             bind,
@@ -121,7 +122,7 @@ impl<A, const N: usize> Operation for Launch<A, N> {
         let pipeline = self.pipeline?;
         let arguments = (self.bind)(&mut self.arguments)?;
         // SAFETY: the creator of this launch upholds the contract of `Launch::new`.
-        unsafe { batch.launch(&pipeline, self.config, &arguments)? };
+        unsafe { batch.launch(pipeline, self.config, &arguments)? };
         drop(arguments);
         Ok(self.arguments)
     }
@@ -176,6 +177,10 @@ pub struct TimedPending<O: Operation>(Run<O>);
 
 enum Run<O: Operation> {
     Unpolled(O),
+    Preparing {
+        batch: Batch,
+        output: O::Output,
+    },
     Running {
         completion: Arc<Completion>,
         output: O::Output,
@@ -189,8 +194,22 @@ impl<O: Operation> Run<O> {
             let Self::Unpolled(operation) = std::mem::replace(self, Self::Finished) else {
                 unreachable!()
             };
-            let (completion, output) = start(operation)?;
-            *self = Self::Running { completion, output };
+            let (batch, output) = autoreleasepool(|_| {
+                let mut batch = Batch::new();
+                let output = operation.encode(&mut batch)?;
+                Ok::<_, crate::Error>((batch, output))
+            })?;
+            *self = Self::Preparing { batch, output };
+        }
+        if let Self::Preparing { batch, .. } = self {
+            let result = ready!(autoreleasepool(|_| batch.poll_commit(cx)));
+            let Self::Preparing { output, .. } = std::mem::replace(self, Self::Finished) else {
+                unreachable!()
+            };
+            *self = Self::Running {
+                completion: result?,
+                output,
+            };
         }
         let Self::Running { completion, .. } = self else {
             panic!("an operation future was polled after it completed");
@@ -203,18 +222,24 @@ impl<O: Operation> Run<O> {
     }
 }
 
-/// Encodes and commits an operation; the command buffer runs without the caller.
-fn start<O: Operation>(operation: O) -> Result<(Arc<Completion>, O::Output)> {
-    autoreleasepool(|_| {
-        let mut batch = Batch::new();
-        let output = operation.encode(&mut batch)?;
-        Ok((batch.commit()?, output))
-    })
+fn run<O: Operation>(operation: O) -> Result<(O::Output, GpuTime)> {
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut run = Run::Unpolled(operation);
+    loop {
+        match run.poll(&mut cx) {
+            Poll::Ready(result) => return result,
+            Poll::Pending => std::thread::park(),
+        }
+    }
 }
 
-fn run<O: Operation>(operation: O) -> Result<(O::Output, GpuTime)> {
-    let (completion, output) = start(operation)?;
-    Ok((output, completion.wait()?))
+struct Unpark(std::thread::Thread);
+
+impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
 }
 
 // The futures never pin their fields: the operation moves out on the first poll.

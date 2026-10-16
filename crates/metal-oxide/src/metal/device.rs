@@ -164,7 +164,19 @@ impl Device {
         Ok(self.0.snapshot.get_or_init(|| pipeline))
     }
 
-    /// The pipeline of a kernel that the kernel macros embedded, created on its first launch.
+    /// Returns an embedded kernel's cached pipeline without waiting for the cache lock.
+    pub(super) fn cached_kernel(
+        &self,
+        library: &'static Library,
+        entry: &'static str,
+    ) -> Option<Pipeline> {
+        self.0
+            .libraries
+            .cached(library, entry)
+            .map(|compiled| Pipeline::from_compiled(self.clone(), compiled))
+    }
+
+    /// Loads and compiles an embedded kernel on a preparation worker.
     pub(super) fn kernel(
         &self,
         library: &'static Library,

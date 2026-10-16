@@ -143,7 +143,7 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
     }
     let queue = device.raw().newMTL4CommandQueue().unwrap();
     let cache = BatchCache::default();
-    let mut first = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
+    let mut first = new_batch(&device, &queue, &cache);
     let command = first.command.clone();
     let residency = first.residency.clone();
     let buffer = super::super::constants::allocate(device.raw(), 16).unwrap();
@@ -159,7 +159,7 @@ fn completed_batches_reuse_command_storage_without_stale_residency() {
         Finish::new(Arc::new(std::sync::atomic::AtomicUsize::new(1)), None),
     );
     completion.wait().unwrap();
-    let second = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
+    let second = new_batch(&device, &queue, &cache);
     assert!(std::ptr::eq(&*command, &*second.command));
     assert!(std::ptr::eq(&*residency, &*second.residency));
     assert_eq!(second.residency.allocationCount(), 0);
@@ -176,13 +176,15 @@ fn command_storage_reuse_requires_completed_gpu_work() {
     let completion = Arc::new(Completion::default());
     let cache = BatchCache::default();
     cache.put(storage.clone(), Arc::clone(&completion));
-    assert!(cache.take().is_none());
+    assert!(matches!(cache.poll_take(&mut context()), Poll::Ready(None)));
     completion.finish(Ok(None));
-    let reused = cache.take().unwrap();
+    let Poll::Ready(Some(reused)) = cache.poll_take(&mut context()) else {
+        panic!("completed storage was not reusable");
+    };
     assert!(std::ptr::eq(&*storage.allocator, &*reused.allocator));
     assert!(std::ptr::eq(&*storage.command, &*reused.command));
     assert!(std::ptr::eq(&*storage.residency, &*reused.residency));
-    assert!(cache.take().is_none());
+    assert!(matches!(cache.poll_take(&mut context()), Poll::Ready(None)));
 }
 
 #[test]
@@ -197,7 +199,7 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     let mut commands = Vec::new();
     let completions = (0..3)
         .map(|_| {
-            let batch = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
+            let batch = new_batch(&device, &queue, &cache);
             commands.push(batch.command.clone());
             let completion = Arc::new(Completion::default());
             batch.commit(
@@ -214,19 +216,19 @@ fn pipelined_batches_reuse_pooled_command_storage() {
     assert!(!std::ptr::eq(&*commands[0], &*commands[1]));
     completions.iter().for_each(|completion| completion.block());
     for _ in 0..3 {
-        let batch = Metal4Batch::new(device.raw(), &queue, &cache, None, true).unwrap();
+        let batch = new_batch(&device, &queue, &cache);
         assert!(
             commands
                 .iter()
                 .any(|command| std::ptr::eq(&**command, &*batch.command))
         );
     }
-    assert!(cache.take().is_none());
+    assert!(matches!(cache.poll_take(&mut context()), Poll::Ready(None)));
 }
 
 #[test]
 #[ignore = "requires a Metal 4 device on Apple Silicon"]
-fn a_full_command_storage_pool_waits_for_its_oldest_batch() {
+fn a_full_command_storage_pool_yields_and_wakes_on_completion() {
     let device = crate::Device::system_default().unwrap();
     if !super::super::backend::Backend::supports_metal4(device.raw()) {
         return;
@@ -240,13 +242,95 @@ fn a_full_command_storage_pool_waits_for_its_oldest_batch() {
             (storage, completion)
         })
         .collect::<Vec<_>>();
-    let oldest = Arc::clone(&pending[0].1);
-    let finisher = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        oldest.finish(Ok(None));
-    });
-    let reused = cache.take().unwrap();
-    finisher.join().unwrap();
-    assert!(std::ptr::eq(&*pending[0].0.allocator, &*reused.allocator));
+    let wake = Arc::new(WakeCount::default());
+    let waker = std::task::Waker::from(Arc::clone(&wake));
+    let mut cx = Context::from_waker(&waker);
+    assert!(cache.poll_take(&mut cx).is_pending());
+    assert_eq!(cache.entries().len(), MAX_BATCHES);
+    assert_eq!(wake.0.load(std::sync::atomic::Ordering::Relaxed), 0);
+    // A later batch can finish first on another queue.
+    pending[1].1.finish(Ok(None));
+    assert_eq!(wake.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+    let Poll::Ready(Some(reused)) = cache.poll_take(&mut cx) else {
+        panic!("completed storage was not reusable");
+    };
+    assert!(std::ptr::eq(&*pending[1].0.allocator, &*reused.allocator));
     assert_eq!(cache.entries().len(), MAX_BATCHES - 1);
+}
+
+#[test]
+#[ignore = "requires a Metal 4 device on Apple Silicon"]
+fn cancelling_a_launch_waiting_for_storage_releases_its_buffer() -> Result<()> {
+    use std::{
+        future::{Future, IntoFuture},
+        pin::Pin,
+    };
+
+    let device = crate::Device::system_default()?;
+    let super::super::backend::Backend::Metal4 { cache, .. } = device.backend() else {
+        return Ok(());
+    };
+    let module = crate::Module::from_source(
+        &device,
+        "#include <metal_stdlib>\nkernel void set(device uint *out [[buffer(0)]]) { out[0] = 42; }",
+    )?;
+    let pipeline = crate::Pipeline::new(&device, &module, "set")?;
+    let pending = (0..MAX_BATCHES)
+        .map(|_| {
+            let completion = Arc::new(Completion::default());
+            cache.put(
+                CommandStorage::new(device.raw()).unwrap(),
+                Arc::clone(&completion),
+            );
+            completion
+        })
+        .collect::<Vec<_>>();
+    let mut output = device.buffer_zeroed::<u32>(1)?;
+    let config = crate::LaunchConfig::<1>::for_elements(1)?;
+    // SAFETY: one thread writes the single initialized output element.
+    let operation = unsafe {
+        crate::Launch::new(Ok(&pipeline), config, &mut output, |output| {
+            Ok([Argument::write(output)])
+        })
+    };
+    let mut future = operation.into_future();
+    assert!(Pin::new(&mut future).poll(&mut context()).is_pending());
+    drop(future);
+    assert_eq!(output.read().wait(), [0]);
+    pending[3].finish(Ok(None));
+    // SAFETY: the same one-element dispatch now has available command storage.
+    unsafe {
+        crate::Launch::new(Ok(&pipeline), config, &mut output, |output| {
+            Ok([Argument::write(output)])
+        })
+    }
+    .wait()?;
+    assert_eq!(output.read().wait(), [42]);
+    Ok(())
+}
+
+#[derive(Default)]
+struct WakeCount(std::sync::atomic::AtomicUsize);
+
+impl std::task::Wake for WakeCount {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn context() -> Context<'static> {
+    Context::from_waker(std::task::Waker::noop())
+}
+
+fn new_batch(
+    device: &crate::Device,
+    queue: &Retained<ProtocolObject<dyn MTL4CommandQueue>>,
+    cache: &BatchCache,
+) -> Metal4Batch {
+    let Poll::Ready(batch) =
+        Metal4Batch::poll_new(device.raw(), queue, cache, None, true, &mut context())
+    else {
+        panic!("test pool has capacity");
+    };
+    batch.unwrap()
 }

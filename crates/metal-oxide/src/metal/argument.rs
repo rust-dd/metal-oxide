@@ -1,14 +1,11 @@
 use std::{any::TypeId, cell::RefCell, collections::HashSet, ops::Range, sync::Arc};
 
-use metal_oxide_artifact::{Access, Layout, ParameterType};
-use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::MTLBuffer;
-
 use super::{
     Buffer,
-    buffer::{BufferBinding, Resource},
+    buffer::{BufferBinding, Resource, Storage},
 };
 use crate::{Error, GpuAtomic, GpuValue, Result};
+use metal_oxide_artifact::{Access, Layout, ParameterType};
 
 enum Value<'a> {
     Buffer(&'a dyn BufferBinding),
@@ -33,7 +30,7 @@ enum Kind {
 
 /// A kernel parameter in the form a batch records and the native encoders bind.
 pub(super) enum Binding {
-    Buffer(Retained<ProtocolObject<dyn MTLBuffer>>),
+    Buffer(Storage),
     /// Canonical value bytes in the batch's byte store.
     Value {
         bytes: Range<usize>,
@@ -49,6 +46,15 @@ pub struct Argument<'a> {
     layout: fn() -> Result<Layout>,
     size: usize,
     alignment: usize,
+}
+
+/// Validation data retained after recording releases the argument's borrow.
+pub(super) struct ArgumentInfo {
+    signature: Signature,
+    layout: fn() -> Result<Layout>,
+    length: Option<usize>,
+    integer: Option<u64>,
+    threadgroup: Option<usize>,
 }
 
 impl<'a> Argument<'a> {
@@ -137,17 +143,31 @@ impl<'a> Argument<'a> {
         Ok(Self::new::<T>(Value::Threadgroup(bytes), Kind::Threadgroup))
     }
 
-    pub(super) fn threadgroup_bytes(&self) -> Option<usize> {
-        match self.value {
-            Value::Threadgroup(bytes) => Some(bytes),
+    pub(super) fn info(&self) -> ArgumentInfo {
+        let integer = match &self.value {
+            Value::Inline(bytes) if self.size <= 8 => {
+                let mut wide = [0; 8];
+                wide[..self.size].copy_from_slice(&bytes[..self.size]);
+                Some(u64::from_le_bytes(wide))
+            }
             _ => None,
+        };
+        ArgumentInfo {
+            signature: self.signature,
+            layout: self.layout,
+            length: self.length(),
+            integer,
+            threadgroup: match self.value {
+                Value::Threadgroup(bytes) => Some(bytes),
+                _ => None,
+            },
         }
     }
 
     /// The parameter as the native encoders bind it; value bytes are appended to `store`.
     pub(super) fn binding(&self, store: &mut Vec<u8>) -> Binding {
         let bytes = match &self.value {
-            Value::Buffer(buffer) => return Binding::Buffer(buffer.raw().clone()),
+            Value::Buffer(buffer) => return Binding::Buffer(Storage(buffer.raw().clone())),
             Value::Threadgroup(bytes) => return Binding::Threadgroup(*bytes),
             Value::Inline(bytes) => &bytes[..self.size],
             Value::Encoded(bytes) => bytes,
@@ -158,26 +178,6 @@ impl<'a> Argument<'a> {
             bytes: start..store.len(),
             alignment: self.alignment,
         }
-    }
-
-    /// The value of an integer argument of type `scalar`.
-    pub(super) fn integer(&self, scalar: metal_oxide_artifact::Scalar) -> Option<i128> {
-        use metal_oxide_artifact::Scalar;
-        let bytes = match &self.value {
-            Value::Inline(bytes) => &bytes[..self.size],
-            Value::Encoded(bytes) => bytes,
-            _ => return None,
-        };
-        let mut wide = [0; 8];
-        wide.get_mut(..bytes.len())?.copy_from_slice(bytes);
-        let bits = u64::from_le_bytes(wide);
-        Some(match scalar {
-            Scalar::U8 | Scalar::U16 | Scalar::U32 | Scalar::U64 => i128::from(bits),
-            Scalar::I8 => i128::from(bits as u8 as i8),
-            Scalar::I16 => i128::from(bits as u16 as i16),
-            Scalar::I32 => i128::from(bits as u32 as i32),
-            Scalar::F32 | Scalar::F16 => return None,
-        })
     }
 
     /// The element count of a buffer argument.
@@ -206,8 +206,36 @@ impl<'a> Argument<'a> {
         }
     }
 
+    pub(super) fn prepare(&self) {
+        if let (Value::Buffer(buffer), Kind::Buffer(access)) = (&self.value, self.signature.kind) {
+            buffer.prepare(access);
+        }
+    }
+}
+
+impl ArgumentInfo {
     pub(super) fn signature(&self) -> Signature {
         self.signature
+    }
+
+    pub(super) fn length(&self) -> Option<usize> {
+        self.length
+    }
+
+    pub(super) fn threadgroup_bytes(&self) -> Option<usize> {
+        self.threadgroup
+    }
+
+    pub(super) fn integer(&self, scalar: metal_oxide_artifact::Scalar) -> Option<i128> {
+        use metal_oxide_artifact::Scalar;
+        let bits = self.integer?;
+        Some(match scalar {
+            Scalar::U8 | Scalar::U16 | Scalar::U32 | Scalar::U64 => i128::from(bits),
+            Scalar::I8 => i128::from(bits as u8 as i8),
+            Scalar::I16 => i128::from(bits as u16 as i16),
+            Scalar::I32 => i128::from(bits as u32 as i32),
+            Scalar::F32 | Scalar::F16 => return None,
+        })
     }
 
     /// Builds the canonical parameter type; launches check it once per pipeline slot.
@@ -225,12 +253,6 @@ impl<'a> Argument<'a> {
                 element: layout,
             },
         })
-    }
-
-    pub(super) fn prepare(&self) {
-        if let (Value::Buffer(buffer), Kind::Buffer(access)) = (&self.value, self.signature.kind) {
-            buffer.prepare(access);
-        }
     }
 }
 

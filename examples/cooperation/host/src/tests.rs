@@ -1,3 +1,9 @@
+use std::{
+    future::{Future, IntoFuture},
+    pin::Pin,
+    task::{Context, Waker},
+};
+
 use super::{program::Program, verify};
 use metal_oxide::{Device, sequence};
 
@@ -25,13 +31,15 @@ fn compaction_retains_resources_after_its_operation_is_forgotten() -> metal_oxid
     let program = Program::generated(&device);
     let n = 1_000_003;
     let values = (0..n).map(|i| i % 127).collect::<Vec<u32>>();
+    // Warm every compaction pipeline so the forgotten launch submits on its first poll.
+    verify::compact(&device, &program, &values)?;
     let input = device.buffer_from_slice(&values)?;
     let mut flags = device.buffer_zeroed::<u32>(values.len())?;
     let mut scan = super::workloads::Scan::new(&device, n)?;
     let mut output = device.buffer_zeroed::<u32>(values.len())?;
     let mut count = device.buffer_zeroed::<u32>(1)?;
     // SAFETY: ordered passes use disjoint full-sized buffers and unique prefix positions.
-    std::mem::forget(verify::started(sequence(|batch| unsafe {
+    let operation = sequence(|batch| unsafe {
         program.mark(batch, &input, &mut flags, n)?;
         scan.encode(batch, &program, &flags)?;
         program.scatter(
@@ -43,7 +51,10 @@ fn compaction_retains_resources_after_its_operation_is_forgotten() -> metal_oxid
             &mut count,
             n,
         )
-    })));
+    });
+    let mut future = operation.into_future();
+    let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
+    std::mem::forget(future);
     drop(input);
     drop(flags);
     drop(scan);

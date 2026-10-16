@@ -91,7 +91,6 @@ fn spin<'a>(
     }
 }
 
-/// Polls an operation once, which encodes and commits it, and returns its future.
 fn started<F: IntoFuture<IntoFuture: Unpin>>(operation: F) -> F::IntoFuture {
     let mut future = operation.into_future();
     let _ = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
@@ -168,7 +167,6 @@ fn operations_dropped_by_a_timeout_keep_readback_ordered() -> Result<()> {
         for round in 0..4 {
             // SAFETY: both buffers hold n elements.
             let operation = unsafe { scale_add(&pipeline, &input, &mut output, round as f32, n) };
-            // The first poll commits the work; the timeout then drops the future while it runs.
             let timed_out = tokio::time::timeout(Duration::from_nanos(1), operation).await;
             if let Ok(result) = timed_out {
                 result?;

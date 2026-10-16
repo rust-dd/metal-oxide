@@ -14,6 +14,9 @@ use crate::{Error, Result};
 
 use super::{Device, Module, argument::Signature, backend::Backend, failures::KernelChecks};
 
+mod source;
+pub(super) use source::Source;
+
 static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
 /// A compiled kernel of one device. Clones are cheap handles to the same native pipeline.
@@ -66,7 +69,7 @@ impl Pipeline {
     pub(super) fn validate_launch(
         &self,
         config: crate::DynamicLaunchConfig,
-        arguments: &[super::Argument<'_>],
+        arguments: &[super::argument::ArgumentInfo],
     ) -> Result<()> {
         if let Some(kernel) = &self.compiled.abi {
             if arguments.len() != kernel.parameters.len() {
@@ -156,6 +159,9 @@ impl Compiled {
             return Err(Error::InvalidLaunch(
                 "kernel exceeds threadgroup memory capacity",
             ));
+        }
+        if abi.is_some() {
+            device.snapshot()?;
         }
         Ok(Self {
             raw,

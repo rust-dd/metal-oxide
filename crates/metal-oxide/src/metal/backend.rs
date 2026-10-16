@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use objc2::{rc::Retained, runtime::ProtocolObject};
-use objc2_metal::{MTL4Compiler, MTL4CompilerDescriptor, MTLCommandQueue, MTLDevice, MTLGPUFamily};
+use objc2_metal::{MTL4Compiler, MTL4CompilerDescriptor, MTLDevice, MTLGPUFamily};
 
 use super::{
+    classic::ClassicQueue,
     metal4::BatchCache,
     queue::{Metal4Queue, QUEUES, Queue, Signals},
 };
@@ -11,7 +12,7 @@ use crate::{Error, Result};
 
 pub(super) enum Backend {
     Classic {
-        queues: Vec<Queue<Retained<ProtocolObject<dyn MTLCommandQueue>>>>,
+        queues: Vec<Queue<ClassicQueue>>,
         signals: Arc<Signals>,
     },
     Metal4 {
@@ -59,12 +60,7 @@ impl Backend {
             })
         } else {
             let queues = (0..QUEUES)
-                .map(|_| {
-                    device
-                        .newCommandQueue()
-                        .map(Queue::new)
-                        .ok_or_else(|| Error::Command("could not create command queue".into()))
-                })
+                .map(|_| ClassicQueue::new(device).map(Queue::new))
                 .collect::<Result<Vec<_>>>()?;
             Ok(Self::Classic {
                 queues,

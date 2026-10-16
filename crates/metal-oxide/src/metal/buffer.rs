@@ -24,7 +24,8 @@ pub(super) struct Resource {
 }
 
 /// The native allocation behind a buffer.
-pub(super) struct Storage(Retained<ProtocolObject<dyn MTLBuffer>>);
+#[derive(Clone)]
+pub(super) struct Storage(pub(super) Retained<ProtocolObject<dyn MTLBuffer>>);
 
 // SAFETY: the runtime retains, releases and reads immutable properties of the native buffer on
 // any thread. Its bytes are only accessed under the `AccessState` and `Mirror` protocols.
@@ -123,23 +124,31 @@ impl<T: GpuValue> Buffer<T> {
         Ok(Some(Mirror::new(values, location)))
     }
 
-    /// The values, once pending GPU work on the buffer has finished; awaiting never blocks.
+    /// The values, once pending GPU work has finished; awaiting polls GPU completion.
+    ///
+    /// # Panics
+    ///
+    /// Polling or waiting panics while an uncommitted batch has recorded a write to this buffer.
     pub fn read(&self) -> Read<'_, T> {
         Read::new(self)
     }
 
     /// The values for CPU writes, once pending GPU work has finished; the next dispatch that
     /// uses the buffer encodes them.
+    ///
+    /// # Panics
+    ///
+    /// Polling or waiting panics while an uncommitted batch has recorded this buffer.
     pub fn write(&mut self) -> Write<'_, T> {
         Write::new(self)
     }
 
     /// # Safety
     ///
-    /// No GPU access to the buffer may be pending.
+    /// No GPU write to the buffer may be recorded or pending.
     unsafe fn values(&self) -> &[T] {
         match &self.mirror {
-            // SAFETY: the storage holds len canonical values, and no GPU access is pending.
+            // SAFETY: the storage holds len canonical values, and no GPU write is pending.
             Some(mirror) => unsafe { mirror.download(&self.access, self.storage.contents()) },
             // SAFETY: native_layout admits only aligned, identical primitive representations
             // with all bit patterns valid. The allocation is initialized, and GPU writes need `&mut`.
@@ -151,7 +160,7 @@ impl<T: GpuValue> Buffer<T> {
 
     /// # Safety
     ///
-    /// No GPU access to the buffer may be pending.
+    /// No GPU access to the buffer may be recorded or pending.
     unsafe fn values_mut(&mut self) -> &mut [T] {
         let bytes = self.storage.contents();
         match &mut self.mirror {
@@ -172,7 +181,12 @@ impl<T: GpuValue> Buffer<T> {
 
     /// Encodes dirty CPU values into shared Metal storage before a later dispatch.
     /// Launches also perform this automatically. GPU-authored values are preserved.
+    ///
+    /// # Panics
+    ///
+    /// Panics while an uncommitted batch has recorded this buffer.
     pub fn upload(&mut self) {
+        self.access.assert_unrecorded();
         self.prepare(Access::Read);
     }
 }

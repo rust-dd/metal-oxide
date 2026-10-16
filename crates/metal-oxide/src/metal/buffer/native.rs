@@ -72,6 +72,10 @@ impl<T: GpuValue> Buffer<T> {
     /// Blocks the calling thread until pending GPU accesses finish, encodes dirty CPU values
     /// and transfers native ownership. Command errors are reported by their operations.
     ///
+    /// # Panics
+    ///
+    /// Panics while an uncommitted batch has recorded this buffer.
+    ///
     /// ```compile_fail
     /// use metal_oxide::Device;
     /// let device = Device::system_default().unwrap();
@@ -81,7 +85,7 @@ impl<T: GpuValue> Buffer<T> {
     /// println!("{view:?}");
     /// ```
     pub fn into_native(self) -> Retained<ProtocolObject<dyn MTLBuffer>> {
-        self.access.synchronize();
+        self.access.synchronize(true);
         self.prepare(Access::Read);
         self.storage.0
     }
