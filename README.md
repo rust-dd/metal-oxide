@@ -118,6 +118,10 @@ Each instance keeps the function's safety, `block` shape and `requires` relation
 This works in host functions, inline modules and separate kernel crates.
 Host signatures spell associated types as `<T as Trait>::Type`.
 
+Lifetime parameters are checked by Rust and erased before GPU code generation;
+they need no instance arguments. References and lifetime-bearing structs work inside
+kernels and helpers. Only owned values and buffer handles cross the kernel boundary.
+
 Kernels, and the `no_std` crates that `dependencies(...)` names, compile from rustc's MIR
 against `core`: references and slices, records, tuples and arrays, enums with payloads,
 `Option` and `Result` with `?`, closures, core's iterators and generic helpers, over `bool`,

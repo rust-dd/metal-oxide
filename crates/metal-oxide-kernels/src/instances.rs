@@ -45,10 +45,14 @@ pub(crate) fn parse(input: ParseStream<'_>) -> syn::Result<Vec<Instance>> {
 
 pub(crate) fn kernels(function: &ItemFn, options: KernelOptions) -> syn::Result<Vec<Kernel>> {
     if options.instances.is_empty() {
-        return Kernel::new(function, options.block).map(|kernel| vec![kernel]);
+        let concrete = erase_lifetimes(function);
+        return Kernel::new(&concrete, options.block).map(|kernel| vec![kernel]);
     }
     let parameters = &function.sig.generics.params;
-    if parameters.is_empty() {
+    if parameters
+        .iter()
+        .all(|parameter| matches!(parameter, GenericParam::Lifetime(_)))
+    {
         return Err(syn::Error::new_spanned(
             &function.sig,
             "instances(...) requires a generic kernel",
@@ -62,6 +66,7 @@ pub(crate) fn kernels(function: &ItemFn, options: KernelOptions) -> syn::Result<
 }
 
 fn specialize(function: &ItemFn, instance: Instance) -> syn::Result<ItemFn> {
+    let function = erase_lifetimes(function);
     let parameters = &function.sig.generics.params;
     if parameters.len() != instance.arguments.args.len() {
         return Err(syn::Error::new_spanned(
@@ -89,7 +94,7 @@ fn specialize(function: &ItemFn, instance: Instance) -> syn::Result<ItemFn> {
             }
         }
     }
-    let mut concrete = function.clone();
+    let mut concrete = function;
     concrete.sig.inputs = concrete
         .sig
         .inputs
@@ -99,6 +104,41 @@ fn specialize(function: &ItemFn, instance: Instance) -> syn::Result<ItemFn> {
     concrete.sig.generics = syn::Generics::default();
     concrete.sig.ident = instance.name;
     Ok(concrete)
+}
+
+fn erase_lifetimes(function: &ItemFn) -> ItemFn {
+    struct Erase(HashSet<String>);
+    impl Fold for Erase {
+        fn fold_lifetime(&mut self, lifetime: syn::Lifetime) -> syn::Lifetime {
+            if self.0.contains(&lifetime.ident.to_string()) {
+                syn::Lifetime::new("'static", lifetime.apostrophe)
+            } else {
+                lifetime
+            }
+        }
+    }
+    let names = function
+        .sig
+        .generics
+        .lifetimes()
+        .map(|parameter| parameter.lifetime.ident.to_string())
+        .collect::<HashSet<_>>();
+    let mut function = function.clone();
+    let mut erase = Erase(names);
+    function.sig.inputs = function
+        .sig
+        .inputs
+        .into_iter()
+        .map(|argument| erase.fold_fn_arg(argument))
+        .collect();
+    function.sig.generics.params = function
+        .sig
+        .generics
+        .params
+        .into_iter()
+        .filter(|parameter| !matches!(parameter, GenericParam::Lifetime(_)))
+        .collect();
+    function
 }
 
 #[derive(Default)]

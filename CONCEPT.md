@@ -141,6 +141,9 @@ arguments and trait bounds; the compiler imports each concrete instance's MIR
 directly under its listed name. Each gets its own ABI entry and launch function,
 with the template's safety, `requires` relations and literal `block` shape.
 Generic helpers and device methods are instantiated from their callers.
+Lifetime parameters, outlives bounds and higher-ranked trait bounds are checked by
+rustc. Lifetimes are erased before import and do not produce kernel variants; named
+instances supply only type and const arguments. References remain internal to kernels.
 
 The kernel and its device dependencies use the custom
 [`metal64-unknown-none` target](crates/metal-oxide-build/targets/metal64-unknown-none.json), with matching

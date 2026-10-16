@@ -10,7 +10,7 @@ const KERNEL: &str = r#"
     block = (32, 1, 1),
     requires(input.len() == output.len())
 )]
-pub fn scale<T: Copy + core::ops::Add<Output = T>, const N: usize>(
+pub fn scale<'a, T: Copy + core::ops::Add<Output = T> + 'a, const N: usize>(
     r#input: ReadBuffer<T>, mut output: DisjointBuffer<T>,
 ) {
     let index = thread_index();
@@ -48,6 +48,10 @@ fn main() -> metal_oxide::Result<()> {
     let mut copied = device.buffer_zeroed::<[f32; 2]>(2)?;
     arrays::copy_pairs(&device, config, &pairs, &mut copied).wait()?;
     assert_eq!(copied.read().wait(), [[1.5, -2.0], [3.0, 4.5]]);
+    lifetimes::early(&device, config, &unsigned, &mut u).wait()?;
+    assert_eq!(u.read().wait(), [7, 0, u32::MAX]);
+    lifetimes::late(&device, config, &unsigned, &mut u).wait()?;
+    assert_eq!(u.read().wait(), [7, 0, u32::MAX]);
     println!("generic launches passed");
     Ok(())
 }
@@ -74,11 +78,16 @@ pub fn copy<T: Element, const N: usize>(
 #[test]
 #[ignore = "requires a Metal device, the compiler nightly, rust-src and the Metal toolchain"]
 fn generic_instances_launch_in_all_authoring_forms_and_from_saved_artifacts() {
+    let lifetimes = include_str!("../../metal-oxide-compiler/tests/fixtures/lifetimes.rs")
+        .replace("#![no_std]", "")
+        .replace("metal_oxide_device", "metal_oxide::device")
+        .replace(", kernel,", ",");
     let source = format!(
         "use metal_oxide::{{Device, LaunchConfig, Operation}};\n\
          use metal_oxide::device::*;\n{}\n\
          #[metal_oxide::kernels] mod inline {{ use metal_oxide::device::*; {KERNEL} }}\n\
          #[metal_oxide::kernels] mod arrays {{ use metal_oxide::device::*; {ARRAYS} }}\n\
+         #[metal_oxide::kernels] mod lifetimes {{ {lifetimes} }}\n\
          #[metal_oxide::kernels(path = \"kernels\")] mod imported {{}}\n{MAIN}",
         KERNEL.replace("#[kernel(", "#[metal_oxide::kernel(")
     );

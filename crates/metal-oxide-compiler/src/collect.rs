@@ -132,7 +132,17 @@ pub(crate) fn kernels<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<Entry<'tcx>> {
                 tcx.def_span(definition),
                 "#[kernel] requires a free function",
             );
-        } else if tcx.generics_of(definition).count() == 0 {
+        } else if tcx
+            .generics_of(definition)
+            .own_params
+            .iter()
+            .all(|parameter| {
+                matches!(
+                    parameter.kind,
+                    rustc_middle::ty::GenericParamDefKind::Lifetime
+                )
+            })
+        {
             entries.push(Entry {
                 name: tcx.item_name(definition).to_string(),
                 instance: Instance::mono(tcx, definition),

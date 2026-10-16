@@ -2,6 +2,35 @@ use super::*;
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn lifetimes_preserve_borrows_and_address_spaces() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/lifetimes.rs",
+        &[],
+    );
+    support::checked(output);
+    let module = support::artifact::module(&device, &directory)?;
+    for name in ["late", "early", "generic_u32"] {
+        let pipeline = Pipeline::new(&device, &module, name)?;
+        let input = device.buffer_from_slice(&[7_u32, 0, u32::MAX])?;
+        let mut output = device.buffer_zeroed::<u32>(3)?;
+        // SAFETY: the kernel bounds each write by its thread index and checks input length.
+        unsafe {
+            Launch::new(
+                Ok(&pipeline),
+                LaunchConfig::<32>::for_elements(3)?,
+                (&input, &mut output),
+                |(input, output)| Ok([Argument::read(input), Argument::write(output)]),
+            )
+        }
+        .wait()?;
+        assert_eq!(output.read().wait(), [7, 0, u32::MAX], "{name}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn generic_entrypoints_execute_concrete_types_constants_and_aliases() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     let (output, directory) = support::emit(
