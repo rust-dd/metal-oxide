@@ -16,6 +16,9 @@ enum Slot {
     F32,
     FloatPair,
     U32,
+    U64,
+    Ordering,
+    OrderPair,
     Usize,
     Dim3,
     F16,
@@ -106,6 +109,13 @@ fn slot_matches<'tcx>(tcx: TyCtxt<'tcx>, slot: Slot, ty: Ty<'tcx>) -> bool {
             matches!(ty.kind(), ty::Tuple(fields) if fields.iter().all(|field| field == tcx.types.f32) && fields.len() == 2)
         }
         Slot::U32 => matches!(ty.kind(), ty::Uint(ty::UintTy::U32)),
+        Slot::U64 => ty == tcx.types.u64,
+        Slot::Ordering => {
+            matches!(ty.kind(), ty::Adt(def, _) if tcx.def_path_str(def.did()) == "core::sync::atomic::Ordering")
+        }
+        Slot::OrderPair => {
+            matches!(ty.kind(), ty::Tuple(fields) if fields.len() == 2 && fields.iter().all(|ty| slot_matches(tcx, Slot::Ordering, ty)))
+        }
         Slot::Usize => matches!(ty.kind(), ty::Uint(ty::UintTy::Usize)),
         Slot::Unit => ty.is_unit(),
         Slot::Pointer(mutability) => {
@@ -412,10 +422,13 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
         Intrinsic::Atomic(op) => {
             use metal_oxide_ir::AtomicOp;
             let (inputs, output): (&[_], _) = match op {
-                AtomicOp::Load => (&[write, U32, write, Usize], Unit),
-                AtomicOp::Store => (&[write, U32, read, Usize], Unit),
-                AtomicOp::CompareExchangeWeak => (&[write, U32, read, read, write, Usize], Bool),
-                _ => (&[write, U32, read, write, Usize], Unit),
+                AtomicOp::Load => (&[write, U32, write, Usize, Ordering], Unit),
+                AtomicOp::Store => (&[write, U32, read, Usize, Ordering], Unit),
+                AtomicOp::CompareExchangeWeak => {
+                    (&[write, U32, read, read, write, Usize, OrderPair], Bool)
+                }
+                AtomicOp::MinStore | AtomicOp::MaxStore => (&[write, U32, U64, Ordering], Unit),
+                _ => (&[write, U32, read, write, Usize, Ordering], Unit),
             };
             declaration(tcx, definition, inputs, output, Safety::Unsafe)
         }
@@ -429,7 +442,13 @@ fn atomic_signature<'tcx>(
     output: Ty<'tcx>,
     op: metal_oxide_ir::AtomicOp,
 ) -> bool {
-    if input.len() != 2 + op.arity() {
+    let operands = 2 + op.arity();
+    let orders = if op == metal_oxide_ir::AtomicOp::CompareExchangeWeak {
+        2
+    } else {
+        1
+    };
+    if input.len() != operands + orders {
         return false;
     }
     let Some((kind, element)) = buffer_element(tcx, input[0]) else {
@@ -439,12 +458,17 @@ fn atomic_signature<'tcx>(
         kind,
         DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer
     ) || input[1] != tcx.types.u32
-        || input[2..].iter().any(|&ty| ty != element)
+        || input[2..operands].iter().any(|&ty| ty != element)
+        || input[operands..]
+            .iter()
+            .any(|&ty| !slot_matches(tcx, Slot::Ordering, ty))
     {
         return false;
     }
     match op {
-        metal_oxide_ir::AtomicOp::Store => output.is_unit(),
+        metal_oxide_ir::AtomicOp::Store
+        | metal_oxide_ir::AtomicOp::MinStore
+        | metal_oxide_ir::AtomicOp::MaxStore => output.is_unit(),
         metal_oxide_ir::AtomicOp::CompareExchangeWeak => {
             matches!(output.kind(), ty::Tuple(fields) if fields.len() == 2 && fields[0] == element && fields[1].is_bool())
         }
@@ -465,6 +489,8 @@ fn atomic_bridge(op: metal_oxide_ir::AtomicOp) -> &'static str {
         And => "__metal_atomic_and",
         Or => "__metal_atomic_or",
         Xor => "__metal_atomic_xor",
+        MinStore => "__metal_atomic_min_store",
+        MaxStore => "__metal_atomic_max_store",
     }
 }
 

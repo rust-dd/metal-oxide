@@ -7,6 +7,7 @@ members = [
     "crates/metal-oxide-build",
     "crates/metal-oxide-codegen",
     "crates/metal-oxide-compiler",
+    "crates/metal-oxide-compiler/tests/crates/nostd-numeric-kernels",
     "crates/metal-oxide-compiler/tests/crates/particle-device-math",
     "crates/metal-oxide-compiler/tests/crates/particle-update-kernels",
     "crates/metal-oxide-compiler/tests/crates/pipeline-device-math",
@@ -42,6 +43,7 @@ block2 = "0.6.2"
 clap = { version = "4.6.7", default-features = false, features = ["derive", "error-context", "help", "std", "usage"] }
 dispatch2 = "0.3.1"
 half = { version = "2.7.1", default-features = false }
+libm = "0.2.16"
 loom = "0.7.2"
 metal-oxide = { path = "crates/metal-oxide", version = "=0.1.0-alpha.1" }
 metal-oxide-artifact = { path = "crates/metal-oxide-artifact", version = "=0.1.0-alpha.1" }
@@ -52,9 +54,11 @@ metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha.1" }
 metal-oxide-kernels = { path = "crates/metal-oxide-kernels", version = "=0.1.0-alpha.1" }
 metal-oxide-macros = { path = "crates/metal-oxide-macros", version = "=0.1.0-alpha.1" }
 miniz_oxide = "0.9.1"
+nostd-numeric-kernels = { path = "crates/metal-oxide-compiler/tests/crates/nostd-numeric-kernels" }
+num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
 # Metal's capture layer forwards messages that objc2's debug assertions reject as unknown.
 objc2 = { version = "0.6.5", features = ["disable-encoding-assertions"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSString", "NSURL", "std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError", "NSObject", "NSProcessInfo", "NSString", "NSURL", "std"] }
 objc2-metal = { version = "0.3.2", default-features = false, features = [
     "MTL4ArgumentTable",
     "MTL4CommandAllocator",

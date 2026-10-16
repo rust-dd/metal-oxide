@@ -1,88 +1,8 @@
 use crate::*;
 
-/// What a place denotes: a value, or the elements behind a dereferenced slice.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Located {
-    Value(Type),
-    Elements(Pointer),
-}
+mod places;
 
-#[derive(Clone, Copy, Debug)]
-pub struct PlaceInfo {
-    pub located: Located,
-    pub space: AddressSpace,
-    /// Writes and mutable references need every pointer on the path to be mutable.
-    pub writable: bool,
-}
-
-pub fn place_info(
-    module: &Module,
-    function: &Function,
-    place: &Place,
-    source: &SourceLocation,
-) -> Result<PlaceInfo, Error> {
-    let ty = *function
-        .locals
-        .get(place.local)
-        .ok_or_else(|| Error::new(source, "invalid local reference"))?;
-    if ty == Type::Never {
-        return Err(Error::new(source, "never-typed values cannot be read"));
-    }
-    let mut info = PlaceInfo {
-        located: Located::Value(ty),
-        space: AddressSpace::Thread,
-        writable: true,
-    };
-    for projection in &place.projection {
-        let invalid = match projection {
-            Projection::Field(_) => "invalid aggregate field projection",
-            Projection::Index(_) => "invalid array or slice index projection",
-            Projection::Deref => "dereference requires a pointer",
-        };
-        info.located = match (*projection, info.located) {
-            (Projection::Field(field), Located::Value(ty)) => {
-                module.types.field(ty, field).map(Located::Value)
-            }
-            (Projection::Index(index), located) => {
-                if function.locals.get(index) != Some(&Type::Scalar(Scalar::Usize)) {
-                    return Err(Error::new(source, "array indices require a usize local"));
-                }
-                match located {
-                    Located::Value(Type::Aggregate(id)) => match module.types.get(id) {
-                        Some(Aggregate::Array { element, .. }) => Some(Located::Value(*element)),
-                        _ => None,
-                    },
-                    Located::Elements(slice) => Some(Located::Value(slice.target)),
-                    Located::Value(_) => None,
-                }
-            }
-            (Projection::Deref, Located::Value(ty)) => module.types.pointer(ty).map(|pointer| {
-                info.space = pointer.space;
-                info.writable &= pointer.mutable;
-                if pointer.slice {
-                    Located::Elements(pointer)
-                } else {
-                    Located::Value(pointer.target)
-                }
-            }),
-            _ => None,
-        }
-        .ok_or_else(|| Error::new(source, invalid))?;
-    }
-    Ok(info)
-}
-
-pub fn place_type(
-    module: &Module,
-    function: &Function,
-    place: &Place,
-    source: &SourceLocation,
-) -> Result<Type, Error> {
-    match place_info(module, function, place, source)?.located {
-        Located::Value(ty) => Ok(ty),
-        Located::Elements(_) => Err(Error::new(source, "slice elements are not one value")),
-    }
-}
+pub use places::{Located, PlaceInfo, place_info, place_type};
 
 pub fn operand_type(
     module: &Module,
@@ -132,6 +52,12 @@ pub fn expression_type(
     };
     match expression {
         Expression::Use(v) => ty(v),
+        Expression::Select { condition, yes, no } => {
+            require(ty(condition)?, Type::Scalar(Scalar::Bool))?;
+            let result = ty(yes)?;
+            require(ty(no)?, result)?;
+            Ok(result)
+        }
         Expression::Binary(op, a, b) => binary_type(module, *op, ty(a)?, ty(b)?, source),
         Expression::Unary(op, v) => {
             let t = ty(v)?;
@@ -261,8 +187,11 @@ pub fn expression_type(
             value,
             overflow,
         } => {
-            if !scalar.is_integer() {
-                return Err(Error::new(source, "checked tuple requires integer value"));
+            if !scalar.is_integer() && *scalar != Scalar::F32 {
+                return Err(Error::new(
+                    source,
+                    "checked tuple requires an integer or f32 value",
+                ));
             }
             require(ty(value)?, Type::Scalar(*scalar))?;
             require(ty(overflow)?, Type::Scalar(Scalar::Bool))?;
@@ -430,9 +359,12 @@ pub fn expression_type(
             }
             Ok(callee.locals[0])
         }
-        Expression::Atomic { op, arguments } => {
-            crate::atomic::atomic_type(module, function, *op, arguments, source)
-        }
+        Expression::Atomic {
+            op,
+            order,
+            failure,
+            arguments,
+        } => crate::atomic::atomic_type(module, function, *op, *order, *failure, arguments, source),
         Expression::Ref { place, mutable } => {
             let Operand::Place(place) = place else {
                 return Err(Error::new(source, "references require a place"));

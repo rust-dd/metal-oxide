@@ -160,17 +160,18 @@ impl Printer<'_> {
             } => {
                 let (index, value, read) = (self.expr(index), self.expr(value), self.expr(read));
                 let int = int.name();
-                let set =
-                    format!("unsafe {{ {buffer}.store_relaxed(lane % {cells}, {initial}) }};");
+                let set = format!(
+                    "unsafe {{ {buffer}.store(lane % {cells}, {initial}, core::sync::atomic::Ordering::Relaxed) }};"
+                );
                 self.line(indent, &set);
                 self.line(indent, barrier);
                 let apply = format!(
-                    "unsafe {{ {buffer}.fetch_{op}_relaxed({index} % {cells}, {value}) }};"
+                    "unsafe {{ {buffer}.fetch_{op}({index} % {cells}, {value}, core::sync::atomic::Ordering::Relaxed) }};"
                 );
                 self.line(indent, &apply);
                 self.line(indent, barrier);
                 let load = format!(
-                    "let mut {binding}: {int} = unsafe {{ {buffer}.load_relaxed({read} % {cells}) }};"
+                    "let mut {binding}: {int} = unsafe {{ {buffer}.load({read} % {cells}, core::sync::atomic::Ordering::Relaxed) }};"
                 );
                 self.line(indent, &load);
                 self.line(indent, barrier);
@@ -179,7 +180,7 @@ impl Printer<'_> {
                 let (index, value) = (self.expr(index), self.expr(value));
                 let cells = COUNTERS.len();
                 let count = format!(
-                    "unsafe {{ counters.fetch_{op}_relaxed({index} % {cells}, {value}) }};"
+                    "unsafe {{ counters.fetch_{op}({index} % {cells}, {value}, core::sync::atomic::Ordering::Relaxed) }};"
                 );
                 self.line(indent, &count);
             }

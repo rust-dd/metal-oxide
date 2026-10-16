@@ -11,12 +11,11 @@ const RECORD_SOURCES: &str = "-frecord-sources";
 
 pub(crate) fn metal_flags(abi: &Abi) -> Vec<String> {
     let logging = abi.required_features.iter().any(|f| f == "logging");
-    ["-std=metal3.2", "-mmacosx-version-min=15.0"]
+    abi.target_flags()
         .into_iter()
-        .chain(abi.math_mode.metal_flags())
-        .chain(["-O2"])
-        .chain(logging.then_some(LOGGING_FLAG))
-        .map(str::to_owned)
+        .chain(abi.math_mode.metal_flags().map(str::to_owned))
+        .chain(["-O2".into()])
+        .chain(logging.then(|| LOGGING_FLAG.to_owned()))
         .collect()
 }
 

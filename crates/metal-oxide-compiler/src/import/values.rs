@@ -60,6 +60,27 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
     ) -> Result<ir::Expression> {
         match value {
             mir::Rvalue::Aggregate(kind, fields)
+                if fields.is_empty()
+                    && destination == ir::Type::Scalar(ir::Scalar::I8)
+                    && matches!(**kind, mir::AggregateKind::Adt(definition, ..) if self.module.tcx.def_path_str(definition) == "core::cmp::Ordering") =>
+            {
+                let mir::AggregateKind::Adt(definition, variant, ..) = **kind else {
+                    unreachable!()
+                };
+                let value = self
+                    .module
+                    .tcx
+                    .adt_def(definition)
+                    .discriminants(self.module.tcx)
+                    .find(|(index, _)| *index == variant)
+                    .unwrap()
+                    .1
+                    .val;
+                Ok(ir::Expression::Use(ir::Operand::Constant(
+                    ir::Constant::I8(value as i8),
+                )))
+            }
+            mir::Rvalue::Aggregate(kind, fields)
                 if matches!(**kind, mir::AggregateKind::Adt(definition, ..)
                     if self.module.tcx.adt_def(definition).is_enum()) =>
             {
@@ -171,6 +192,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             mir::Rvalue::Discriminant(place) => {
                 let (mut place, ty) = self.typed_place(place, span)?;
+                if ty == ir::Type::Scalar(ir::Scalar::I8) {
+                    return Ok(ir::Expression::Use(ir::Operand::Place(place)));
+                }
                 if self.module.types.tag(ty).is_none() {
                     return Err((span, "discriminants require an enum".into()));
                 }
@@ -201,6 +225,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let ir::Type::Scalar(to) = self.lower_type(*to, span)? else {
                     return Err((span, "unsupported cast destination".into()));
                 };
+                if to.is_integer()
+                    && let Some(value) =
+                        super::constants::integer_cast(self.module.tcx, self.instance, v, to)
+                {
+                    return Ok(ir::Expression::Use(ir::Operand::Constant(value)));
+                }
                 Ok(ir::Expression::Cast(self.operand(v, span)?, to))
             }
             mir::Rvalue::Cast(mir::CastKind::Transmute, value, _) => {

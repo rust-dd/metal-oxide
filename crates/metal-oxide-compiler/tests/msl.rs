@@ -1,5 +1,8 @@
 mod support;
 
+#[path = "msl/atomics.rs"]
+mod atomics;
+
 #[path = "msl/collectives.rs"]
 mod collectives;
 #[path = "msl/control_flow.rs"]
@@ -402,6 +405,6 @@ fn atomic_threadgroup_storage_rejects_float_elements() {
         "crates/metal-oxide-compiler/tests/fixtures/invalid_atomic_shared.rs",
         &[],
     );
-    support::rejected(output, "unsupported local type");
+    support::rejected(output, "invalid threadgroup allocation");
     assert!(!directory.join("kernels.metal").exists());
 }

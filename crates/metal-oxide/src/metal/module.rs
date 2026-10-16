@@ -4,7 +4,7 @@ use objc2::{
     rc::{Retained, autoreleasepool},
     runtime::ProtocolObject,
 };
-use objc2_foundation::{NSString, NSURL};
+use objc2_foundation::{NSProcessInfo, NSString, NSURL};
 use objc2_metal::{
     MTLCompileOptions, MTLDevice, MTLGPUFamily, MTLLibrary, MTLMathFloatingPointFunctions,
     MTLMathMode,
@@ -82,8 +82,11 @@ impl Module {
     }
 
     fn load_artifact(device: &Device, manifest: Manifest, bytes: &[u8]) -> Result<Self> {
+        let macos = NSProcessInfo::processInfo()
+            .operatingSystemVersion()
+            .majorVersion;
         for feature in &manifest.abi.required_features {
-            require(feature, |family| device.raw().supportsFamily(family))?;
+            require(feature, macos, |family| device.raw().supportsFamily(family))?;
             if feature == "logging" {
                 device.enable_logging()?;
             }
@@ -120,11 +123,13 @@ impl Module {
 }
 
 /// Checks a validated artifact feature against the GPU families a device supports.
-fn require(feature: &str, supports: impl Fn(MTLGPUFamily) -> bool) -> Result<()> {
+fn require(feature: &str, macos: isize, supports: impl Fn(MTLGPUFamily) -> bool) -> Result<()> {
     let requirement =
         metal_oxide_artifact::Capability::named(feature).expect("validated artifact capability");
     let family = MTLGPUFamily(MTLGPUFamily::Apple1.0 + requirement.apple_family as isize - 1);
-    if supports(family) || (requirement.mac2 && supports(MTLGPUFamily::Mac2)) {
+    if macos >= requirement.macos as isize
+        && (supports(family) || (requirement.mac2 && supports(MTLGPUFamily::Mac2)))
+    {
         Ok(())
     } else {
         Err(Error::UnsupportedDevice(format!(

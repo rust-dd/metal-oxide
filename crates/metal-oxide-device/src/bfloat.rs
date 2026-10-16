@@ -28,3 +28,6 @@ impl BF16 {
 }
 
 mod ops;
+
+#[cfg(test)]
+mod tests;

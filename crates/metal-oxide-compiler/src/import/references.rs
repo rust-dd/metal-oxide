@@ -395,9 +395,34 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Ok(None);
         };
         match callee.intrinsic {
+            Some(Intrinsic::Vector(crate::intrinsics::VectorOp::AsArray(mutable))) => self
+                .vector_array_reference(types[0], mutable, span)
+                .map(Some),
             Some(Intrinsic::Identity) => Ok(types.first().copied()),
             Some(Intrinsic::Subslice) => {
                 let receiver = types[0];
+                if types[1] == ir::Type::Scalar(ir::Scalar::Usize) {
+                    let pointer = self
+                        .module
+                        .types
+                        .table()
+                        .pointer(receiver)
+                        .ok_or((span, "array index requires array storage".into()))?;
+                    let target = if pointer.slice {
+                        pointer.target
+                    } else {
+                        self.module
+                            .types
+                            .table()
+                            .field(pointer.target, 0)
+                            .ok_or((span, "array index requires array storage".into()))?
+                    };
+                    return Ok(Some(self.module.types.intern_pointer(ir::Pointer {
+                        target,
+                        slice: false,
+                        ..pointer
+                    })));
+                }
                 let array = self
                     .module
                     .types

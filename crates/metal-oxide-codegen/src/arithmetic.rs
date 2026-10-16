@@ -85,13 +85,23 @@ pub(crate) fn wide_to_float(from: Type, to: Scalar) -> Option<&'static str> {
 
 pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
     match (op, ty) {
+        (UnaryOp::Neg, Type::Scalar(scalar)) if scalar.is_float() => {
+            let (bits, sign) = if scalar == Scalar::F32 {
+                ("uint", "0x80000000u")
+            } else {
+                ("ushort", "0x8000u")
+            };
+            format!(
+                "as_type<{}>({bits}(as_type<{bits}>({value}) ^ {sign}))",
+                scalar_name(scalar)
+            )
+        }
         (UnaryOp::Neg, Type::Scalar(Scalar::Isize)) => {
             integer_value(Scalar::Isize, &format!("0ul - ulong({value})"))
         }
         (UnaryOp::Neg, Type::Scalar(scalar)) if scalar.is_signed() => {
             integer_value(scalar, &format!("0u - uint(int({value}))"))
         }
-        (UnaryOp::Neg, _) => format!("(-{value})"),
         (UnaryOp::Not, Type::Scalar(Scalar::Bool)) => format!("(!{value})"),
         (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::Usize | Scalar::Isize)) => {
             format!("(~{value})")

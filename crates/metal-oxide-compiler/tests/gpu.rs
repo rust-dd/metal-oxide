@@ -42,6 +42,8 @@ mod aggregate_references;
 mod aggregates;
 #[path = "gpu/artifact.rs"]
 mod artifact;
+#[path = "gpu/atomic_numeric.rs"]
+mod atomic_numeric;
 #[path = "gpu/atomics.rs"]
 mod atomics;
 #[path = "gpu/checks.rs"]

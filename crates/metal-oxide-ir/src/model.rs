@@ -293,6 +293,11 @@ pub enum Expression {
     Use(Operand),
     Binary(BinaryOp, Operand, Operand),
     Unary(UnaryOp, Operand),
+    Select {
+        condition: Operand,
+        yes: Operand,
+        no: Operand,
+    },
     Cast(Operand, Scalar),
     /// f32 to integer without saturation; the value must be representable after truncation.
     UncheckedCast(Operand, Scalar),
@@ -350,6 +355,8 @@ pub enum Expression {
     },
     Atomic {
         op: AtomicOp,
+        order: crate::AtomicOrdering,
+        failure: crate::AtomicOrdering,
         arguments: Vec<Operand>,
     },
     /// The address of a place, which the operand names; the place stays in its address space.
@@ -399,6 +406,7 @@ impl Expression {
             | Self::Slice(v)
             | Self::PointerCast(v, _) => vec![v],
             Self::Binary(_, a, b) => vec![a, b],
+            Self::Select { condition, yes, no } => vec![condition, yes, no],
             Self::Coordinates(_)
             | Self::SimdCoordinate(_)
             | Self::ThreadIndex

@@ -17,7 +17,7 @@ const REPORTS: [&str; 7] = [
 ];
 
 /// Where the reports in `text` start their arguments: the calls in [`REPORTS`], and
-/// `(span, message)` errors, whose message rustfmt may wrap onto the next line.
+/// `(span, message)` errors, including a span field and a message on the next line.
 fn reports(text: &str) -> impl Iterator<Item = usize> + '_ {
     let calls = REPORTS.iter().flat_map(move |report| {
         text.match_indices(report)
@@ -25,9 +25,27 @@ fn reports(text: &str) -> impl Iterator<Item = usize> + '_ {
     });
     let spans = text
         .match_indices("span,")
-        .filter(move |(at, _)| text[..*at].trim_end().ends_with('('))
+        .filter(move |(at, _)| {
+            text[..*at]
+                .trim_end_matches(|ch: char| ch.is_alphanumeric() || matches!(ch, '_' | '.'))
+                .trim_end()
+                .ends_with('(')
+        })
         .map(|(at, _)| at + "span".len());
     calls.chain(spans)
+}
+
+#[test]
+fn span_error_inventory_includes_local_and_field_spans() {
+    let text = r#"
+        Err((span, "plain".into()));
+        Err((argument.span, "field".into()));
+        Err((fn_span, "named".into()));
+    "#;
+    let messages = reports(text)
+        .filter_map(|at| literal(&text[at..]))
+        .collect::<Vec<_>>();
+    assert_eq!(messages, ["plain", "field", "named"]);
 }
 
 /// The rejection messages in the compiler, IR and codegen sources, with a site of each.

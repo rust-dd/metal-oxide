@@ -23,7 +23,8 @@ separate.
   Built-in primitive scalars use direct shared-storage views after a private
   type-identity proof; custom codecs retain their CPU mirror. Layout equality
   alone does not authorize reinterpreting a custom Rust type.
-  Atomic elements remain sealed to u32/i32. Validate codec size/alignment against
+  Atomic elements are sealed to u32/i32/f32/u64; the compiler checks each operation
+  and address space against the shared capability table. Validate codec size/alignment against
   the canonical layout; never reinterpret arbitrary Rust values as GPU bytes.
   `Buffer` is `Sync` because GPU writes need `&mut` and a codec mirror is decoded
   under its lock at most once per shared borrow; preserve that protocol.

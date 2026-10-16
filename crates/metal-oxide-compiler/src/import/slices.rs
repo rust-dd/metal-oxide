@@ -18,7 +18,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         ))
     }
 
-    /// Expands `slice[range]` into Rust's range checks, in core's order, and the subslice.
+    /// Expands slice indexing into a checked element reference or range, in core's order.
     /// Returns the terminator of the current block; `span` is where the checks report.
     pub(super) fn subslice(
         &mut self,
@@ -68,6 +68,47 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             length_place.clone(),
             ir::Expression::Len(slice.clone()),
         ));
+        if range_type.is_usize() {
+            let index = self.temporary(ir::Type::Scalar(ir::Scalar::Usize));
+            statements.push(statement(
+                ir::Place::local(index),
+                ir::Expression::Use(range.clone()),
+            ));
+            let ir::Operand::Place(mut element) = slice else {
+                return Err((span, "array index requires a place".into()));
+            };
+            element
+                .projection
+                .extend([ir::Projection::Deref, ir::Projection::Index(index)]);
+            let (destination, ty) = self.typed_place(destination, span)?;
+            let mutable = self.module.types.table().pointer(ty).unwrap().mutable;
+            let next = self.append(
+                body,
+                ir::Block {
+                    statements: vec![statement(
+                        destination,
+                        ir::Expression::Ref {
+                            place: ir::Operand::Place(element),
+                            mutable,
+                        },
+                    )],
+                    terminator: ir::Terminator::Goto(target),
+                    source: source.clone(),
+                },
+            );
+            let condition = ir::Place::local(self.temporary(ir::Type::Scalar(ir::Scalar::Bool)));
+            statements.push(statement(
+                condition.clone(),
+                ir::Expression::Binary(ir::BinaryOp::Lt, range, length),
+            ));
+            return Ok(ir::Terminator::Assert {
+                condition: ir::Operand::Place(condition),
+                expected: true,
+                enabled: true,
+                target: next,
+                check: ir::Check::Bounds,
+            });
+        }
         let zero = ir::Operand::Constant(ir::Constant::Usize(0));
         let items = tcx.lang_items();
         let ty::Adt(definition, arguments) = range_type.kind() else {

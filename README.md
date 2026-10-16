@@ -127,7 +127,7 @@ against `core`: references and slices, records, tuples and arrays, enums with pa
 `Option` and `Result` with `?`, closures, core's iterators and generic helpers, over `bool`,
 `f32`, `F16`, `BF16`, the 8- to 32-bit integers, `u64`, `usize` and `isize`. The compiler rejects
 what it cannot lower with a diagnostic at the Rust source, such as recursion, calls through
-function pointers or trait objects, destructors, coroutines, `core::simd` vectors, `f64`,
+function pointers or trait objects, destructors, coroutines, `f64`,
 `i64` and 128-bit integers.
 
 `F16` and `BF16` support rounded arithmetic and f32 conversions; the runtime exports
@@ -136,12 +136,55 @@ unstable `f16` primitive. Bfloat kernels record a GPU requirement and reject uns
 devices when loaded. Conversions preserve finite subnormal values; arithmetic follows
 the selected [numerical mode](CONCEPT.md#apple-compilation-and-artifact).
 
+Within a thread, `core::simd::Simd<T, N>` supports 2–4 lanes of `f32` and 8-, 16- or
+32-bit integers. Construction, lane access, arithmetic, masks, comparisons, selection,
+reductions, casts, swizzles, saturation and bit counts lower to scalar operations.
+Integer division retains zero checks and wrapping `MIN / -1` behavior. Vectors cannot
+cross the kernel boundary; wider vectors, gather/scatter and masked loads are rejected.
+Host files using `core::simd` need nightly Rust; separate kernel crates use the pinned
+compiler toolchain.
+
+The `no_std` integration tests compile and execute `libm` f32 math and `num-traits`
+generic float/integer workloads. Dependencies remain subject to the supported device
+types and operations; using `no_std` alone does not make an entire crate compatible.
+
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Launch functions take an element count; raw `Launch`
 operations use `Argument::threadgroup::<T>(elements)`. Both paths validate combined
 static/dynamic memory against `Device::max_threadgroup_memory_per_block()`.
 The [spectral example](https://github.com/rust-dd/metal-oxide/tree/main/examples/spectral) uses this for runtime-sized FFT tiles,
 with CPU/native references, seeded stream checks and matched-mode benchmarks.
+
+Device atomics take a constant `core::sync::atomic::Ordering`. `u32`/`i32` support
+load, store, exchange, weak compare/exchange, arithmetic, minimum/maximum and bitwise
+operations in device and threadgroup memory. `f32` supports device load, store,
+exchange, weak compare/exchange and add/subtract. Its compare/exchange compares bits.
+`u64` supports device `min`/`max` without returning the previous value. Unsupported
+operations and `SeqCst` are rejected. Acquire/release requires MSL 4.1 and macOS 27;
+its lowering and capability gates are tested, but hardware validation is pending.
+
+Artifacts carry these requirements; the runtime checks OS and GPU support before
+loading them. The compiler baseline is MSL 3.2 and macOS 15, even when a feature's
+minimum is lower. Regenerate this table with
+`cargo run -p metal-oxide-artifact --example capabilities`.
+
+<!-- capabilities -->
+| Artifact feature | MSL | macOS | Apple GPU family | Mac2 |
+| --- | --- | --- | --- | --- |
+| `float32_atomics` | 3.0 | 13 | 7 | no |
+| `uint64_atomics` | 2.4 | 12 | 8 | no |
+| `atomic_acquire_release` | 4.1 | 27 | 7 | no |
+| `int32_atomics` | 1.0 | 11 | 1 | yes |
+| `simd_groups` | 2.0 | 11 | 7 | yes |
+| `dynamic_threadgroup_memory` | 1.0 | 11 | 1 | yes |
+| `logging` | 3.2 | 15 | 6 | yes |
+| `bfloat16` | 3.1 | 14 | 6 | no |
+<!-- /capabilities -->
+
+Requirements follow Apple's [Metal language specification](https://developer.apple.com/metal/Metal-Shading-Language-Specification.pdf)
+and [feature tables](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf).
+The `uint64_atomics` feature covers only the minimum/maximum operations supported on
+Apple family 8 and later on macOS.
 
 ## Compiler flow
 

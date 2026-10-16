@@ -286,12 +286,12 @@ fn generated_programs_cover_the_supported_constructs() {
         "simdgroup::shuffle_xor(",
         "store_unchecked(lane ^ ",
         "threadgroup::barrier()",
-        ".fetch_sub_relaxed(",
-        ".fetch_min_relaxed(",
+        ".fetch_sub(",
+        ".fetch_min(",
         "ThreadgroupBuffer<f32, 64>",
         "AtomicThreadgroupBuffer<i32, ",
         "counters: AtomicBuffer<i32>",
-        "counters.fetch_max_relaxed(",
+        "counters.fetch_max(",
         "// counters: u32",
         "    'o",
     ] {
@@ -312,13 +312,13 @@ fn the_cpu_model_runs_the_threads_of_a_block_together() {
         // SAFETY: every thread of the block reaches each operation, and each stores its own cell.
         let words = unsafe {
             shared.store_unchecked(lane ^ 1, i);
-            counts.store_relaxed(lane % 2, 0);
+            counts.store(lane % 2, 0, core::sync::atomic::Ordering::Relaxed);
             threadgroup::barrier();
-            counts.fetch_add_relaxed(lane % 2, lane);
+            counts.fetch_add(lane % 2, lane, core::sync::atomic::Ordering::Relaxed);
             threadgroup::barrier();
             [
                 shared.load_unchecked(lane),
-                counts.load_relaxed(1),
+                counts.load(1, core::sync::atomic::Ordering::Relaxed),
                 simdgroup::sum(i),
                 simdgroup::exclusive_sum(1_u32),
                 simdgroup::shuffle_up(i, 1),

@@ -9,7 +9,7 @@ use crate::{
 };
 use metal_oxide_artifact::{
     Abi, ArtifactFile, BuildInfo, COMPILER_NIGHTLY, COMPILER_OUTPUTS, DEVICE_TARGET, Files,
-    MSL_VERSION, Manifest, MathMode, sha256,
+    Manifest, MathMode, sha256,
 };
 use std::{
     fs::{File, OpenOptions, TryLockError},
@@ -239,10 +239,10 @@ fn create(
     )?)?;
     metal.compile(stage, &flags)?;
     let manifest = Manifest {
+        msl_version: abi.msl_version(),
         abi,
         checks: serde_json::from_slice(&std::fs::read(stage.join(ArtifactFile::Checks.name()))?)?,
         target: DEVICE_TARGET.into(),
-        msl_version: MSL_VERSION.into(),
         files: Files::from_directory(stage)?,
         build: BuildInfo {
             fingerprint: fingerprint.into(),

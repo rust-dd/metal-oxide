@@ -1,4 +1,5 @@
 use crate::{BF16, Dim3, F16};
+use core::sync::atomic::Ordering;
 
 /// Declares the device intrinsics that the compiler lowers; host builds, which type-check
 /// kernels in ordinary crates, get definitions that panic.
@@ -31,8 +32,10 @@ fn host() -> ! {
 }
 
 intrinsics! {
-    unsafe fn __metal_atomic_load(ptr: *mut (), index: u32, out: *mut (), size: usize);
-    unsafe fn __metal_atomic_store(ptr: *mut (), index: u32, value: *const (), size: usize);
+    unsafe fn __metal_atomic_load(ptr: *mut (), index: u32, out: *mut (), size: usize, order: Ordering);
+    unsafe fn __metal_atomic_store(ptr: *mut (), index: u32, value: *const (), size: usize, order: Ordering);
+    unsafe fn __metal_atomic_min_store(ptr: *mut (), index: u32, value: u64, order: Ordering);
+    unsafe fn __metal_atomic_max_store(ptr: *mut (), index: u32, value: u64, order: Ordering);
     unsafe fn __metal_atomic_compare_exchange_weak(
         ptr: *mut (),
         index: u32,
@@ -40,6 +43,7 @@ intrinsics! {
         new: *const (),
         out: *mut (),
         size: usize,
+        ordering: (Ordering, Ordering),
     ) -> bool;
     safe fn __metal_thread_idx() -> Dim3;
     safe fn __metal_thread_index() -> usize;
@@ -100,7 +104,7 @@ intrinsics! {
 macro_rules! atomic_modify {
     ($($name:ident),* $(,)?) => {
         intrinsics! {
-            $(unsafe fn $name(ptr: *mut (), index: u32, value: *const (), out: *mut (), size: usize);)*
+            $(unsafe fn $name(ptr: *mut (), index: u32, value: *const (), out: *mut (), size: usize, order: Ordering);)*
         }
     };
 }

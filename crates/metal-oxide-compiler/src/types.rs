@@ -1,3 +1,5 @@
+mod parameters;
+mod vector;
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{self, Ty, TyCtxt, TypingEnv, consts::ConstExt};
 use rustc_span::Span;
@@ -26,6 +28,9 @@ impl<'tcx> TypeLowering<'tcx> {
     }
 
     pub(crate) fn lower(&mut self, ty: Ty<'tcx>, span: Span) -> Result<ir::Type, (Span, String)> {
+        if ordering(self.tcx, ty) {
+            return Ok(ir::Type::Scalar(ir::Scalar::I8));
+        }
         if let Some(scalar) = scalar(ty) {
             return Ok(ir::Type::Scalar(scalar));
         }
@@ -49,7 +54,7 @@ impl<'tcx> TypeLowering<'tcx> {
             && types.len() == 2
             && types[1].is_bool()
             && let Some(scalar) = scalar(types[0])
-            && scalar.is_integer()
+            && (scalar.is_integer() || scalar == ir::Scalar::F32)
         {
             return Ok(ir::Type::Checked(scalar));
         }
@@ -104,12 +109,7 @@ impl<'tcx> TypeLowering<'tcx> {
             if definition.is_enum() {
                 return self.enumeration(ty, &mut std::iter::empty(), span);
             }
-            if definition.repr().simd() {
-                return Err((
-                    span,
-                    "repr(simd) vector types are not supported in Metal kernels".into(),
-                ));
-            }
+            vector::validate(self.tcx, ty, span)?;
             if definition.is_struct() {
                 if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
                     return Err((span, "destructors cannot be imported".into()));
@@ -445,7 +445,7 @@ pub(crate) fn is_zero_sized<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
         .is_ok_and(|layout| layout.is_zst())
 }
 
-fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
+pub(crate) fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
     match ty.kind() {
         ty::Bool => Some(ir::Scalar::Bool),
         ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
@@ -494,6 +494,9 @@ fn buffer<'tcx>(
 }
 
 pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Type> {
+    if parameters::contains_internal_type(tcx, ty) {
+        return None;
+    }
     let dynamic_shared = matches!(ty.kind(), ty::Adt(definition, _) if device_type(tcx, definition.did()) == Some(DeviceType::DynamicThreadgroupBuffer));
     let mut lowering = TypeLowering::new(tcx);
     let ty = lowering.lower(ty, rustc_span::DUMMY_SP).ok()?;
@@ -511,7 +514,9 @@ pub(crate) fn parameter<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<ir::Typ
             && (access != ir::Access::Atomic
                 || matches!(
                     element,
-                    ir::Element::Scalar(ir::Scalar::U32 | ir::Scalar::I32)
+                    ir::Element::Scalar(
+                        ir::Scalar::U32 | ir::Scalar::I32 | ir::Scalar::F32 | ir::Scalar::U64
+                    )
                 )) =>
         {
             Some(ty)
@@ -547,4 +552,9 @@ pub(crate) fn has_reference<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
         }
         _ => false,
     }
+}
+
+/// Core's Ordering lang item is represented by its specified -1/0/1 discriminants.
+pub(crate) fn ordering(tcx: TyCtxt<'_>, ty: Ty<'_>) -> bool {
+    matches!(ty.kind(), ty::Adt(definition, _) if tcx.crate_name(definition.did().krate).as_str() == "core" && tcx.def_path_str(definition.did()) == "core::cmp::Ordering")
 }

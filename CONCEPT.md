@@ -274,9 +274,10 @@ done:
 
 The IR validator checks types, initialization, call graphs, address spaces, and
 cooperative participation. Codegen structures supported control flow into MSL.
-Unsupported operations produce diagnostics. `core::simd` and `repr(simd)` vector types
-are currently rejected. Fixed arrays provide within-thread storage; cross-thread
-collectives use `device::simdgroup`. MIR assertions remain in the IR until a typed
+Unsupported operations produce diagnostics. Within-thread `core::simd` vectors with
+2–4 lanes of f32 or 8/16/32-bit integers lower to scalar operations over fixed arrays.
+Vectors cannot cross the kernel ABI. Cross-thread collectives use
+`device::simdgroup`. MIR assertions remain in the IR until a typed
 constant or range proof establishes that they cannot fail.
 The guards prove both bounds assertions, so `vec_add` has no runtime checks.
 Launch validation keeps `grid_dim * block_dim` within `u32` on every axis, so

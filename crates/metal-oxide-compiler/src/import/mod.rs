@@ -1,3 +1,4 @@
+mod atomics;
 mod buffers;
 mod calls;
 mod constants;
@@ -15,6 +16,7 @@ mod ranges;
 mod references;
 mod slices;
 mod values;
+mod vector;
 
 use std::collections::{HashMap, HashSet};
 

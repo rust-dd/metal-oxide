@@ -1,4 +1,5 @@
 #![no_std]
+use core::sync::atomic::Ordering::Relaxed;
 
 use metal_oxide_device::{AtomicBuffer, ReadBuffer, WriteBuffer, block_idx, kernel, thread_idx, threadgroup};
 
@@ -56,5 +57,5 @@ pub unsafe fn transpose(input: ReadBuffer<f32>, output: WriteBuffer<f32>, width:
 #[kernel]
 pub unsafe fn counter(output: AtomicBuffer<u32>) {
     // SAFETY: output[0] is initialized, and all concurrent accesses are atomic.
-    unsafe { output.fetch_add_relaxed(0, 1); }
+    unsafe { output.fetch_add(0, 1, Relaxed); }
 }

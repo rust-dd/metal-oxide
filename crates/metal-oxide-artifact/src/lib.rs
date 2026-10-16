@@ -1,5 +1,6 @@
 //! Versioned kernel metadata shared by the compiler, tools, and runtime.
 
+mod atomic;
 mod capabilities;
 mod checks;
 mod compiler;
@@ -11,6 +12,7 @@ mod model;
 mod tables;
 mod validate;
 
+pub use atomic::{AtomicOp, AtomicOrdering};
 pub use capabilities::{CAPABILITIES, Capability};
 pub use checks::{Check, CheckKind, Location, OverflowOp};
 pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
@@ -26,7 +28,6 @@ use std::fmt;
 
 pub const ABI_VERSION: u32 = 4;
 pub const DEVICE_TARGET: &str = "metal64-unknown-none";
-pub const MSL_VERSION: &str = "3.2";
 /// The Metal compiler flag that keeps `os_log` calls of artifacts that require logging.
 pub const LOGGING_FLAG: &str = "-fmetal-enable-logging";
 

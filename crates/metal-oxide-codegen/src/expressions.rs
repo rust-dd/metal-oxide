@@ -209,6 +209,9 @@ pub(crate) fn expression(
     let ty = |v| operand_type(module, function, v, source);
     Ok(match value {
         Expression::Use(v) => op(v),
+        Expression::Select { condition, yes, no } => {
+            format!("({} ? {} : {})", op(condition), op(yes), op(no))
+        }
         Expression::Bitcast(v, to) => format!("as_type<{}>({})", scalar_name(*to), op(v)),
         Expression::UncheckedCast(v, to) => format!("{}({})", scalar_name(*to), op(v)),
         Expression::Math {
@@ -271,8 +274,15 @@ pub(crate) fn expression(
         }
         Expression::Atomic {
             op: operation,
+            order,
+            failure,
             arguments,
-        } => crate::atomics::expression(*operation, arguments.iter().map(op).collect()),
+        } => crate::atomics::expression(
+            *operation,
+            *order,
+            *failure,
+            arguments.iter().map(op).collect(),
+        ),
         Expression::Coordinates(builtin) => format!(
             "metal_oxide_ctx.{}",
             match builtin {

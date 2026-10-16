@@ -15,15 +15,23 @@ pub unsafe fn histogram(input: ReadBuffer<u32>, bins: AtomicBuffer<u32>, n: u32)
     // SAFETY: complete blocks initialize every bin before contended atomic access.
     unsafe {
         if thread < 16 {
-            shared.store_relaxed(thread, 0);
+            shared.store(thread, 0, core::sync::atomic::Ordering::Relaxed);
         }
         threadgroup::barrier();
         if index < n {
-            shared.fetch_add_relaxed(input.load_unchecked(index) & 15, 1);
+            shared.fetch_add(
+                input.load_unchecked(index) & 15,
+                1,
+                core::sync::atomic::Ordering::Relaxed,
+            );
         }
         threadgroup::barrier();
         if thread < 16 {
-            bins.fetch_add_relaxed(thread, shared.load_relaxed(thread));
+            bins.fetch_add(
+                thread,
+                shared.load(thread, core::sync::atomic::Ordering::Relaxed),
+                core::sync::atomic::Ordering::Relaxed,
+            );
         }
     }
 }

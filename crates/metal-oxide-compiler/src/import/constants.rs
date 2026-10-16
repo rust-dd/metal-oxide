@@ -4,6 +4,34 @@ use rustc_middle::{
     ty::{self, EarlyBinder, Instance, TyCtxt, TypingEnv},
 };
 
+pub(super) fn integer_cast<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    instance: Instance<'tcx>,
+    value: &mir::Operand<'tcx>,
+    to: ir::Scalar,
+) -> Option<ir::Constant> {
+    let mir::Operand::Constant(value) = value else {
+        return None;
+    };
+    let value = instance.instantiate_mir_and_normalize_erasing_regions(
+        tcx,
+        TypingEnv::fully_monomorphized(),
+        EarlyBinder::bind(tcx, value.const_),
+    );
+    if !value.ty().is_integral() && !value.ty().is_bool() {
+        return None;
+    }
+    let mut bits = value.try_eval_bits(tcx, TypingEnv::fully_monomorphized())?;
+    if value.ty().is_signed() {
+        let size = tcx
+            .layout_of(TypingEnv::fully_monomorphized().as_query_input(value.ty()))
+            .ok()?
+            .size;
+        bits = size.sign_extend(bits) as u128;
+    }
+    super::control::integer(to, bits)
+}
+
 pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Option<ir::Constant> {
     if constant.ty().is_unit() || crate::types::stores_nothing(tcx, constant.ty()) {
         return Some(ir::Constant::Unit);

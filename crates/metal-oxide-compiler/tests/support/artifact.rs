@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use metal_oxide::{Device, Module};
-use metal_oxide_artifact::{
-    Abi, ArtifactFile, BuildInfo, DEVICE_TARGET, Files, MSL_VERSION, Manifest, sha256,
-};
+use metal_oxide_artifact::{Abi, ArtifactFile, BuildInfo, DEVICE_TARGET, Files, Manifest, sha256};
 
 /// Loads generated kernels as an artifact: offline MSL compilation and a manifest of the outputs.
 pub fn module(device: &Device, directory: &Path) -> metal_oxide::Result<Module> {
@@ -16,11 +14,12 @@ pub fn manifest(directory: &Path) -> metal_oxide::Result<(Manifest, Vec<u8>)> {
     let metal_flags = metal_oxide_build::compile_msl(directory)
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let read = |file: ArtifactFile| std::fs::read(directory.join(file.name())).unwrap();
+    let abi = Abi::from_json(&String::from_utf8(read(ArtifactFile::Abi)).unwrap())?;
     let manifest = Manifest {
-        abi: Abi::from_json(&String::from_utf8(read(ArtifactFile::Abi)).unwrap())?,
+        msl_version: abi.msl_version(),
+        abi,
         checks: serde_json::from_slice(&read(ArtifactFile::Checks)).unwrap(),
         target: DEVICE_TARGET.into(),
-        msl_version: MSL_VERSION.into(),
         files: Files::from_directory(directory)?,
         build: BuildInfo {
             fingerprint: sha256(&read(ArtifactFile::Msl)),

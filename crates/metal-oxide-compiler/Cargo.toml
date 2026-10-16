@@ -24,6 +24,7 @@ serde_json.workspace = true
 [dev-dependencies]
 metal-oxide.workspace = true
 metal-oxide-build.workspace = true
+nostd-numeric-kernels.workspace = true
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
 objc2-foundation.workspace = true

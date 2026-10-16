@@ -13,5 +13,8 @@ version.workspace = true
 [dependencies]
 metal-oxide-macros = { workspace = true }
 
+[dev-dependencies]
+half = { workspace = true }
+
 [lints]
 workspace = true

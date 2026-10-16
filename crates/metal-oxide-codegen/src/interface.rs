@@ -8,7 +8,7 @@ pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
     pub(crate) simd: bool,
     pub(crate) logging: bool,
-    atomics: bool,
+    atomics: Vec<String>,
     dynamic_shared: bool,
     bfloat: bool,
 }
@@ -126,19 +126,7 @@ impl KernelInterfaces {
             logging: uses(module, |value| {
                 matches!(value, metal_oxide_ir::Expression::Log { .. })
             }),
-            atomics: module
-                .functions
-                .iter()
-                .flat_map(|function| &function.locals)
-                .any(|ty| {
-                    matches!(
-                        ty,
-                        Type::Buffer {
-                            access: Access::Atomic,
-                            ..
-                        }
-                    )
-                }),
+            atomics: atomic_features(module),
         })
     }
 
@@ -150,7 +138,6 @@ impl KernelInterfaces {
             version: artifact::ABI_VERSION,
             math_mode,
             required_features: [
-                (self.atomics, "int32_atomics"),
                 (self.simd, "simd_groups"),
                 (self.dynamic_shared, "dynamic_threadgroup_memory"),
                 (self.logging, "logging"),
@@ -159,6 +146,7 @@ impl KernelInterfaces {
             .into_iter()
             .filter(|(required, _)| *required)
             .map(|(_, name)| name.to_owned())
+            .chain(self.atomics.iter().cloned())
             .collect(),
             kernels: self.kernels.iter().flatten().cloned().collect(),
         };
@@ -194,22 +182,12 @@ fn uses(module: &Module, operation: impl Fn(&metal_oxide_ir::Expression) -> bool
 }
 
 fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error> {
-    match value {
-        Scalar::F32 => Ok(artifact::Scalar::F32),
-        Scalar::F16 => Ok(artifact::Scalar::F16),
-        Scalar::BF16 => Ok(artifact::Scalar::BF16),
-        Scalar::U32 => Ok(artifact::Scalar::U32),
-        Scalar::U64 => Ok(artifact::Scalar::U64),
-        Scalar::I32 => Ok(artifact::Scalar::I32),
-        Scalar::U8 => Ok(artifact::Scalar::U8),
-        Scalar::U16 => Ok(artifact::Scalar::U16),
-        Scalar::I8 => Ok(artifact::Scalar::I8),
-        Scalar::I16 => Ok(artifact::Scalar::I16),
-        Scalar::Bool | Scalar::Usize | Scalar::Isize => Err(Error::new(
+    value.abi().ok_or_else(|| {
+        Error::new(
             &function.source,
             format!("{} cannot cross the kernel ABI", value.name()),
-        )),
-    }
+        )
+    })
 }
 
 fn layout(module: &Module, ty: Type, function: &Function) -> Result<artifact::Layout, Error> {
@@ -267,4 +245,40 @@ fn reads_lengths(module: &Module, function: &Function, analysis: &FunctionAnalys
                     )
             )
         })
+}
+
+fn atomic_features(module: &Module) -> Vec<String> {
+    use metal_oxide_ir::{AtomicOp, AtomicOrdering, Element, Expression};
+    let mut features = Vec::new();
+    let mut add = |name: &str| {
+        if !features.iter().any(|f| f == name) {
+            features.push(name.to_owned());
+        }
+    };
+    for ty in module.functions.iter().flat_map(|f| &f.locals) {
+        if let Type::Buffer {
+            element: Element::Scalar(scalar),
+            access: Access::Atomic,
+            address_space,
+        } = ty
+        {
+            let op = if *scalar == Scalar::U64 {
+                AtomicOp::MinStore
+            } else {
+                AtomicOp::Load
+            };
+            if let Some(capability) = scalar.abi().and_then(|scalar| {
+                op.capability(scalar, *address_space == AddressSpace::Threadgroup)
+            }) {
+                add(capability.name);
+            }
+        }
+    }
+    if uses(
+        module,
+        |expression| matches!(expression, Expression::Atomic { order, failure, .. } if *order != AtomicOrdering::Relaxed || *failure != AtomicOrdering::Relaxed),
+    ) {
+        add("atomic_acquire_release");
+    }
+    features
 }

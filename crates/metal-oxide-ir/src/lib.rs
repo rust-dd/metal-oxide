@@ -15,10 +15,10 @@ mod uniform;
 mod validate;
 
 pub use analysis::FunctionAnalysis;
-pub use atomic::AtomicOp;
 pub use check::{Check, OverflowOp};
 pub use control_flow::{ControlFlowGraph, Dominators};
 pub use log::{LogPiece, log_pieces};
+pub use metal_oxide_artifact::{AtomicOp, AtomicOrdering};
 pub use model::*;
 pub use simd::{SimdOp, ballot_type};
 pub use types::{

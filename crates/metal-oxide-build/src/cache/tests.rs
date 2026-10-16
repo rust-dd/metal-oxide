@@ -1,5 +1,5 @@
 use super::*;
-use metal_oxide_artifact::{ABI_VERSION, BuildInfo, DEVICE_TARGET, Files, Kernel, MSL_VERSION};
+use metal_oxide_artifact::{ABI_VERSION, BuildInfo, DEVICE_TARGET, Files, Kernel};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -49,7 +49,7 @@ fn cached_artifact_rejects_tampering_missing_files_and_wrong_identity() {
         abi: abi.clone(),
         checks: vec![],
         target: DEVICE_TARGET.into(),
-        msl_version: MSL_VERSION.into(),
+        msl_version: abi.msl_version(),
         files: Files {
             msl: hash.clone(),
             oxide_ir: hash.clone(),
@@ -63,7 +63,11 @@ fn cached_artifact_rejects_tampering_missing_files_and_wrong_identity() {
             metal: "metal".into(),
             sdk: "macosx".into(),
             rustc_args: vec![],
-            metal_flags: abi.math_mode.metal_flags().map(str::to_owned).to_vec(),
+            metal_flags: abi
+                .target_flags()
+                .into_iter()
+                .chain(abi.math_mode.metal_flags().map(str::to_owned))
+                .collect(),
         },
     };
     std::fs::write(

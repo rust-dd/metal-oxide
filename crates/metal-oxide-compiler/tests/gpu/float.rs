@@ -2,6 +2,51 @@ use super::*;
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn float_negation_preserves_every_half_encoding_and_float_nan_payloads() -> metal_oxide::Result<()>
+{
+    let device = Device::system_default()?;
+    let mut values = (0..=u16::MAX).map(u32::from).collect::<Vec<_>>();
+    let mut bits = 0x9e37_79b9_u32;
+    for _ in 0..8192 {
+        bits = bits.wrapping_mul(1664525).wrapping_add(1013904223);
+        values.push(bits);
+        values.push(0x7f80_0000 | (bits & 0x807f_ffff));
+    }
+    let input = device.buffer_from_slice(&values)?;
+    let mut output = device.buffer_zeroed::<[u32; 2]>(values.len())?;
+    for mode in [
+        metal_oxide_artifact::MathMode::Precise,
+        metal_oxide_artifact::MathMode::Fast,
+    ] {
+        let pipeline = pipeline_with_math_mode(
+            &device,
+            "crates/metal-oxide-compiler/tests/fixtures/float_negation.rs",
+            "negate_bits",
+            mode,
+        )?;
+        // SAFETY: each thread writes one output for its checked input index.
+        unsafe {
+            Launch::new(
+                Ok(&pipeline),
+                LaunchConfig::<64>::for_elements(values.len() as u32)?,
+                (&input, &mut output),
+                |(input, output)| Ok([Argument::read(input), Argument::write(output)]),
+            )
+        }
+        .wait()?;
+        for (&bits, result) in values.iter().zip(output.read().wait().iter()) {
+            assert_eq!(
+                *result,
+                [bits ^ 0x8000_0000, (bits & 0xffff) ^ 0x8000],
+                "{mode:?}: {bits:08x}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn float_casts_match_rust_at_boundaries_and_for_arbitrary_bits() -> metal_oxide::Result<()> {
     float_casts(metal_oxide_artifact::MathMode::Precise)
 }

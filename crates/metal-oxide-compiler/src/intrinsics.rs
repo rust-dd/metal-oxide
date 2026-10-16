@@ -3,6 +3,8 @@ use metal_oxide_ir::{
 };
 mod device;
 mod signatures;
+mod vector;
+pub(crate) use vector::VectorOp;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::{self, Ty, TyCtxt};
@@ -20,6 +22,7 @@ pub(crate) enum Intrinsic {
     ThreadgroupBarrier,
     Uninit,
     Simd(SimdOp),
+    Vector(VectorOp),
     Atomic(AtomicOp),
     WrappingShift(BinaryOp),
     Math(MathOp),
@@ -100,6 +103,7 @@ impl Intrinsic {
             Self::Simd(SimdOp::Sum) => "simd_sum",
             Self::Simd(SimdOp::Shuffle) => "simd_shuffle",
             Self::Simd(_) => "simd",
+            Self::Vector(_) => "vector",
             Self::Atomic(AtomicOp::Add) => "atomic_add",
             Self::Atomic(_) => "atomic",
             Self::WrappingShift(_) => "wrapping_shift",
@@ -190,7 +194,13 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     if tcx.crate_name(definition.krate).as_str() != "core" {
         return None;
     }
+    if let Some(operation) = vector::operation(tcx, definition) {
+        return Some(Intrinsic::Vector(operation));
+    }
     if let Some(intrinsic) = tcx.intrinsic(definition) {
+        if intrinsic.name.as_str().starts_with("simd_") {
+            return Some(Intrinsic::Vector(VectorOp::Intrinsic(intrinsic.name)));
+        }
         return Some(Intrinsic::Integer(match intrinsic.name.as_str() {
             "integer_min" => IntegerOp::Min,
             "integer_max" => IntegerOp::Max,

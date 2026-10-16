@@ -59,7 +59,8 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Enums, `Option` and `Result` included, are IR aggregates: a tag (the narrowest
   unsigned integer that numbers the variants), then payload slots that variants share by
   exact type, each variant taking the first free slot of its field's type. Only default
-  discriminants are supported, and enums never cross the ABI. A variant field projects
+  discriminants are supported, with `core::cmp::Ordering` represented as its signed byte;
+  enums never cross the ABI. A variant field projects
   onto its slot, a discriminant reads the tag, and an exhaustive `match` lets its last case
   take the unreachable default.
 - `&str` and `&dyn Trait` values have no device representation. A message argument
@@ -111,6 +112,9 @@ Implement the next acceptance criterion; create crates when their code is needed
   host crate build from a copy of their file in which everything outside the item is
   blanked, so spans keep their lines and columns.
 - Keep MSL supported; direct AIR is deferred until measurements justify it.
+- Within-thread `core::simd` uses scalar lanes for 2–4 elements of f32 or 8/16/32-bit
+  integers. Keep core's checks and lower supported vector intrinsics explicitly. Vector
+  types never cross the ABI; wider vectors and memory gather/scatter are rejected.
 
 Run compiler tests and Clippy from `crates/metal-oxide-compiler` with
 `--features rustc-private --locked --target-dir ../../target/compiler`. Its

@@ -1,4 +1,5 @@
 #![no_std]
+use core::sync::atomic::Ordering::Relaxed;
 
 use metal_oxide_device::{
     AtomicBuffer, F16, ReadBuffer, WriteBuffer, block_dim, block_idx, grid_dim, kernel, math,
@@ -35,7 +36,7 @@ pub unsafe fn cooperation(out: WriteBuffer<f32>, counts: AtomicBuffer<u32>) {
         let width = simdgroup::size();
         let group = simdgroup::group_id();
         let groups = simdgroup::groups_per_block();
-        let old = counts.fetch_add_relaxed(thread, 1);
+        let old = counts.fetch_add(thread, 1, Relaxed);
         out.store_unchecked(thread, value + (lane + width + group + groups + old) as f32);
     }
 }

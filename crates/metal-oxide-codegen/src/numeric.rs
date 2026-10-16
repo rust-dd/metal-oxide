@@ -14,6 +14,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
         output.push_str("static inline bfloat metal_oxide_bf16_from_f32(float value) {\n    uint bits = as_type<uint>(value);\n    uint rounded = (bits + 0x7fffu + ((bits >> 16) & 1u)) >> 16;\n    ushort result = ushort((bits & 0x7fffffffu) > 0x7f800000u ? (bits >> 16) | 0x40u : rounded);\n    return as_type<bfloat>(result);\n}\n\n");
     }
     for scalar in [
+        Scalar::F32,
         Scalar::U32,
         Scalar::I32,
         Scalar::U8,
@@ -77,9 +78,12 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 let maximum = (1_u32 << scalar.bits()) - 1;
                 let overflow = match operation {
                     BinaryOp::SubWithOverflow => "a < b".into(),
-                    // Metal's GPU compiler can misjudge the narrow overflow intrinsic that a
-                    // range test of the wide product becomes; `mulhi` stays a plain multiply.
-                    BinaryOp::MulWithOverflow => format!("mulhi(a, b) != {ty}(0)"),
+                    // Metal miscompiles narrow overflow tests in loops. A shifted 32-bit high
+                    // product computes the same upper bits without that narrowing.
+                    BinaryOp::MulWithOverflow => {
+                        let shift = 32 - scalar.bits();
+                        format!("mulhi(uint(a) << {shift}u, uint(b)) != 0u")
+                    }
                     _ => format!("(uint(a) {symbol} uint(b)) > {maximum}u"),
                 };
                 writeln!(

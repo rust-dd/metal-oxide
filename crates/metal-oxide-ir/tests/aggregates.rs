@@ -232,7 +232,8 @@ fn non_value_components_are_rejected_in_nested_storage() {
     for component in [
         Type::Never,
         Type::Checked(Scalar::Bool),
-        Type::Checked(Scalar::F32),
+        Type::Checked(Scalar::F16),
+        Type::Checked(Scalar::BF16),
         Type::Buffer {
             element: Element::Scalar(Scalar::U32),
             access: Access::Read,
@@ -249,6 +250,16 @@ fn non_value_components_are_rejected_in_nested_storage() {
         let error = validate(&identity(types, record)).unwrap_err();
         assert!(error.message.contains("requires value components"));
     }
+}
+
+#[test]
+fn float_compare_exchange_results_can_be_stored_in_records() {
+    let mut types = TypeTable::default();
+    let record = types.intern(Aggregate::record(
+        "Result",
+        vec![Type::Checked(Scalar::F32)],
+    ));
+    assert!(validate(&identity(types, record)).is_ok());
 }
 
 #[test]

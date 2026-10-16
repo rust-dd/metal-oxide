@@ -211,11 +211,11 @@ pub const COUNTERS: [u32; 4] = [0, u32::MAX, 0x7fff_ffff, 0x8000_0000];
 
 macro_rules! atomics {
     () => {
-        pub unsafe fn load_relaxed(self, index: u32) -> T {
+        pub unsafe fn load(self, index: u32, _order: core::sync::atomic::Ordering) -> T {
             T::from_word(self.cells[index as usize].load(Relaxed))
         }
 
-        pub unsafe fn store_relaxed(self, index: u32, value: T) {
+        pub unsafe fn store(self, index: u32, value: T, _order: core::sync::atomic::Ordering) {
             self.cells[index as usize].store(value.into_word(), Relaxed);
         }
 
@@ -231,31 +231,66 @@ macro_rules! atomics {
             }
         }
 
-        pub unsafe fn fetch_add_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_add(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old.plus(value))
         }
 
-        pub unsafe fn fetch_sub_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_sub(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old.minus(value))
         }
 
-        pub unsafe fn fetch_min_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_min(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old.min(value))
         }
 
-        pub unsafe fn fetch_max_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_max(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old.max(value))
         }
 
-        pub unsafe fn fetch_and_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_and(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old & value)
         }
 
-        pub unsafe fn fetch_or_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_or(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old | value)
         }
 
-        pub unsafe fn fetch_xor_relaxed(self, index: u32, value: T) -> T {
+        pub unsafe fn fetch_xor(
+            self,
+            index: u32,
+            value: T,
+            _order: core::sync::atomic::Ordering,
+        ) -> T {
             self.update(index, |old| old ^ value)
         }
     };

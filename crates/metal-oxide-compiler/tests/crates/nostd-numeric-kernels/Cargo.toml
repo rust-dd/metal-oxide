@@ -1,0 +1,21 @@
+[package]
+name = "nostd-numeric-kernels"
+description = "Device acceptance workloads using libm and num-traits"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+unsupported-f64 = []
+unsupported-sine = []
+
+[dependencies]
+libm.workspace = true
+metal-oxide-device.workspace = true
+num-traits.workspace = true
+
+[lints]
+workspace = true

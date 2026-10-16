@@ -1,47 +1,11 @@
 use crate::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AtomicOp {
-    Load,
-    Store,
-    Exchange,
-    CompareExchangeWeak,
-    Add,
-    Sub,
-    Min,
-    Max,
-    And,
-    Or,
-    Xor,
-}
-impl AtomicOp {
-    pub const fn arity(self) -> usize {
-        match self {
-            Self::Load => 0,
-            Self::CompareExchangeWeak => 2,
-            _ => 1,
-        }
-    }
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Load => "load",
-            Self::Store => "store",
-            Self::Exchange => "exchange",
-            Self::CompareExchangeWeak => "compare_exchange_weak",
-            Self::Add => "add",
-            Self::Sub => "sub",
-            Self::Min => "min",
-            Self::Max => "max",
-            Self::And => "and",
-            Self::Or => "or",
-            Self::Xor => "xor",
-        }
-    }
-}
 pub(crate) fn atomic_type(
     module: &Module,
     function: &Function,
     op: AtomicOp,
+    order: AtomicOrdering,
+    failure: AtomicOrdering,
     operands: &[Operand],
     source: &SourceLocation,
 ) -> Result<Type, Error> {
@@ -50,16 +14,28 @@ pub(crate) fn atomic_type(
     }
     let ty = |value| operand_type(module, function, value, source);
     let Type::Buffer {
-        element: Element::Scalar(scalar @ (Scalar::U32 | Scalar::I32)),
+        element: Element::Scalar(scalar),
         access: Access::Atomic,
-        ..
+        address_space,
     } = ty(&operands[0])?
     else {
         return Err(Error::new(
             source,
-            "atomic operations require an i32/u32 atomic buffer",
+            "atomic operations require an atomic scalar buffer",
         ));
     };
+    op.validate_order(order, failure)
+        .map_err(|error| Error::new(source, error))?;
+    if scalar
+        .abi()
+        .and_then(|scalar| op.capability(scalar, address_space == AddressSpace::Threadgroup))
+        .is_none()
+    {
+        return Err(Error::new(
+            source,
+            "unsupported atomic operation for this element and address space",
+        ));
+    }
     if ty(&operands[1])? != Type::Scalar(Scalar::U32) {
         return Err(Error::new(source, "atomic index requires u32"));
     }
@@ -69,7 +45,7 @@ pub(crate) fn atomic_type(
         }
     }
     Ok(match op {
-        AtomicOp::Store => Type::Unit,
+        AtomicOp::Store | AtomicOp::MinStore | AtomicOp::MaxStore => Type::Unit,
         AtomicOp::CompareExchangeWeak => Type::Checked(scalar),
         _ => Type::Scalar(scalar),
     })

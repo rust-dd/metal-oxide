@@ -112,6 +112,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         if let Some(Intrinsic::Log) = callee.intrinsic {
             return self.log(args, callee.arguments, span);
         }
+        if let Some(Intrinsic::Atomic(op)) = callee.intrinsic {
+            return self.atomic(op, args, body, span);
+        }
         if let Some(intrinsic) = callee.intrinsic {
             let arguments = args
                 .iter()
@@ -367,6 +370,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [left, right] = arguments(values, span)?;
                 ir::Expression::Binary(op, left, right)
             }
+            Intrinsic::Vector(_) => unreachable!("vectors are scalarized in place"),
             Intrinsic::Log => unreachable!("log calls are imported before their operands"),
             Intrinsic::UncheckedFloatToInt => {
                 let [value] = arguments(values, span)?;
@@ -436,14 +440,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 );
                 ir::Expression::Uninit(self.lower_type(array, span)?)
             }
-            Intrinsic::Atomic(op) => {
-                if values.len() != op.arity() + 2 {
-                    return Err((span, "invalid atomic intrinsic arity".into()));
-                }
-                ir::Expression::Atomic {
-                    op,
-                    arguments: values,
-                }
+            Intrinsic::Atomic(_) => {
+                unreachable!("atomics are imported before their ordering arguments")
             }
             Intrinsic::BufferLoad => {
                 let [buffer, index] = arguments(values, span)?;

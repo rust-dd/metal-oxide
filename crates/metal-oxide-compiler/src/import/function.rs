@@ -86,6 +86,10 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                     .source_info
                     .span;
                 let (_, ty) = self.typed_place(&place, span)?;
+                if ty == ir::Type::Scalar(ir::Scalar::I8) {
+                    self.locals[index] = ty;
+                    continue;
+                }
                 let tag = self
                     .module
                     .types
@@ -279,6 +283,31 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                     destination,
                     target.as_usize(),
                     body,
+                    span,
+                )?
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target: Some(target),
+                ..
+            } if matches!(
+                self.callee(func, body, span)?.intrinsic,
+                Some(crate::intrinsics::Intrinsic::Vector(_))
+            ) =>
+            {
+                let Some(crate::intrinsics::Intrinsic::Vector(op)) =
+                    self.callee(func, body, span)?.intrinsic
+                else {
+                    unreachable!()
+                };
+                self.vector_call(
+                    op,
+                    args,
+                    (destination, target.as_usize()),
+                    body,
+                    &mut statements,
                     span,
                 )?
             }

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, MSL_VERSION, Manifest, Operand,
-    ParameterType, Scalar,
+    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, Manifest, Operand, ParameterType,
+    Scalar,
 };
 
 pub(crate) fn identifier(name: &str) -> bool {
@@ -80,13 +80,16 @@ impl Abi {
                                 "buffer stride does not match its element layout".into(),
                             ));
                         }
-                        if *access == Access::Atomic
-                            && !matches!(element.scalar_type(), Some(Scalar::U32 | Scalar::I32))
-                        {
-                            return Err(Error(format!(
-                                "kernel {} requires integer atomic elements",
-                                kernel.name
-                            )));
+                        if *access == Access::Atomic {
+                            let feature = match element.scalar_type() {
+                                Some(Scalar::U32 | Scalar::I32) => "int32_atomics",
+                                Some(Scalar::F32) => "float32_atomics",
+                                Some(Scalar::U64) => "uint64_atomics",
+                                _ => return Err(Error("unsupported atomic element".into())),
+                            };
+                            if !features.contains(feature) {
+                                return Err(Error(format!("atomic buffer requires {feature}")));
+                            }
                         }
                     }
                 }
@@ -188,6 +191,20 @@ impl Manifest {
                 ));
             }
         }
+        for expected in self.abi.target_flags() {
+            let prefix = expected.split_once('=').unwrap().0;
+            let actual = self
+                .build
+                .metal_flags
+                .iter()
+                .filter(|f| f.split_once('=').is_some_and(|(name, _)| name == prefix))
+                .collect::<Vec<_>>();
+            if actual != [&expected] {
+                return Err(Error(
+                    "Metal target flags do not match artifact requirements".into(),
+                ));
+            }
+        }
         let logging = self.abi.required_features.iter().any(|f| f == "logging");
         if logging != self.build.metal_flags.iter().any(|f| f == LOGGING_FLAG) {
             return Err(Error(
@@ -209,7 +226,7 @@ impl Manifest {
         {
             return Err(Error("runtime checks require source locations".into()));
         }
-        if self.target != DEVICE_TARGET || self.msl_version != MSL_VERSION {
+        if self.target != DEVICE_TARGET || self.msl_version != self.abi.msl_version() {
             return Err(Error("unsupported artifact target or MSL version".into()));
         }
         if self

@@ -20,6 +20,23 @@ pub enum Scalar {
 }
 
 impl Scalar {
+    pub const fn abi(self) -> Option<metal_oxide_artifact::Scalar> {
+        use metal_oxide_artifact::Scalar as Abi;
+        Some(match self {
+            Self::F32 => Abi::F32,
+            Self::F16 => Abi::F16,
+            Self::BF16 => Abi::BF16,
+            Self::U32 => Abi::U32,
+            Self::U64 => Abi::U64,
+            Self::I32 => Abi::I32,
+            Self::U8 => Abi::U8,
+            Self::U16 => Abi::U16,
+            Self::I8 => Abi::I8,
+            Self::I16 => Abi::I16,
+            Self::Bool | Self::Usize | Self::Isize => return None,
+        })
+    }
+
     pub const fn is_float(self) -> bool {
         matches!(self, Self::F16 | Self::BF16 | Self::F32)
     }
@@ -388,7 +405,7 @@ impl TypeTable {
                     Type::Scalar(_) | Type::Dim3 => {}
                     // Zero-sized fields take no storage; array elements need some.
                     Type::Unit if !matches!(aggregate, Aggregate::Array { .. }) => {}
-                    Type::Checked(scalar) if scalar.is_integer() => {}
+                    Type::Checked(scalar) if scalar.is_integer() || scalar == Scalar::F32 => {}
                     Type::Aggregate(child) if child < id => {}
                     Type::Aggregate(_) => {
                         return Err(Error::new(

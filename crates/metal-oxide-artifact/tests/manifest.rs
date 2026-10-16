@@ -35,7 +35,7 @@ fn manifest() -> Manifest {
             },
         }],
         target: DEVICE_TARGET.into(),
-        msl_version: MSL_VERSION.into(),
+        msl_version: "3.2".into(),
         files: Files {
             msl: sha256(b"msl"),
             oxide_ir: sha256(b"oxide ir"),
@@ -49,7 +49,11 @@ fn manifest() -> Manifest {
             metal: "metal".into(),
             sdk: "macosx".into(),
             rustc_args: vec![],
-            metal_flags: MathMode::Precise.metal_flags().map(str::to_owned).to_vec(),
+            metal_flags: ["-std=metal3.2", "-mmacosx-version-min=15.0"]
+                .into_iter()
+                .chain(MathMode::Precise.metal_flags())
+                .map(str::to_owned)
+                .collect(),
         },
     }
 }
@@ -129,7 +133,12 @@ fn numerical_contract_requires_a_known_mode_and_matching_flags() {
     let mut fast = manifest();
     fast.abi.math_mode = MathMode::Fast;
     assert!(fast.validate().is_err());
-    fast.build.metal_flags = MathMode::Fast.metal_flags().map(str::to_owned).to_vec();
+    fast.build.metal_flags = fast
+        .abi
+        .target_flags()
+        .into_iter()
+        .chain(MathMode::Fast.metal_flags().map(str::to_owned))
+        .collect();
     assert_eq!(Manifest::from_json(&fast.to_json().unwrap()).unwrap(), fast);
     assert_ne!(
         fast.abi.to_json().unwrap(),
@@ -317,5 +326,29 @@ fn check_messages_follow_rust_runtime_panics() {
         ),
     ] {
         assert_eq!(kind.message(), message);
+    }
+}
+
+#[test]
+fn ordered_atomic_artifacts_require_matching_language_and_deployment_flags() {
+    let mut value = manifest();
+    value
+        .abi
+        .required_features
+        .push("atomic_acquire_release".into());
+    assert!(value.validate().is_err());
+    value.msl_version = value.abi.msl_version();
+    assert!(value.validate().is_err());
+    value.build.metal_flags = value
+        .abi
+        .target_flags()
+        .into_iter()
+        .chain(value.abi.math_mode.metal_flags().map(str::to_owned))
+        .collect();
+    value.validate().unwrap();
+    for bad in ["-std=metal3.2", "-mmacosx-version-min=15.0"] {
+        let mut modified = value.clone();
+        modified.build.metal_flags.push(bad.into());
+        assert!(modified.validate().is_err());
     }
 }
