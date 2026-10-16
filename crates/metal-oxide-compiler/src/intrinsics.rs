@@ -25,7 +25,11 @@ pub(crate) enum Intrinsic {
     Math(MathOp),
     Integer(IntegerOp),
     Bitcast(Scalar),
-    FloatConvert(Scalar),
+    FloatConvert {
+        from: Scalar,
+        to: Scalar,
+    },
+    FloatBinary(Scalar, BinaryOp),
     UncheckedFloatToInt,
     Log,
     /// `<[T]>::len`.
@@ -102,7 +106,8 @@ impl Intrinsic {
             Self::Math(_) => "float_math",
             Self::Integer(_) => "integer_op",
             Self::Bitcast(_) => "scalar_bitcast",
-            Self::FloatConvert(_) => "float_conversion",
+            Self::FloatConvert { .. } => "float_conversion",
+            Self::FloatBinary(..) => "float_arithmetic",
             Self::UncheckedFloatToInt => "unchecked_float_to_int",
             Self::Log => "log",
             Self::SliceLen => "slice_len",

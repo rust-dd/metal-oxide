@@ -234,7 +234,7 @@ impl ArgumentInfo {
             Scalar::I8 => i128::from(bits as u8 as i8),
             Scalar::I16 => i128::from(bits as u16 as i16),
             Scalar::I32 => i128::from(bits as u32 as i32),
-            Scalar::F32 | Scalar::F16 => return None,
+            Scalar::F32 | Scalar::F16 | Scalar::BF16 => return None,
         })
     }
 

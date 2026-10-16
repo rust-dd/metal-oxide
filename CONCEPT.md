@@ -126,6 +126,11 @@ to the memory declarations. The importer lowers these device adapters directly
 to typed buffer operations, preserving their access and address space. Erased
 pointers stay inside the adapter; they are not part of the kernel ABI or IR.
 `F16::from_bits` and `F16::to_bits` remain ordinary const Rust bit conversions.
+`F16` and `BF16` arithmetic rounds each operation to its result type. Rust's native
+`f16` maps to the same binary16 IR type. Bfloat conversion rounds through integer bits
+to retain subnormals; remainder explicitly preserves its numerator's zero sign.
+The artifact capability table defines feature names and minimum GPU requirements;
+ABI validation and runtime loading share it. Bfloat layouts require `bfloat16`.
 
 ## Rust frontend and MIR
 

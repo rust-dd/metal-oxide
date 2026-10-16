@@ -6,7 +6,7 @@ mod scalar;
 mod value;
 
 pub use error::{Error, KernelFailure, Result};
-pub use half::f16 as F16;
+pub use half::{bf16 as BF16, f16 as F16};
 pub use launch::{Dim3, DynamicLaunchConfig, LaunchConfig};
 pub use metal_oxide_artifact::{Layout, LayoutKind};
 /// The device API that kernels use.

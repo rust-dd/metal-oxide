@@ -1,4 +1,4 @@
-use crate::{Dim3, F16};
+use crate::{BF16, Dim3, F16};
 
 /// Declares the device intrinsics that the compiler lowers; host builds, which type-check
 /// kernels in ordinary crates, get definitions that panic.
@@ -62,6 +62,18 @@ intrinsics! {
     safe fn __metal_trunc_f32(value: f32) -> f32;
     safe fn __metal_f16_from_f32(value: f32) -> F16;
     safe fn __metal_f16_to_f32(value: F16) -> f32;
+    safe fn __metal_f16_add(a: F16, b: F16) -> F16;
+    safe fn __metal_f16_sub(a: F16, b: F16) -> F16;
+    safe fn __metal_f16_mul(a: F16, b: F16) -> F16;
+    safe fn __metal_f16_div(a: F16, b: F16) -> F16;
+    safe fn __metal_f16_rem(a: F16, b: F16) -> F16;
+    safe fn __metal_bf16_add(a: BF16, b: BF16) -> BF16;
+    safe fn __metal_bf16_sub(a: BF16, b: BF16) -> BF16;
+    safe fn __metal_bf16_mul(a: BF16, b: BF16) -> BF16;
+    safe fn __metal_bf16_div(a: BF16, b: BF16) -> BF16;
+    safe fn __metal_bf16_rem(a: BF16, b: BF16) -> BF16;
+    safe fn __metal_bf16_from_f32(value: f32) -> BF16;
+    safe fn __metal_bf16_to_f32(value: BF16) -> f32;
     safe fn __metal_simd_lane() -> u32;
     safe fn __metal_simd_size() -> u32;
     safe fn __metal_simd_group() -> u32;

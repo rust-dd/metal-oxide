@@ -102,6 +102,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                         Scalar::F32
                             | Scalar::U64
                             | Scalar::F16
+                            | Scalar::BF16
                             | Scalar::U8
                             | Scalar::U16
                             | Scalar::I8
@@ -109,7 +110,7 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
                     ) | Element::Aggregate(_),
                     access: Access::Atomic,
                     ..
-                } | Type::Checked(Scalar::Bool | Scalar::F32 | Scalar::F16)
+                } | Type::Checked(Scalar::Bool | Scalar::F32 | Scalar::F16 | Scalar::BF16)
             ) {
                 return Err(Error::new(&function.source, "unsupported local type"));
             }

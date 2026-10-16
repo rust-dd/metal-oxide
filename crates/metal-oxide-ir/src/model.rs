@@ -77,6 +77,7 @@ pub enum Constant {
     /// IEEE 754 bits, preserving NaNs and signed zero.
     F32(u32),
     F16(u16),
+    BF16(u16),
     U32(u32),
     U64(u64),
     I32(i32),
@@ -95,6 +96,7 @@ impl Constant {
             Self::Bool(_) => Type::Scalar(Scalar::Bool),
             Self::F32(_) => Type::Scalar(Scalar::F32),
             Self::F16(_) => Type::Scalar(Scalar::F16),
+            Self::BF16(_) => Type::Scalar(Scalar::BF16),
             Self::U32(_) => Type::Scalar(Scalar::U32),
             Self::U64(_) => Type::Scalar(Scalar::U64),
             Self::I32(_) => Type::Scalar(Scalar::I32),

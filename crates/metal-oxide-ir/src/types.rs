@@ -5,6 +5,7 @@ pub enum Scalar {
     Bool,
     F32,
     F16,
+    BF16,
     U32,
     U64,
     I32,
@@ -19,10 +20,14 @@ pub enum Scalar {
 }
 
 impl Scalar {
+    pub const fn is_float(self) -> bool {
+        matches!(self, Self::F16 | Self::BF16 | Self::F32)
+    }
+
     pub const fn bits(self) -> u32 {
         match self {
             Self::U8 | Self::I8 => 8,
-            Self::U16 | Self::I16 | Self::F16 => 16,
+            Self::U16 | Self::I16 | Self::F16 | Self::BF16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
             Self::U64 | Self::Usize | Self::Isize => 64,
@@ -53,6 +58,7 @@ impl Scalar {
             Self::Bool => "bool",
             Self::F32 => "f32",
             Self::F16 => "f16",
+            Self::BF16 => "bf16",
             Self::U32 => "u32",
             Self::U64 => "u64",
             Self::I32 => "i32",

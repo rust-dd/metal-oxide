@@ -19,6 +19,7 @@ enum Slot {
     Usize,
     Dim3,
     F16,
+    BF16,
     Pointer(Mutability),
     Unit,
 }
@@ -42,12 +43,20 @@ pub(super) fn valid(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) ->
                 && signature.inputs().iter().all(|&ty| ty == tcx.types.f32)
                 && signature.output() == tcx.types.f32
         }
-        Intrinsic::FloatConvert(metal_oxide_ir::Scalar::F16) => {
-            declaration(tcx, definition, &[F32], F16, Safety::Safe)
-        }
-        Intrinsic::FloatConvert(metal_oxide_ir::Scalar::F32) => {
-            declaration(tcx, definition, &[F16], F32, Safety::Safe)
-        }
+        Intrinsic::FloatConvert { from, to } => declaration(
+            tcx,
+            definition,
+            &[float_slot(from)],
+            float_slot(to),
+            Safety::Safe,
+        ),
+        Intrinsic::FloatBinary(scalar, _) => declaration(
+            tcx,
+            definition,
+            &[float_slot(scalar); 2],
+            float_slot(scalar),
+            Safety::Safe,
+        ),
         Intrinsic::ThreadgroupBarrier => declaration(tcx, definition, &[], Unit, Safety::Unsafe),
         Intrinsic::Simd(metal_oxide_ir::SimdOp::Any | metal_oxide_ir::SimdOp::All) => {
             declaration(tcx, definition, &[Bool], Bool, Safety::Unsafe)
@@ -102,17 +111,28 @@ fn slot_matches<'tcx>(tcx: TyCtxt<'tcx>, slot: Slot, ty: Ty<'tcx>) -> bool {
         Slot::Pointer(mutability) => {
             matches!(ty.kind(), ty::RawPtr(pointee, mutbl) if pointee.is_unit() && *mutbl == mutability)
         }
-        Slot::Dim3 | Slot::F16 => {
+        Slot::Dim3 | Slot::F16 | Slot::BF16 => {
             let ty::Adt(definition, _) = ty.kind() else {
                 return false;
             };
             let expected = if matches!(slot, Slot::Dim3) {
                 DeviceType::Dim3
-            } else {
+            } else if matches!(slot, Slot::F16) {
                 DeviceType::F16
+            } else {
+                DeviceType::BF16
             };
             device::device_type(tcx, definition.did()) == Some(expected)
         }
+    }
+}
+
+fn float_slot(scalar: metal_oxide_ir::Scalar) -> Slot {
+    match scalar {
+        metal_oxide_ir::Scalar::F32 => Slot::F32,
+        metal_oxide_ir::Scalar::F16 => Slot::F16,
+        metal_oxide_ir::Scalar::BF16 => Slot::BF16,
+        _ => unreachable!("floating-point intrinsic signature"),
     }
 }
 

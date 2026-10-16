@@ -1,4 +1,4 @@
-use metal_oxide_ir::{Access, AtomicOp, Builtin, MathOp, Scalar, SimdBuiltin, SimdOp};
+use metal_oxide_ir::{Access, AtomicOp, BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin, SimdOp};
 use rustc_hir::{
     def::DefKind,
     def_id::{CRATE_DEF_INDEX, DefId},
@@ -19,6 +19,7 @@ pub(crate) enum DeviceType {
     DynamicThreadgroupBuffer,
     Dim3,
     F16,
+    BF16,
     ThreadIndex,
 }
 
@@ -38,6 +39,7 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
         "Dim3" => ("thread", DeviceType::Dim3),
         "ThreadIndex" => ("thread", DeviceType::ThreadIndex),
         "F16" => ("half", DeviceType::F16),
+        "BF16" => ("bfloat", DeviceType::BF16),
         _ => return None,
     };
     in_module(tcx, definition, module).then_some(kind)
@@ -45,7 +47,31 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
 
 pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     if tcx.is_foreign_item(definition) && in_module(tcx, definition, "intrinsics") {
-        return match tcx.item_name(definition).as_str() {
+        let name = tcx.item_name(definition);
+        for (prefix, scalar) in [
+            ("__metal_f16_", Scalar::F16),
+            ("__metal_bf16_", Scalar::BF16),
+        ] {
+            if let Some(operation) = name.as_str().strip_prefix(prefix) {
+                return Some(match operation {
+                    "from_f32" => Intrinsic::FloatConvert {
+                        from: Scalar::F32,
+                        to: scalar,
+                    },
+                    "to_f32" => Intrinsic::FloatConvert {
+                        from: scalar,
+                        to: Scalar::F32,
+                    },
+                    "add" => Intrinsic::FloatBinary(scalar, BinaryOp::Add),
+                    "sub" => Intrinsic::FloatBinary(scalar, BinaryOp::Sub),
+                    "mul" => Intrinsic::FloatBinary(scalar, BinaryOp::Mul),
+                    "div" => Intrinsic::FloatBinary(scalar, BinaryOp::Div),
+                    "rem" => Intrinsic::FloatBinary(scalar, BinaryOp::Rem),
+                    _ => return None,
+                });
+            }
+        }
+        return match name.as_str() {
             "__metal_thread_idx" => Some(Intrinsic::Coordinates(Builtin::ThreadIdx)),
             "__metal_block_idx" => Some(Intrinsic::Coordinates(Builtin::BlockIdx)),
             "__metal_block_dim" => Some(Intrinsic::Coordinates(Builtin::BlockDim)),
@@ -65,8 +91,6 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
             "__metal_round_f32" => Some(Intrinsic::Math(MathOp::Round)),
             "__metal_ceil_f32" => Some(Intrinsic::Math(MathOp::Ceil)),
             "__metal_trunc_f32" => Some(Intrinsic::Math(MathOp::Trunc)),
-            "__metal_f16_from_f32" => Some(Intrinsic::FloatConvert(Scalar::F16)),
-            "__metal_f16_to_f32" => Some(Intrinsic::FloatConvert(Scalar::F32)),
             "__metal_threadgroup_barrier" => Some(Intrinsic::ThreadgroupBarrier),
             "__metal_simd_lane" => Some(Intrinsic::SimdCoordinate(SimdBuiltin::Lane)),
             "__metal_simd_size" => Some(Intrinsic::SimdCoordinate(SimdBuiltin::Size)),

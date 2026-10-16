@@ -21,6 +21,7 @@ pub(super) fn literal<'tcx>(tcx: TyCtxt<'tcx>, constant: mir::Const<'tcx>) -> Op
         ty::Int(ty::IntTy::I16) => ir::Constant::I16(bits as i16),
         ty::Int(ty::IntTy::Isize) => ir::Constant::Isize(bits as i64),
         ty::Float(ty::FloatTy::F32) => ir::Constant::F32(bits as u32),
+        ty::Float(ty::FloatTy::F16) => ir::Constant::F16(bits as u16),
         _ => return None,
     })
 }

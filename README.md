@@ -125,10 +125,16 @@ kernels and helpers. Only owned values and buffer handles cross the kernel bound
 Kernels, and the `no_std` crates that `dependencies(...)` names, compile from rustc's MIR
 against `core`: references and slices, records, tuples and arrays, enums with payloads,
 `Option` and `Result` with `?`, closures, core's iterators and generic helpers, over `bool`,
-`f32`, `F16`, the 8- to 32-bit integers, `u64`, `usize` and `isize`. The compiler rejects
+`f32`, `F16`, `BF16`, the 8- to 32-bit integers, `u64`, `usize` and `isize`. The compiler rejects
 what it cannot lower with a diagnostic at the Rust source, such as recursion, calls through
 function pointers or trait objects, destructors, coroutines, `core::simd` vectors, `f64`,
 `i64` and 128-bit integers.
+
+`F16` and `BF16` support rounded arithmetic and f32 conversions; the runtime exports
+their host counterparts from `half`. Separate kernel crates can also use Rust's
+unstable `f16` primitive. Bfloat kernels record a GPU requirement and reject unsupported
+devices when loaded. Conversions preserve finite subnormal values; arithmetic follows
+the selected [numerical mode](CONCEPT.md#apple-compilation-and-artifact).
 
 Kernels can request runtime-sized block-local storage with
 `DynamicThreadgroupBuffer<T>`. Launch functions take an element count; raw `Launch`

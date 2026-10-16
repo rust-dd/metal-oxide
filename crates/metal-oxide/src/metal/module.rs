@@ -121,24 +121,15 @@ impl Module {
 
 /// Checks a validated artifact feature against the GPU families a device supports.
 fn require(feature: &str, supports: impl Fn(MTLGPUFamily) -> bool) -> Result<()> {
-    let (family, reason) = match feature {
-        "simd_groups" => (MTLGPUFamily::Apple7, "artifact requires SIMD-group support"),
-        "int32_atomics" => (
-            MTLGPUFamily::Apple1,
-            "artifact requires 32-bit integer atomics",
-        ),
-        "dynamic_threadgroup_memory" => (
-            MTLGPUFamily::Apple1,
-            "artifact requires dynamic threadgroup memory",
-        ),
-        "logging" => (MTLGPUFamily::Apple6, "artifact requires shader logging"),
-        _ => unreachable!("validated artifact capabilities"),
-    };
-    // Mac2 includes these features; the paravirtual GPU of a macOS VM reports only Mac2.
-    if supports(family) || supports(MTLGPUFamily::Mac2) {
+    let requirement =
+        metal_oxide_artifact::Capability::named(feature).expect("validated artifact capability");
+    let family = MTLGPUFamily(MTLGPUFamily::Apple1.0 + requirement.apple_family as isize - 1);
+    if supports(family) || (requirement.mac2 && supports(MTLGPUFamily::Mac2)) {
         Ok(())
     } else {
-        Err(Error::UnsupportedDevice(reason.into()))
+        Err(Error::UnsupportedDevice(format!(
+            "artifact requires {feature}"
+        )))
     }
 }
 

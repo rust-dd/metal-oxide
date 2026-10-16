@@ -22,7 +22,7 @@ pub(super) fn handles<'tcx>(
             || matches!(normalize(body.local_decls[local].ty).kind(),
             ty::Adt(definition, _) if device_type(tcx, definition.did())
                 .is_some_and(|kind| {
-                    !matches!(kind, DeviceType::Dim3 | DeviceType::F16 | DeviceType::ThreadIndex)
+                    !matches!(kind, DeviceType::Dim3 | DeviceType::F16 | DeviceType::BF16 | DeviceType::ThreadIndex)
                 }))
     };
     let mut bindings = vec![0_u32; body.local_decls.len()];

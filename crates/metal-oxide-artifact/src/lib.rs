@@ -1,5 +1,6 @@
 //! Versioned kernel metadata shared by the compiler, tools, and runtime.
 
+mod capabilities;
 mod checks;
 mod compiler;
 mod contract;
@@ -10,6 +11,7 @@ mod model;
 mod tables;
 mod validate;
 
+pub use capabilities::{CAPABILITIES, Capability};
 pub use checks::{Check, CheckKind, Location, OverflowOp};
 pub use compiler::{COMPILER_NIGHTLY, CompilerInfo};
 pub use contract::{Comparison, Contract, Operand, Term};

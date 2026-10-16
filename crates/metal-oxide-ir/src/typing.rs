@@ -140,7 +140,13 @@ pub fn expression_type(
                 (
                     UnaryOp::Neg,
                     Type::Scalar(
-                        Scalar::F32 | Scalar::I8 | Scalar::I16 | Scalar::I32 | Scalar::Isize
+                        Scalar::F32
+                            | Scalar::F16
+                            | Scalar::BF16
+                            | Scalar::I8
+                            | Scalar::I16
+                            | Scalar::I32
+                            | Scalar::Isize
                     )
                 ) | (
                     UnaryOp::Not,
@@ -166,18 +172,15 @@ pub fn expression_type(
         }
         Expression::Cast(v, to) => {
             let from = ty(v)?;
-            if matches!(from, Type::Scalar(Scalar::F16)) || *to == Scalar::F16 {
+            if matches!(from, Type::Scalar(Scalar::BF16)) || *to == Scalar::BF16 {
                 if matches!(
                     (from, to),
-                    (Type::Scalar(Scalar::F16), Scalar::F32)
-                        | (Type::Scalar(Scalar::F32), Scalar::F16)
+                    (Type::Scalar(Scalar::BF16), Scalar::F32 | Scalar::BF16)
+                        | (Type::Scalar(Scalar::F32), Scalar::BF16)
                 ) {
                     return Ok(Type::Scalar(*to));
                 }
-                return Err(Error::new(
-                    source,
-                    "f16 storage requires an explicit f32 conversion",
-                ));
+                return Err(Error::new(source, "bf16 conversions require f32"));
             }
             if matches!(from, Type::Scalar(_)) {
                 Ok(Type::Scalar(*to))
@@ -559,7 +562,7 @@ fn binary_type(
     use BinaryOp::*;
     use Scalar::*;
     let integer = matches!(a, Type::Scalar(s) if s.is_integer());
-    let number = integer || a == Type::Scalar(F32);
+    let number = integer || matches!(a, Type::Scalar(scalar) if scalar.is_float());
     let boolean = a == Type::Scalar(Bool);
     let thin = module
         .types

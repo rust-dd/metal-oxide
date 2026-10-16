@@ -1,4 +1,4 @@
-/// IEEE binary16 storage. Convert to f32 before arithmetic.
+/// IEEE binary16, with each arithmetic operation rounded to binary16.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct F16(u16);
@@ -26,6 +26,8 @@ impl F16 {
         crate::intrinsics::__metal_f16_to_f32(self)
     }
 }
+
+mod ops;
 
 #[cfg(test)]
 mod tests;

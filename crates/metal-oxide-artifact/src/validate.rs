@@ -33,10 +33,7 @@ impl Abi {
         }
         let mut features = HashSet::new();
         if self.required_features.iter().any(|feature| {
-            !matches!(
-                feature.as_str(),
-                "simd_groups" | "int32_atomics" | "dynamic_threadgroup_memory" | "logging"
-            ) || !features.insert(feature.as_str())
+            crate::Capability::named(feature).is_none() || !features.insert(feature.as_str())
         }) {
             return Err(Error("unsupported or duplicate artifact feature".into()));
         }
@@ -51,6 +48,12 @@ impl Abi {
             let mut parameters = HashSet::new();
             let mut slots = [0; 2];
             for parameter in &kernel.parameters {
+                let layout = match &parameter.ty {
+                    ParameterType::Value { layout } => layout,
+                    ParameterType::Buffer { element, .. }
+                    | ParameterType::Threadgroup { element, .. } => element,
+                };
+                require_layout(layout, &features)?;
                 match &parameter.ty {
                     ParameterType::Value { layout } => layout.validate()?,
                     ParameterType::Threadgroup { element, stride } => {
@@ -151,6 +154,19 @@ impl Abi {
             }
         }
         Ok(())
+    }
+}
+
+fn require_layout(layout: &crate::Layout, features: &HashSet<&str>) -> Result<(), Error> {
+    match &layout.kind {
+        crate::LayoutKind::Scalar {
+            scalar: Scalar::BF16,
+        } if !features.contains("bfloat16") => Err(Error("bf16 layouts require bfloat16".into())),
+        crate::LayoutKind::Scalar { .. } => Ok(()),
+        crate::LayoutKind::Array { element, .. } => require_layout(element, features),
+        crate::LayoutKind::Record { fields, .. } | crate::LayoutKind::Tuple { fields } => fields
+            .iter()
+            .try_for_each(|field| require_layout(&field.layout, features)),
     }
 }
 

@@ -24,8 +24,21 @@ pub(crate) fn cast(
     to: Scalar,
     source: &SourceLocation,
 ) -> Result<String, Error> {
-    if from == Type::Scalar(Scalar::F32) && to.is_integer() {
-        return Ok(crate::floating::saturating_cast(value, to));
+    if to == Scalar::BF16 && from == Type::Scalar(Scalar::F32) {
+        return Ok(format!("metal_oxide_bf16_from_f32({value})"));
+    }
+    if to == Scalar::F32 && from == Type::Scalar(Scalar::BF16) {
+        return Ok(format!(
+            "as_type<float>(uint(as_type<ushort>({value})) << 16)"
+        ));
+    }
+    if matches!(from, Type::Scalar(scalar) if scalar.is_float()) && to.is_integer() {
+        let value = if from == Type::Scalar(Scalar::F32) {
+            value.to_owned()
+        } else {
+            format!("float({value})")
+        };
+        return Ok(crate::floating::saturating_cast(&value, to));
     }
     if (to == Scalar::Bool && from != Type::Scalar(Scalar::Bool))
         || (from == Type::Scalar(Scalar::Bool) && to == Scalar::F32)
@@ -145,8 +158,11 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
         };
         return format!("metal_oxide_{label}_checked_{}({a}, {b})", scalar.name());
     }
-    if ty == Type::Scalar(Scalar::F32) && op == Rem {
-        return format!("fmod({a}, {b})");
+    if ty == Type::Scalar(Scalar::BF16) && op == Rem {
+        return format!("bfloat(copysign(fmod(float({a}), float({b})), float({a})))");
+    }
+    if matches!(ty, Type::Scalar(Scalar::F32 | Scalar::F16)) && op == Rem {
+        return format!("copysign(fmod({a}, {b}), {a})");
     }
     let Type::Scalar(scalar) = ty else {
         unreachable!("validated binary type")

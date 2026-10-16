@@ -37,7 +37,7 @@ pub(crate) fn expression(
                     Scalar::I32 => ("%d", value.clone()),
                     Scalar::Isize => ("%ld", value.clone()),
                     Scalar::F32 => ("%.9g", value.clone()),
-                    Scalar::F16 => ("%.5g", format!("float({value})")),
+                    Scalar::F16 | Scalar::BF16 => ("%.5g", format!("float({value})")),
                     Scalar::Bool => unreachable!("validated log argument"),
                 };
                 printf.push_str(specifier);

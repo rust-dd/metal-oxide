@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum Scalar {
     F32,
     F16,
+    #[serde(rename = "bf16")]
+    BF16,
     U32,
     U64,
     I32,
@@ -18,7 +20,7 @@ impl Scalar {
     pub const fn size(self) -> usize {
         match self {
             Self::U8 | Self::I8 => 1,
-            Self::U16 | Self::I16 | Self::F16 => 2,
+            Self::U16 | Self::I16 | Self::F16 | Self::BF16 => 2,
             Self::F32 | Self::U32 | Self::I32 => 4,
             Self::U64 => 8,
         }
@@ -29,13 +31,14 @@ impl Scalar {
     }
 
     pub const fn is_integer(self) -> bool {
-        !matches!(self, Self::F32 | Self::F16)
+        !matches!(self, Self::F32 | Self::F16 | Self::BF16)
     }
 
     pub const fn rust_name(self) -> &'static str {
         match self {
             Self::F32 => "f32",
             Self::F16 => "metal_oxide::F16",
+            Self::BF16 => "metal_oxide::BF16",
             Self::U32 => "u32",
             Self::U64 => "u64",
             Self::I32 => "i32",

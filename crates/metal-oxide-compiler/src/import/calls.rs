@@ -359,9 +359,13 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Bitcast(value, to)
             }
-            Intrinsic::FloatConvert(to) => {
+            Intrinsic::FloatConvert { to, .. } => {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Cast(value, to)
+            }
+            Intrinsic::FloatBinary(_, op) => {
+                let [left, right] = arguments(values, span)?;
+                ir::Expression::Binary(op, left, right)
             }
             Intrinsic::Log => unreachable!("log calls are imported before their operands"),
             Intrinsic::UncheckedFloatToInt => {

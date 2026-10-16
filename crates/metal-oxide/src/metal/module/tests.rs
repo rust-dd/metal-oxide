@@ -5,6 +5,19 @@ fn apple(newest: MTLGPUFamily) -> impl Fn(MTLGPUFamily) -> bool {
 }
 
 #[test]
+fn bfloat_requires_an_apple_family_that_supports_it() {
+    assert!(require("bfloat16", apple(MTLGPUFamily::Apple6)).is_ok());
+    assert!(matches!(
+        require("bfloat16", apple(MTLGPUFamily::Apple5)),
+        Err(Error::UnsupportedDevice(_))
+    ));
+    assert!(matches!(
+        require("bfloat16", |family| family == MTLGPUFamily::Mac2),
+        Err(Error::UnsupportedDevice(_))
+    ));
+}
+
+#[test]
 fn apple_or_mac2_families_satisfy_artifact_features() {
     for feature in [
         "simd_groups",

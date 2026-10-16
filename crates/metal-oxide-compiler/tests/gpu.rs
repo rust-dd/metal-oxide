@@ -72,6 +72,8 @@ mod float;
 mod generic_entries;
 #[path = "gpu/half.rs"]
 mod half;
+#[path = "gpu/half_arithmetic.rs"]
+mod half_arithmetic;
 #[path = "gpu/integer_bits.rs"]
 mod integer_bits;
 #[path = "gpu/ir_aggregates.rs"]

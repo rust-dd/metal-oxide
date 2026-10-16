@@ -10,6 +10,7 @@ pub(crate) struct KernelInterfaces {
     pub(crate) logging: bool,
     atomics: bool,
     dynamic_shared: bool,
+    bfloat: bool,
 }
 
 impl KernelInterfaces {
@@ -103,6 +104,11 @@ impl KernelInterfaces {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(Self {
+            bfloat: module
+                .functions
+                .iter()
+                .flat_map(|f| &f.locals)
+                .any(|ty| contains_scalar(module, *ty, Scalar::BF16)),
             dynamic_shared: kernels.iter().flatten().any(|kernel| {
                 kernel
                     .parameters
@@ -148,6 +154,7 @@ impl KernelInterfaces {
                 (self.simd, "simd_groups"),
                 (self.dynamic_shared, "dynamic_threadgroup_memory"),
                 (self.logging, "logging"),
+                (self.bfloat, "bfloat16"),
             ]
             .into_iter()
             .filter(|(required, _)| *required)
@@ -157,6 +164,23 @@ impl KernelInterfaces {
         };
         abi.validate()?;
         Ok(abi)
+    }
+}
+
+fn contains_scalar(module: &Module, ty: Type, scalar: Scalar) -> bool {
+    match ty {
+        Type::Scalar(value) => value == scalar,
+        Type::Aggregate(id) => module
+            .types
+            .get(id)
+            .unwrap()
+            .component_types()
+            .any(|ty| contains_scalar(module, ty, scalar)),
+        Type::Buffer { element, .. } => contains_scalar(module, element.ty(), scalar),
+        Type::Pointer(_) => {
+            contains_scalar(module, module.types.pointer(ty).unwrap().target, scalar)
+        }
+        _ => false,
     }
 }
 
@@ -173,6 +197,7 @@ fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error>
     match value {
         Scalar::F32 => Ok(artifact::Scalar::F32),
         Scalar::F16 => Ok(artifact::Scalar::F16),
+        Scalar::BF16 => Ok(artifact::Scalar::BF16),
         Scalar::U32 => Ok(artifact::Scalar::U32),
         Scalar::U64 => Ok(artifact::Scalar::U64),
         Scalar::I32 => Ok(artifact::Scalar::I32),

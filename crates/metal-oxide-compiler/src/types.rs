@@ -95,6 +95,9 @@ impl<'tcx> TypeLowering<'tcx> {
             if device_type(self.tcx, definition.did()) == Some(DeviceType::F16) {
                 return Ok(ir::Type::Scalar(ir::Scalar::F16));
             }
+            if device_type(self.tcx, definition.did()) == Some(DeviceType::BF16) {
+                return Ok(ir::Type::Scalar(ir::Scalar::BF16));
+            }
             if device_type(self.tcx, definition.did()) == Some(DeviceType::Dim3) {
                 return Ok(ir::Type::Dim3);
             }
@@ -446,6 +449,7 @@ fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
     match ty.kind() {
         ty::Bool => Some(ir::Scalar::Bool),
         ty::Float(ty::FloatTy::F32) => Some(ir::Scalar::F32),
+        ty::Float(ty::FloatTy::F16) => Some(ir::Scalar::F16),
         ty::Uint(ty::UintTy::U32) => Some(ir::Scalar::U32),
         ty::Uint(ty::UintTy::U64) => Some(ir::Scalar::U64),
         ty::Uint(ty::UintTy::Usize) => Some(ir::Scalar::Usize),
