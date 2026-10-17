@@ -99,6 +99,29 @@ intrinsics! {
     unsafe fn __metal_simd_any(predicate: bool) -> bool;
     unsafe fn __metal_simd_all(predicate: bool) -> bool;
     unsafe fn __metal_simd_ballot(predicate: bool) -> [u32; 2];
+    unsafe fn __metal_matrix_splat(value: *const (), out: *mut (), size: usize);
+    unsafe fn __metal_matrix_multiply_accumulate(
+        a: *const (),
+        b: *const (),
+        c: *const (),
+        out: *mut (),
+    );
+    unsafe fn __metal_matrix_load(
+        buffer: *const (),
+        row: u32,
+        column: u32,
+        stride: u32,
+        transposed: bool,
+        out: *mut (),
+    );
+    unsafe fn __metal_matrix_store(
+        buffer: *mut (),
+        row: u32,
+        column: u32,
+        stride: u32,
+        transposed: bool,
+        matrix: *const (),
+    );
 }
 
 macro_rules! atomic_modify {

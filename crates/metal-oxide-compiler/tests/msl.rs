@@ -15,6 +15,8 @@ mod generic_entries;
 mod integer_bits;
 #[path = "msl/math_mode.rs"]
 mod math_mode;
+#[path = "msl/matrices.rs"]
+mod matrices;
 #[path = "msl/ranges.rs"]
 mod ranges;
 #[path = "msl/read_write.rs"]

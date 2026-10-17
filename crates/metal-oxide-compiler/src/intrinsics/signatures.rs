@@ -9,6 +9,8 @@ use super::{
     device::{self, DeviceType},
 };
 
+mod matrix;
+
 #[derive(Clone, Copy)]
 enum Slot {
     Ballot,
@@ -179,6 +181,11 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
             return false;
         }
         format!("__metal_simd_{}", op.name())
+    } else if let Intrinsic::Matrix(op) = operation {
+        let Some(bridge) = matrix::adapter(tcx, input, output, op) else {
+            return false;
+        };
+        bridge.to_owned()
     } else {
         match (operation, input) {
             (Intrinsic::ThreadgroupAlloc(access), []) if signature.safety() == Safety::Safe => {
@@ -328,6 +335,9 @@ fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {
             | Intrinsic::Log
             | Intrinsic::Buffer(_)
             | Intrinsic::ThreadIndex
+            | Intrinsic::Matrix(
+                metal_oxide_ir::MatrixOp::Splat | metal_oxide_ir::MatrixOp::MultiplyAccumulate
+            )
     ) && signature.safety() != Safety::Unsafe
     {
         return false;
@@ -419,6 +429,7 @@ fn memory_declaration(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) 
             Unit,
             Safety::Unsafe,
         ),
+        Intrinsic::Matrix(op) => matrix::bridge(tcx, definition, op),
         Intrinsic::Atomic(op) => {
             use metal_oxide_ir::AtomicOp;
             let (inputs, output): (&[_], _) = match op {

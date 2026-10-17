@@ -106,6 +106,14 @@ impl<'tcx> TypeLowering<'tcx> {
             if device_type(self.tcx, definition.did()) == Some(DeviceType::Dim3) {
                 return Ok(ir::Type::Dim3);
             }
+            if device_type(self.tcx, definition.did()) == Some(DeviceType::Matrix) {
+                return match self.lower(args.type_at(0), span)? {
+                    ir::Type::Scalar(scalar) if ir::is_matrix_element(scalar) => {
+                        Ok(ir::Type::Matrix(scalar))
+                    }
+                    _ => Err((span, "SIMD-group matrices hold f32, F16 or BF16".into())),
+                };
+            }
             if definition.is_enum() {
                 return self.enumeration(ty, &mut std::iter::empty(), span);
             }

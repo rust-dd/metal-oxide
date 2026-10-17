@@ -4,7 +4,7 @@ use crate::ThreadIndex;
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ReadBuffer<T> {
-    ptr: *const T,
+    pub(crate) ptr: *const T,
 }
 
 impl<T: Copy> ReadBuffer<T> {
@@ -55,7 +55,7 @@ impl<T: Copy> ReadBuffer<T> {
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct WriteBuffer<T> {
-    ptr: *mut T,
+    pub(crate) ptr: *mut T,
 }
 
 impl<T: Copy> WriteBuffer<T> {
@@ -96,7 +96,7 @@ impl<T: Copy> WriteBuffer<T> {
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ReadWriteBuffer<T> {
-    ptr: *mut T,
+    pub(crate) ptr: *mut T,
 }
 
 impl<T: Copy> ReadWriteBuffer<T> {

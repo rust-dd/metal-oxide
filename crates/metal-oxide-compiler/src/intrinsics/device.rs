@@ -1,4 +1,6 @@
-use metal_oxide_ir::{Access, AtomicOp, BinaryOp, Builtin, MathOp, Scalar, SimdBuiltin, SimdOp};
+use metal_oxide_ir::{
+    Access, AtomicOp, BinaryOp, Builtin, MathOp, MatrixOp, Scalar, SimdBuiltin, SimdOp,
+};
 use rustc_hir::{
     def::DefKind,
     def_id::{CRATE_DEF_INDEX, DefId},
@@ -21,6 +23,7 @@ pub(crate) enum DeviceType {
     F16,
     BF16,
     ThreadIndex,
+    Matrix,
 }
 
 pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceType> {
@@ -40,6 +43,7 @@ pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceTy
         "ThreadIndex" => ("thread", DeviceType::ThreadIndex),
         "F16" => ("half", DeviceType::F16),
         "BF16" => ("bfloat", DeviceType::BF16),
+        "Matrix" => ("simdgroup", DeviceType::Matrix),
         _ => return None,
     };
     in_module(tcx, definition, module).then_some(kind)
@@ -190,6 +194,28 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         (DeviceType::ReadBuffer, "as_slice") => Some(Intrinsic::Buffer(BufferQuery::Slice)),
         (DeviceType::DisjointBuffer, "get_mut") => Some(Intrinsic::Buffer(BufferQuery::Element)),
         (DeviceType::ThreadIndex, "get") => Some(Intrinsic::ThreadIndex),
+        (DeviceType::Matrix, "splat") => Some(Intrinsic::Matrix(MatrixOp::Splat)),
+        (DeviceType::Matrix, "multiply_accumulate") => {
+            Some(Intrinsic::Matrix(MatrixOp::MultiplyAccumulate))
+        }
+        (
+            DeviceType::ReadBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer,
+            method @ ("load_matrix" | "load_matrix_transposed"),
+        ) => Some(Intrinsic::Matrix(MatrixOp::Load {
+            transposed: method == "load_matrix_transposed",
+        })),
+        (
+            DeviceType::WriteBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer,
+            method @ ("store_matrix" | "store_matrix_transposed"),
+        ) => Some(Intrinsic::Matrix(MatrixOp::Store {
+            transposed: method == "store_matrix_transposed",
+        })),
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load" => AtomicOp::Load,

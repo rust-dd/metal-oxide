@@ -9,7 +9,9 @@ pub(super) fn contains_internal_type<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> b
     }
     match ty.kind() {
         ty::Adt(definition, args) => {
-            definition.repr().simd()
+            crate::intrinsics::device_type(tcx, definition.did())
+                == Some(crate::intrinsics::DeviceType::Matrix)
+                || definition.repr().simd()
                 || definition.all_fields().any(|f| {
                     contains_internal_type(
                         tcx,

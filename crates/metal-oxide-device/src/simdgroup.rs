@@ -162,3 +162,59 @@ vote!(
     [u32; 2],
     "Returns low/high 32-bit vote words. Bit i represents lane i; inactive and unused bits are zero."
 );
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for f32 {}
+    impl Sealed for crate::F16 {}
+    impl Sealed for crate::BF16 {}
+}
+
+/// The element types of [`Matrix`]: f32, [`F16`](crate::F16) and [`BF16`](crate::BF16).
+pub trait MatrixElement: Copy + sealed::Sealed {}
+impl MatrixElement for f32 {}
+impl MatrixElement for crate::F16 {}
+impl MatrixElement for crate::BF16 {}
+
+/// An 8x8 matrix that a SIMD group's 32 lanes hold. A load or store addresses element `(i, j)` of
+/// its block at `(row + i) * stride + column + j`; all lanes pass the same operands.
+#[derive(Clone, Copy)]
+pub struct Matrix<T: MatrixElement> {
+    #[expect(dead_code, reason = "the GPU keeps a matrix in lane registers")]
+    lanes: [T; 2],
+}
+
+impl<T: MatrixElement> Matrix<T> {
+    /// A matrix with every element set to `value`.
+    pub fn splat(value: T) -> Self {
+        let mut out = MaybeUninit::<Self>::uninit();
+        // SAFETY: the bridge initializes the matrix.
+        unsafe {
+            crate::intrinsics::__metal_matrix_splat(
+                (&raw const value).cast(),
+                out.as_mut_ptr().cast(),
+                size_of::<T>(),
+            );
+            out.assume_init()
+        }
+    }
+
+    /// `a * b + c`, rounded as Metal's SIMD-group multiply-accumulate rounds.
+    pub fn multiply_accumulate<A: MatrixElement, B: MatrixElement>(
+        a: Matrix<A>,
+        b: Matrix<B>,
+        c: Self,
+    ) -> Self {
+        let mut out = MaybeUninit::<Self>::uninit();
+        // SAFETY: the bridge reads three matrices and initializes the result.
+        unsafe {
+            crate::intrinsics::__metal_matrix_multiply_accumulate(
+                (&raw const a).cast(),
+                (&raw const b).cast(),
+                (&raw const c).cast(),
+                out.as_mut_ptr().cast(),
+            );
+            out.assume_init()
+        }
+    }
+}

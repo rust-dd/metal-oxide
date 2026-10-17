@@ -5,6 +5,7 @@
   {"message": "SIMD numeric operations require f32/u32/i32", "fixture": "invalid_simd.rs", "options": ["--cfg", "narrow"], "line": 16, "column": 41},
   {"message": "SIMD source control requires u32", "internal": "Only simdgroup::shuffle* carry a source control, their control parameter is typed u32, and the importer passes the call's operands through unchanged."},
   {"message": "SIMD vote requires bool", "internal": "simdgroup::any, all and ballot take predicate: bool and forward it unchanged to the vote intrinsic."},
+  {"message": "SIMD-group matrices hold f32, F16 or BF16", "internal": "Matrix<T> requires T: MatrixElement, a sealed trait implemented only for f32, F16 and BF16."},
   {"message": "a check before a barrier or SIMD operation must be proved or uniform; a thread that fails it would leave the others waiting", "fixture": "rejections/check_before_barrier.rs", "line": 7, "column": 17},
   {"message": "a mutable reference requires a mutable path", "internal": "rustc's Derefer pass leaves at most one leading Deref in each MIR place and IR pointers keep their Rust mutability (types.rs with_spaces, checked by references.rs checked_reference), so every &mut or &raw mut that borrowck accepts goes through a mutable pointer or none (`&mut **p` through `&*mut u32` compiles)."},
   {"message": "a reference must point into one address space", "fixture": "reference_spaces.rs", "line": 8, "column": 48},

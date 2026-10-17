@@ -405,6 +405,15 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     arguments: values,
                 }
             }
+            Intrinsic::Matrix(op) => {
+                if values.len() != op.arity() {
+                    return Err((span, "invalid device builtin arguments".into()));
+                }
+                ir::Expression::Matrix {
+                    op,
+                    arguments: values,
+                }
+            }
             Intrinsic::ThreadgroupAlloc(access) => {
                 arguments::<0>(values, span)?;
                 let ir::Type::Scalar(element) = self.lower_type(types.type_at(0), span)? else {

@@ -1,5 +1,5 @@
 use metal_oxide_ir::{
-    Access, AtomicOp, BinaryOp, Builtin, IntegerOp, MathOp, Scalar, SimdBuiltin, SimdOp,
+    Access, AtomicOp, BinaryOp, Builtin, IntegerOp, MathOp, MatrixOp, Scalar, SimdBuiltin, SimdOp,
 };
 mod device;
 mod signatures;
@@ -22,6 +22,7 @@ pub(crate) enum Intrinsic {
     ThreadgroupBarrier,
     Uninit,
     Simd(SimdOp),
+    Matrix(MatrixOp),
     Vector(VectorOp),
     Atomic(AtomicOp),
     WrappingShift(BinaryOp),
@@ -103,6 +104,7 @@ impl Intrinsic {
             Self::Simd(SimdOp::Sum) => "simd_sum",
             Self::Simd(SimdOp::Shuffle) => "simd_shuffle",
             Self::Simd(_) => "simd",
+            Self::Matrix(_) => "simdgroup_matrix",
             Self::Vector(_) => "vector",
             Self::Atomic(AtomicOp::Add) => "atomic_add",
             Self::Atomic(_) => "atomic",

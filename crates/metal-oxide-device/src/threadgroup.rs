@@ -2,7 +2,7 @@
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct ThreadgroupBuffer<T, const N: usize> {
-    ptr: *mut T,
+    pub(crate) ptr: *mut T,
 }
 
 /// Uninitialized block-local storage whose element count is supplied at launch.
@@ -10,7 +10,7 @@ pub struct ThreadgroupBuffer<T, const N: usize> {
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct DynamicThreadgroupBuffer<T> {
-    ptr: *mut T,
+    pub(crate) ptr: *mut T,
 }
 
 impl<T: Copy> DynamicThreadgroupBuffer<T> {

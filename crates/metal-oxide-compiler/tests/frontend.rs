@@ -220,6 +220,27 @@ fn shared_adapters_require_matching_type_and_length_parameters() {
 }
 
 #[test]
+fn matrix_adapters_require_unsafe_memory_access_and_matching_buffers() {
+    for (variant, message) in [
+        ("safe_load", "invalid device intrinsic signature"),
+        ("other_element", "invalid device intrinsic signature"),
+        (
+            "read_store",
+            "foreign ABI calls are not supported in Metal kernels",
+        ),
+    ] {
+        support::rejected(
+            support::invalid_device(
+                "malformed_matrix",
+                "malformed_matrix_client",
+                &["--cfg", variant],
+            ),
+            message,
+        );
+    }
+}
+
+#[test]
 fn generic_drops_are_checked_after_monomorphization() {
     let report = support::checked(support::fixture("generic_drop"));
     assert!(report.contains("consume::<u32>"), "{report}");

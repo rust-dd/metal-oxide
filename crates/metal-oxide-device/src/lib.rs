@@ -7,6 +7,7 @@ mod half;
 mod intrinsics;
 pub mod log;
 pub mod math;
+mod matrix;
 pub mod simdgroup;
 mod thread;
 pub mod threadgroup;
