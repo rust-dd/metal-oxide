@@ -28,6 +28,7 @@ fn directory() -> PathBuf {
     DIRECTORY
         .get_or_init(|| {
             let parent = root().join("target/frontend-tests");
+            let shared = dependencies();
             for entry in std::fs::read_dir(&parent).into_iter().flatten().flatten() {
                 let stale = entry
                     .metadata()
@@ -35,13 +36,22 @@ fn directory() -> PathBuf {
                     .ok()
                     .and_then(|modified| modified.elapsed().ok())
                     .is_some_and(|age| age > std::time::Duration::from_secs(3600));
-                if stale {
+                if stale && entry.path() != shared {
                     let _ = std::fs::remove_dir_all(entry.path());
                 }
             }
             parent.join(std::process::id().to_string())
         })
         .clone()
+}
+
+/// The core, compiler builtins and device crates that kernels build against, shared by the test
+/// processes of one nextest run; outside nextest each process prepares its own.
+fn dependencies() -> PathBuf {
+    let run = std::env::var("NEXTEST_RUN_ID").unwrap_or_else(|_| std::process::id().to_string());
+    root()
+        .join("target/frontend-tests")
+        .join(format!("dependencies-{run}"))
 }
 
 fn compiler(source: &Path, name: &str, emit: &str) -> Command {
@@ -66,16 +76,17 @@ fn compiler_in(source: &Path, name: &str, emit: &str, output: &Path) -> Command 
         .arg("--target")
         .arg(root().join("crates/metal-oxide-build/targets/metal64-unknown-none.json"))
         .arg("-L")
-        .arg(format!("dependency={}", directory().display()))
+        .arg(format!("dependency={}", dependencies().display()))
         .arg("-o")
         .arg(output.join(format!("lib{name}.{extension}")));
     command
 }
 
 fn dependency(command: &mut Command, name: &str) {
-    command
-        .arg("--extern")
-        .arg(format!("{name}={}/lib{name}.rmeta", directory().display()));
+    command.arg("--extern").arg(format!(
+        "{name}={}/lib{name}.rmeta",
+        dependencies().display()
+    ));
 }
 
 pub fn checked(output: Output) -> String {
@@ -97,6 +108,14 @@ pub fn succeeded(output: Output) -> Result<String, String> {
 fn prepare_dependencies() {
     static READY: OnceLock<()> = OnceLock::new();
     READY.get_or_init(|| {
+        let shared = dependencies();
+        std::fs::create_dir_all(&shared).unwrap();
+        // The first of a run's concurrent processes prepares them; the others wait and reuse.
+        let lock = std::fs::File::create(shared.join(".lock")).unwrap();
+        lock.lock().unwrap();
+        if shared.join(".ready").exists() {
+            return;
+        }
         let sysroot = Command::new("rustc")
             .args(["--print", "sysroot"])
             .output()
@@ -105,7 +124,12 @@ fn prepare_dependencies() {
         let library = sysroot.join("lib/rustlib/src/rust/library");
         // Kernel builds check core with `--release`, which disables its own overflow checks.
         let release = ["-Cdebug-assertions=off", "-Coverflow-checks=off"];
-        let mut core = compiler(&library.join("core/src/lib.rs"), "core", "metadata");
+        let mut core = compiler_in(
+            &library.join("core/src/lib.rs"),
+            "core",
+            "metadata",
+            &shared,
+        );
         checked(
             core.args(["--cap-lints", "allow"])
                 .args(release)
@@ -113,10 +137,11 @@ fn prepare_dependencies() {
                 .unwrap(),
         );
 
-        let mut builtins = compiler(
+        let mut builtins = compiler_in(
             &library.join("compiler-builtins/compiler-builtins/src/lib.rs"),
             "compiler_builtins",
             "metadata",
+            &shared,
         );
         dependency(&mut builtins, "core");
         checked(
@@ -134,7 +159,7 @@ fn prepare_dependencies() {
                 .unwrap(),
         );
 
-        let macro_library = directory().join(format!(
+        let macro_library = shared.join(format!(
             "{}metal_oxide_macros{}",
             std::env::consts::DLL_PREFIX,
             std::env::consts::DLL_SUFFIX
@@ -158,10 +183,11 @@ fn prepare_dependencies() {
                 .unwrap(),
         );
 
-        let mut device = compiler(
+        let mut device = compiler_in(
             &root().join("crates/metal-oxide-device/src/lib.rs"),
             "metal_oxide_device",
             "metadata",
+            &shared,
         );
         dependency(&mut device, "core");
         dependency(&mut device, "compiler_builtins");
@@ -172,6 +198,7 @@ fn prepare_dependencies() {
                 .output()
                 .unwrap(),
         );
+        std::fs::write(shared.join(".ready"), "").unwrap();
     });
 }
 
@@ -216,7 +243,7 @@ pub fn invalid_device(source: &str, client: &str, options: &[&str]) -> Output {
     for name in ["core", "compiler_builtins"] {
         dependency(&mut device, name);
     }
-    let macros = directory().join(format!(
+    let macros = dependencies().join(format!(
         "{}metal_oxide_macros{}",
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX,

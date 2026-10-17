@@ -28,6 +28,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - name: Install Rust
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
+      - name: Install nextest
+        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        with:
+          tool: nextest@0.9.114
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Unit tests only in tests.rs modules
@@ -38,8 +42,11 @@ jobs:
         run: cargo run -p metal-oxide-artifact --example capabilities --locked -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Portable tests and compile-fail examples
-        run: cargo test --workspace --locked
+      - name: Portable tests
+        # The ci profile prints each finished test with a running (N/total) counter.
+        run: cargo nextest run --workspace --profile ci --locked
+      - name: Compile-fail and documentation examples
+        run: cargo test --workspace --doc --locked
       - name: Loom models of cross-thread runtime state
         if: runner.os == 'macOS'
         run: RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release --locked --target-dir target/loom loom
@@ -90,10 +97,14 @@ jobs:
         run: |
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools --component clippy --component rustfmt
           rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
+      - name: Install nextest
+        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        with:
+          tool: nextest@0.9.114
       - name: Compiler Clippy
         run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
       - name: Frontend, IR, and MSL tests
-        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler
+        run: cargo nextest run --features rustc-private --profile ci --locked --target-dir ../../target/compiler
       - name: Inspect kernels through Cargo
         if: runner.os == 'macOS'
         working-directory: .
@@ -141,6 +152,10 @@ jobs:
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
           rustup toolchain install 1.99.0 --profile minimal
           rustup toolchain install 1.89.0 --profile minimal
+      - name: Install nextest
+        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        with:
+          tool: nextest@0.9.114
       - name: Report the toolchain and the Metal device
         run: cargo run -p cargo-metal --locked -- setup --check
       - name: Classic Metal kernels and artifacts

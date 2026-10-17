@@ -1,0 +1,21 @@
+# The ci and gpu profiles print every finished test with a running (N/total) counter.
+
+[profile.default]
+slow-timeout = "60s"
+final-status-level = "slow"
+
+[profile.ci]
+status-level = "pass"
+final-status-level = "slow"
+failure-output = "immediate-final"
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 20 }
+
+# GPU tests run one at a time on the device; generated-program suites take minutes each.
+[profile.gpu]
+status-level = "pass"
+final-status-level = "slow"
+failure-output = "immediate-final"
+fail-fast = false
+test-threads = 1
+slow-timeout = { period = "60s", terminate-after = 30 }

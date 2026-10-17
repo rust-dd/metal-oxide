@@ -15,6 +15,12 @@ cargo +1.89.0 check --workspace --all-targets --locked
 bash scripts/test-gpu.sh
 ```
 
+`scripts/test-gpu.sh` runs the hardware suites through
+[cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`). CI runs the
+portable suites with `cargo nextest run --profile ci` and the documentation examples with
+`cargo test --doc`; the `ci` and `gpu` profiles in `.config/nextest.toml` print each finished
+test with a running `(N/total)` counter.
+
 Ordinary tests leave hardware checks ignored. The examples keep their saved artifacts
 in `metal/` beside their sources, and the stable CI job builds from them with
 `METAL_OXIDE_ARTIFACTS=locked`. A change to a kernel or to `metal-oxide-device` makes
