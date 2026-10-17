@@ -221,6 +221,7 @@ pub(crate) fn validate(
                     ));
                 }
                 summary.participation.merge(&required);
+                cooperation = cooperation.max(Some(needed));
             }
         }
         summaries[id] = summary;
