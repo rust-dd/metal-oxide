@@ -1,6 +1,21 @@
 use super::*;
 use metal_oxide::{BF16, F16, GpuValue};
 
+const HALF: &str = "crates/metal-oxide-compiler/tests/fixtures/half_arithmetic.rs";
+const BFLOAT: &str = "crates/metal-oxide-compiler/tests/fixtures/bfloat_arithmetic.rs";
+
+/// The kernels of `source`, which need exactly `features`; f16 alone needs none.
+fn emitted(source: &str, features: &[&str]) -> std::path::PathBuf {
+    let (output, directory) = support::emit(source, &[]);
+    support::checked(output);
+    let abi = metal_oxide_artifact::Abi::from_json(
+        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(abi.required_features, features, "{source}");
+    directory
+}
+
 trait Half: GpuValue + std::fmt::Debug {
     fn from_bits(value: u16) -> Self;
     fn from_f64(value: f64) -> Self;
@@ -110,24 +125,12 @@ fn arithmetic<T: Half>(device: &Device, module: &Module, name: &str) -> metal_ox
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn half_and_bfloat_arithmetic_match_rounded_scalar_operations() -> metal_oxide::Result<()> {
+fn half_arithmetic_and_casts_match_rounded_scalar_operations() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let (output, directory) = support::emit(
-        "crates/metal-oxide-compiler/tests/fixtures/half_arithmetic.rs",
-        &[],
-    );
-    support::checked(output);
-    let abi = metal_oxide_artifact::Abi::from_json(
-        &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
-    )?;
-    assert_eq!(abi.required_features, ["bfloat16"]);
-    let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
-    else {
-        return Ok(());
-    };
+    let directory = emitted(HALF, &[]);
+    let module = support::artifact::module(&device, &directory)?;
     arithmetic::<F16>(&device, &module, "f16_arithmetic")?;
     arithmetic::<F16>(&device, &module, "primitive")?;
-    arithmetic::<BF16>(&device, &module, "bf16_arithmetic")?;
     let values = [
         0.0,
         -0.0,
@@ -166,13 +169,21 @@ fn half_and_bfloat_arithmetic_match_rounded_scalar_operations() -> metal_oxide::
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
+fn bfloat_arithmetic_matches_rounded_scalar_operations() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let directory = emitted(BFLOAT, &["bfloat16"]);
+    let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
+    else {
+        return Ok(());
+    };
+    arithmetic::<BF16>(&device, &module, "bf16_arithmetic")
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
 fn bfloat_storage_widens_every_pattern_and_rounds_f32_midpoints() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let (output, directory) = support::emit(
-        "crates/metal-oxide-compiler/tests/fixtures/half_arithmetic.rs",
-        &[],
-    );
-    support::checked(output);
+    let directory = emitted(BFLOAT, &["bfloat16"]);
     let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
     else {
         return Ok(());
