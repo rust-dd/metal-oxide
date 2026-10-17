@@ -17,6 +17,7 @@ pub fn supports(device: &Device, feature: &str) -> bool {
         "bfloat16" => MTLGPUFamily::Apple6,
         "float32_atomics" => MTLGPUFamily::Apple7,
         "uint64_atomics" => MTLGPUFamily::Apple8,
+        "simdgroup_matrix" => MTLGPUFamily::Apple7,
         _ => panic!("no GPU family recorded for {feature}"),
     };
     device.as_native().supportsFamily(family)

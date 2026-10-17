@@ -86,6 +86,8 @@ mod iterators;
 mod lengths;
 #[path = "gpu/lines.rs"]
 mod lines;
+#[path = "gpu/matrices.rs"]
+mod matrices;
 #[path = "gpu/narrow.rs"]
 mod narrow;
 #[path = "gpu/native.rs"]
