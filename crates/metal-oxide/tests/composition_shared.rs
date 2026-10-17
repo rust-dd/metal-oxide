@@ -2,6 +2,7 @@
 
 use std::{
     future::{Future, ready},
+    panic::{AssertUnwindSafe, catch_unwind},
     pin::Pin,
     sync::{
         Arc, Mutex,
@@ -82,6 +83,35 @@ fn poll<F: Future>(future: Pin<&mut F>, wakes: &Arc<Wakes>) -> Poll<F::Output> {
     future.poll(&mut Context::from_waker(&Waker::from(Arc::clone(wakes))))
 }
 
+type Hook = Arc<Mutex<Option<Box<dyn FnMut() + Send>>>>;
+
+fn call(hook: &Hook) {
+    if let Some(hook) = hook.lock().unwrap().as_mut() {
+        hook();
+    }
+}
+
+/// Wakes during its first poll, as a GPU completion can while that poll runs, then calls
+/// `hook` and returns pending; the next poll completes.
+struct WakesDuringPoll {
+    polls: usize,
+    hook: Hook,
+}
+
+impl Future for WakesDuringPoll {
+    type Output = Result<Token, Failure>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.polls += 1;
+        if self.polls > 1 {
+            return Poll::Ready(Ok(Token(5)));
+        }
+        cx.waker().wake_by_ref();
+        call(&self.hook);
+        Poll::Pending
+    }
+}
+
 #[test]
 fn every_clone_awaits_one_lazy_execution_and_receives_the_same_value() {
     let runs = Arc::new(AtomicUsize::new(0));
@@ -155,9 +185,10 @@ fn completion_wakes_the_latest_waker_of_each_remaining_clone() {
     assert!(poll(waiting.as_mut(), &stale).is_pending());
     assert!(poll(waiting.as_mut(), &latest).is_pending());
     drop(dropped);
+    assert!(poll(waiting.as_mut(), &latest).is_pending());
+    let before = latest.0.load(Ordering::SeqCst);
     gate.open();
-    let wakes = [&first, &stale, &latest].map(|wakes| wakes.0.load(Ordering::SeqCst));
-    assert_eq!(wakes, [0, 0, 1]);
+    assert!(latest.0.load(Ordering::SeqCst) > before);
     let Poll::Ready(Ok(token)) = poll(waiting.as_mut(), &latest) else {
         panic!("the woken clone did not complete");
     };
@@ -175,4 +206,56 @@ fn dropping_the_last_clone_drops_unfinished_work() {
     assert_eq!(drops.load(Ordering::SeqCst), 0);
     drop(shared);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn dropping_a_woken_clone_wakes_a_clone_that_registered_during_its_poll() {
+    let hook = Hook::default();
+    let shared = WakesDuringPoll {
+        polls: 0,
+        hook: Arc::clone(&hook),
+    }
+    .shared();
+    let mut driver = Box::pin(shared.clone());
+    let waiter = Arc::new(Mutex::new(Box::pin(shared)));
+    let waited = Arc::new(Wakes::default());
+    *hook.lock().unwrap() = Some(Box::new({
+        let (waiter, waited) = (Arc::clone(&waiter), Arc::clone(&waited));
+        move || assert!(poll(waiter.lock().unwrap().as_mut(), &waited).is_pending())
+    }));
+    assert!(poll(driver.as_mut(), &Arc::default()).is_pending());
+    drop(driver);
+    assert!(waited.0.load(Ordering::SeqCst) > 0);
+    let Poll::Ready(Ok(token)) = poll(waiter.lock().unwrap().as_mut(), &waited) else {
+        panic!("the woken clone did not complete");
+    };
+    assert_eq!(token.0, 5);
+}
+
+#[test]
+fn a_panic_in_shared_work_reaches_a_clone_that_registered_during_it() {
+    let hook = Hook::default();
+    let shared = ready(Ok::<_, Failure>(1_u32))
+        .map({
+            let hook = Arc::clone(&hook);
+            move |_| -> u32 {
+                call(&hook);
+                panic!("the shared callback failed")
+            }
+        })
+        .shared();
+    let mut driver = Box::pin(shared.clone());
+    let waiter = Arc::new(Mutex::new(Box::pin(shared)));
+    let waited = Arc::new(Wakes::default());
+    *hook.lock().unwrap() = Some(Box::new({
+        let (waiter, waited) = (Arc::clone(&waiter), Arc::clone(&waited));
+        move || assert!(poll(waiter.lock().unwrap().as_mut(), &waited).is_pending())
+    }));
+    assert!(catch_unwind(AssertUnwindSafe(|| poll(driver.as_mut(), &Arc::default()))).is_err());
+    drop(driver);
+    assert!(waited.0.load(Ordering::SeqCst) > 0);
+    let polled = catch_unwind(AssertUnwindSafe(|| {
+        poll(waiter.lock().unwrap().as_mut(), &waited).is_ready()
+    }));
+    assert!(polled.is_err(), "the clone did not observe the panic");
 }

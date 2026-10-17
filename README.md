@@ -68,7 +68,8 @@ let mean = vec_add(&device, config, &a, &b, &mut out)
 
 `shared()` runs an operation once for any number of consumers: each clone of the returned
 future gets the same `Arc` of its result or error, and the operation stops being driven
-once every clone is dropped, while work it already submitted completes.
+once every clone is dropped, while work it already submitted completes. `Operation` extends
+every fallible future; where `futures::FutureExt` is imported too, write `Operation::map(op, f)`.
 
 Within a sequence, recorded buffers can feed later launches. A CPU read panics if the
 buffer has a recorded write; CPU writes, upload and native export panic while any access
