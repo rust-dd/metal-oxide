@@ -185,7 +185,17 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     }
     if matches!(op, Shl | Shr) {
         let count = format!("(uint({b}) & {}u)", scalar.bits() - 1);
-        let value = if scalar == Scalar::Isize && op == Shr {
+        let value = if scalar.bits() < 32 && op == Shr {
+            // Hosted macOS Metal shifts a narrow value truncated from 32 bits with the bits it
+            // dropped; high bits the compiler cannot know keep the shift in 32 bits.
+            let extended = if scalar.is_signed() {
+                format!("uint(int({a}))")
+            } else {
+                format!("uint({a})")
+            };
+            let high = format!("((0u - {OPAQUE_ZERO}) << {}u)", scalar.bits());
+            format!("({extended} ^ {high}) >> {count}")
+        } else if scalar == Scalar::Isize && op == Shr {
             format!(
                 "(ulong({a}) >> {count}) | (((0ul - ulong({a} < 0)) << ((64u - {count}) & 63u)) & (0ul - ulong({count} != 0u)))"
             )
