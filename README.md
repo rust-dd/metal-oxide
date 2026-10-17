@@ -160,6 +160,15 @@ cross the kernel boundary; wider vectors, gather/scatter and masked loads are re
 Host files using `core::simd` need nightly Rust; separate kernel crates use the pinned
 compiler toolchain.
 
+`device::simdgroup::Matrix<T>` holds an 8x8 `f32`, `F16` or `BF16` matrix in the 32 lanes of a
+SIMD group. `Matrix::splat` and `Matrix::multiply_accumulate` are safe; the product may use
+narrower input types than the accumulator, such as `F16` into `f32`. Unsafe `load_matrix`,
+`store_matrix` and their `_transposed` forms move row-major blocks of device and threadgroup
+buffers. Every lane of a SIMD group reaches a matrix operation with the same operands: control
+and operands may depend on block-uniform values and `simdgroup::group_id()`, and the kernel
+declares a fixed block whose thread count is a multiple of 32. Matrix kernels need an Apple7
+GPU (M1 or later); hosted Paravirtual devices reject them.
+
 The `no_std` integration tests compile and execute `libm` f32 math and `num-traits`
 generic float/integer workloads. Dependencies remain subject to the supported device
 types and operations; using `no_std` alone does not make an entire crate compatible.

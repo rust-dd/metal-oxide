@@ -293,6 +293,13 @@ is not formatted. A check before a barrier or SIMD collective
 must be proved or uniform, so that no thread waits for one that has returned. `log!`
 lowers to Metal shader logging with typed `printf` specifiers.
 
+SIMD-group matrices are IR values of their own type that never cross the ABI. Participation is
+tracked at three levels: block-uniform, uniform within a SIMD group (`group_id()` and values
+computed from it), and lane-varying. Barriers and SIMD collectives need block-uniform control;
+matrix operations need control and operands uniform within the SIMD group, and a check before
+them may fail a whole SIMD group. A kernel that reaches a matrix operation fixes a block of
+whole 32-lane groups, and the runtime rejects pipelines with other SIMD widths.
+
 The compiler writes a diagnostic text dump of this structure to
 `kernels.oxide-ir`.
 
