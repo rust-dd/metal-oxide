@@ -1,12 +1,15 @@
 use super::*;
 
 const SOURCE: &str = "crates/metal-oxide-compiler/tests/fixtures/atomic_numeric.rs";
+const FEATURES: [&str; 2] = ["float32_atomics", "uint64_atomics"];
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn float_atomics_preserve_old_values_and_compare_bits() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let ops = pipeline(&device, SOURCE, "float_ops")?;
+    let Some(ops) = supported_pipeline(&device, SOURCE, "float_ops", &FEATURES)? else {
+        return Ok(());
+    };
     let mut cell = device.buffer_zeroed::<f32>(1)?;
     let mut out = device.buffer_zeroed::<f32>(9)?;
     for start in [
@@ -89,8 +92,12 @@ fn float_atomics_preserve_old_values_and_compare_bits() -> metal_oxide::Result<(
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn float_and_u64_atomics_handle_contended_device_storage() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    let floats = pipeline(&device, SOURCE, "float_contention")?;
-    let wide = pipeline(&device, SOURCE, "wide_contention")?;
+    let Some(floats) = supported_pipeline(&device, SOURCE, "float_contention", &FEATURES)? else {
+        return Ok(());
+    };
+    let Some(wide) = supported_pipeline(&device, SOURCE, "wide_contention", &FEATURES)? else {
+        return Ok(());
+    };
     for blocks in [1, 7, 257] {
         let mut cells = device.buffer_zeroed::<f32>(2)?;
         // SAFETY: every thread uses atomic operations on the two initialized cells.

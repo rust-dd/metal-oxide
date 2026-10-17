@@ -138,6 +138,27 @@ fn pipeline_with_math_mode(
     entry: &str,
     math_mode: metal_oxide_artifact::MathMode,
 ) -> metal_oxide::Result<Pipeline> {
+    let directory = emitted(source, math_mode);
+    let module = support::artifact::module(device, &directory)?;
+    eprintln!("{entry}: {} ({})", device.name(), directory.display());
+    Pipeline::new(device, &module, entry)
+}
+
+/// A pipeline of kernels that need `features`, or `None` on a device that rejects them.
+fn supported_pipeline(
+    device: &Device,
+    source: &str,
+    entry: &str,
+    features: &[&str],
+) -> metal_oxide::Result<Option<Pipeline>> {
+    let directory = emitted(source, metal_oxide_artifact::MathMode::Precise);
+    let Some(module) = support::artifact::supported_module(device, &directory, features)? else {
+        return Ok(None);
+    };
+    Pipeline::new(device, &module, entry).map(Some)
+}
+
+fn emitted(source: &str, math_mode: metal_oxide_artifact::MathMode) -> std::path::PathBuf {
     let (output, directory) = support::emit(
         source,
         &[
@@ -148,9 +169,7 @@ fn pipeline_with_math_mode(
         ],
     );
     support::checked(output);
-    let module = support::artifact::module(device, &directory)?;
-    eprintln!("{entry}: {} ({})", device.name(), directory.display());
-    Pipeline::new(device, &module, entry)
+    directory
 }
 
 #[test]

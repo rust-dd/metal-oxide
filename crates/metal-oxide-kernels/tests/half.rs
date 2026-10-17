@@ -2,6 +2,8 @@
 
 mod support;
 
+use objc2_metal::{MTLDevice, MTLGPUFamily};
+
 #[test]
 #[ignore = "requires a Metal device, the compiler nightly, rust-src and the Metal toolchain"]
 fn half_types_launch_from_host_modules_and_saved_kernel_crates() {
@@ -47,13 +49,24 @@ fn half_types_launch_from_host_modules_and_saved_kernel_crates() {
     project.kernel_crate(&format!(
         "#![no_std]\nuse metal_oxide_device::*;\n{functions}"
     ));
-    support::checked(project.cargo(&["run", "--quiet"]).output().unwrap());
-    support::checked(
-        project
-            .cargo(&["run", "--quiet"])
-            .env("RUSTUP_TOOLCHAIN", "1.89.0")
-            .env("METAL_OXIDE_ARTIFACTS", "locked")
-            .output()
-            .unwrap(),
-    );
+    // The Mac2-only paravirtual device of hosted macOS VMs lacks bfloat16 and must reject it.
+    let device = metal_oxide::Device::system_default().unwrap();
+    let bfloat = device.as_native().supportsFamily(MTLGPUFamily::Apple6);
+    let mut saved = project.cargo(&["run", "--quiet"]);
+    saved
+        .env("RUSTUP_TOOLCHAIN", "1.89.0")
+        .env("METAL_OXIDE_ARTIFACTS", "locked");
+    for mut run in [project.cargo(&["run", "--quiet"]), saved] {
+        let output = run.output().unwrap();
+        if bfloat {
+            support::checked(output);
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                !output.status.success()
+                    && stderr.contains("UnsupportedDevice(\"artifact requires bfloat16\")"),
+                "{stderr}"
+            );
+        }
+    }
 }

@@ -121,7 +121,10 @@ fn half_and_bfloat_arithmetic_match_rounded_scalar_operations() -> metal_oxide::
         &std::fs::read_to_string(directory.join("abi.json")).unwrap(),
     )?;
     assert_eq!(abi.required_features, ["bfloat16"]);
-    let module = support::artifact::module(&device, &directory)?;
+    let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
+    else {
+        return Ok(());
+    };
     arithmetic::<F16>(&device, &module, "f16_arithmetic")?;
     arithmetic::<F16>(&device, &module, "primitive")?;
     arithmetic::<BF16>(&device, &module, "bf16_arithmetic")?;
@@ -170,7 +173,10 @@ fn bfloat_storage_widens_every_pattern_and_rounds_f32_midpoints() -> metal_oxide
         &[],
     );
     support::checked(output);
-    let module = support::artifact::module(&device, &directory)?;
+    let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
+    else {
+        return Ok(());
+    };
     let values = (0..=u16::MAX).map(BF16::from_bits).collect::<Vec<_>>();
     let input = device.buffer_from_slice(&values)?;
     let mut output = device.buffer_zeroed::<f32>(values.len())?;

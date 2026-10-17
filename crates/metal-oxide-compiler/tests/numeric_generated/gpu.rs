@@ -11,7 +11,10 @@ fn generated_half_expression_graphs_match_cpu() -> metal_oxide::Result<()> {
     for seed in SEEDS {
         let program = half::Program::generate(seed);
         let directory = compile(&format!("gpu-half-{seed:016x}"), &program.source());
-        let module = support::artifact::module(&device, &directory)?;
+        let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
+        else {
+            return Ok(());
+        };
         let pipeline = Pipeline::new(&device, &module, "generated")?;
         let values = half::inputs(seed);
         let input = device.buffer_from_slice(&values)?;
@@ -72,7 +75,11 @@ fn float_atomic_state_machines(ordered: bool) -> metal_oxide::Result<()> {
             &format!("gpu-float-{ordered}-{seed:016x}"),
             &program.source(),
         );
-        let module = support::artifact::module(&device, &directory)?;
+        let Some(module) =
+            support::artifact::supported_module(&device, &directory, &["float32_atomics"])?
+        else {
+            return Ok(());
+        };
         let pipeline = Pipeline::new(&device, &module, "generated")?;
         let values = atomics::inputs(seed);
         let input = device.buffer_from_slice(&values)?;
@@ -129,7 +136,11 @@ fn generated_contended_u64_min_max_chains_match_cpu() -> metal_oxide::Result<()>
     for seed in SEEDS {
         let program = wide::Program::generate(seed);
         let directory = compile(&format!("gpu-wide-{seed:016x}"), &program.source());
-        let module = support::artifact::module(&device, &directory)?;
+        let Some(module) =
+            support::artifact::supported_module(&device, &directory, &["uint64_atomics"])?
+        else {
+            return Ok(());
+        };
         let pipeline = Pipeline::new(&device, &module, "generated")?;
         let values = wide::inputs(seed);
         let input = device.buffer_from_slice(&values)?;

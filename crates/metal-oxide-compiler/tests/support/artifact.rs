@@ -1,12 +1,54 @@
 use std::path::Path;
 
-use metal_oxide::{Device, Module};
+use metal_oxide::{Device, Error, Module};
 use metal_oxide_artifact::{Abi, ArtifactFile, BuildInfo, DEVICE_TARGET, Files, Manifest, sha256};
+use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 /// Loads generated kernels as an artifact: offline MSL compilation and a manifest of the outputs.
 pub fn module(device: &Device, directory: &Path) -> metal_oxide::Result<Module> {
     let (manifest, metallib) = manifest(directory)?;
     Module::from_bytes(device, &manifest.to_json()?, &metallib)
+}
+
+/// Whether `device` has the GPU family that Apple's feature tables require for `feature`; the
+/// Mac2-only paravirtual device of hosted macOS VMs has none of them.
+pub fn supports(device: &Device, feature: &str) -> bool {
+    let family = match feature {
+        "bfloat16" => MTLGPUFamily::Apple6,
+        "float32_atomics" => MTLGPUFamily::Apple7,
+        "uint64_atomics" => MTLGPUFamily::Apple8,
+        _ => panic!("no GPU family recorded for {feature}"),
+    };
+    device.as_native().supportsFamily(family)
+}
+
+/// Generated kernels that need `features` as a module, or `None` once a device lacking one has
+/// rejected them as unsupported.
+pub fn supported_module(
+    device: &Device,
+    directory: &Path,
+    features: &[&str],
+) -> metal_oxide::Result<Option<Module>> {
+    let module = module(device, directory);
+    let missing = features
+        .iter()
+        .filter(|feature| !supports(device, feature))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return module.map(Some);
+    }
+    match module {
+        Err(Error::UnsupportedDevice(reason))
+            if missing.iter().any(|feature| reason.contains(**feature)) =>
+        {
+            Ok(None)
+        }
+        other => panic!(
+            "{} lacks {missing:?}, but loading gave {:?}",
+            device.name(),
+            other.map(drop)
+        ),
+    }
 }
 
 /// The manifest and library of generated kernels, compiled offline.

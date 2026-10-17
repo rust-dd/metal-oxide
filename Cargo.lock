@@ -452,6 +452,7 @@ dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
  "metal-oxide-build",
+ "objc2-metal",
  "proc-macro2",
  "quote",
  "serde_json",
