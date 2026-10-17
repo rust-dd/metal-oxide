@@ -237,6 +237,9 @@ pub fn expression_type(
         Expression::Simd { op, arguments } => {
             crate::simd::simd_type(module, function, *op, arguments, source)
         }
+        Expression::Matrix { op, arguments } => {
+            crate::matrix::matrix_type(module, function, *op, arguments, source)
+        }
         Expression::ThreadgroupAlloc {
             element,
             length,

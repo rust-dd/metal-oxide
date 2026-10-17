@@ -192,6 +192,7 @@ minimum is lower. Regenerate this table with
 | `atomic_acquire_release` | 4.1 | 27 | 7 | no |
 | `int32_atomics` | 1.0 | 11 | 1 | yes |
 | `simd_groups` | 2.0 | 11 | 7 | yes |
+| `simdgroup_matrix` | 2.3 | 11 | 7 | no |
 | `dynamic_threadgroup_memory` | 1.0 | 11 | 1 | yes |
 | `logging` | 3.2 | 15 | 6 | yes |
 | `bfloat16` | 3.1 | 14 | 6 | no |

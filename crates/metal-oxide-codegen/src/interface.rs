@@ -7,6 +7,7 @@ use metal_oxide_ir::{
 pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
     pub(crate) simd: bool,
+    matrix: bool,
     pub(crate) logging: bool,
     atomics: Vec<String>,
     dynamic_shared: bool,
@@ -123,6 +124,9 @@ impl KernelInterfaces {
                         | metal_oxide_ir::Expression::Simd { .. }
                 )
             }),
+            matrix: uses(module, |value| {
+                matches!(value, metal_oxide_ir::Expression::Matrix { .. })
+            }),
             logging: uses(module, |value| {
                 matches!(value, metal_oxide_ir::Expression::Log { .. })
             }),
@@ -139,6 +143,7 @@ impl KernelInterfaces {
             math_mode,
             required_features: [
                 (self.simd, "simd_groups"),
+                (self.matrix, "simdgroup_matrix"),
                 (self.dynamic_shared, "dynamic_threadgroup_memory"),
                 (self.logging, "logging"),
                 (self.bfloat, "bfloat16"),
@@ -158,6 +163,7 @@ impl KernelInterfaces {
 fn contains_scalar(module: &Module, ty: Type, scalar: Scalar) -> bool {
     match ty {
         Type::Scalar(value) => value == scalar,
+        Type::Matrix(value) => value == scalar,
         Type::Aggregate(id) => module
             .types
             .get(id)

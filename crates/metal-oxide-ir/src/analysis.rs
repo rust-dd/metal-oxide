@@ -26,7 +26,10 @@ pub struct FunctionAnalysis {
 impl Expression {
     pub fn is_cooperative(&self, functions: &[FunctionAnalysis]) -> bool {
         match self {
-            Self::ThreadgroupAlloc { .. } | Self::ThreadgroupBarrier | Self::Simd { .. } => true,
+            Self::ThreadgroupAlloc { .. }
+            | Self::ThreadgroupBarrier
+            | Self::Simd { .. }
+            | Self::Matrix { .. } => true,
             Self::Call { function, .. } => functions[*function].cooperative,
             _ => false,
         }
@@ -44,6 +47,7 @@ impl Expression {
             | Self::Atomic { .. }
             | Self::ThreadgroupBarrier
             | Self::Simd { .. }
+            | Self::Matrix { .. }
             | Self::Log { .. } => true,
             Self::Call { function, .. } => functions[*function].effects,
             _ => false,

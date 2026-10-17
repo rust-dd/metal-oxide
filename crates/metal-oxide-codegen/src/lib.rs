@@ -12,6 +12,7 @@ mod integer;
 mod interface;
 mod layout;
 mod log;
+mod matrix;
 mod names;
 mod numeric;
 mod simd;

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{Access, Aggregate, AtomicOp, Check, Scalar, SimdOp, Type, TypeTable};
+use crate::{Access, Aggregate, AtomicOp, Check, MatrixOp, Scalar, SimdOp, Type, TypeTable};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
@@ -319,6 +319,11 @@ pub enum Expression {
         op: SimdOp,
         arguments: Vec<Operand>,
     },
+    /// See [`MatrixOp`] for the operands.
+    Matrix {
+        op: MatrixOp,
+        arguments: Vec<Operand>,
+    },
     Dim3([Operand; 3]),
     Checked {
         scalar: Scalar,
@@ -435,6 +440,7 @@ impl Expression {
             | Self::Math { arguments, .. }
             | Self::Integer { arguments, .. }
             | Self::Simd { arguments, .. }
+            | Self::Matrix { arguments, .. }
             | Self::Atomic { arguments, .. } => arguments.iter().collect(),
         }
     }

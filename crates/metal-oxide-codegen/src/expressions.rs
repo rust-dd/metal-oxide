@@ -9,6 +9,7 @@ pub(crate) fn type_name(ty: Type) -> String {
         Type::Aggregate(id) => format!("metal_oxide_aggregate_{id}"),
         Type::Checked(s) => format!("metal_oxide_checked_{}", s.name()),
         Type::Pointer(id) => format!("metal_oxide_pointer_{id}"),
+        Type::Matrix(s) => format!("simdgroup_matrix<{}, 8, 8>", scalar_name(s)),
         Type::Buffer {
             element,
             access,
@@ -264,6 +265,21 @@ pub(crate) fn expression(
             op: operation,
             arguments,
         } => crate::simd::expression(*operation, arguments.iter().map(op).collect()),
+        Expression::Matrix {
+            op: operation,
+            arguments,
+        } => {
+            let element = match ty(&arguments[0])? {
+                Type::Scalar(scalar) | Type::Matrix(scalar) => scalar,
+                Type::Buffer {
+                    element: Element::Scalar(scalar),
+                    ..
+                } => scalar,
+                _ => unreachable!("validated matrix operand"),
+            };
+            let arguments = arguments.iter().map(op).collect::<Vec<_>>();
+            crate::matrix::expression(*operation, element, &arguments)
+        }
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),
         Expression::Uninit(_) => {

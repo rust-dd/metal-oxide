@@ -97,6 +97,7 @@ fn removable(value: &Expression) -> bool {
             | Expression::BufferStore { .. }
             | Expression::Atomic { .. }
             | Expression::Simd { .. }
+            | Expression::Matrix { .. }
             | Expression::ThreadgroupAlloc { .. }
             | Expression::ThreadgroupBarrier
     )

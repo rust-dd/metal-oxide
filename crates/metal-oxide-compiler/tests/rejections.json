@@ -83,6 +83,7 @@
   {"message": "invalid SIMD argument count", "internal": "The importer rejects SIMD intrinsic calls of the wrong arity first ('invalid SIMD intrinsic arity'), and the device wrappers pass the right count."},
   {"message": "invalid SIMD intrinsic arity", "internal": "signatures::valid rejects device SIMD declarations whose parameter count differs from SimdOp::arity before any call is imported, and type-checked calls pass exactly the declared parameters."},
   {"message": "invalid SIMD intrinsic signature: {name}", "fixture": "rejections/vector_intrinsic_arguments.rs", "options": ["--cfg", "comparison_float"], "line": 19, "column": 27},
+  {"message": "invalid SIMD-group matrix operation", "internal": "The device adapters fix each matrix operation's operand types (intrinsics/signatures/matrix.rs validates them), so imported operations always fit their IR types."},
   {"message": "invalid aggregate constant shape", "internal": "literals.rs builds an aggregate constant with exactly field_count components of its lowered type, and that type has fields: pointer types fail lowering (`unsupported device type`), empty aggregates fail the earlier type table check, and Unit and scalars become plain constants."},
   {"message": "invalid aggregate field, index or dereference", "fixture": "rejections/constant_index_out_of_bounds.rs", "line": 8, "column": 40},
   {"message": "invalid aggregate type", "internal": "every Aggregate id the importer uses is interned in the module's type table (types.rs intern), so it is always in range."},

@@ -78,6 +78,10 @@ fn size_alignment(module: &Module, ty: Type) -> (u64, u64) {
             let shape = shape(module, id);
             (shape.size, shape.alignment)
         }
+        Type::Matrix(scalar) => {
+            let size = 64 * u64::from(scalar.bits() / 8);
+            (size, size)
+        }
         Type::Unit | Type::Never | Type::Buffer { .. } => unreachable!("not a struct member"),
     }
 }

@@ -136,6 +136,8 @@ pub enum Type {
     Checked(Scalar),
     /// A reference or slice interned in the type table.
     Pointer(usize),
+    /// An 8x8 SIMD-group matrix of f32, F16 or BF16 elements.
+    Matrix(Scalar),
 }
 
 /// A reference into one address space; a slice also carries its length.
@@ -344,7 +346,7 @@ impl TypeTable {
     /// Values that contain no pointer, so they can live in arrays, slices and buffers.
     pub fn is_owned(&self, ty: Type) -> bool {
         match ty {
-            Type::Unit | Type::Scalar(_) | Type::Dim3 | Type::Checked(_) => true,
+            Type::Unit | Type::Scalar(_) | Type::Dim3 | Type::Checked(_) | Type::Matrix(_) => true,
             Type::Aggregate(id) => self
                 .get(id)
                 .is_some_and(|aggregate| aggregate.component_types().all(|t| self.is_owned(t))),
@@ -406,6 +408,7 @@ impl TypeTable {
                     // Zero-sized fields take no storage; array elements need some.
                     Type::Unit if !matches!(aggregate, Aggregate::Array { .. }) => {}
                     Type::Checked(scalar) if scalar.is_integer() || scalar == Scalar::F32 => {}
+                    Type::Matrix(scalar) if crate::is_matrix_element(scalar) => {}
                     Type::Aggregate(child) if child < id => {}
                     Type::Aggregate(_) => {
                         return Err(Error::new(

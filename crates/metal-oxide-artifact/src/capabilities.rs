@@ -49,6 +49,13 @@ pub const CAPABILITIES: &[Capability] = &[
         mac2: true,
     },
     Capability {
+        name: "simdgroup_matrix",
+        msl: (2, 3),
+        macos: 11,
+        apple_family: 7,
+        mac2: false,
+    },
+    Capability {
         name: "dynamic_threadgroup_memory",
         msl: (1, 0),
         macos: 11,

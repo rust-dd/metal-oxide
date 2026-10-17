@@ -119,6 +119,7 @@ impl<'a> ModuleEmitter<'a> {
             .unwrap();
         }
         self.output.push_str(&crate::simd::helpers(module));
+        self.output.push_str(crate::matrix::helpers(module));
         self.output
             .push_str(&crate::floating::helpers(module, self.math_mode));
         if self.analyses.iter().any(|analysis| analysis.fallible) {

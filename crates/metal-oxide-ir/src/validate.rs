@@ -112,6 +112,11 @@ pub fn validate(module: &Module) -> Result<Vec<FunctionAnalysis>, Error> {
             ) {
                 return Err(Error::new(&function.source, "unsupported local type"));
             }
+            if let Type::Matrix(scalar) = ty
+                && !crate::is_matrix_element(*scalar)
+            {
+                return Err(Error::new(&function.source, "unsupported local type"));
+            }
         }
     }
     let mut graphs = Vec::with_capacity(module.functions.len());
