@@ -77,6 +77,7 @@ fn generated_programs_agree_until_the_time_budget_ends() {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut checked = 0;
     let mut failures = Vec::new();
+    let mut progress = Instant::now() + Duration::from_secs(60);
     while Instant::now() < deadline {
         let program = Program::generate(seed);
         let case = Case::new(&format!("{seed:016x}"), &program, seed);
@@ -97,6 +98,11 @@ fn generated_programs_agree_until_the_time_budget_ends() {
             }
         }
         checked += 1;
+        if Instant::now() >= progress {
+            let left = deadline.saturating_duration_since(Instant::now()).as_secs();
+            eprintln!("checked {checked} programs, {left} s left");
+            progress += Duration::from_secs(60);
+        }
         seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
     }
     eprintln!("checked {checked} programs");
