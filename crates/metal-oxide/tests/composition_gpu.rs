@@ -13,7 +13,7 @@ use std::{
 
 use metal_oxide::{
     Argument, Buffer, Device, Dim3, Error, Launch, LaunchConfig, Module, Operation, Pipeline,
-    ReadArgument, Result, WriteArgument,
+    ReadArgument, Result, WriteArgument, sequence,
 };
 use tokio::runtime::Builder;
 
@@ -295,4 +295,91 @@ fn awaiting_a_chain_never_blocks_a_current_thread_runtime() -> Result<()> {
         assert!(during_chain >= 6, "{during_chain} ticks while awaiting");
         Ok(())
     })
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_shared_launch_runs_once_for_concurrent_readback_and_dependent_launches() -> Result<()> {
+    let (device, kernels) = setup()?;
+    let n = 1_000_003;
+    let input = device.buffer_from_slice(&vec![2.0_f32; n])?;
+    let mut middle = device.buffer_zeroed::<f32>(n)?;
+    let mut tripled = device.buffer_from_slice(&vec![-1.0_f32; n])?;
+    let (pipeline, tripled_view) = (&kernels.scale_add, &mut tripled);
+    let encodes = AtomicUsize::new(0);
+    let produced = sequence(|batch| {
+        encodes.fetch_add(1, Ordering::SeqCst);
+        batch.push(scale_add(&kernels.scale_add, &input, &mut middle, 2.0, 1.0))
+    })
+    .shared();
+    let readback = produced
+        .clone()
+        .then(|arguments| async move { Ok(arguments.1.read().await.to_vec()) });
+    let dependent = produced.clone().then(|arguments| async move {
+        scale_add(pipeline, &*arguments.1, tripled_view, 3.0, 0.0)
+            .await
+            .map(drop)
+            .map_err(Arc::new)
+    });
+    let runtime = Builder::new_current_thread().build()?;
+    let (produced, readback, dependent) =
+        runtime.block_on(async { tokio::join!(produced, readback, dependent) });
+    let (produced, readback) = (produced.unwrap(), readback.unwrap());
+    dependent.unwrap();
+    assert_eq!(encodes.load(Ordering::SeqCst), 1);
+    assert_eq!(Arc::strong_count(&produced), 1);
+    assert!(readback.iter().all(|&value| value == 5.0));
+    drop(produced);
+    assert!(middle.read().wait().iter().all(|&value| value == 5.0));
+    assert!(tripled.read().wait().iter().all(|&value| value == 15.0));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_shared_failure_reaches_every_consumer_and_starts_no_dependent() -> Result<()> {
+    let (device, kernels) = setup()?;
+    let mut middle = device.buffer_zeroed::<f32>(257)?;
+    let mut output = device.buffer_from_slice(&vec![-1.0_f32; 257])?;
+    let later = AtomicUsize::new(0);
+    let (pipeline, output_view) = (&kernels.scale_add, &mut output);
+    let failed = rejected(pipeline, &mut middle).shared();
+    let dependent = failed
+        .clone()
+        .then(|middle| {
+            later.fetch_add(1, Ordering::SeqCst);
+            async move {
+                scale_add(pipeline, &**middle, output_view, 3.0, 0.0)
+                    .await
+                    .map(drop)
+                    .map_err(Arc::new)
+            }
+        })
+        .wait()
+        .unwrap_err();
+    let direct = failed.wait().err().expect("the rejected launch fails");
+    assert!(Arc::ptr_eq(&dependent, &direct));
+    assert!(matches!(*direct, Error::InvalidLaunch(_)), "{direct:?}");
+    assert_eq!(later.load(Ordering::SeqCst), 0);
+    assert!(output.read().wait().iter().all(|&value| value == -1.0));
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn dropping_every_clone_of_a_running_shared_launch_keeps_cpu_access_synchronized() -> Result<()> {
+    let (device, kernels) = setup()?;
+    let mut busy = device.buffer_zeroed::<u32>(32_768)?;
+    let rounds = calibrate(&kernels, &mut busy, Duration::from_millis(20))?;
+    let spun = busy.read().wait().to_vec();
+    busy.write().wait().fill(0);
+    let later = AtomicUsize::new(0);
+    let shared = spin(&kernels.spin, &mut busy, rounds).shared();
+    let mut consumer = Box::pin(shared.clone().map(|_| later.fetch_add(1, Ordering::SeqCst)));
+    poll_until(consumer.as_mut(), || true);
+    drop(shared);
+    drop(consumer);
+    assert_eq!(busy.read().wait(), spun);
+    assert_eq!(later.load(Ordering::SeqCst), 0);
+    Ok(())
 }

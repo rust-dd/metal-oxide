@@ -30,6 +30,14 @@ pub trait Operation: IntoFuture<Output = Result<Self::Value, Self::Error>> + Siz
         async move { next(self.into_future().await?).into_future().await }
     }
 
+    /// Runs the operation once for every clone of the returned future, each of which gets the
+    /// same `Arc` value or error; dropping all clones drops unfinished work.
+    fn shared(self) -> impl Future<Output = Result<Arc<Self::Value>, Arc<Self::Error>>> + Clone {
+        futures_util::FutureExt::shared(async move {
+            self.into_future().await.map(Arc::new).map_err(Arc::new)
+        })
+    }
+
     /// Also returns the GPU execution time of the operation's command buffer.
     fn timed(self) -> Timed<Self>
     where

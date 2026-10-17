@@ -1,0 +1,9 @@
+error[E0502]: cannot borrow `*output` as immutable because it is also borrowed as mutable
+  --> tests/borrows/chain.rs:11:18
+   |
+10 |     let chain = launch(pipeline, output).map(|(output,)| output.len());
+   |                                  ------ mutable borrow occurs here
+11 |     let values = output.read().wait();
+   |                  ^^^^^^ immutable borrow occurs here
+12 |     drop(chain);
+   |          ----- mutable borrow later used here

@@ -470,7 +470,8 @@ buffers come back after the GPU work. `sequence(|batch| ...)` pushes several
 operations into one command buffer, ordered by their buffer dependencies. `then` and
 `map` continue an operation on the polling thread once it has succeeded, with dependent
 work or CPU processing of its result; an error skips the later stages, and dropping a chain
-starts none of them while its submitted work keeps its buffers. Required
+starts none of them while its submitted work keeps its buffers. `shared()` lets several
+consumers await one execution and receive the same `Arc` result or error. Required
 block shapes remain encoded in the configuration type and checked by the runtime.
 
 A `#[kernels]` module also gets `module(&device)`, its library as a `Module` for pipelines

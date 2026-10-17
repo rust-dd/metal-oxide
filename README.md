@@ -66,6 +66,10 @@ let mean = vec_add(&device, config, &a, &b, &mut out)
     .await?;
 ```
 
+`shared()` runs an operation once for any number of consumers: each clone of the returned
+future gets the same `Arc` of its result or error, and the operation stops being driven
+once every clone is dropped, while work it already submitted completes.
+
 Within a sequence, recorded buffers can feed later launches. A CPU read panics if the
 buffer has a recorded write; CPU writes, upload and native export panic while any access
 is recorded. Conflicting nested batches return `InvalidBuffer`.

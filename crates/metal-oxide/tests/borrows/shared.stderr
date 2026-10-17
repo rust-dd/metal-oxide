@@ -1,0 +1,10 @@
+error[E0502]: cannot borrow `*output` as immutable because it is also borrowed as mutable
+  --> tests/borrows/shared.rs:13:18
+   |
+10 |     let shared = launch(pipeline, output).shared();
+   |                                   ------ mutable borrow occurs here
+...
+13 |     let values = output.read().wait();
+   |                  ^^^^^^ immutable borrow occurs here
+14 |     drop(clone);
+   |          ----- mutable borrow later used here
