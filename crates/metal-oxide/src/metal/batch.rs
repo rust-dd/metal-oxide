@@ -7,7 +7,7 @@ use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_metal::{MTLBuffer, MTLComputePipelineState, MTLSize};
 
 use super::{
-    Argument, Device, Operation, Pipeline,
+    Argument, BatchOperation, Device, Pipeline,
     argument::{ArgumentInfo, Binding},
     backend::Backend,
     classic::ClassicBatch,
@@ -57,7 +57,7 @@ impl Batch {
 
     /// Encodes `operation` and returns its output, which is ready to use as the arguments of
     /// later operations in the batch.
-    pub fn push<O: Operation>(&mut self, operation: O) -> Result<O::Output> {
+    pub fn push<O: BatchOperation>(&mut self, operation: O) -> Result<O::Output> {
         operation.encode(self)
     }
 

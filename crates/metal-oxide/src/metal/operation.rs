@@ -2,7 +2,7 @@ use std::{
     future::{Future, IntoFuture},
     pin::Pin,
     sync::Arc,
-    task::{Context, Poll, Wake, Waker, ready},
+    task::{Context, Poll, ready},
     time::Duration,
 };
 
@@ -16,28 +16,20 @@ use super::{
 };
 use crate::{DynamicLaunchConfig, Result};
 
+mod compose;
+pub use compose::Operation;
+
 mod sealed {
     pub trait Sealed {}
 }
 
-/// GPU work submitted when awaited or waited. Preparation may yield while a pipeline
-/// compiles or command storage is busy; a dropped operation submits no further work.
-pub trait Operation: sealed::Sealed + Sized {
-    /// What the operation returns after its GPU work has finished.
+/// GPU work that can be recorded into one command buffer with [`Batch::push`].
+pub trait BatchOperation: sealed::Sealed + Sized {
+    /// What [`Batch::push`] and awaiting the operation return.
     type Output;
 
     #[doc(hidden)]
     fn encode(self, batch: &mut Batch) -> Result<Self::Output>;
-
-    /// Also returns the GPU execution time of the operation's command buffer.
-    fn timed(self) -> Timed<Self> {
-        Timed(self)
-    }
-
-    /// Runs the operation and blocks the calling thread until its GPU work has finished.
-    fn wait(self) -> Result<Self::Output> {
-        run(self).map(|(output, _)| output)
-    }
 }
 
 /// One kernel dispatch. Its arguments, in the form they were passed, are its output.
@@ -115,7 +107,7 @@ impl<A, const N: usize> Launch<A, N> {
     }
 }
 
-impl<A, const N: usize> Operation for Launch<A, N> {
+impl<A, const N: usize> BatchOperation for Launch<A, N> {
     type Output = A;
 
     fn encode(mut self, batch: &mut Batch) -> Result<A> {
@@ -142,7 +134,7 @@ where
 #[must_use = "operations do nothing until awaited or waited"]
 pub struct Sequence<F>(F);
 
-impl<F, T> Operation for Sequence<F>
+impl<F, T> BatchOperation for Sequence<F>
 where
     F: FnOnce(&mut Batch) -> Result<T>,
 {
@@ -160,22 +152,15 @@ impl<F> sealed::Sealed for Sequence<F> {}
 #[must_use = "operations do nothing until awaited or waited"]
 pub struct Timed<O>(O);
 
-impl<O: Operation> Timed<O> {
-    /// Runs the operation and blocks the calling thread until its GPU work has finished.
-    pub fn wait(self) -> Result<(O::Output, Option<Duration>)> {
-        run(self.0)
-    }
-}
-
-/// The future of an operation; see [`Operation`].
+/// The future of a [`Launch`] or [`Sequence`].
 #[must_use = "futures do nothing unless polled"]
-pub struct Pending<O: Operation>(Run<O>);
+pub struct Pending<O: BatchOperation>(Run<O>);
 
 /// The future of a [`Timed`] operation.
 #[must_use = "futures do nothing unless polled"]
-pub struct TimedPending<O: Operation>(Run<O>);
+pub struct TimedPending<O: BatchOperation>(Run<O>);
 
-enum Run<O: Operation> {
+enum Run<O: BatchOperation> {
     Unpolled(O),
     Preparing {
         batch: Batch,
@@ -188,7 +173,7 @@ enum Run<O: Operation> {
     Finished,
 }
 
-impl<O: Operation> Run<O> {
+impl<O: BatchOperation> Run<O> {
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Result<(O::Output, GpuTime)>> {
         if let Self::Unpolled(_) = self {
             let Self::Unpolled(operation) = std::mem::replace(self, Self::Finished) else {
@@ -222,31 +207,11 @@ impl<O: Operation> Run<O> {
     }
 }
 
-fn run<O: Operation>(operation: O) -> Result<(O::Output, GpuTime)> {
-    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
-    let mut cx = Context::from_waker(&waker);
-    let mut run = Run::Unpolled(operation);
-    loop {
-        match run.poll(&mut cx) {
-            Poll::Ready(result) => return result,
-            Poll::Pending => std::thread::park(),
-        }
-    }
-}
-
-struct Unpark(std::thread::Thread);
-
-impl Wake for Unpark {
-    fn wake(self: Arc<Self>) {
-        self.0.unpark();
-    }
-}
-
 // The futures never pin their fields: the operation moves out on the first poll.
-impl<O: Operation> Unpin for Pending<O> {}
-impl<O: Operation> Unpin for TimedPending<O> {}
+impl<O: BatchOperation> Unpin for Pending<O> {}
+impl<O: BatchOperation> Unpin for TimedPending<O> {}
 
-impl<O: Operation> Future for Pending<O> {
+impl<O: BatchOperation> Future for Pending<O> {
     type Output = Result<O::Output>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -257,7 +222,7 @@ impl<O: Operation> Future for Pending<O> {
     }
 }
 
-impl<O: Operation> Future for TimedPending<O> {
+impl<O: BatchOperation> Future for TimedPending<O> {
     type Output = Result<(O::Output, Option<Duration>)>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -286,7 +251,7 @@ where
     }
 }
 
-impl<O: Operation> IntoFuture for Timed<O> {
+impl<O: BatchOperation> IntoFuture for Timed<O> {
     type Output = Result<(O::Output, Option<Duration>)>;
     type IntoFuture = TimedPending<O>;
 

@@ -55,6 +55,17 @@ let values = out.read().await;
 launch waits for the earlier ones whose buffers it uses, and the others run concurrently;
 `operation.timed()` also returns the GPU time.
 
+`then` continues an operation once it has succeeded, with dependent launches or async
+readback, and `map` processes its result on the CPU. An error skips the rest of the chain,
+and dropping a chain starts none of its later stages:
+
+```rust
+let mean = vec_add(&device, config, &a, &b, &mut out)
+    .then(|(_, _, out)| async move { Ok(out.read().await.iter().sum::<f32>()) })
+    .map(|sum| sum / 3.0)
+    .await?;
+```
+
 Within a sequence, recorded buffers can feed later launches. A CPU read panics if the
 buffer has a recorded write; CPU writes, upload and native export panic while any access
 is recorded. Conflicting nested batches return `InvalidBuffer`.

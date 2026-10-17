@@ -20,6 +20,6 @@ mod metal;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use metal::{
-    Argument, Batch, Buffer, Device, Launch, Library, Module, Operation, Pending, Pipeline, Read,
-    ReadArgument, Sequence, Timed, TimedPending, Write, WriteArgument, sequence,
+    Argument, Batch, BatchOperation, Buffer, Device, Launch, Library, Module, Operation, Pending,
+    Pipeline, Read, ReadArgument, Sequence, Timed, TimedPending, Write, WriteArgument, sequence,
 };

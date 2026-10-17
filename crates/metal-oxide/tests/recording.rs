@@ -8,8 +8,8 @@ use std::{
 };
 
 use metal_oxide::{
-    Argument, Buffer, Device, Dim3, Error, GpuValue, Launch, LaunchConfig, Layout, Module,
-    Operation, Pipeline, sequence,
+    Argument, BatchOperation, Buffer, Device, Dim3, Error, GpuValue, Launch, LaunchConfig, Layout,
+    Module, Operation, Pipeline, sequence,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

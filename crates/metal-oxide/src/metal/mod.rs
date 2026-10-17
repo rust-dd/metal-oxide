@@ -28,7 +28,9 @@ pub use buffer::{Buffer, Read, Write};
 pub use device::Device;
 pub use library::Library;
 pub use module::Module;
-pub use operation::{Launch, Operation, Pending, Sequence, Timed, TimedPending, sequence};
+pub use operation::{
+    BatchOperation, Launch, Operation, Pending, Sequence, Timed, TimedPending, sequence,
+};
 pub use pipeline::Pipeline;
 
 #[link(name = "CoreGraphics", kind = "framework")]
