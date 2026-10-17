@@ -26,6 +26,14 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
         }
         IntegerOp::CountOnes => format!("uint(popcount({}))", values[0]),
         IntegerOp::ReverseBits => format!("reverse_bits({})", values[0]),
+        IntegerOp::RotateLeft if scalar.bits() < 32 => {
+            rotated(scalar, &values[0], &format!("({} & {mask}u)", values[1]))
+        }
+        IntegerOp::RotateRight if scalar.bits() < 32 => rotated(
+            scalar,
+            &values[0],
+            &format!("((0u - {}) & {mask}u)", values[1]),
+        ),
         IntegerOp::RotateLeft => {
             format!("rotate({}, {name}({} & {mask}u))", values[0], values[1])
         }
@@ -36,6 +44,18 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
             )
         }
     }
+}
+
+/// An 8- or 16-bit `value` rotated left by `amount`, below its width, as a 32-bit rotation of
+/// its copies: hosted macOS 15 Metal rotates a narrow value with bits a truncation dropped.
+fn rotated(scalar: Scalar, value: &str, amount: &str) -> String {
+    let copies = if scalar.bits() == 8 {
+        "0x1010101u"
+    } else {
+        "0x10001u"
+    };
+    let wide = widened(scalar, value);
+    crate::arithmetic::integer_value(scalar, &format!("rotate({wide} * {copies}, {amount})"))
 }
 
 /// `value` zero-extended to `uint` and kept unknown: the M1 and M2 GPU compilers crash on 8-

@@ -2,7 +2,7 @@ use metal_oxide_ir::*;
 
 use crate::expressions::scalar_name;
 
-fn integer_value(scalar: Scalar, value: &str) -> String {
+pub(crate) fn integer_value(scalar: Scalar, value: &str) -> String {
     let name = scalar_name(scalar);
     if scalar.is_signed() {
         let unsigned = match scalar.bits() {
