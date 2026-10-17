@@ -380,6 +380,8 @@ The generated MSL includes these workarounds for Apple compiler defects found by
   `rotate` of a value truncated from 32 bits can move in the bits the truncation dropped.
   8- and 16-bit right shifts run in 32 bits on a value whose high bits the compiler cannot
   know, and rotations rotate the zero-extended value repeated across a `uint`.
+- On the same device, `fmod` of `half` operands can be inexact when their quotient is large,
+  as for `-952.0 % -0.003725`. 16-bit float remainders run in `float`, where they are exact.
 - On the Apple Paravirtual device of hosted CI, 64-bit integer to `float` conversions of
   values that become constant on the device are wrong. They convert through 32 bits,
   rounding to nearest even as Rust does.

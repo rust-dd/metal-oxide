@@ -168,10 +168,14 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
         };
         return format!("metal_oxide_{label}_checked_{}({a}, {b})", scalar.name());
     }
-    if ty == Type::Scalar(Scalar::BF16) && op == Rem {
-        return format!("bfloat(copysign(fmod(float({a}), float({b})), float({a})))");
+    if let Type::Scalar(scalar @ (Scalar::F16 | Scalar::BF16)) = ty
+        && op == Rem
+    {
+        // A remainder is exact in f32; hosted Metal's half `fmod` is not.
+        let name = scalar_name(scalar);
+        return format!("{name}(copysign(fmod(float({a}), float({b})), float({a})))");
     }
-    if matches!(ty, Type::Scalar(Scalar::F32 | Scalar::F16)) && op == Rem {
+    if ty == Type::Scalar(Scalar::F32) && op == Rem {
         return format!("copysign(fmod({a}, {b}), {a})");
     }
     let Type::Scalar(scalar) = ty else {
