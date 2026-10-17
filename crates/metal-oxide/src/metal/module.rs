@@ -138,5 +138,15 @@ fn require(feature: &str, macos: isize, supports: impl Fn(MTLGPUFamily) -> bool)
     }
 }
 
+/// Matrix kernels assume full 32-lane SIMD groups, which every Apple7+ GPU has.
+pub(super) fn require_simd_width(features: &[String], width: usize) -> Result<()> {
+    if width != 32 && features.iter().any(|feature| feature == "simdgroup_matrix") {
+        return Err(Error::UnsupportedDevice(
+            "artifact requires 32-lane SIMD groups".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

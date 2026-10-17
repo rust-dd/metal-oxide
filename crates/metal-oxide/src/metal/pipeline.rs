@@ -155,6 +155,13 @@ impl Compiled {
             })
             .transpose()?;
         let raw = compile(device, module, entrypoint)?;
+        super::module::require_simd_width(
+            module
+                .abi
+                .as_ref()
+                .map_or(&[][..], |abi| &abi.required_features),
+            raw.threadExecutionWidth(),
+        )?;
         if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
             return Err(Error::InvalidLaunch(
                 "kernel exceeds threadgroup memory capacity",

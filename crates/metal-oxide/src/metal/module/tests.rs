@@ -51,3 +51,24 @@ fn atomic_features_check_os_and_apple_family() {
         assert!(require(name, macos, |family| family == MTLGPUFamily::Mac2).is_err());
     }
 }
+
+#[test]
+fn simdgroup_matrices_require_apple7_and_32_lane_simd_groups() {
+    assert!(require("simdgroup_matrix", 15, apple(MTLGPUFamily::Apple7)).is_ok());
+    assert!(matches!(
+        require("simdgroup_matrix", 15, apple(MTLGPUFamily::Apple6)),
+        Err(Error::UnsupportedDevice(_))
+    ));
+    assert!(matches!(
+        require("simdgroup_matrix", 15, |family| family
+            == MTLGPUFamily::Mac2),
+        Err(Error::UnsupportedDevice(_))
+    ));
+    let matrices = ["simd_groups".to_owned(), "simdgroup_matrix".to_owned()];
+    assert!(require_simd_width(&matrices, 32).is_ok());
+    assert!(matches!(
+        require_simd_width(&matrices, 64),
+        Err(Error::UnsupportedDevice(reason)) if reason.contains("32-lane")
+    ));
+    assert!(require_simd_width(&matrices[..1], 64).is_ok());
+}
