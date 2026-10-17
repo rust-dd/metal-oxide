@@ -47,3 +47,23 @@ fn matrix_kernels_reject_divergence_and_abi_crossings() {
     rejects("parameter", "unsupported kernel parameter type");
     rejects("element", "unsupported kernel parameter type");
 }
+
+#[test]
+fn group_uniform_control_and_checks_reach_matrix_operations() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/matrix_uniformity.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    assert!(directory.join("kernels.metal").exists());
+}
+
+#[test]
+fn matrix_operands_and_blocks_follow_simd_group_rules() {
+    for cfg in ["lane_operand", "lane_value", "lane_matrix", "by_reference"] {
+        rejects(cfg, "uniform within the SIMD group");
+    }
+    for cfg in ["no_block", "odd_block"] {
+        rejects(cfg, "multiple of 32");
+    }
+}
