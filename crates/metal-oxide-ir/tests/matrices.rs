@@ -368,7 +368,7 @@ fn writing_a_matrix_at_a_lane_dependent_index_makes_it_lane_dependent() {
 
 #[test]
 fn a_lane_dependent_loop_exit_precedes_later_matrix_operations() {
-    // while true { if lane < 16 { break } store }: later iterations run on fewer lanes.
+    // while true { if lane < 16 { break } store }: the store is control-dependent on the exit test.
     let module = branching(vec![
         block(
             vec![assign(2, Expression::SimdCoordinate(SimdBuiltin::Lane))],
