@@ -53,7 +53,7 @@ macro_rules! loads {
 macro_rules! stores {
     () => {
         /// # Safety
-        /// The block lies in this buffer, and no other thread accesses its elements concurrently.
+        /// The block lies in this buffer, `stride` is at least 8, and no other thread accesses it concurrently.
         pub unsafe fn store_matrix(self, row: u32, column: u32, stride: u32, matrix: Matrix<T>) {
             // SAFETY: the caller guarantees the block's bounds and exclusive access.
             unsafe {

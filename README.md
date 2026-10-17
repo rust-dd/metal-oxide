@@ -166,8 +166,10 @@ narrower input types than the accumulator, such as `F16` into `f32`. Unsafe `loa
 `store_matrix` and their `_transposed` forms move row-major blocks of device and threadgroup
 buffers. Every lane of a SIMD group reaches a matrix operation with the same operands: control
 and operands may depend on block-uniform values and `simdgroup::group_id()`, and the kernel
-declares a fixed block whose thread count is a multiple of 32. Matrix kernels need an Apple7
-GPU (M1 or later); hosted Paravirtual devices reject them.
+declares a fixed block whose thread count is a multiple of 32. Matrices and arrays of them go to
+helpers and come back by value; values read through references or `&mut` borrows count as
+lane-varying and are rejected as matrix operands. Matrix kernels need an Apple7 GPU (M1 or
+later); hosted Paravirtual devices reject them.
 
 The `no_std` integration tests compile and execute `libm` f32 math and `num-traits`
 generic float/integer workloads. Dependencies remain subject to the supported device
