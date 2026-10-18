@@ -258,7 +258,10 @@ fn helpers_with_checks_follow_their_call_sites() {
     assert!(analyses[0].fallible && analyses[1].fallible);
     assert!(!analyses[0].cooperative);
     let error = validate(&caller(true)).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(
+        error.message.contains("must be proved or uniform"),
+        "{error}"
+    );
 }
 
 fn axis(local: usize, axis: u32) -> Operand {

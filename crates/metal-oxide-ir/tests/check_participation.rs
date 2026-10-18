@@ -3,6 +3,11 @@ mod support;
 use metal_oxide_ir::*;
 use support::*;
 
+/// Reported at a check, or at a call whose callee's check varies, that precedes cooperation.
+const UNPROVED: &str = "must be proved or uniform";
+/// Reported at cooperation, or at a fallible call, under control that varies.
+const DIVERGENT: &str = "uniform participation";
+
 /// Asserts that local `condition` holds, then continues at block 1.
 fn assertion(condition: usize) -> Terminator {
     Terminator::Assert {
@@ -56,7 +61,7 @@ fn nested_check(builtin: SimdBuiltin, after: Vec<Statement>) -> Module {
 #[test]
 fn a_check_behind_nested_helpers_precedes_later_matrix_operations() {
     let error = validate(&nested_check(SimdBuiltin::Lane, matrices())).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
     let analyses = validate(&nested_check(SimdBuiltin::Group, matrices())).unwrap();
     assert!(!analyses[1].cooperative, "the helper that calls the check");
 }
@@ -65,7 +70,7 @@ fn a_check_behind_nested_helpers_precedes_later_matrix_operations() {
 fn a_check_behind_nested_helpers_precedes_later_barriers() {
     for builtin in [SimdBuiltin::Lane, SimdBuiltin::Group] {
         let error = validate(&nested_check(builtin, vec![barrier()])).unwrap_err();
-        assert!(error.message.contains("uniform participation"), "{error}");
+        assert!(error.message.contains(UNPROVED), "{error}");
     }
 }
 
@@ -80,12 +85,12 @@ fn returning_from_the_call(builtin: SimdBuiltin, after: Vec<Statement>) -> Modul
 fn a_check_behind_a_call_that_ends_its_helper_precedes_later_cooperation() {
     for after in [matrices(), vec![barrier()]] {
         let error = validate(&returning_from_the_call(SimdBuiltin::Lane, after)).unwrap_err();
-        assert!(error.message.contains("uniform participation"), "{error}");
+        assert!(error.message.contains(UNPROVED), "{error}");
     }
     validate(&returning_from_the_call(SimdBuiltin::Group, matrices())).unwrap();
     let synchronized = returning_from_the_call(SimdBuiltin::Group, vec![barrier()]);
     let error = validate(&synchronized).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
 }
 
 /// Kernels `uniform(n) { m(n); barrier }` and `lane(n) { m(lane); later }`, `m(q) { f(q) }`.
@@ -116,7 +121,7 @@ fn shared_helper(later: Vec<Statement>) -> Module {
 fn a_check_in_a_shared_helper_constrains_only_calls_that_precede_cooperation() {
     validate(&shared_helper(vec![])).unwrap();
     let error = validate(&shared_helper(vec![barrier()])).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
 }
 
 /// `if local < 16 { f(n) }; barrier` in a kernel over the locals `[unit, n, lane, more]`.
@@ -143,7 +148,7 @@ fn conditional_call(local: usize) -> Module {
 #[test]
 fn a_fallible_call_under_lane_control_precedes_later_cooperation() {
     let error = validate(&conditional_call(2)).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(DIVERGENT), "{error}");
     validate(&conditional_call(1)).unwrap();
 }
 
@@ -177,7 +182,7 @@ fn barrier_loop(local: usize) -> Module {
 #[test]
 fn a_fallible_call_in_a_loop_precedes_the_barrier_of_the_next_iteration() {
     let error = validate(&barrier_loop(2)).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
     validate(&barrier_loop(1)).unwrap();
 }
 
@@ -199,16 +204,10 @@ fn checked(builtin: SimdBuiltin, after: Vec<Statement>) -> Module {
 fn group_uniform_checks_may_precede_matrix_operations_but_not_barriers() {
     validate(&checked(SimdBuiltin::Group, matrices())).unwrap();
     let error = validate(&checked(SimdBuiltin::Lane, matrices())).unwrap_err();
-    assert!(
-        error.message.contains("must be proved or uniform"),
-        "{error}"
-    );
+    assert!(error.message.contains(UNPROVED), "{error}");
     let synchronized = [matrices(), vec![barrier()]].concat();
     let error = validate(&checked(SimdBuiltin::Group, synchronized)).unwrap_err();
-    assert!(
-        error.message.contains("must be proved or uniform"),
-        "{error}"
-    );
+    assert!(error.message.contains(UNPROVED), "{error}");
 }
 
 #[test]
@@ -234,7 +233,7 @@ fn a_group_uniform_check_in_a_helper_before_a_caller_barrier_is_rejected() {
     };
     validate(&module(vec![f(), caller(vec![])])).unwrap();
     let error = validate(&module(vec![f(), caller(vec![barrier()])])).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
 }
 
 /// The locals of [`calling`]'s kernel that hold its parameter and the lane.
@@ -302,12 +301,47 @@ fn a_panic_on_some_lanes_of_a_helper_precedes_later_barriers() {
     for goto in [false, true] {
         let reads_lane = calling(panicking(true, goto), &[], vec![barrier()]);
         let error = validate(&reads_lane).unwrap_err();
-        assert!(error.message.contains("uniform participation"), "{error}");
+        assert!(error.message.contains(UNPROVED), "{error}");
         let argument = |local| calling(panicking(false, goto), &[local], vec![barrier()]);
         let error = validate(&argument(LANE)).unwrap_err();
-        assert!(error.message.contains("uniform participation"), "{error}");
+        assert!(error.message.contains(UNPROVED), "{error}");
         validate(&argument(PARAMETER)).unwrap();
     }
+}
+
+/// `checks_lane() { assert lane < 1 }`, which reads the lane itself.
+fn checks_lane() -> Function {
+    let mut helper = function(
+        "checks_lane",
+        false,
+        vec![Type::Unit, U32, BOOL],
+        vec![
+            block(
+                vec![
+                    assign(1, Expression::SimdCoordinate(SimdBuiltin::Lane)),
+                    assign(2, below(1, 1)),
+                ],
+                assertion(2),
+            ),
+            block(vec![], Terminator::Return),
+        ],
+    );
+    helper.parameters = 0;
+    helper
+}
+
+#[test]
+fn a_helper_check_on_a_value_it_reads_itself_is_reported_at_the_call() {
+    let call_site = SourceLocation {
+        line: 12,
+        ..source()
+    };
+    let mut caller = calling(checks_lane(), &[], vec![barrier()]);
+    caller.functions[1].blocks[0].statements[1].source = call_site.clone();
+    let error = validate(&caller).unwrap_err();
+    assert!(error.message.contains(UNPROVED), "{error}");
+    assert_eq!(error.source, call_site);
+    validate(&calling(checks_lane(), &[], vec![])).unwrap();
 }
 
 /// `synchronizes(x) { barrier; assert x < 1 }`.
@@ -327,7 +361,7 @@ fn barrier_then_check() -> Function {
 fn a_cooperative_callee_that_then_checks_precedes_later_cooperation() {
     let after = |local, later| calling(barrier_then_check(), &[local], later);
     let error = validate(&after(LANE, vec![barrier()])).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
     validate(&after(PARAMETER, vec![barrier()])).unwrap();
     validate(&after(LANE, vec![])).unwrap();
 }
@@ -358,6 +392,6 @@ fn a_check_behind_three_calls_that_end_their_blocks_precedes_later_cooperation()
         ])
     };
     let error = validate(&chain(SimdBuiltin::Lane)).unwrap_err();
-    assert!(error.message.contains("uniform participation"), "{error}");
+    assert!(error.message.contains(UNPROVED), "{error}");
     validate(&chain(SimdBuiltin::Group)).unwrap();
 }

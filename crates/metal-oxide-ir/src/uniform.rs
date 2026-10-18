@@ -173,11 +173,7 @@ pub(crate) fn validate(
                 continue;
             };
             if !failure.admitted(reached, kernels) {
-                return Err(Error::new(
-                    &function.blocks[block].source,
-                    "a check before a barrier or SIMD operation must be proved or uniform; \
-                     a thread that fails it would leave the others waiting",
-                ));
+                return Err(unproved_check(&function.blocks[block].source));
             }
             summary.participation.require(reached, &failure);
         }
@@ -207,11 +203,15 @@ pub(crate) fn validate(
                 };
                 let mut required = Requirements::default();
                 if let Some(callee) = fallible_callee {
-                    let mut failure = control[id].clone();
-                    failure.merge(&summaries[callee].failure.substitute(&arguments));
+                    let failure = summaries[callee].failure.substitute(&arguments);
                     if let Some(after) = cooperation_after(function, analysis, &scopes, id, index) {
+                        if !failure.admitted(after, kernels) {
+                            return Err(unproved_check(&statement.source));
+                        }
+                        required.require(after, &control[id]);
                         required.require(after, &failure);
                     }
+                    summary.failure.merge(&control[id]);
                     summary.failure.merge(&failure);
                 }
                 if let Some(needed) = needed {
@@ -244,6 +244,14 @@ pub(crate) fn validate(
         summaries[id] = summary;
     }
     blocks(module, &matrices)
+}
+
+fn unproved_check(source: &SourceLocation) -> Error {
+    Error::new(
+        source,
+        "a check before a barrier or SIMD operation must be proved or uniform; \
+         a thread that fails it would leave the others waiting",
+    )
 }
 
 /// What a matrix operation's operands depend on; all lanes of a SIMD group must agree on them.
