@@ -9,6 +9,7 @@ version.workspace = true
 publish = false
 
 [dependencies]
+fft.workspace = true
 metal-oxide.workspace = true
 metal-oxide-artifact.workspace = true
 particle-update.workspace = true

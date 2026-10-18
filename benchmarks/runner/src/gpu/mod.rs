@@ -1,3 +1,4 @@
+mod fft;
 mod gemm;
 mod interleave;
 mod matrix;
@@ -25,18 +26,22 @@ use interleave::{Candidate, interleave, rust_and_msl};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The workloads a configuration selects from, in the order the runner measures them.
-const WORKLOADS: [&str; 7] = [
+const WORKLOADS: [&str; 8] = [
     "vec-add",
     "reduction",
     "cooperation",
     "particle-update",
     "matmul",
     "sort",
+    "fft",
     "gemm",
 ];
 
 /// The most keys a sort case sorts.
 const SORT_KEYS: u32 = 1 << 24;
+
+/// The most complex values of all rows that an fft case transforms.
+const FFT_VALUES: u32 = 1 << 26;
 
 #[derive(Deserialize)]
 struct Config {
@@ -51,6 +56,8 @@ struct Config {
     gemm: [u32; 3],
     gemm_repeat: u32,
     sort: u32,
+    /// Complex values per row and rows.
+    fft: [u32; 2],
 }
 
 impl Config {
@@ -77,6 +84,15 @@ impl Config {
         }
         if !(1..=SORT_KEYS).contains(&self.sort) {
             return Err(format!("sort must be from 1 to {SORT_KEYS} keys").into());
+        }
+        let [n, rows] = self.fft;
+        let values = u64::from(n) * u64::from(rows);
+        if n < 2 || !n.is_power_of_two() || rows == 0 || values > u64::from(FFT_VALUES) {
+            return Err(format!(
+                "fft must be a power-of-two n of at least 2 and rows from 1, with n * rows at \
+                 most {FFT_VALUES}"
+            )
+            .into());
         }
         Ok(())
     }
@@ -307,6 +323,12 @@ fn measure(device: &Device, config: &Config, workload: &str) -> Result<Vec<Case>
             matrix::Matmul::new(device, config, variant)
         })?,
         "sort" => rust_and_msl(config, |variant| sort::Sort::new(device, config, variant))?,
+        "fft" => {
+            let first = fft::First::new();
+            rust_and_msl(config, |variant| {
+                fft::Fft::new(device, config, variant, &first)
+            })?
+        }
         _ => unreachable!("{workload} is not measured here"),
     })
 }

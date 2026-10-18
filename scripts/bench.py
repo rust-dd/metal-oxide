@@ -24,10 +24,12 @@ WORKLOADS = {
                         "examples/particle-update/reference.metal"),
     "matmul": ("examples/matmul/host/src/main.rs", "benchmarks/reference-msl/matmul.metal"),
     "sort": ("examples/sort/src/lib.rs", "benchmarks/reference-msl/sort.metal"),
+    "fft": ("examples/fft/src/lib.rs", "benchmarks/reference-msl/fft.metal"),
     "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
 BACKENDS = ("classic", "metal4")
 SORT_KEYS = 1 << 24
+FFT_VALUES = 1 << 26
 # A command's limit; GEMM runs scale theirs with their work at an assumed slowest GEMM rate.
 TIMEOUT_S = 1800
 MIN_GEMM_FLOPS = 0.5e12
@@ -172,6 +174,10 @@ def argument_parser():
                              "(default: 64, at most 256)")
     parser.add_argument("--sort", type=positive, default=1 << 22, metavar="KEYS",
                         help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 22})")
+    parser.add_argument("--fft", nargs=2, type=positive, default=[4096, 8192],
+                        metavar=("N", "ROWS"),
+                        help="complex values per row, a power of two of at least 2, and rows, "
+                             f"with N * ROWS at most {FFT_VALUES} (default: 4096 8192)")
     parser.add_argument("--cases", type=case_list, default=list(WORKLOADS), metavar="LIST",
                         help="comma-separated workloads to build and measure "
                              f"(default: {','.join(WORKLOADS)})")
@@ -193,6 +199,9 @@ def check_bounds(parser, args):
         parser.error("gemm repeat must be <= 256")
     if args.sort > SORT_KEYS:
         parser.error(f"sort must be <= {SORT_KEYS}")
+    n, rows = args.fft
+    if n < 2 or n & (n - 1) or n * rows > FFT_VALUES:
+        parser.error(f"fft n must be a power of two >= 2 and n * rows <= {FFT_VALUES}")
     if args.mlx and "gemm" not in args.cases:
         parser.error("--mlx measures the gemm workload, which --cases leaves out")
 
@@ -377,7 +386,7 @@ def main():
     config = {"artifacts": artifacts, "references": references, "cases": args.cases,
               "samples": args.samples, "warmup": args.warmup, "elements": args.elements,
               "matrix": args.matrix, "gemm": args.gemm, "gemm_repeat": args.gemm_repeat,
-              "sort": args.sort}
+              "sort": args.sort, "fft": args.fft}
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -438,6 +447,11 @@ def main():
                   "sort": "the keys are padded with u32::MAX to max(512, the next power of two); "
                           "input copy writes keys and padding, one command buffer runs the whole "
                           "bitonic plan, and the first n keys read back must equal sort_unstable's",
+                  "fft": "rows of n complex values in split real and imaginary arrays; input copy "
+                         "writes one buffer pair, one command buffer runs the log2(n) Stockham "
+                         "stages from pair to pair, every result must lie within 4e-6 * log2(n) "
+                         "* max(1, rms of its row) of the serial f64 reference, and every result "
+                         "of both variants must equal the case's first one bitwise",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     mlx = (lambda: measure_mlx(interpreter, args, run)) if args.mlx else None
     write_report(output, report, mlx)

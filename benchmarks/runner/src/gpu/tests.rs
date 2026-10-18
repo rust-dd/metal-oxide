@@ -4,7 +4,7 @@ fn config(gemm_repeat: u32) -> Config {
     serde_json::from_value(serde_json::json!({
         "artifacts": {}, "references": {}, "cases": WORKLOADS, "samples": 1, "warmup": 0,
         "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": gemm_repeat,
-        "sort": 1,
+        "sort": 1, "fft": [2, 1],
     }))
     .unwrap()
 }
@@ -95,6 +95,33 @@ fn config_sorts_from_1_to_2_to_the_24_keys() {
         config.sort = keys;
         let error = config.validate().unwrap_err().to_string();
         assert_eq!(error, "sort must be from 1 to 16777216 keys");
+    }
+}
+
+#[test]
+fn config_transforms_power_of_two_rows_of_up_to_2_to_the_26_values() {
+    for fft in [[2, 1], [4096, 256], [1 << 26, 1], [2, 1 << 25]] {
+        let mut config = config(1);
+        config.fft = fft;
+        config.validate().unwrap();
+    }
+    for fft in [
+        [0, 1],
+        [1, 1],
+        [3, 1],
+        [4096, 0],
+        [4096, (1 << 14) + 1],
+        [1 << 31, 2],
+    ] {
+        let mut config = config(1);
+        config.fft = fft;
+        let error = config.validate().unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "fft must be a power-of-two n of at least 2 and rows from 1, with n * rows at most \
+             67108864",
+            "{fft:?}"
+        );
     }
 }
 

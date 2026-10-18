@@ -1,0 +1,15 @@
+[package]
+name = "fft"
+description = "Batched Stockham radix-2 FFT of complex f32 rows"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true

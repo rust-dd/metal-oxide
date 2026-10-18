@@ -94,6 +94,7 @@ class Arguments(unittest.TestCase):
         self.assertEqual(self.parse().cases, list(bench.WORKLOADS))
         self.assertEqual(self.parse("--cases", "sort").cases, ["sort"])
         self.assertEqual(self.parse("--cases", "sort,vec-add").cases, ["vec-add", "sort"])
+        self.assertEqual(self.parse("--cases", "gemm,fft,sort").cases, ["sort", "fft", "gemm"])
 
     def test_cases_rejects_unknown_names_empty_lists_and_repeats(self):
         for value in ("bitonic", "sort,bitonic", "histogram", "", "sort,", "sort,sort"):
@@ -110,6 +111,19 @@ class Arguments(unittest.TestCase):
             self.assertEqual(self.parse("--sort", str(keys)).sort, keys)
         self.assertIn("sort must be <= 16777216", self.rejection("--sort", str((1 << 24) + 1)))
         self.rejection("--sort", "0")
+
+    def test_fft_defaults_to_8192_rows_of_4096_and_takes_n_and_rows(self):
+        self.assertEqual(self.parse().fft, [4096, 8192])
+        self.assertEqual(self.parse("--fft", "2", "1").fft, [2, 1])
+        self.assertEqual(self.parse("--fft", str(1 << 26), "1").fft, [1 << 26, 1])
+        self.assertEqual(self.parse("--fft", "1024", str(1 << 16)).fft, [1024, 1 << 16])
+
+    def test_fft_needs_a_power_of_two_n_from_2_and_at_most_2_to_the_26_values(self):
+        for shape in (["1", "1"], ["3", "1"], ["4095", "2"], ["4096", str((1 << 14) + 1)]):
+            self.assertIn("fft n must be a power of two >= 2 and n * rows <= 67108864",
+                          self.rejection("--fft", *shape))
+        for shape in (["0", "1"], ["4096", "0"], ["4096"], ["4096", "1", "1"]):
+            self.rejection("--fft", *shape)
 
     def test_established_bounds_keep_their_messages(self):
         self.assertIn("elements must be <= 16000000", self.rejection("--elements", "16000001"))

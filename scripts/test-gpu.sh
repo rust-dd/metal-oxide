@@ -36,7 +36,7 @@ for backend in $backends; do
             --test gpu --test differential --test nostd --test generated_numeric \
             --test vector --test generated_vectors "${compiler_filter[@]}"
     )
-    for package in cooperation vec-add saxpy reduction matmul gemm pipeline particle-update sort; do
+    for package in cooperation vec-add saxpy reduction matmul gemm pipeline particle-update sort fft; do
         cargo run -p cargo-metal --locked -- test --validate -p "$package" --locked -- --ignored --test-threads=1
     done
     for features in "" fast; do
