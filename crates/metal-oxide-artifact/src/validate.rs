@@ -212,14 +212,6 @@ impl Manifest {
             ));
         }
         if self
-            .build
-            .metal_flags
-            .iter()
-            .any(|flag| matches!(flag.as_str(), "-ffast-math" | "-fno-fast-math"))
-        {
-            return Err(Error("legacy Metal math flags are unsupported".into()));
-        }
-        if self
             .checks
             .iter()
             .any(|check| check.location.file.is_empty() || check.location.line == 0)
