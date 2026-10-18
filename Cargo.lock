@@ -228,6 +228,7 @@ name = "gemm"
 version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
+ "objc2-metal",
 ]
 
 [[package]]

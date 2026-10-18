@@ -24,16 +24,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Checks both kernels bitwise against the CPU on every shape. A device without SIMD-group
-/// matrices rejects loading the kernels, which this reports instead.
+/// Checks both kernels bitwise against the CPU on every shape; false reports a device without
+/// SIMD-group matrices, which rejects loading the kernels.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<()> {
+fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<bool> {
     use metal_oxide::{Dim3, Error, F16, LaunchConfig, Operation};
     match kernels::module(device) {
         Ok(_) => {}
         Err(Error::UnsupportedDevice(reason)) if reason.contains("simdgroup_matrix") => {
             println!("gemm: {} is unsupported: {reason}", device.name());
-            return Ok(());
+            return Ok(false);
         }
         Err(error) => return Err(error),
     }
@@ -61,7 +61,7 @@ fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<()> {
             device.name()
         );
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Multiples of 1/8 and 1/4, exact in F16, whose products and partial sums stay exact in f32
@@ -113,6 +113,9 @@ fn main() {
 #[test]
 #[ignore = "requires a Metal device"]
 fn generated_gemm_matches_cpu() {
+    use objc2_metal::{MTLDevice, MTLGPUFamily};
     let device = metal_oxide::Device::system_default().unwrap();
-    verify(&device).unwrap();
+    // Apple7 and later GPUs must run the kernels; only other devices may reject them.
+    let apple7 = device.as_native().supportsFamily(MTLGPUFamily::Apple7);
+    assert_eq!(verify(&device).unwrap(), apple7);
 }
