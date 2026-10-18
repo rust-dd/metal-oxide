@@ -31,14 +31,12 @@ pub(super) fn adapter<'tcx>(
         }
         (MatrixOp::Load { .. }, &[buffer, row, column, stride]) => {
             let (kind, item) = buffer_element(tcx, buffer)?;
-            (device::readable(kind)
-                && positions([row, column, stride])
-                && element(output) == Some(item))
-            .then_some("__metal_matrix_load")
+            (kind.readable() && positions([row, column, stride]) && element(output) == Some(item))
+                .then_some("__metal_matrix_load")
         }
         (MatrixOp::Store { .. }, &[buffer, row, column, stride, matrix]) => {
             let (kind, item) = buffer_element(tcx, buffer)?;
-            (device::writable(kind)
+            (kind.writable()
                 && positions([row, column, stride])
                 && element(matrix) == Some(item)
                 && output.is_unit())

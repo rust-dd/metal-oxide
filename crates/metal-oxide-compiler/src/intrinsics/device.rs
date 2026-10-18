@@ -41,28 +41,28 @@ impl DeviceType {
                 | Self::DynamicThreadgroupBuffer
         )
     }
-}
 
-/// The buffers that elements and SIMD-group matrices load from.
-pub(super) fn readable(kind: DeviceType) -> bool {
-    matches!(
-        kind,
-        DeviceType::ReadBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer
-    )
-}
+    /// Whether elements and SIMD-group matrices load from buffers of this type.
+    pub(super) fn readable(self) -> bool {
+        matches!(
+            self,
+            Self::ReadBuffer
+                | Self::ReadWriteBuffer
+                | Self::ThreadgroupBuffer
+                | Self::DynamicThreadgroupBuffer
+        )
+    }
 
-/// The buffers that elements and SIMD-group matrices store to.
-pub(super) fn writable(kind: DeviceType) -> bool {
-    matches!(
-        kind,
-        DeviceType::WriteBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer
-    )
+    /// Whether elements and SIMD-group matrices store to buffers of this type.
+    pub(super) fn writable(self) -> bool {
+        matches!(
+            self,
+            Self::WriteBuffer
+                | Self::ReadWriteBuffer
+                | Self::ThreadgroupBuffer
+                | Self::DynamicThreadgroupBuffer
+        )
+    }
 }
 
 pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceType> {
@@ -202,8 +202,8 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         device_type(tcx, owner.did())?,
         tcx.item_name(definition).as_str(),
     ) {
-        (kind, "load_unchecked") if readable(kind) => Some(Intrinsic::BufferLoad),
-        (kind, "store_unchecked") if writable(kind) => Some(Intrinsic::BufferStore),
+        (kind, "load_unchecked") if kind.readable() => Some(Intrinsic::BufferLoad),
+        (kind, "store_unchecked") if kind.writable() => Some(Intrinsic::BufferStore),
         (
             DeviceType::ReadBuffer
             | DeviceType::WriteBuffer
@@ -225,12 +225,12 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         (DeviceType::Matrix, "multiply_accumulate") => {
             Some(Intrinsic::Matrix(MatrixOp::MultiplyAccumulate))
         }
-        (kind, method @ ("load_matrix" | "load_matrix_transposed")) if readable(kind) => {
+        (kind, method @ ("load_matrix" | "load_matrix_transposed")) if kind.readable() => {
             Some(Intrinsic::Matrix(MatrixOp::Load {
                 transposed: method == "load_matrix_transposed",
             }))
         }
-        (kind, method @ ("store_matrix" | "store_matrix_transposed")) if writable(kind) => {
+        (kind, method @ ("store_matrix" | "store_matrix_transposed")) if kind.writable() => {
             Some(Intrinsic::Matrix(MatrixOp::Store {
                 transposed: method == "store_matrix_transposed",
             }))
