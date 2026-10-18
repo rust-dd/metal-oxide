@@ -119,18 +119,56 @@ fn a_check_in_a_shared_helper_constrains_only_calls_that_precede_cooperation() {
     assert!(error.message.contains("uniform participation"), "{error}");
 }
 
-/// `loop { barrier; f(local) }` in a kernel over `[unit, n, lane]`.
+/// `if local < 16 { f(n) }; barrier` in a kernel over the locals `[unit, n, lane, more]`.
+fn conditional_call(local: usize) -> Module {
+    let conditional = function(
+        "kernel",
+        true,
+        vec![Type::Unit, U32, U32, BOOL],
+        vec![
+            block(
+                vec![
+                    assign(2, Expression::SimdCoordinate(SimdBuiltin::Lane)),
+                    assign(3, below(local, 16)),
+                ],
+                branch(3, 1, 2),
+            ),
+            block(vec![call(0, 1)], Terminator::Goto(2)),
+            block(vec![barrier()], Terminator::Return),
+        ],
+    );
+    module(vec![f(), conditional])
+}
+
+#[test]
+fn a_fallible_call_under_lane_control_precedes_later_cooperation() {
+    let error = validate(&conditional_call(2)).unwrap_err();
+    assert!(error.message.contains("uniform participation"), "{error}");
+    validate(&conditional_call(1)).unwrap();
+}
+
+/// `i = 0; loop { barrier; f(local); i += 1; if i >= n { break } }` in a kernel over the locals
+/// `[unit, n, lane, i, more]`.
 fn barrier_loop(local: usize) -> Module {
+    let next = Expression::Binary(BinaryOp::Add, Operand::local(3), uint(1));
+    let more = Expression::Binary(BinaryOp::Lt, Operand::local(3), Operand::local(1));
     let looping = function(
         "kernel",
         true,
-        vec![Type::Unit, U32, U32],
+        vec![Type::Unit, U32, U32, U32, BOOL],
         vec![
             block(
-                vec![assign(2, Expression::SimdCoordinate(SimdBuiltin::Lane))],
+                vec![
+                    assign(2, Expression::SimdCoordinate(SimdBuiltin::Lane)),
+                    assign(3, Expression::Use(uint(0))),
+                ],
                 Terminator::Goto(1),
             ),
-            block(vec![barrier(), call(0, local)], Terminator::Goto(1)),
+            block(
+                vec![barrier(), call(0, local), assign(3, next), assign(4, more)],
+                branch(4, 1, 2),
+            ),
+            block(vec![], Terminator::Return),
         ],
     );
     module(vec![f(), looping])
@@ -197,4 +235,129 @@ fn a_group_uniform_check_in_a_helper_before_a_caller_barrier_is_rejected() {
     validate(&module(vec![f(), caller(vec![])])).unwrap();
     let error = validate(&module(vec![f(), caller(vec![barrier()])])).unwrap_err();
     assert!(error.message.contains("uniform participation"), "{error}");
+}
+
+/// The locals of [`calling`]'s kernel that hold its parameter and the lane.
+const PARAMETER: usize = 1;
+const LANE: usize = 2;
+
+/// `kernel(n) { lane = SimdCoordinate(Lane); f(arguments); after }` over `f` as function 0.
+fn calling(f: Function, arguments: &[usize], after: Vec<Statement>) -> Module {
+    let arguments = arguments
+        .iter()
+        .map(|&local| Operand::local(local))
+        .collect();
+    let statements = [
+        vec![
+            assign(LANE, Expression::SimdCoordinate(SimdBuiltin::Lane)),
+            assign(
+                0,
+                Expression::Call {
+                    function: 0,
+                    arguments,
+                },
+            ),
+        ],
+        after,
+    ];
+    let kernel = function(
+        "kernel",
+        true,
+        vec![Type::Unit, U32, U32],
+        vec![block(statements.concat(), Terminator::Return)],
+    );
+    module(vec![f, kernel])
+}
+
+/// `panics(p) { if p < 16 { panic } }`, or `panics() { if lane < 16 { panic } }` when it reads
+/// the lane; with `goto`, a block of its own jumps to the panic.
+fn panicking(reads_lane: bool, goto: bool) -> Function {
+    let mut condition = vec![assign(2, below(1, 16))];
+    if reads_lane {
+        let lane = assign(1, Expression::SimdCoordinate(SimdBuiltin::Lane));
+        condition.insert(0, lane);
+    }
+    let panic = block(vec![], Terminator::Panic("lane out of range".into()));
+    let blocks = if goto {
+        vec![
+            block(condition, branch(2, 1, 3)),
+            block(vec![], Terminator::Goto(2)),
+            panic,
+            block(vec![], Terminator::Return),
+        ]
+    } else {
+        vec![
+            block(condition, branch(2, 1, 2)),
+            panic,
+            block(vec![], Terminator::Return),
+        ]
+    };
+    let mut helper = function("panics", false, vec![Type::Unit, U32, BOOL], blocks);
+    helper.parameters = usize::from(!reads_lane);
+    helper
+}
+
+#[test]
+fn a_panic_on_some_lanes_of_a_helper_precedes_later_barriers() {
+    for goto in [false, true] {
+        let reads_lane = calling(panicking(true, goto), &[], vec![barrier()]);
+        let error = validate(&reads_lane).unwrap_err();
+        assert!(error.message.contains("uniform participation"), "{error}");
+        let argument = |local| calling(panicking(false, goto), &[local], vec![barrier()]);
+        let error = validate(&argument(LANE)).unwrap_err();
+        assert!(error.message.contains("uniform participation"), "{error}");
+        validate(&argument(PARAMETER)).unwrap();
+    }
+}
+
+/// `synchronizes(x) { barrier; assert x < 1 }`.
+fn barrier_then_check() -> Function {
+    function(
+        "synchronizes",
+        false,
+        vec![Type::Unit, U32, BOOL],
+        vec![
+            block(vec![barrier(), assign(2, below(1, 1))], assertion(2)),
+            block(vec![], Terminator::Return),
+        ],
+    )
+}
+
+#[test]
+fn a_cooperative_callee_that_then_checks_precedes_later_cooperation() {
+    let after = |local, later| calling(barrier_then_check(), &[local], later);
+    let error = validate(&after(LANE, vec![barrier()])).unwrap_err();
+    assert!(error.message.contains("uniform participation"), "{error}");
+    validate(&after(PARAMETER, vec![barrier()])).unwrap();
+    validate(&after(LANE, vec![])).unwrap();
+}
+
+/// `name(q) { callee(q) }` in a single block that returns.
+fn forwarding(name: &str, callee: usize) -> Function {
+    function(
+        name,
+        false,
+        vec![Type::Unit, U32],
+        vec![block(vec![call(callee, 1)], Terminator::Return)],
+    )
+}
+
+#[test]
+fn a_check_behind_three_calls_that_end_their_blocks_precedes_later_cooperation() {
+    // `f(p) { assert p < 1 }`, `g(q) { f(q) }` and `h(r) { g(r) }` called as `h(coordinate)`.
+    let chain = |builtin| {
+        let statements = [
+            vec![assign(2, Expression::SimdCoordinate(builtin)), call(2, 2)],
+            matrices(),
+        ];
+        module(vec![
+            f(),
+            forwarding("g", 0),
+            forwarding("h", 1),
+            kernel(vec![block(statements.concat(), Terminator::Return)]),
+        ])
+    };
+    let error = validate(&chain(SimdBuiltin::Lane)).unwrap_err();
+    assert!(error.message.contains("uniform participation"), "{error}");
+    validate(&chain(SimdBuiltin::Group)).unwrap();
 }
