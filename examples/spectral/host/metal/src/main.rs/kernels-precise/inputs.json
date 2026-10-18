@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "artifact": "a0f07a3caa64f5b8edccc4474700f22b3015ae703094a66b9cf881f51a1427ed",
+  "artifact": "cdd9c1660ef4746513777c7d1ddd7bab20810f5539e91e64b2341b590ae0c616",
   "request": {
     "source": "f5a68dad2dbcb385d0c0bc4ffe71f841c27369eca99e92eaec67644a6c2b8064",
     "math_mode": "precise",
@@ -24,7 +24,7 @@
     "../../../crates/metal-oxide-device/src/log.rs": "ff6fc43441069afc45ef4bde4d2e5f5e6a84cbbb3f5328bc7f921539b30b0a74",
     "../../../crates/metal-oxide-device/src/math.rs": "92bc300493787b9ea511bc2c890a5eef84e5a805272eb12f092f7dbcfb4aef4f",
     "../../../crates/metal-oxide-device/src/matrix.rs": "9a2935ad42e0288f5e218963a2bd591f0f124a96f82539dc1df1ba7298d47740",
-    "../../../crates/metal-oxide-device/src/simdgroup.rs": "d6e7c9a382ee30b0fb19d71a9e76042d0e5bb3a1f0c0ce492454546bac67310b",
+    "../../../crates/metal-oxide-device/src/simdgroup.rs": "dcc0a12783cc75c0704422b00b5ae21044899dabd33d971b9d916d0bed0159c7",
     "../../../crates/metal-oxide-device/src/thread.rs": "f5889baf70747a10160a623648c0d3e87a5d12032d840dd8b756aa465e8ad17a",
     "../../../crates/metal-oxide-device/src/threadgroup.rs": "f742af83f858664218e62e2a5f80211dbd551ac77e645ef7cc78f14ad761e706",
     "../../../crates/metal-oxide-macros/Cargo.toml": "af3d00cc99b54929faaa03e57b2bae8878691aabb14b76d99abc352eaa352b92",

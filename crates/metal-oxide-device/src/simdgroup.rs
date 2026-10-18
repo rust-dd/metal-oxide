@@ -1,6 +1,5 @@
-//! Collectives over active SIMD lanes: f32/u32/i32 numeric operations and shuffles, u32/i32 bit
-//! reductions. Integer sums wrap; float reduction order is Metal's. Collectives need block-uniform
-//! participation; matrix operations need SIMD-group-uniform participation and operands.
+//! Collectives over active lanes (f32/u32/i32, bit reductions u32/i32) need block-uniform control;
+//! integer sums wrap, float order is Metal's. Matrices need group-uniform control and operands.
 
 use core::mem::{MaybeUninit, size_of};
 
@@ -94,7 +93,8 @@ macro_rules! permute {
         #[doc = $contract]
         pub unsafe fn $name<T: Copy>(value: T, control: u32) -> T {
             let mut out = MaybeUninit::<T>::uninit();
-            // SAFETY: the caller supplies participation and valid sources; the bridge initializes T.
+            // SAFETY: the caller supplies participation and valid sources; the bridge
+            // initializes T.
             unsafe {
                 crate::intrinsics::$bridge(
                     (&raw const value).cast(),
@@ -160,7 +160,8 @@ vote!(
     ballot,
     __metal_simd_ballot,
     [u32; 2],
-    "Returns low/high 32-bit vote words. Bit i represents lane i; inactive and unused bits are zero."
+    "Returns low/high 32-bit vote words. Bit i represents lane i; inactive and unused bits are \
+     zero."
 );
 
 mod sealed {
