@@ -31,7 +31,7 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         let upload = elapsed(start);
         let mut sample = dispatch(|batch| {
             for &step in &steps {
-                // SAFETY: the steps come from `plan(keys.len())`; `launch` has a block per tile.
+                // SAFETY: `steps` is `plan(keys.len())`, and `launch` is 1-D with a block per tile.
                 unsafe { push(batch, &pipelines, launch, &mut keys, step)? };
             }
             Ok(())
@@ -52,8 +52,8 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
     case.finish()
 }
 
-/// Pushes `step` of `plan(keys.len())` for the generated kernels or their twin, which share
-/// parameters, with a block of `launch` per tile of `keys`, which nothing else uses meanwhile.
+/// Pushes `step` of `plan(keys.len())` for the kernels or their twin, which share parameters;
+/// `launch` is one-dimensional with a block per tile of `keys`, which nothing else uses.
 unsafe fn push(
     batch: &mut Batch,
     pipelines: &[Pipeline],
@@ -61,8 +61,8 @@ unsafe fn push(
     keys: &mut Buffer<u32>,
     step: Step,
 ) -> metal_oxide::Result<()> {
-    // SAFETY: plan steps over a block per tile keep every stride a power of two that divides the
-    // thread count, as each kernel requires.
+    // SAFETY: on the caller's one-dimensional grid of a block per tile, plan steps keep every
+    // stride a power of two that divides the thread count, as each kernel requires.
     unsafe {
         match step {
             Step::SortLocal => batch
