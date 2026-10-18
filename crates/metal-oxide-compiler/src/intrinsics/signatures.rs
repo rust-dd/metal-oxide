@@ -153,17 +153,10 @@ fn buffer_element<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> Option<(DeviceType, 
         return None;
     };
     let kind = device::device_type(tcx, definition.did())?;
-    match kind {
-        DeviceType::ReadBuffer
-        | DeviceType::WriteBuffer
-        | DeviceType::ReadWriteBuffer
-        | DeviceType::DisjointBuffer
-        | DeviceType::AtomicBuffer
-        | DeviceType::AtomicThreadgroupBuffer
-        | DeviceType::DynamicThreadgroupBuffer
-        | DeviceType::ThreadgroupBuffer => Some((kind, arguments.first()?.as_type()?)),
-        _ => None,
+    if !kind.is_buffer() {
+        return None;
     }
+    Some((kind, arguments.first()?.as_type()?))
 }
 
 fn adapter(tcx: TyCtxt<'_>, definition: DefId, operation: Intrinsic) -> bool {

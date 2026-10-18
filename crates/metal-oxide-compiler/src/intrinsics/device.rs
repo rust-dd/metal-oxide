@@ -26,6 +26,45 @@ pub(crate) enum DeviceType {
     Matrix,
 }
 
+impl DeviceType {
+    /// Whether values of this type are buffer handles rather than scalars or other values.
+    pub(crate) fn is_buffer(self) -> bool {
+        matches!(
+            self,
+            Self::ReadBuffer
+                | Self::WriteBuffer
+                | Self::DisjointBuffer
+                | Self::ReadWriteBuffer
+                | Self::AtomicBuffer
+                | Self::AtomicThreadgroupBuffer
+                | Self::ThreadgroupBuffer
+                | Self::DynamicThreadgroupBuffer
+        )
+    }
+}
+
+/// The buffers that SIMD-group matrices load from.
+pub(super) fn loads_matrices(kind: DeviceType) -> bool {
+    matches!(
+        kind,
+        DeviceType::ReadBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer
+    )
+}
+
+/// The buffers that SIMD-group matrices store to.
+pub(super) fn stores_matrices(kind: DeviceType) -> bool {
+    matches!(
+        kind,
+        DeviceType::WriteBuffer
+            | DeviceType::ReadWriteBuffer
+            | DeviceType::ThreadgroupBuffer
+            | DeviceType::DynamicThreadgroupBuffer
+    )
+}
+
 pub(crate) fn device_type(tcx: TyCtxt<'_>, definition: DefId) -> Option<DeviceType> {
     if tcx.def_kind(definition) != DefKind::Struct {
         return None;
@@ -198,24 +237,16 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         (DeviceType::Matrix, "multiply_accumulate") => {
             Some(Intrinsic::Matrix(MatrixOp::MultiplyAccumulate))
         }
-        (
-            DeviceType::ReadBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer,
-            method @ ("load_matrix" | "load_matrix_transposed"),
-        ) => Some(Intrinsic::Matrix(MatrixOp::Load {
-            transposed: method == "load_matrix_transposed",
-        })),
-        (
-            DeviceType::WriteBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer,
-            method @ ("store_matrix" | "store_matrix_transposed"),
-        ) => Some(Intrinsic::Matrix(MatrixOp::Store {
-            transposed: method == "store_matrix_transposed",
-        })),
+        (kind, method @ ("load_matrix" | "load_matrix_transposed")) if loads_matrices(kind) => {
+            Some(Intrinsic::Matrix(MatrixOp::Load {
+                transposed: method == "load_matrix_transposed",
+            }))
+        }
+        (kind, method @ ("store_matrix" | "store_matrix_transposed")) if stores_matrices(kind) => {
+            Some(Intrinsic::Matrix(MatrixOp::Store {
+                transposed: method == "store_matrix_transposed",
+            }))
+        }
         (DeviceType::AtomicBuffer | DeviceType::AtomicThreadgroupBuffer, method) => {
             let op = match method {
                 "load" => AtomicOp::Load,
