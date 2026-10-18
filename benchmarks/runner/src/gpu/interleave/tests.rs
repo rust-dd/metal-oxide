@@ -8,7 +8,7 @@ fn config(warmup: usize, samples: usize) -> Config {
     serde_json::from_value(serde_json::json!({
         "artifacts": {}, "references": {}, "cases": ["sort"], "samples": samples,
         "warmup": warmup, "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1],
-        "gemm_repeat": 1, "sort": 1, "fft": [2, 1],
+        "gemm_repeat": 1, "sort": 1, "fft": [2, 1], "stencil": [1, 1, 1],
     }))
     .unwrap()
 }

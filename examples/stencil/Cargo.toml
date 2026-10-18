@@ -1,0 +1,15 @@
+[package]
+name = "stencil"
+description = "Jacobi sweeps of a 5-point stencil over an f32 grid"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide = { workspace = true }
+
+[lints]
+workspace = true

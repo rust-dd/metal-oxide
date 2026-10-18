@@ -6,6 +6,7 @@ mod particle;
 mod scalar;
 mod scan;
 mod sort;
+mod stencil;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -26,7 +27,7 @@ use interleave::{Candidate, interleave, rust_and_msl};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The workloads a configuration selects from, in the order the runner measures them.
-const WORKLOADS: [&str; 8] = [
+const WORKLOADS: [&str; 9] = [
     "vec-add",
     "reduction",
     "cooperation",
@@ -34,6 +35,7 @@ const WORKLOADS: [&str; 8] = [
     "matmul",
     "sort",
     "fft",
+    "stencil",
     "gemm",
 ];
 
@@ -42,6 +44,12 @@ const SORT_KEYS: u32 = 1 << 24;
 
 /// The most complex values of all rows that an fft case transforms.
 const FFT_VALUES: u32 = 1 << 26;
+
+/// The most cells of a stencil case's grid.
+const STENCIL_CELLS: u32 = 1 << 24;
+
+/// The most iterations of a stencil case.
+const STENCIL_ITERATIONS: u32 = 4096;
 
 #[derive(Deserialize)]
 struct Config {
@@ -58,6 +66,8 @@ struct Config {
     sort: u32,
     /// Complex values per row and rows.
     fft: [u32; 2],
+    /// Grid width, height and iterations.
+    stencil: [u32; 3],
 }
 
 impl Config {
@@ -91,6 +101,16 @@ impl Config {
             return Err(format!(
                 "fft must be a power-of-two n of at least 2 and rows from 1, with n * rows at \
                  most {FFT_VALUES}"
+            )
+            .into());
+        }
+        let [width, height, iterations] = self.stencil;
+        let cells = u64::from(width) * u64::from(height);
+        let sized = (1..=u64::from(STENCIL_CELLS)).contains(&cells);
+        if !sized || !(1..=STENCIL_ITERATIONS).contains(&iterations) {
+            return Err(format!(
+                "stencil must be a grid of 1 to {STENCIL_CELLS} cells and 1 to \
+                 {STENCIL_ITERATIONS} iterations"
             )
             .into());
         }
@@ -138,7 +158,7 @@ impl Case {
             shape,
             repeat: 1,
             block: Some(match name {
-                "matmul" => [16, 16, 1],
+                "matmul" | "stencil" => [16, 16, 1],
                 "particle-update" => [64, 1, 1],
                 "gemm-f32" | "gemm-f16" => [128, 1, 1],
                 _ => [256, 1, 1],
@@ -329,6 +349,9 @@ fn measure(device: &Device, config: &Config, workload: &str) -> Result<Vec<Case>
                 fft::Fft::new(device, config, variant, &first)
             })?
         }
+        "stencil" => rust_and_msl(config, |variant| {
+            stencil::Stencil::new(device, config, variant)
+        })?,
         _ => unreachable!("{workload} is not measured here"),
     })
 }

@@ -95,6 +95,8 @@ class Arguments(unittest.TestCase):
         self.assertEqual(self.parse("--cases", "sort").cases, ["sort"])
         self.assertEqual(self.parse("--cases", "sort,vec-add").cases, ["vec-add", "sort"])
         self.assertEqual(self.parse("--cases", "gemm,fft,sort").cases, ["sort", "fft", "gemm"])
+        self.assertEqual(self.parse("--cases", "gemm,stencil,fft").cases,
+                         ["fft", "stencil", "gemm"])
 
     def test_cases_rejects_unknown_names_empty_lists_and_repeats(self):
         for value in ("bitonic", "sort,bitonic", "histogram", "", "sort,", "sort,sort"):
@@ -124,6 +126,19 @@ class Arguments(unittest.TestCase):
                           self.rejection("--fft", *shape))
         for shape in (["0", "1"], ["4096", "0"], ["4096"], ["4096", "1", "1"]):
             self.rejection("--fft", *shape)
+
+    def test_stencil_defaults_to_2048_iterations_on_2048_squared_and_takes_a_shape(self):
+        self.assertEqual(self.parse().stencil, [2048, 2048, 2048])
+        self.assertEqual(self.parse("--stencil", "1", "1", "1").stencil, [1, 1, 1])
+        self.assertEqual(self.parse("--stencil", "4096", "4096", "4096").stencil, [4096] * 3)
+        self.assertEqual(self.parse("--stencil", str(1 << 24), "1", "8").stencil, [1 << 24, 1, 8])
+
+    def test_stencil_needs_at_most_2_to_the_24_cells_and_4096_iterations(self):
+        for shape in (["4097", "4096", "1"], ["1", str((1 << 24) + 1), "1"], ["1", "1", "4097"]):
+            self.assertIn("stencil must have width * height <= 16777216 and iterations <= 4096",
+                          self.rejection("--stencil", *shape))
+        for shape in (["0", "1", "1"], ["1", "1", "0"], ["16", "16"], ["16", "16", "1", "1"]):
+            self.rejection("--stencil", *shape)
 
     def test_established_bounds_keep_their_messages(self):
         self.assertIn("elements must be <= 16000000", self.rejection("--elements", "16000001"))

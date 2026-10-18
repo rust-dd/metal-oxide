@@ -4,7 +4,7 @@ fn config(gemm_repeat: u32) -> Config {
     serde_json::from_value(serde_json::json!({
         "artifacts": {}, "references": {}, "cases": WORKLOADS, "samples": 1, "warmup": 0,
         "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": gemm_repeat,
-        "sort": 1, "fft": [2, 1],
+        "sort": 1, "fft": [2, 1], "stencil": [1, 1, 1],
     }))
     .unwrap()
 }
@@ -121,6 +121,38 @@ fn config_transforms_power_of_two_rows_of_up_to_2_to_the_26_values() {
             "fft must be a power-of-two n of at least 2 and rows from 1, with n * rows at most \
              67108864",
             "{fft:?}"
+        );
+    }
+}
+
+#[test]
+fn config_sweeps_grids_of_up_to_2_to_the_24_cells_for_up_to_4096_iterations() {
+    let accepted = [
+        [1, 1, 1],
+        [2048, 2048, 2048],
+        [4096, 4096, 4096],
+        [1 << 24, 1, 1],
+    ];
+    for stencil in accepted {
+        let mut config = config(1);
+        config.stencil = stencil;
+        config.validate().unwrap();
+    }
+    for stencil in [
+        [0, 1, 1],
+        [1, 0, 1],
+        [1, 1, 0],
+        [4097, 4096, 1],
+        [1, 1, 4097],
+        [1 << 16, 1 << 16, 1],
+        [u32::MAX, u32::MAX, 1],
+    ] {
+        let mut config = config(1);
+        config.stencil = stencil;
+        let error = config.validate().unwrap_err().to_string();
+        assert_eq!(
+            error, "stencil must be a grid of 1 to 16777216 cells and 1 to 4096 iterations",
+            "{stencil:?}"
         );
     }
 }

@@ -25,11 +25,14 @@ WORKLOADS = {
     "matmul": ("examples/matmul/host/src/main.rs", "benchmarks/reference-msl/matmul.metal"),
     "sort": ("examples/sort/src/lib.rs", "benchmarks/reference-msl/sort.metal"),
     "fft": ("examples/fft/src/lib.rs", "benchmarks/reference-msl/fft.metal"),
+    "stencil": ("examples/stencil/src/lib.rs", "benchmarks/reference-msl/stencil.metal"),
     "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
 BACKENDS = ("classic", "metal4")
 SORT_KEYS = 1 << 24
 FFT_VALUES = 1 << 26
+STENCIL_CELLS = 1 << 24
+STENCIL_ITERATIONS = 4096
 # A command's limit; GEMM runs scale theirs with their work at an assumed slowest GEMM rate.
 TIMEOUT_S = 1800
 MIN_GEMM_FLOPS = 0.5e12
@@ -178,6 +181,10 @@ def argument_parser():
                         metavar=("N", "ROWS"),
                         help="complex values per row, a power of two of at least 2, and rows, "
                              f"with N * ROWS at most {FFT_VALUES} (default: 4096 8192)")
+    parser.add_argument("--stencil", nargs=3, type=positive, default=[2048, 2048, 2048],
+                        metavar=("WIDTH", "HEIGHT", "ITERATIONS"),
+                        help=f"grid of at most {STENCIL_CELLS} cells and Jacobi iterations, at "
+                             f"most {STENCIL_ITERATIONS} (default: 2048 2048 2048)")
     parser.add_argument("--cases", type=case_list, default=list(WORKLOADS), metavar="LIST",
                         help="comma-separated workloads to build and measure "
                              f"(default: {','.join(WORKLOADS)})")
@@ -202,6 +209,10 @@ def check_bounds(parser, args):
     n, rows = args.fft
     if n < 2 or n & (n - 1) or n * rows > FFT_VALUES:
         parser.error(f"fft n must be a power of two >= 2 and n * rows <= {FFT_VALUES}")
+    width, height, iterations = args.stencil
+    if width * height > STENCIL_CELLS or iterations > STENCIL_ITERATIONS:
+        parser.error(f"stencil must have width * height <= {STENCIL_CELLS} and iterations <= "
+                     f"{STENCIL_ITERATIONS}")
     if args.mlx and "gemm" not in args.cases:
         parser.error("--mlx measures the gemm workload, which --cases leaves out")
 
@@ -386,7 +397,7 @@ def main():
     config = {"artifacts": artifacts, "references": references, "cases": args.cases,
               "samples": args.samples, "warmup": args.warmup, "elements": args.elements,
               "matrix": args.matrix, "gemm": args.gemm, "gemm_repeat": args.gemm_repeat,
-              "sort": args.sort, "fft": args.fft}
+              "sort": args.sort, "fft": args.fft, "stencil": args.stencil}
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -452,6 +463,10 @@ def main():
                          "stages from pair to pair, every result must lie within 4e-6 * log2(n) "
                          "* max(1, rms of its row) of the serial f64 reference, and every result "
                          "of both variants must equal the case's first one bitwise",
+                  "stencil": "a width x height grid of f32 swept once per iteration from buffer "
+                             "to buffer; input copy writes the first grid, one command buffer "
+                             "runs every sweep, and the grid read back must equal the serial CPU "
+                             "reference, which adds in the kernel's order, bitwise",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     mlx = (lambda: measure_mlx(interpreter, args, run)) if args.mlx else None
     write_report(output, report, mlx)

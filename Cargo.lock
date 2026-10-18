@@ -421,6 +421,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sort",
+ "stencil",
 ]
 
 [[package]]
@@ -813,6 +814,13 @@ name = "spectral-kernels"
 version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide-device",
+]
+
+[[package]]
+name = "stencil"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide",
 ]
 
 [[package]]
