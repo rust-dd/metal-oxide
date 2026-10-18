@@ -1,7 +1,7 @@
 #[metal_oxide::kernels(path = "../kernels")]
 mod kernels {}
 
-/// (m, n, k) from a single element to 8x8 whole tiles, with ragged edges in every dimension.
+/// (m, n, k) from one element to an 8x8 grid of whole 64x64 tiles, ragged in every dimension.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const SHAPES: [(u32, u32, u32); 7] = [
     (1, 1, 1),
@@ -64,12 +64,14 @@ fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<bool> {
     Ok(true)
 }
 
-/// Multiples of 1/8 and 1/4, exact in F16, whose products and partial sums stay exact in f32
-/// in any order of accumulation.
+/// Multiples of 1/8 and 1/4, exact in F16 and in f32 sums of any order, then NaN as far as a K
+/// step can read past k: 16 elements after A and 16 rows after B.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn inputs(m: u32, n: u32, k: u32) -> (Vec<f32>, Vec<f32>) {
     let a = (0..m * k).map(|i| ((i % 17) as f32 - 8.0) * 0.125);
     let b = (0..k * n).map(|i| ((i % 13) as f32 - 6.0) * 0.25);
+    let nan = |count| std::iter::repeat_n(f32::NAN, count);
+    let (a, b) = (a.chain(nan(16)), b.chain(nan(16 * n as usize)));
     (a.collect(), b.collect())
 }
 
