@@ -100,6 +100,8 @@ impl Requirements {
 #[derive(Clone, Default)]
 struct Summary {
     returns: Dependencies,
+    /// What decides whether a call fails a runtime check.
+    failure: Dependencies,
     participation: Requirements,
 }
 
@@ -115,8 +117,8 @@ fn scope(value: &Expression, scopes: &[Option<Scope>]) -> Option<Scope> {
     }
 }
 
-/// Validates uniform participation. A failed check returns from the kernel, so a check that
-/// precedes a cooperative operation must be uniform over its scope, failing on all participants.
+/// Validates uniform participation. A failed check returns from the kernel, as callers do after a
+/// failed call, so a check or fallible call before cooperation must be uniform over its scope.
 pub(crate) fn validate(
     module: &Module,
     analyses: &mut [FunctionAnalysis],
@@ -139,7 +141,6 @@ pub(crate) fn validate(
         }
         analyses[id].cooperative = scopes[id].is_some();
     }
-    let continuations = continuations(module, analyses, order, &scopes);
     let mut summaries = vec![Summary::default(); module.functions.len()];
     let kernels = module.functions.iter().any(|function| function.kernel);
     for &id in order {
@@ -150,10 +151,15 @@ pub(crate) fn validate(
             returns: values[0].clone(),
             ..Summary::default()
         };
-        let mut cooperation = scopes[id];
         for &block in &analysis.checks {
+            let mut failure = control[block].clone();
             let starts = match &function.blocks[block].terminator {
-                Terminator::Assert { target, .. } => vec![*target],
+                Terminator::Assert {
+                    condition, target, ..
+                } => {
+                    failure.merge(&dependencies(condition, &values));
+                    vec![*target]
+                }
                 _ => analysis
                     .cfg
                     .predecessors(block)
@@ -162,24 +168,18 @@ pub(crate) fn validate(
                     .copied()
                     .collect(),
             };
-            let Some(reached) =
-                reaches_cooperation(function, analysis, &scopes, &starts, continuations[id])
-            else {
+            summary.failure.merge(&failure);
+            let Some(reached) = reaches_cooperation(function, analysis, &scopes, &starts) else {
                 continue;
             };
-            let mut required = control[block].clone();
-            if let Terminator::Assert { condition, .. } = &function.blocks[block].terminator {
-                required.merge(&dependencies(condition, &values));
-            }
-            if !required.admitted(reached, kernels) {
+            if !failure.admitted(reached, kernels) {
                 return Err(Error::new(
                     &function.blocks[block].source,
                     "a check before a barrier or SIMD operation must be proved or uniform; \
                      a thread that fails it would leave the others waiting",
                 ));
             }
-            summary.participation.require(reached, &required);
-            cooperation = cooperation.max(Some(reached));
+            summary.participation.require(reached, &failure);
         }
         for (id, block) in function
             .blocks
@@ -187,32 +187,48 @@ pub(crate) fn validate(
             .enumerate()
             .filter(|(id, _)| analysis.cfg.is_reachable(*id))
         {
-            for statement in &block.statements {
-                let Some(needed) = scope(&statement.value, &scopes) else {
+            for (index, statement) in block.statements.iter().enumerate() {
+                let needed = scope(&statement.value, &scopes);
+                if needed.is_none() && !statement.value.is_fallible(analyses) {
                     continue;
+                }
+                let arguments = match &statement.value {
+                    Expression::Call { arguments, .. } => arguments
+                        .iter()
+                        .map(|v| dependencies(v, &values))
+                        .collect::<Vec<_>>(),
+                    _ => Vec::new(),
                 };
                 let mut required = Requirements::default();
-                required.require(needed, &control[id]);
-                match &statement.value {
-                    Expression::Call {
-                        function,
-                        arguments,
-                    } => {
-                        let arguments = arguments
-                            .iter()
-                            .map(|v| dependencies(v, &values))
-                            .collect::<Vec<_>>();
-                        required.merge(&summaries[*function].participation.substitute(&arguments));
+                if let Expression::Call {
+                    function: callee, ..
+                } = statement.value
+                    && analyses[callee].fallible
+                {
+                    let mut failure = control[id].clone();
+                    failure.merge(&summaries[callee].failure.substitute(&arguments));
+                    if let Some(after) = cooperation_after(function, analysis, &scopes, id, index) {
+                        required.require(after, &failure);
                     }
-                    Expression::Simd { op, arguments } if op.uniform_control() => {
-                        required.block.merge(&dependencies(&arguments[1], &values));
+                    summary.failure.merge(&failure);
+                }
+                if let Some(needed) = needed {
+                    required.require(needed, &control[id]);
+                    match &statement.value {
+                        Expression::Call { function, .. } => {
+                            let participation = &summaries[*function].participation;
+                            required.merge(&participation.substitute(&arguments));
+                        }
+                        Expression::Simd { op, arguments } if op.uniform_control() => {
+                            required.block.merge(&dependencies(&arguments[1], &values));
+                        }
+                        Expression::Matrix { arguments, .. } => {
+                            let operands =
+                                matrix_operands(arguments, &values, kernels, &statement.source)?;
+                            required.group.merge(&operands);
+                        }
+                        _ => {}
                     }
-                    Expression::Matrix { arguments, .. } => {
-                        let operands =
-                            matrix_operands(arguments, &values, kernels, &statement.source)?;
-                        required.group.merge(&operands);
-                    }
-                    _ => {}
                 }
                 if !required.admitted(kernels) {
                     return Err(Error::new(
@@ -221,12 +237,9 @@ pub(crate) fn validate(
                     ));
                 }
                 summary.participation.merge(&required);
-                cooperation = cooperation.max(Some(needed));
             }
         }
         summaries[id] = summary;
-        scopes[id] = cooperation;
-        analyses[id].cooperative = cooperation.is_some();
     }
     blocks(module, &matrices)
 }
@@ -269,51 +282,28 @@ fn blocks(module: &Module, matrices: &[bool]) -> Result<(), Error> {
     Ok(())
 }
 
-/// The widest scope a caller may still need after each function returns.
-fn continuations(
-    module: &Module,
-    analyses: &[FunctionAnalysis],
-    order: &[usize],
+/// The widest scope that `function` needs after statement `index` of `block`.
+fn cooperation_after(
+    function: &Function,
+    analysis: &FunctionAnalysis,
     scopes: &[Option<Scope>],
-) -> Vec<Option<Scope>> {
-    let mut result = vec![None; module.functions.len()];
-    for &caller in order.iter().rev() {
-        let function = &module.functions[caller];
-        let analysis = &analyses[caller];
-        for block in analysis.cfg.reachable_blocks() {
-            let statements = &function.blocks[block].statements;
-            for (index, statement) in statements.iter().enumerate() {
-                let Expression::Call {
-                    function: callee, ..
-                } = statement.value
-                else {
-                    continue;
-                };
-                let later = statements[index + 1..]
-                    .iter()
-                    .filter_map(|later| scope(&later.value, scopes))
-                    .max();
-                let after = reaches_cooperation(
-                    function,
-                    analysis,
-                    scopes,
-                    analysis.cfg.successors(block),
-                    result[caller],
-                );
-                result[callee] = result[callee].max(later).max(after);
-            }
-        }
-    }
-    result
+    block: usize,
+    index: usize,
+) -> Option<Scope> {
+    let later = function.blocks[block].statements[index + 1..]
+        .iter()
+        .filter_map(|later| scope(&later.value, scopes))
+        .max();
+    let successors = analysis.cfg.successors(block);
+    later.max(reaches_cooperation(function, analysis, scopes, successors))
 }
 
-/// The widest scope a path from `starts` needs, counting a caller's after a return.
+/// The widest scope that a path from `starts` needs within `function`.
 fn reaches_cooperation(
     function: &Function,
     analysis: &FunctionAnalysis,
     scopes: &[Option<Scope>],
     starts: &[usize],
-    continuation: Option<Scope>,
 ) -> Option<Scope> {
     let mut pending = starts.to_vec();
     let mut visited = BTreeSet::new();
@@ -325,11 +315,7 @@ fn reaches_cooperation(
         if !visited.insert(id) {
             continue;
         }
-        let block = &function.blocks[id];
-        if block.terminator == Terminator::Return {
-            reached = reached.max(continuation);
-        }
-        for statement in &block.statements {
+        for statement in &function.blocks[id].statements {
             reached = reached.max(scope(&statement.value, scopes));
         }
         pending.extend(analysis.cfg.successors(id));
