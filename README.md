@@ -173,7 +173,9 @@ block-uniform values and `simdgroup::group_id()`, and the kernel declares
 arrays of them go to helpers and come back by value; values read through references or `&mut`
 borrows count as lane-varying and are rejected as matrix operands. Matrix kernels need an Apple7
 GPU (M1 or later); the Paravirtual device of hosted M1 VMs reports no Apple7 family, so it
-rejects them.
+rejects them. The [gemm example](https://github.com/rust-dd/metal-oxide/tree/main/examples/gemm)
+multiplies f32 and F16 matrices with them, and `scripts/bench.py` compares it with a handwritten
+MSL twin, MPS and MLX.
 
 The `no_std` integration tests compile and execute `libm` f32 math and `num-traits`
 generic float/integer workloads. Dependencies remain subject to the supported device

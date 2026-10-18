@@ -145,3 +145,12 @@ and returns an f16 C for f16 inputs, so compare its `host_per_gemm_ns` with the 
 backends' `host_per_gemm_ns`, not with GPU times. The report's `machine` records the chip,
 model, memory and GPU core count beside the OS and toolchain versions; a value the host
 cannot report is null.
+
+Measured on an M4 Max: compare GEMMs with `--gemm-repeat 64 --warmup 10`, since at R = 8 the
+rust and msl kernels measured up to 30 % above their R = 64 times while MPS did not. MPS's
+host time includes its own encoding (about 14 us per GEMM), so compare MPS on
+`gpu_per_gemm_ns`; the first MPS case's pipeline time includes MPS's library load. MLX's
+matmuls are independent and may overlap, unlike the runner's GEMMs, which chain through one
+C; a dependent MLX chain measured within 1-5 %. GPU work of other applications moved the
+absolute times of every candidate by up to 2x between runs, so compare candidates within one
+run and repeat it.
