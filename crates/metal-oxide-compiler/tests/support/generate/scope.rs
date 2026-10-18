@@ -3,6 +3,9 @@ use super::{
     types::{Record, Type},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub struct Local {
     pub name: String,
@@ -23,8 +26,8 @@ pub struct Scope {
     pub varying: Vec<String>,
     /// The enclosing helper's `Option` or `Result` result, into which `?` propagates.
     pub question: Option<Type>,
-    /// The `impl Fn` parameters, which are not `Copy`: a `move` closure inside an `FnMut` one
-    /// could not take them, so closures do not capture them.
+    /// Locals that are not `Copy` though their types pass for it, which closures do not capture:
+    /// the `impl Fn` parameters and the `&mut` references that a loop over them freezes.
     pub owned: Vec<String>,
 }
 
@@ -128,6 +131,9 @@ impl Scope {
         for local in scope.locals.iter_mut().filter(|local| local.name == name) {
             local.mutable = false;
             if let Type::Ref(_, mutable) | Type::Slice(_, mutable) = &mut local.ty {
+                if *mutable {
+                    scope.owned.push(name.to_owned());
+                }
                 *mutable = false;
             }
         }
