@@ -27,6 +27,7 @@ members = [
     "examples/pipeline",
     "examples/reduction",
     "examples/saxpy",
+    "examples/sort",
     "examples/spectral/host",
     "examples/spectral/kernels",
     "examples/vec-add",
@@ -106,6 +107,7 @@ quote = "1.0.47"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
+sort = { path = "examples/sort" }
 syn = { version = "3.0.6", features = ["fold", "full", "visit"] }
 tokio = { version = "1.53.2", default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
 trybuild = "1.0.121"

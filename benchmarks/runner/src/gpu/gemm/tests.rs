@@ -152,8 +152,8 @@ impl Candidate for Recorder {
 #[test]
 fn interleaving_rotates_the_candidates_through_warmup_and_timed_rounds() {
     let config: Config = serde_json::from_value(serde_json::json!({
-        "artifacts": {}, "references": {}, "samples": 2, "warmup": 1, "elements": 1,
-        "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": 1,
+        "artifacts": {}, "references": {}, "cases": ["gemm"], "samples": 2, "warmup": 1,
+        "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": 1, "sort": 1,
     }))
     .unwrap();
     let log = Rc::new(RefCell::new(Vec::new()));

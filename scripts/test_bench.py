@@ -90,6 +90,27 @@ class Arguments(unittest.TestCase):
         self.assertFalse(self.parse().mlx)
         self.assertTrue(self.parse("--mlx").mlx)
 
+    def test_cases_default_to_every_workload_and_take_a_subset_in_workload_order(self):
+        self.assertEqual(self.parse().cases, list(bench.WORKLOADS))
+        self.assertEqual(self.parse("--cases", "sort").cases, ["sort"])
+        self.assertEqual(self.parse("--cases", "sort,vec-add").cases, ["vec-add", "sort"])
+
+    def test_cases_rejects_unknown_names_empty_lists_and_repeats(self):
+        for value in ("bitonic", "sort,bitonic", "histogram", "", "sort,", "sort,sort"):
+            self.assertIn("distinct workloads", self.rejection("--cases", value))
+
+    def test_mlx_needs_the_gemm_workload(self):
+        self.assertIn("--mlx measures the gemm workload",
+                      self.rejection("--cases", "sort", "--mlx"))
+        self.assertEqual(self.parse("--cases", "gemm", "--mlx").cases, ["gemm"])
+
+    def test_sort_defaults_to_2_to_the_20_keys_and_stays_from_1_to_2_to_the_24(self):
+        self.assertEqual(self.parse().sort, 1 << 20)
+        for keys in (1, 1 << 24):
+            self.assertEqual(self.parse("--sort", str(keys)).sort, keys)
+        self.assertIn("sort must be <= 16777216", self.rejection("--sort", str((1 << 24) + 1)))
+        self.rejection("--sort", "0")
+
     def test_established_bounds_keep_their_messages(self):
         self.assertIn("elements must be <= 16000000", self.rejection("--elements", "16000001"))
         self.assertIn("matrix dimensions must be <= 1024", self.rejection("--matrix", "1", "1025", "1"))
@@ -228,6 +249,10 @@ class Timeouts(unittest.TestCase):
         args = self.args()
         self.assertEqual(bench.runner_timeout(args), bench.TIMEOUT_S)
         self.assertEqual(bench.mlx_timeout(args), bench.TIMEOUT_S)
+
+    def test_runs_without_gemm_keep_the_fixed_timeout(self):
+        args = self.args("--cases", "sort", "--gemm", "8192", "8192", "8192")
+        self.assertEqual(bench.runner_timeout(args), bench.TIMEOUT_S)
 
     def test_large_runs_allow_their_gemm_work_at_half_a_teraflop(self):
         args = self.args("--gemm", "8192", "8192", "8192", "--samples", "20", "--warmup", "10")

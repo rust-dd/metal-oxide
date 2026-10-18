@@ -14,6 +14,7 @@ metal-oxide-artifact.workspace = true
 particle-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sort.workspace = true
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 objc2.workspace = true

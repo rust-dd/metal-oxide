@@ -23,9 +23,11 @@ WORKLOADS = {
     "particle-update": ("examples/particle-update/src/lib.rs",
                         "examples/particle-update/reference.metal"),
     "matmul": ("examples/matmul/host/src/main.rs", "benchmarks/reference-msl/matmul.metal"),
+    "sort": ("examples/sort/src/lib.rs", "benchmarks/reference-msl/sort.metal"),
     "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
 BACKENDS = ("classic", "metal4")
+SORT_KEYS = 1 << 24
 # A command's limit; GEMM runs scale theirs with their work at an assumed slowest GEMM rate.
 TIMEOUT_S = 1800
 MIN_GEMM_FLOPS = 0.5e12
@@ -146,6 +148,14 @@ def backend_list(value):
     return [name for name in BACKENDS if name in names]
 
 
+def case_list(value):
+    names = value.split(",")
+    if not set(names) <= set(WORKLOADS) or len(set(names)) != len(names):
+        raise argparse.ArgumentTypeError(
+            f"{value!r} is not a list of distinct workloads from {','.join(WORKLOADS)}")
+    return [name for name in WORKLOADS if name in names]
+
+
 def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=positive, default=20)
@@ -159,6 +169,11 @@ def argument_parser():
     parser.add_argument("--gemm-repeat", type=positive, default=64, metavar="R",
                         help="GEMMs per sample, back to back in one command buffer "
                              "(default: 64, at most 256)")
+    parser.add_argument("--sort", type=positive, default=1 << 20, metavar="KEYS",
+                        help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 20})")
+    parser.add_argument("--cases", type=case_list, default=list(WORKLOADS), metavar="LIST",
+                        help="comma-separated workloads to build and measure "
+                             f"(default: {','.join(WORKLOADS)})")
     parser.add_argument("--backends", type=backend_list, default=list(BACKENDS), metavar="LIST",
                         help="comma-separated backends to measure (default: classic,metal4)")
     parser.add_argument("--mlx", action="store_true",
@@ -175,6 +190,10 @@ def check_bounds(parser, args):
         parser.error("gemm dimensions must be <= 8192")
     if args.gemm_repeat > 256:
         parser.error("gemm repeat must be <= 256")
+    if args.sort > SORT_KEYS:
+        parser.error(f"sort must be <= {SORT_KEYS}")
+    if args.mlx and "gemm" not in args.cases:
+        parser.error("--mlx measures the gemm workload, which --cases leaves out")
 
 
 def mlx_python(venv=MLX_VENV):
@@ -201,6 +220,8 @@ def gemm_timeout(args, gemms):
 
 
 def runner_timeout(args):
+    if "gemm" not in args.cases:
+        return TIMEOUT_S
     return gemm_timeout(args, args.gemm_repeat * (args.warmup + args.samples) * RUNNER_GEMM_CASES)
 
 
@@ -326,7 +347,8 @@ def main():
     metal = metal_command()
     sdk, _ = command(["xcrun", "--sdk", "macosx", "--show-sdk-path"])
     metal_env = dict(os.environ, SDKROOT=sdk)
-    for package, (kernels, source) in WORKLOADS.items():
+    for package in args.cases:
+        kernels, source = WORKLOADS[package]
         print(f"Building {package}: first build and a rebuild that reuses its kernels", flush=True)
         artifact, build_command, first_ns, rebuild_ns = build_kernels(
             package, kernels, environment, run / f"{package}-build.log")
@@ -347,9 +369,10 @@ def main():
                                "reference_metallib_sha256": digest(reference)}
     host_env = dict(os.environ)
     host = build_binary("metal-oxide-bench", host_env, run / "host.log")
-    config = {"artifacts": artifacts, "references": references, "samples": args.samples,
-              "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix,
-              "gemm": args.gemm, "gemm_repeat": args.gemm_repeat}
+    config = {"artifacts": artifacts, "references": references, "cases": args.cases,
+              "samples": args.samples, "warmup": args.warmup, "elements": args.elements,
+              "matrix": args.matrix, "gemm": args.gemm, "gemm_repeat": args.gemm_repeat,
+              "sort": args.sort}
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -407,6 +430,9 @@ def main():
                          "rust and msl record only, so compare submit. Hazard tracking of the "
                          "write to C serializes its repeats, and the first MPS case's pipeline "
                          "time includes MPS's one-time library load",
+                  "sort": "the keys are padded with u32::MAX to max(512, the next power of two); "
+                          "input copy writes keys and padding, one command buffer runs the whole "
+                          "bitonic plan, and the first n keys read back must equal sort_unstable's",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     mlx = (lambda: measure_mlx(interpreter, args, run)) if args.mlx else None
     write_report(output, report, mlx)

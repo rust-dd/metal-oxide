@@ -1,15 +1,12 @@
 use super::*;
 use metal_oxide::{Argument, LaunchConfig};
 
-pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Vec<Case>> {
-    Ok(vec![
-        floats(device, config, variant, false)?,
-        floats(device, config, variant, true)?,
-        histogram(device, config, variant)?,
-    ])
-}
-
-fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> Result<Case> {
+pub(super) fn floats(
+    device: &Device,
+    config: &Config,
+    variant: &str,
+    reduction: bool,
+) -> Result<Case> {
     let n = config.elements;
     let name = if reduction { "reduction" } else { "vec-add" };
     let mut case = Case::new(name, variant, vec![n]);
@@ -118,7 +115,7 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
     case.finish()
 }
 
-fn histogram(device: &Device, config: &Config, variant: &str) -> Result<Case> {
+pub(super) fn histogram(device: &Device, config: &Config, variant: &str) -> Result<Case> {
     let n = config.elements;
     let mut case = Case::new("histogram", variant, vec![n, 16]);
     let pipelines = case.pipelines(device, config, "cooperation", &["histogram"])?;

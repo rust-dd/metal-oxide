@@ -3,9 +3,10 @@ mod matrix;
 mod particle;
 mod scalar;
 mod scan;
+mod sort;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::{Future, IntoFuture},
     path::PathBuf,
     pin::Pin,
@@ -21,20 +22,45 @@ use crate::stats::Summary;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// The workloads a configuration selects from, in the order each variant runs them; gemm's
+/// candidates then take turns sample by sample.
+const WORKLOADS: [&str; 7] = [
+    "vec-add",
+    "reduction",
+    "cooperation",
+    "particle-update",
+    "matmul",
+    "sort",
+    "gemm",
+];
+
+/// The most keys a sort case sorts.
+const SORT_KEYS: u32 = 1 << 24;
+
 #[derive(Deserialize)]
 struct Config {
     artifacts: BTreeMap<String, PathBuf>,
     references: BTreeMap<String, PathBuf>,
+    /// The selected workloads.
+    cases: Vec<String>,
     samples: usize,
     warmup: usize,
     elements: u32,
     matrix: [u32; 3],
     gemm: [u32; 3],
     gemm_repeat: u32,
+    sort: u32,
 }
 
 impl Config {
     fn validate(&self) -> Result<()> {
+        let mut seen = BTreeSet::new();
+        let mut cases = self.cases.iter();
+        let distinct = cases.all(|case| WORKLOADS.contains(&case.as_str()) && seen.insert(case));
+        if self.cases.is_empty() || !distinct {
+            let workloads = WORKLOADS.join(", ");
+            return Err(format!("cases must be distinct workloads of {workloads}").into());
+        }
         if self.samples == 0
             || self.elements == 0
             || self.elements > 16_000_000
@@ -48,7 +74,14 @@ impl Config {
         if !(1..=256).contains(&self.gemm_repeat) {
             return Err("gemm repeat must be from 1 to 256".into());
         }
+        if !(1..=SORT_KEYS).contains(&self.sort) {
+            return Err(format!("sort must be from 1 to {SORT_KEYS} keys").into());
+        }
         Ok(())
+    }
+
+    fn selects(&self, workload: &str) -> bool {
+        self.cases.iter().any(|case| case == workload)
     }
 }
 
@@ -227,19 +260,41 @@ pub(super) fn run() -> Result<()> {
     config.validate()?;
     let backend = std::env::var("METAL_OXIDE_BACKEND")?;
     let device = Device::system_default()?;
-    let problem = gemm::Problem::new(config.gemm);
     let mut cases = Vec::new();
     for variant in ["rust", "msl"] {
-        cases.extend(scalar::run(&device, &config, variant)?);
-        cases.push(scan::run(&device, &config, variant)?);
-        cases.push(particle::run(&device, &config, variant)?);
-        cases.push(matrix::run(&device, &config, variant)?);
+        for workload in WORKLOADS {
+            if config.selects(workload) {
+                cases.extend(measure(&device, &config, workload, variant)?);
+            }
+        }
     }
-    let (gemm, mps) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
-    cases.extend(gemm);
+    let mut mps = None;
+    if config.selects("gemm") {
+        let problem = gemm::Problem::new(config.gemm);
+        let (gemm, measured) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
+        cases.extend(gemm);
+        mps = measured;
+    }
     let backends = backend_reports(&device.name(), &backend, cases, mps);
     std::fs::write(output, serde_json::to_vec_pretty(&backends)?)?;
     Ok(())
+}
+
+/// The cases of `workload` for `variant`; gemm runs after both variants instead.
+fn measure(device: &Device, config: &Config, workload: &str, variant: &str) -> Result<Vec<Case>> {
+    Ok(match workload {
+        "vec-add" => vec![scalar::floats(device, config, variant, false)?],
+        "reduction" => vec![scalar::floats(device, config, variant, true)?],
+        "cooperation" => vec![
+            scalar::histogram(device, config, variant)?,
+            scan::run(device, config, variant)?,
+        ],
+        "particle-update" => vec![particle::run(device, config, variant)?],
+        "matmul" => vec![matrix::run(device, config, variant)?],
+        "sort" => vec![sort::run(device, config, variant)?],
+        "gemm" => Vec::new(),
+        _ => unreachable!("{workload} is not a workload"),
+    })
 }
 
 #[cfg(test)]

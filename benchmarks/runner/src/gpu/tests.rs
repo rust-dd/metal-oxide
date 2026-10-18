@@ -2,10 +2,17 @@ use super::*;
 
 fn config(gemm_repeat: u32) -> Config {
     serde_json::from_value(serde_json::json!({
-        "artifacts": {}, "references": {}, "samples": 1, "warmup": 0, "elements": 1,
-        "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": gemm_repeat,
+        "artifacts": {}, "references": {}, "cases": WORKLOADS, "samples": 1, "warmup": 0,
+        "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": gemm_repeat,
+        "sort": 1,
     }))
     .unwrap()
+}
+
+fn selecting(names: &[&str]) -> Config {
+    let mut config = config(1);
+    config.cases = names.iter().map(|&name| name.into()).collect();
+    config
 }
 
 #[test]
@@ -51,6 +58,44 @@ fn config_keeps_the_established_bounds() {
     let mut wide = config(1);
     wide.matrix = [1, 1025, 1];
     assert!(wide.validate().is_err());
+}
+
+#[test]
+fn config_selects_distinct_known_workloads() {
+    for names in [&["sort"][..], &["gemm", "vec-add"], &WORKLOADS] {
+        let config = selecting(names);
+        config.validate().unwrap();
+        assert!(names.iter().all(|name| config.selects(name)));
+    }
+    assert!(!selecting(&["sort"]).selects("gemm"));
+    for names in [
+        &[][..],
+        &["sort", "sort"],
+        &["bitonic"],
+        &[""],
+        &["cooperation", "scan"],
+    ] {
+        let error = selecting(names).validate().unwrap_err().to_string();
+        assert!(
+            error.starts_with("cases must be distinct workloads of vec-add, "),
+            "{names:?}"
+        );
+    }
+}
+
+#[test]
+fn config_sorts_from_1_to_2_to_the_24_keys() {
+    for keys in [1, 1 << 20, 1 << 24] {
+        let mut config = config(1);
+        config.sort = keys;
+        config.validate().unwrap();
+    }
+    for keys in [0, (1 << 24) + 1] {
+        let mut config = config(1);
+        config.sort = keys;
+        let error = config.validate().unwrap_err().to_string();
+        assert_eq!(error, "sort must be from 1 to 16777216 keys");
+    }
 }
 
 #[test]
