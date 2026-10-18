@@ -1,0 +1,15 @@
+[package]
+name = "gemm-kernels"
+description = "Rust SIMD-group-matrix GEMM kernels"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+metal-oxide-device.workspace = true
+
+[lints]
+workspace = true

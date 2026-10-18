@@ -224,6 +224,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemm"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide",
+]
+
+[[package]]
+name = "gemm-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-device",
+]
+
+[[package]]
 name = "generator"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -19,6 +19,8 @@ members = [
     "crates/metal-oxide-macros",
     "examples/cooperation/host",
     "examples/cooperation/kernels",
+    "examples/gemm/host",
+    "examples/gemm/kernels",
     "examples/matmul/host",
     "examples/matmul/kernels",
     "examples/particle-update",
