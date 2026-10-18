@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Build and measure matching Rust/MSL compute workloads on both Metal backends."""
+"""Build and measure matching Rust and MSL compute workloads on both Metal backends, with the
+GEMM also against MetalPerformanceShaders (MPS) and, with --mlx, MLX."""
 import argparse
 import hashlib
 import json
@@ -161,7 +162,8 @@ def argument_parser():
     parser.add_argument("--backends", type=backend_list, default=list(BACKENDS), metavar="LIST",
                         help="comma-separated backends to measure (default: classic,metal4)")
     parser.add_argument("--mlx", action="store_true",
-                        help=f"also measure the GEMM with MLX {MLX_VERSION}")
+                        help=f"also measure the GEMM with MLX {MLX_VERSION}, which the first use "
+                             "downloads from PyPI into target/benchmarks/mlx-venv")
     parser.add_argument("--output", type=Path)
     return parser
 

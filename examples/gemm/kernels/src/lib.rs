@@ -99,8 +99,8 @@ pub unsafe fn gemm<T: Input>(
     // SAFETY: the caller's contract bounds every global access and the block's tile of C is its
     // own; barriers that every thread reaches order the threadgroup accesses.
     unsafe {
-        // Device loads measured faster than staging; edge blocks stage to zero-pad partial tiles.
-        // `&` keeps one branch: the compiler does not duplicate the staged loop's barriers.
+        // On M4 Max (Apple9) device loads beat staging; edge blocks, or all if k % 16 > 0, stage.
+        // `&`, not `&&`: the structured MSL emitter rejects the short-circuit form of this branch.
         if full & k.is_multiple_of(16) {
             acc = direct(acc, a, b, (row0 + row, column0 + column), (n, k));
         } else {

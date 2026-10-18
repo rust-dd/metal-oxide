@@ -152,9 +152,14 @@ cannot report is null.
 
 Measured on an M4 Max: compare GEMMs at the default R = 64 with `--warmup 10`; single runner
 runs at R = 8 measured 0-31 % slower for rust and msl at 1024 cubed while MPS did not move.
-MPS's host time includes its own encoding (about 14 us per GEMM), so compare MPS on
+MPS's host time includes its own encoding (about 14 us per GEMM) and ran 14-28 us per GEMM
+above its GPU time at 1024 cubed and 21-36 us at 2048 cubed, so compare MPS on
 `gpu_per_gemm_ns`; the first MPS case's pipeline time includes MPS's library load. MLX's
 matmuls are independent and may overlap, unlike the runner's GEMMs, which chain through one
-C; a dependent MLX chain measured within 1-5 %. GPU work of other applications moved the
-absolute times of every candidate by up to 2x between runs, so compare candidates within one
-run and repeat it.
+C; a dependent MLX chain measured within 1-5 %. Absolute times drifted by up to 2x between
+runs while the GPU was shared with other applications, so compare candidates within one run
+and repeat runs. The kernel's direct path needs k to be a multiple of 16, so a shape such as
+1000 cubed measures its staged path. The gemm case needs an Apple7 or later GPU (SIMD-group
+matrices); elsewhere the run stops with `UnsupportedDevice`. `--mlx` downloads mlx from PyPI
+on first use. Very long command buffers (a large R times a large shape) may hit the GPU's
+interactivity limit and fail as a command-buffer error.

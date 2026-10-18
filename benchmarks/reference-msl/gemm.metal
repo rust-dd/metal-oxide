@@ -49,7 +49,7 @@ static inline void gemm_block(
     simdgroup_matrix<float, 8, 8> acc[4][4];
     FRAGMENTS(ZERO)
     bool full = row0 + 64 <= m && column0 + 64 <= n;
-    // Device loads measured faster than staging; edge blocks stage to zero-pad partial tiles.
+    // On M4 Max (Apple9) device loads beat staging; edge blocks, or all if k % 16 > 0, stage.
     if (full && k % 16 == 0) {
         uint top = row0 + row;
         uint left = column0 + column;
