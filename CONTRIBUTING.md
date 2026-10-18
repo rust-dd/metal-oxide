@@ -121,10 +121,12 @@ python3 scripts/bench.py --samples 20 --warmup 5 --output target/benchmarks/base
 ```
 
 `python3 scripts/test_bench.py` checks the driver itself. The benchmark compares
-vec-add, reduction, scan, histogram, particle update and matmul with
-CPU results and matching handwritten MSL on both backends. The JSON report
+vec-add, reduction, scan, histogram, particle update, matmul and the f32 and f16
+SIMD-group-matrix GEMM (`--gemm M N K`, 1024 cubed by default) with CPU results and
+matching handwritten MSL on both backends. The JSON report
 separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
-native GPU times. Every sample is checked; unavailable GPU timestamps are null.
+native GPU times. Every sample is checked; unavailable GPU timestamps are null, and so
+is the CPU time of GEMM, whose exact result is computed once per shape.
 Submit time measures the first poll with prepared pipelines. Under saturation, later
 polls may submit the command. Host wait includes preparation, execution and scheduling,
 so it does not measure queue latency alone.

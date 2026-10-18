@@ -20,6 +20,7 @@ WORKLOADS = {
     "particle-update": ("examples/particle-update/src/lib.rs",
                         "examples/particle-update/reference.metal"),
     "matmul": ("examples/matmul/host/src/main.rs", "benchmarks/reference-msl/matmul.metal"),
+    "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
 
 
@@ -107,19 +108,32 @@ def positive(value):
     return number
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=positive, default=20)
     parser.add_argument("--warmup", type=positive, default=5)
     parser.add_argument("--elements", type=positive, default=1_000_003)
     parser.add_argument("--matrix", nargs=3, type=positive, default=[129, 131, 127],
                         metavar=("ROWS", "COLUMNS", "INNER"))
+    parser.add_argument("--gemm", nargs=3, type=positive, default=[1024, 1024, 1024],
+                        metavar=("M", "N", "K"))
     parser.add_argument("--output", type=Path)
+    return parser
+
+
+def check_bounds(parser, args):
+    if args.elements > 16_000_000 or max(args.matrix) > 1024:
+        parser.error("elements must be <= 16000000; matrix dimensions must be <= 1024")
+    if max(args.gemm) > 8192:
+        parser.error("gemm dimensions must be <= 8192")
+
+
+def main():
+    parser = argument_parser()
     args = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("benchmarks require macOS on Apple Silicon")
-    if args.elements > 16_000_000 or max(args.matrix) > 1024:
-        parser.error("elements must be <= 16000000; matrix dimensions must be <= 1024")
+    check_bounds(parser, args)
     parent = ROOT / "target/benchmarks"
     parent.mkdir(parents=True, exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
@@ -152,7 +166,8 @@ def main():
     host_env = dict(os.environ)
     host = build_binary("metal-oxide-bench", host_env, run / "host.log")
     config = {"artifacts": artifacts, "references": references, "samples": args.samples,
-              "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix}
+              "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix,
+              "gemm": args.gemm}
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -183,7 +198,10 @@ def main():
                            "package; the rebuild touches the kernels' file and reuses their artifact",
                   "submit": "includes encoding; overlaps GPU work and is not additive with GPU time",
                   "wait": "host blocking after commit, not isolated queue latency",
-                  "cpu": "serial reference including result allocation",
+                  "cpu": "serial reference including result allocation; null for gemm, whose "
+                         "exact result is computed once per shape before the samples",
+                  "gemm": "C is set to NaN before each sample, outside every timed phase, then "
+                          "compared bitwise with the exact result",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")

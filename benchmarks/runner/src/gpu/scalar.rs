@@ -108,7 +108,7 @@ fn floats(device: &Device, config: &Config, variant: &str, reduction: bool) -> R
         let result = out.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "{name} {variant}");
-        sample.cpu_reference_ns = cpu;
+        sample.cpu_reference_ns = Some(cpu);
         sample.input_copy_ns = copy;
         sample.upload_ns = upload;
         if iteration >= config.warmup {
@@ -166,7 +166,7 @@ fn histogram(device: &Device, config: &Config, variant: &str) -> Result<Case> {
         let result = bins.read().wait();
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "histogram {variant}");
-        sample.cpu_reference_ns = cpu;
+        sample.cpu_reference_ns = Some(cpu);
         sample.input_copy_ns = copy;
         sample.upload_ns = upload;
         if iteration >= config.warmup {

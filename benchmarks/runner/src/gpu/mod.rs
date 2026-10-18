@@ -1,3 +1,4 @@
+mod gemm;
 mod matrix;
 mod particle;
 mod scalar;
@@ -28,11 +29,12 @@ struct Config {
     warmup: usize,
     elements: u32,
     matrix: [u32; 3],
+    gemm: [u32; 3],
 }
 
 #[derive(Default, Serialize)]
 struct Sample {
-    cpu_reference_ns: u64,
+    cpu_reference_ns: Option<u64>,
     input_copy_ns: u64,
     upload_ns: u64,
     encode_ns: u64,
@@ -64,6 +66,7 @@ impl Case {
             block: match name {
                 "matmul" => [16, 16, 1],
                 "particle-update" => [64, 1, 1],
+                "gemm-f32" | "gemm-f16" => [128, 1, 1],
                 _ => [256, 1, 1],
             },
             library_load_ns: 0,
@@ -104,7 +107,7 @@ impl Case {
         let mut measurements = BTreeMap::<_, Vec<u64>>::new();
         for sample in &self.samples {
             for (name, value) in [
-                ("cpu_reference_ns", Some(sample.cpu_reference_ns)),
+                ("cpu_reference_ns", sample.cpu_reference_ns),
                 ("input_copy_ns", Some(sample.input_copy_ns)),
                 ("upload_ns", Some(sample.upload_ns)),
                 ("encode_ns", Some(sample.encode_ns)),
@@ -180,16 +183,21 @@ pub(super) fn run() -> Result<()> {
         || config.elements == 0
         || config.elements > 16_000_000
         || config.matrix.iter().any(|&n| n == 0 || n > 1024)
+        || config.gemm.iter().any(|&n| n == 0 || n > 8192)
     {
-        return Err("samples, elements and matrix dimensions must be positive and bounded".into());
+        return Err(
+            "samples, elements, matrix and gemm dimensions must be positive and bounded".into(),
+        );
     }
     let device = Device::system_default()?;
+    let problem = gemm::Problem::new(config.gemm);
     let mut cases = Vec::new();
     for variant in ["rust", "msl"] {
         cases.extend(scalar::run(&device, &config, variant)?);
         cases.push(scan::run(&device, &config, variant)?);
         cases.push(particle::run(&device, &config, variant)?);
         cases.push(matrix::run(&device, &config, variant)?);
+        cases.extend(gemm::run(&device, &config, &problem, variant)?);
     }
     let report = serde_json::json!({"device": device.name(), "backend": std::env::var("METAL_OXIDE_BACKEND")?, "cases": cases});
     std::fs::write(output, serde_json::to_vec_pretty(&report)?)?;

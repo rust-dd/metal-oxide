@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -35,6 +37,49 @@ class BuildIdentity(unittest.TestCase):
             finally:
                 bench.ROOT = old_root
             self.assertEqual(subprocess.check_output([binary], text=True).strip(), "fresh")
+
+
+class Arguments(unittest.TestCase):
+    def parse(self, *arguments):
+        parser = bench.argument_parser()
+        args = parser.parse_args(arguments)
+        bench.check_bounds(parser, args)
+        return args
+
+    def rejection(self, *arguments):
+        with contextlib.redirect_stderr(io.StringIO()) as error, self.assertRaises(SystemExit):
+            self.parse(*arguments)
+        return error.getvalue()
+
+    def test_defaults_of_the_existing_workloads_are_unchanged(self):
+        args = self.parse()
+        self.assertEqual((args.samples, args.warmup, args.elements), (20, 5, 1_000_003))
+        self.assertEqual(args.matrix, [129, 131, 127])
+
+    def test_gemm_defaults_to_1024_cubed_and_takes_m_n_k(self):
+        self.assertEqual(self.parse().gemm, [1024, 1024, 1024])
+        self.assertEqual(self.parse("--gemm", "256", "128", "64").gemm, [256, 128, 64])
+        self.assertEqual(self.parse("--gemm", "8192", "8192", "8192").gemm, [8192] * 3)
+
+    def test_gemm_rejects_a_dimension_above_8192_and_malformed_shapes(self):
+        self.assertIn("gemm dimensions must be <= 8192", self.rejection("--gemm", "1", "8193", "1"))
+        for shape in (["0", "1", "1"], ["1", "1"], ["1", "1", "1", "1"]):
+            self.rejection("--gemm", *shape)
+
+    def test_established_bounds_keep_their_messages(self):
+        self.assertIn("elements must be <= 16000000", self.rejection("--elements", "16000001"))
+        self.assertIn("matrix dimensions must be <= 1024", self.rejection("--matrix", "1", "1025", "1"))
+
+
+class Workloads(unittest.TestCase):
+    def test_every_workload_names_its_kernel_source_and_reference(self):
+        for package, (kernels, reference) in bench.WORKLOADS.items():
+            for source in (kernels, reference):
+                self.assertTrue((bench.ROOT / source).is_file(), f"{package}: {source}")
+
+    def test_gemm_compares_the_gemm_package_with_its_msl_twin(self):
+        self.assertEqual(bench.WORKLOADS["gemm"], ("examples/gemm/host/src/main.rs",
+                                                   "benchmarks/reference-msl/gemm.metal"))
 
 
 if __name__ == "__main__":

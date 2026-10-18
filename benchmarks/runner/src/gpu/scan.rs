@@ -113,7 +113,7 @@ pub(super) fn run(device: &Device, config: &Config, variant: &str) -> Result<Cas
         sample.readback_ns = elapsed(start);
         assert_eq!(result, expected, "scan {variant}");
         assert_eq!(total, sum);
-        sample.cpu_reference_ns = cpu;
+        sample.cpu_reference_ns = Some(cpu);
         sample.input_copy_ns = copy;
         sample.upload_ns = upload;
         if iteration >= config.warmup {
