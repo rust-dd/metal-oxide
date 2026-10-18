@@ -1,4 +1,5 @@
 mod gemm;
+mod interleave;
 mod matrix;
 mod particle;
 mod scalar;
@@ -19,11 +20,11 @@ use metal_oxide::{Batch, Device, Launch, Module, Operation, Pipeline, sequence};
 use serde::{Deserialize, Serialize};
 
 use crate::stats::Summary;
+use interleave::{Candidate, interleave, rust_and_msl};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// The workloads a configuration selects from, in the order each variant runs them; gemm's
-/// candidates then take turns sample by sample.
+/// The workloads a configuration selects from, in the order the runner measures them.
 const WORKLOADS: [&str; 7] = [
     "vec-add",
     "reduction",
@@ -261,39 +262,52 @@ pub(super) fn run() -> Result<()> {
     let backend = std::env::var("METAL_OXIDE_BACKEND")?;
     let device = Device::system_default()?;
     let mut cases = Vec::new();
-    for variant in ["rust", "msl"] {
-        for workload in WORKLOADS {
-            if config.selects(workload) {
-                cases.extend(measure(&device, &config, workload, variant)?);
-            }
-        }
-    }
     let mut mps = None;
-    if config.selects("gemm") {
-        let problem = gemm::Problem::new(config.gemm);
-        let (gemm, measured) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
-        cases.extend(gemm);
-        mps = measured;
+    for workload in WORKLOADS {
+        if !config.selects(workload) {
+            continue;
+        }
+        if workload == "gemm" {
+            let problem = gemm::Problem::new(config.gemm);
+            let (gemm, measured) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
+            cases.extend(gemm);
+            mps = measured;
+        } else {
+            cases.extend(measure(&device, &config, workload)?);
+        }
     }
     let backends = backend_reports(&device.name(), &backend, cases, mps);
     std::fs::write(output, serde_json::to_vec_pretty(&backends)?)?;
     Ok(())
 }
 
-/// The cases of `workload` for `variant`; gemm runs after both variants instead.
-fn measure(device: &Device, config: &Config, workload: &str, variant: &str) -> Result<Vec<Case>> {
+/// The cases of `workload` except gemm's, which runs apart with its problem: for each case,
+/// its rust and msl candidates take turns sample by sample.
+fn measure(device: &Device, config: &Config, workload: &str) -> Result<Vec<Case>> {
     Ok(match workload {
-        "vec-add" => vec![scalar::floats(device, config, variant, false)?],
-        "reduction" => vec![scalar::floats(device, config, variant, true)?],
-        "cooperation" => vec![
-            scalar::histogram(device, config, variant)?,
-            scan::run(device, config, variant)?,
-        ],
-        "particle-update" => vec![particle::run(device, config, variant)?],
-        "matmul" => vec![matrix::run(device, config, variant)?],
-        "sort" => vec![sort::run(device, config, variant)?],
-        "gemm" => Vec::new(),
-        _ => unreachable!("{workload} is not a workload"),
+        "vec-add" => rust_and_msl(config, |variant| {
+            scalar::Floats::new(device, config, variant, false)
+        })?,
+        "reduction" => rust_and_msl(config, |variant| {
+            scalar::Floats::new(device, config, variant, true)
+        })?,
+        "cooperation" => {
+            let mut cases = rust_and_msl(config, |variant| {
+                scalar::Histogram::new(device, config, variant)
+            })?;
+            cases.extend(rust_and_msl(config, |variant| {
+                scan::Scan::new(device, config, variant)
+            })?);
+            cases
+        }
+        "particle-update" => rust_and_msl(config, |variant| {
+            particle::ParticleUpdate::new(device, config, variant)
+        })?,
+        "matmul" => rust_and_msl(config, |variant| {
+            matrix::Matmul::new(device, config, variant)
+        })?,
+        "sort" => rust_and_msl(config, |variant| sort::Sort::new(device, config, variant))?,
+        _ => unreachable!("{workload} is not measured here"),
     })
 }
 

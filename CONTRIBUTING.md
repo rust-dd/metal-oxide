@@ -127,12 +127,12 @@ matching handwritten MSL on both backends; the classic run also measures the GEM
 MetalPerformanceShaders as backend `mps`. A GEMM sample runs `--gemm-repeat R` GEMMs
 (64 by default) back to back in one command buffer, so the GPU is not idle between timed
 GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
-`(submit_ns + wait_ns) / R`. Within a runner process the GEMM candidates take turns sample
-by sample (rust, msl and, in the classic run, mps; the first one rotates every round).
-Classic and Metal 4 run in separate processes and MLX afterwards in its own, so MLX and
-cross-backend ratios carry drift between runs: repeat runs and report the spread. The rust
-and msl kernels share their hot loops, so a rust/msl ratio near 1 confirms the interleave
-but cannot reveal drift between runs. The
+`(submit_ns + wait_ns) / R`. Within a runner process the candidates of every case take turns
+sample by sample (rust, msl and, for the GEMM in the classic run, mps; the first one rotates
+every round). Classic and Metal 4 run in separate processes and MLX afterwards in its own,
+so MLX and cross-backend ratios carry drift between runs: repeat runs and report the spread.
+The rust and msl kernels share their hot loops, so a rust/msl ratio near 1 confirms the
+interleave but cannot reveal drift between runs. The
 JSON report separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
 native GPU times. Every sample is checked; unavailable GPU timestamps are null, and so is
 the CPU time of GEMM, whose exact result is computed once per shape.

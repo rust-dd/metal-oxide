@@ -164,8 +164,9 @@ fn submit(
 }
 
 /// MPSMatrixMultiplication for one input type, on its own queue and shared matrices.
-pub(super) struct Mps {
+pub(super) struct Mps<'a> {
     case: Case,
+    problem: &'a Problem,
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     kernel: Retained<MPSMatrixMultiplication>,
     matrices: [Matrix; 3],
@@ -174,11 +175,11 @@ pub(super) struct Mps {
     result: Vec<f32>,
 }
 
-impl Mps {
+impl<'a> Mps<'a> {
     pub(super) fn new<T: Element>(
         device: &Device,
         config: &Config,
-        problem: &Problem,
+        problem: &'a Problem,
         input: &str,
         (a_values, b_values): (&[T], &[T]),
     ) -> Result<Self> {
@@ -214,6 +215,7 @@ impl Mps {
         ];
         Ok(Self {
             case,
+            problem,
             queue,
             kernel,
             matrices,
@@ -223,8 +225,8 @@ impl Mps {
     }
 }
 
-impl Candidate for Mps {
-    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()> {
+impl Candidate for Mps<'_> {
+    fn sample(&mut self, keep: bool) -> Result<()> {
         let [a, b, c] = &mut self.matrices;
         let start = Instant::now();
         a.bytes().copy_from_slice(&self.values[0]);
@@ -238,10 +240,10 @@ impl Candidate for Mps {
         let start = Instant::now();
         let bytes = c.bytes();
         sample.readback_ns = elapsed(start);
-        let columns = problem.shape[1];
+        let columns = self.problem.shape[1];
         unpad_rows(bytes, columns as usize, row_bytes, &mut self.result);
         let name = format!("{} mps", self.case.name);
-        check(&name, &self.result, &problem.expected, columns)?;
+        check(&name, &self.result, &self.problem.expected, columns)?;
         sample.input_copy_ns = copy;
         if keep {
             self.case.samples.push(sample);

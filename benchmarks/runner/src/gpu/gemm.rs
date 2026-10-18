@@ -96,37 +96,6 @@ fn finish(case: Case) -> Result<Case> {
     Ok(case)
 }
 
-/// A GEMM variant set up for one input type: each call measures and checks one sample.
-trait Candidate {
-    /// Runs one sample, kept for the report unless it belongs to the warmup.
-    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()>;
-
-    fn finish(self: Box<Self>) -> Result<Case>;
-}
-
-/// The candidates of `round` in turn: each once, starting with the one at `round` modulo `count`.
-fn round_order(count: usize, round: usize) -> impl Iterator<Item = usize> {
-    (0..count).map(move |offset| (round + offset) % count)
-}
-
-/// Gives every candidate one sample per warmup and timed round, so drift during the run reaches
-/// them alike.
-fn interleave(
-    config: &Config,
-    problem: &Problem,
-    mut candidates: Vec<Box<dyn Candidate + '_>>,
-) -> Result<Vec<Case>> {
-    for round in 0..config.warmup + config.samples {
-        for index in round_order(candidates.len(), round) {
-            candidates[index].sample(problem, round >= config.warmup)?;
-        }
-    }
-    candidates
-        .into_iter()
-        .map(|candidate| candidate.finish())
-        .collect()
-}
-
 /// The rust and msl GEMM cases of this process and, with `with_mps`, MPS's, interleaved per
 /// input type.
 pub(super) fn run(
@@ -161,13 +130,14 @@ fn measure<T: GpuValue + mps::Element>(
         let library = mps::Mps::new(device, config, problem, input, values)?;
         candidates.push(Box::new(library));
     }
-    interleave(config, problem, candidates)
+    interleave(config, candidates)
 }
 
 /// The generated kernel (`rust`) or its MSL twin (`msl`) with buffers of its own.
 struct Kernel<'a, T: GpuValue> {
     case: Case,
     pipeline: Pipeline,
+    problem: &'a Problem,
     values: (&'a [T], &'a [T]),
     buffers: (Buffer<T>, Buffer<T>, Buffer<f32>),
 }
@@ -176,7 +146,7 @@ impl<'a, T: GpuValue> Kernel<'a, T> {
     fn new(
         device: &Device,
         config: &Config,
-        problem: &Problem,
+        problem: &'a Problem,
         (variant, input): (&str, &str),
         values: (&'a [T], &'a [T]),
     ) -> Result<Self> {
@@ -198,6 +168,7 @@ impl<'a, T: GpuValue> Kernel<'a, T> {
         Ok(Self {
             case,
             pipeline,
+            problem,
             values,
             buffers,
         })
@@ -205,8 +176,8 @@ impl<'a, T: GpuValue> Kernel<'a, T> {
 }
 
 impl<T: GpuValue> Candidate for Kernel<'_, T> {
-    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()> {
-        let [m, n, k] = problem.shape;
+    fn sample(&mut self, keep: bool) -> Result<()> {
+        let [m, n, k] = self.problem.shape;
         let (a, b, c) = &mut self.buffers;
         let start = Instant::now();
         a.write().wait().copy_from_slice(self.values.0);
@@ -252,7 +223,7 @@ impl<T: GpuValue> Candidate for Kernel<'_, T> {
         check(
             &format!("{} {}", case.name, case.variant),
             result,
-            &problem.expected,
+            &self.problem.expected,
             n,
         )?;
         sample.input_copy_ns = copy;

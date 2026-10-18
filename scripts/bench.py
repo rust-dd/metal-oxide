@@ -36,14 +36,15 @@ RUNNER_GEMM_CASES = 6
 MLX_VERSION = "0.32.4"
 MLX_VENV = ROOT / "target/benchmarks/mlx-venv"
 MLX_INPUTS = ("f32", "f16")
-INTERLEAVE_TIMING = ("per input type, the gemm candidates of one runner process (rust and msl, "
-                     "and mps in the classic process) take turns: every warmup and timed round "
-                     "runs one sample of each, the first candidate rotating every round, so drift "
-                     "within the process reaches them alike. classic and metal4 run in separate "
-                     "processes and MLX in its own process afterwards, so MLX and cross-backend "
-                     "ratios carry drift between runs: repeat runs and report the spread. rust "
-                     "and msl run kernels with the same hot loops, so a rust/msl ratio near 1 "
-                     "confirms the interleave; it cannot reveal drift between runs")
+INTERLEAVE_TIMING = ("within a runner process, the candidates of every case (rust and msl, and mps "
+                     "for the gemm in the classic process) take turns: every warmup and timed "
+                     "round runs one sample of each, the first candidate rotating every round, so "
+                     "drift within the process reaches them alike; cases run one after another. "
+                     "classic and metal4 run in separate processes and MLX in its own process "
+                     "afterwards, so MLX and cross-backend ratios carry drift between runs: "
+                     "repeat runs and report the spread. rust and msl run kernels with the same "
+                     "hot loops, so a rust/msl ratio near 1 confirms the interleave; it cannot "
+                     "reveal drift between runs")
 MLX_TIMING = ("host_ns is the host time to build, evaluate and synchronize `repeat` independent "
               "GPU matmuls. Unlike the runner's GEMMs, which chain through one C, they may overlap "
               "on the GPU; a dependent chain measured within 1-5 % of them. The samples run back "
