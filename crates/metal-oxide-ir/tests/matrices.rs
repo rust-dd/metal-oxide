@@ -1,24 +1,7 @@
+mod support;
+
 use metal_oxide_ir::*;
-
-fn source() -> SourceLocation {
-    SourceLocation {
-        file: "kernel.rs".into(),
-        line: 3,
-        column: 5,
-    }
-}
-
-fn assign(local: usize, value: Expression) -> Statement {
-    Statement {
-        destination: Place::local(local),
-        value,
-        source: source(),
-    }
-}
-
-fn uint(value: u32) -> Operand {
-    Operand::Constant(Constant::U32(value))
-}
+use support::{assign, source, uint};
 
 fn matrix(op: MatrixOp, arguments: Vec<Operand>) -> Expression {
     Expression::Matrix { op, arguments }
