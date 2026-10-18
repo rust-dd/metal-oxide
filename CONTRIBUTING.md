@@ -126,10 +126,11 @@ SIMD-group-matrix GEMM (`--gemm M N K`, 1024 cubed by default) with CPU results 
 matching handwritten MSL on both backends; the classic run also measures the GEMM with
 MetalPerformanceShaders as backend `mps`. A GEMM sample runs `--gemm-repeat R` GEMMs
 (8 by default) back to back in one command buffer, so the GPU is not idle between timed
-GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R`. The JSON report
-separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
-native GPU times. Every sample is checked; unavailable GPU timestamps are null, and so
-is the CPU time of GEMM, whose exact result is computed once per shape.
+GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
+`(submit_ns + wait_ns) / R`. The JSON report separates build/rebuild, pipeline, host
+copy/upload/encoding/wait/readback and native GPU times. Every sample is checked;
+unavailable GPU timestamps are null, and so is the CPU time of GEMM, whose exact result is
+computed once per shape.
 Submit time measures the first poll with prepared pipelines. Under saturation, later
 polls may submit the command. Host wait includes preparation, execution and scheduling,
 so it does not measure queue latency alone.
@@ -137,10 +138,10 @@ so it does not measure queue latency alone.
 `--backends classic` (or `metal4`) measures only the listed backends, for a Mac without
 Metal 4; MPS runs with classic only. `--mlx` also runs the GEMM with MLX in
 `target/benchmarks/mlx-venv`, which the driver creates and pins to `mlx==0.32.4`, and adds
-it under the report's `mlx` key. MLX runs the same R independent matmuls per sample, back to
-back, and checks them against the CPU's exact result before the warmup and after the last
-sample, since work between samples lets the GPU clock down. It exposes no GPU timestamps and
-returns an f16 C for f16 inputs, so compare its `host_per_gemm_ns` with the other backends'
-`(submit_ns + wait_ns) / R`, not with `gpu_ns`. The report's `machine` records the chip,
+it under the report's `mlx` key. MLX runs R independent matmuls per sample, back to back,
+and checks them against the CPU's exact result before the warmup and after the last sample,
+since checks between samples were observed to double its times. It exposes no GPU timestamps
+and returns an f16 C for f16 inputs, so compare its `host_per_gemm_ns` with the other
+backends' `host_per_gemm_ns`, not with GPU times. The report's `machine` records the chip,
 model, memory and GPU core count beside the OS and toolchain versions; a value the host
 cannot report is null.

@@ -203,7 +203,12 @@ class Merge(unittest.TestCase):
 
     def test_the_note_says_that_mlx_has_no_gpu_timestamps(self):
         self.assertIn("exposes no GPU timestamps", bench.MLX_TIMING)
-        self.assertIn("not their gpu_ns", bench.MLX_TIMING)
+        self.assertIn("with the other backends' host_per_gemm_ns", bench.MLX_TIMING)
+        self.assertIn("not their gpu_per_gemm_ns", bench.MLX_TIMING)
+
+    def test_the_note_says_that_mlx_matmuls_may_overlap(self):
+        self.assertIn("independent", bench.MLX_TIMING)
+        self.assertIn("may overlap", bench.MLX_TIMING)
 
     def test_a_result_for_another_shape_repeat_or_sample_count_is_refused(self):
         for changes in ({"shape": [256, 256, 128]}, {"repeat": 4},

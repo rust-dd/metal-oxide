@@ -134,6 +134,7 @@ fn submit(
             .commandBuffer()
             .ok_or("MPS command buffer creation failed")?;
         let encoding = Instant::now();
+        // Hazard tracking of the write to C serializes the repeats, as the batch orders ours.
         for _ in 0..repeat {
             // SAFETY: the matrices have the shapes the kernel was created for, and C is distinct.
             unsafe {

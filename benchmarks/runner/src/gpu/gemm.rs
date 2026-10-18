@@ -75,18 +75,24 @@ fn check(case: &str, actual: &[f32], expected: &[f32], columns: u32) -> Result<(
     }
 }
 
-/// Finishes `case` and adds the GPU time of one GEMM, a sample's GPU time over its `repeat`.
+/// Finishes `case` and adds the GPU and host times of one GEMM: a sample's GPU time and its
+/// submit plus wait time, each over its `repeat`.
 fn finish(case: Case) -> Result<Case> {
     let mut case = case.finish()?;
     let repeat = u64::from(case.repeat);
-    let each = case.samples.iter().filter_map(|sample| sample.gpu_ns);
-    let each = each
-        .map(|ns| (ns + repeat / 2) / repeat)
-        .collect::<Vec<_>>();
-    if !each.is_empty() {
+    let per_gemm = |ns: u64| (ns + repeat / 2) / repeat;
+    let gpu = case.samples.iter().filter_map(|sample| sample.gpu_ns);
+    let gpu = gpu.map(per_gemm).collect::<Vec<_>>();
+    if !gpu.is_empty() {
         case.summary_ns
-            .insert("gpu_per_gemm_ns".into(), Summary::new(&each)?);
+            .insert("gpu_per_gemm_ns".into(), Summary::new(&gpu)?);
     }
+    let host = case.samples.iter();
+    let host = host
+        .map(|sample| per_gemm(sample.submit_ns + sample.wait_ns))
+        .collect::<Vec<_>>();
+    case.summary_ns
+        .insert("host_per_gemm_ns".into(), Summary::new(&host)?);
     Ok(case)
 }
 

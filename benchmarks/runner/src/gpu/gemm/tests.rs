@@ -91,3 +91,22 @@ fn finish_reports_no_gemm_time_without_gpu_timestamps() {
     let case = finish(case).unwrap();
     assert!(!case.summary_ns.contains_key("gpu_per_gemm_ns"));
 }
+
+#[test]
+fn finish_adds_the_host_time_of_one_gemm_from_submit_and_wait() {
+    let mut case = Case::new("gemm-f16", "msl", vec![2, 2, 2]);
+    case.repeat = 4;
+    for (submit_ns, wait_ns) in [(100, 300), (250, 750), (2, 2000)] {
+        case.samples.push(Sample {
+            submit_ns,
+            wait_ns,
+            encode_ns: 50,
+            readback_ns: 900,
+            ..Sample::default()
+        });
+    }
+    let case = finish(case).unwrap();
+    let each = &case.summary_ns["host_per_gemm_ns"];
+    assert_eq!((each.min, each.median, each.max), (100, 250, 501));
+    assert!(!case.summary_ns.contains_key("gpu_per_gemm_ns"));
+}

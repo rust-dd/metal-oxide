@@ -73,7 +73,7 @@ def measure(token, a, b, exact, args):
     _, results = run_sample(a, b, args.repeat)
     check(name, results, exact)
     times = []
-    # Checking between samples lets the GPU clock down, which doubled the time of 1024^3 samples.
+    # Checks between samples were observed to double the time of 1024^3 samples.
     for iteration in range(args.warmup + args.samples):
         results = None  # frees the previous buffers before the clock starts
         elapsed, results = run_sample(a, b, args.repeat)

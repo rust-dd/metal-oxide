@@ -28,13 +28,15 @@ MLX_VERSION = "0.32.4"
 MLX_VENV = ROOT / "target/benchmarks/mlx-venv"
 MLX_INPUTS = ("f32", "f16")
 MLX_TIMING = ("host_ns is the host time to build, evaluate and synchronize `repeat` independent "
-              "GPU matmuls, run back to back because CPU work between samples lets the GPU clock "
-              "down; MLX exposes no GPU timestamps, so compare host_per_gemm_ns with the other "
-              "backends' (submit_ns + wait_ns) / repeat, not their gpu_ns. Before the warmup and "
-              "after the last sample, the first result is checked against the CPU stream's exact "
-              "f32 product, bitwise for gemm-f32 and within f16 rounding for gemm-f16, which "
-              "returns an f16 C since MLX has no f32-output GEMM for f16 inputs, and the other "
-              "results against the first, bitwise")
+              "GPU matmuls. Unlike the runner's GEMMs, which chain through one C, they may overlap "
+              "on the GPU; a dependent chain measured within 1-5 % of them. The samples run back "
+              "to back, since checks between samples were observed to double the time of 1024^3 "
+              "samples. MLX exposes no GPU timestamps, so compare host_per_gemm_ns with the other "
+              "backends' host_per_gemm_ns, not their gpu_per_gemm_ns. Before the warmup and after "
+              "the last sample, the first result is checked against the CPU stream's exact f32 "
+              "product, bitwise for gemm-f32 and within f16 rounding for gemm-f16, which returns "
+              "an f16 C since MLX has no f32-output GEMM for f16 inputs, and the other results "
+              "against the first, bitwise")
 
 
 def command(args, *, env=None, log=None):
@@ -328,14 +330,18 @@ def main():
                           "gemm-f16 takes F16 A and B, and every variant returns an f32 C",
                   "repeat": "each case reports repeat, the runs per sample: 1, except gemm, which "
                             "encodes, submits and waits for that many back-to-back GEMMs in one "
-                            "command buffer. Its encode, submit, wait and gpu times cover all of "
-                            "them; gpu_per_gemm_ns is gpu_ns / repeat rounded to 1 ns, summarized "
-                            "over the samples",
+                            "command buffer, ordered by their writes of one C. Its encode, submit, "
+                            "wait and gpu times cover all of them; per sample, gpu_per_gemm_ns is "
+                            "gpu_ns / repeat and host_per_gemm_ns is (submit_ns + wait_ns) / "
+                            "repeat, rounded to 1 ns and summarized over the samples. Compare "
+                            "host_per_gemm_ns with MLX's",
                   "mps": "MPSMatrixMultiplication cases form the backend mps, measured in the "
                          "classic run only, on their own queue and shared buffers with MPS's row "
                          "stride (padding is not checked); block is null, pipeline is the kernel "
                          "object's creation, upload is 0, and encode is MPS's own encoding where "
-                         "rust and msl record only, so compare submit",
+                         "rust and msl record only, so compare submit. Hazard tracking of the "
+                         "write to C serializes its repeats, and the first MPS case's pipeline "
+                         "time includes MPS's one-time library load",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     if mlx:
         report = merge_mlx(report, mlx)
