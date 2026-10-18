@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "artifact": "d9d86897cf86821a26bd0208b0e36bbff9ab2f95c1658ad3ada8f53195ff4e9e",
+  "artifact": "e73b52df5c40817fa19f7d182b906e80871182117e754a26f6e1996a3b0fc6a1",
   "request": {
     "source": "f5a68dad2dbcb385d0c0bc4ffe71f841c27369eca99e92eaec67644a6c2b8064",
     "math_mode": "precise",
@@ -29,6 +29,6 @@
     "../../../crates/metal-oxide-device/src/threadgroup.rs": "f742af83f858664218e62e2a5f80211dbd551ac77e645ef7cc78f14ad761e706",
     "../../../crates/metal-oxide-macros/Cargo.toml": "af3d00cc99b54929faaa03e57b2bae8878691aabb14b76d99abc352eaa352b92",
     "../kernels/Cargo.toml": "922dbe774571a12aa4815e0ccf2c31fab8f2fb7f0f2f8e557ea62d58be1ecff9",
-    "../kernels/src/lib.rs": "aba741562b4965639c3f362ac6a5934227a7b87f8b1fa596bb217c01e27a8b38"
+    "../kernels/src/lib.rs": "ff66bcd33e62d4ee9107bc118f194355598e3ccc6c19162703d28c8b141da437"
   }
 }

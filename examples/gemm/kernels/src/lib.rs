@@ -40,7 +40,7 @@ macro_rules! store_fragments {
 
 /// # Safety
 /// Distinct row-major A, B and C cover m*k, k*n and m*n elements; these sizes and m, n and k
-/// rounded up to 64 fit u32, and the grid of 64x64 C tiles is at most (ceil(n/64), ceil(m/64)).
+/// rounded up to 64 fit u32, and the grid is (ceil(n / 64), ceil(m / 64), 1) blocks.
 #[kernel(instances(gemm_f32(f32), gemm_f16(F16)), block = (128, 1, 1))]
 pub unsafe fn gemm<T: Input>(
     a: ReadBuffer<T>,
@@ -84,9 +84,9 @@ pub unsafe fn gemm<T: Input>(
             let (top, left) = (row0 + turn / 2 * 32, column0 + turn % 2 * 32);
             for step in 0..8 {
                 let slot = thread + 128 * step;
-                let (row, column) = (top + slot / 32, left + slot % 32);
-                if row < m && column < n {
-                    c.store_unchecked(row * n + column, tile_c.load_unchecked(slot));
+                let (c_row, c_column) = (top + slot / 32, left + slot % 32);
+                if c_row < m && c_column < n {
+                    c.store_unchecked(c_row * n + c_column, tile_c.load_unchecked(slot));
                 }
             }
             threadgroup::barrier();
@@ -109,16 +109,16 @@ unsafe fn stage<T: Input>(
     unsafe {
         for step in 0..8 {
             let slot = thread + 128 * step;
-            let (row, inner) = (row0 + slot / 16, base + slot % 16);
-            let x = if row < m && inner < k {
-                a.load_unchecked(row * k + inner)
+            let (a_row, a_inner) = (row0 + slot / 16, base + slot % 16);
+            let x = if a_row < m && a_inner < k {
+                a.load_unchecked(a_row * k + a_inner)
             } else {
                 T::ZERO
             };
             tile_a.store_unchecked(slot, x);
-            let (inner, column) = (base + slot / 64, column0 + slot % 64);
-            let y = if inner < k && column < n {
-                b.load_unchecked(inner * n + column)
+            let (b_inner, b_column) = (base + slot / 64, column0 + slot % 64);
+            let y = if b_inner < k && b_column < n {
+                b.load_unchecked(b_inner * n + b_column)
             } else {
                 T::ZERO
             };
@@ -128,7 +128,7 @@ unsafe fn stage<T: Input>(
 }
 
 /// Adds the staged K step to the fragments of the SIMD group at (`row`, `column`) of the block
-/// tile; the tiles must be staged, and no thread may write them meanwhile.
+/// tile, both at most 32; the tiles must be staged, and no thread may write them meanwhile.
 unsafe fn multiply<T: Input>(
     mut acc: Fragments,
     tile_a: Staged<T>,
@@ -137,7 +137,7 @@ unsafe fn multiply<T: Input>(
 ) -> Fragments {
     for slice in 0..2 {
         let inner = 8 * slice;
-        // SAFETY: the caller guarantees initialized tiles; every 8x8 load lies inside its tile.
+        // SAFETY: the tiles are staged, and row and column of at most 32 keep each load inside.
         let (a, b) = unsafe {
             (
                 [
