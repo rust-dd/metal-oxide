@@ -182,11 +182,67 @@ fn arrays_of_half_and_bfloat_matrices_lay_out_by_their_element_size() {
             .unwrap()
             .emit()
             .unwrap();
-        let layout =
-            "sizeof(metal_oxide_aggregate_0) == 256 && alignof(metal_oxide_aggregate_0) == 128";
+        let layout = "static_assert(sizeof(metal_oxide_aggregate_0) == 256 && \
+                      alignof(metal_oxide_aggregate_0) == 128";
         assert!(
             msl.contains(layout),
             "missing {layout:?} for {element:?} in\n{msl}"
         );
+    }
+}
+
+/// A kernel that stores a splat half matrix and a splat bfloat matrix.
+fn splats() -> Module {
+    let splat = |value| matrix(MatrixOp::Splat, vec![Operand::Constant(value)]);
+    let store = |buffer, value| {
+        let operands = vec![
+            Operand::local(buffer),
+            uint(0),
+            uint(0),
+            uint(8),
+            Operand::local(value),
+        ];
+        (0, matrix(MatrixOp::Store { transposed: false }, operands))
+    };
+    Module {
+        types: TypeTable::default(),
+        functions: vec![Function {
+            name: "splats".into(),
+            kernel: true,
+            required_block: Some([32, 1, 1]),
+            requires: Vec::new(),
+            parameters: 2,
+            locals: vec![
+                Type::Unit,
+                buffer(Scalar::F16, Access::Write),
+                buffer(Scalar::BF16, Access::Write),
+                Type::Matrix(Scalar::F16),
+                Type::Matrix(Scalar::BF16),
+            ],
+            blocks: vec![block(
+                vec![
+                    (3, splat(Constant::F16(0))),
+                    (4, splat(Constant::BF16(0))),
+                    store(1, 3),
+                    store(2, 4),
+                ],
+                Terminator::Return,
+            )],
+            source: source(),
+        }],
+    }
+}
+
+#[test]
+fn splats_of_half_and_bfloat_values_fill_matrices_of_their_element() {
+    let msl = metal_oxide_codegen::Codegen::new(&splats())
+        .unwrap()
+        .emit()
+        .unwrap();
+    for expected in [
+        "make_filled_simdgroup_matrix<half, 8, 8>(",
+        "make_filled_simdgroup_matrix<bfloat, 8, 8>(",
+    ] {
+        assert!(msl.contains(expected), "missing {expected:?} in\n{msl}");
     }
 }
