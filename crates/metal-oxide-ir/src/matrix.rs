@@ -7,9 +7,11 @@ pub enum MatrixOp {
     Splat,
     /// `[a, b, c]`: `a * b + c` in the element type of `c`.
     MultiplyAccumulate,
-    /// `[buffer, row, column, stride]`: the block at `(row, column)` of a row-major matrix.
+    /// `[buffer, row, column, stride]`: the block whose top-left element is `(row, column)`;
+    /// `stride` is the row length in elements.
     Load { transposed: bool },
-    /// `[buffer, row, column, stride, matrix]`.
+    /// `[buffer, row, column, stride, matrix]`: stores `matrix` to the block whose top-left
+    /// element is `(row, column)`; `stride` is the row length in elements.
     Store { transposed: bool },
 }
 
@@ -36,11 +38,15 @@ pub(crate) fn matrix_type(
     operands: &[Operand],
     source: &SourceLocation,
 ) -> Result<Type, Error> {
+    let invalid = || Error::new(source, "invalid SIMD-group matrix operation");
+    if operands.len() != op.arity() {
+        return Err(invalid());
+    }
     let types = operands
         .iter()
         .map(|operand| operand_type(module, function, operand, source))
         .collect::<Result<Vec<_>, _>>()?;
-    result(op, &types).ok_or_else(|| Error::new(source, "invalid SIMD-group matrix operation"))
+    result(op, &types).ok_or_else(invalid)
 }
 
 fn result(op: MatrixOp, types: &[Type]) -> Option<Type> {

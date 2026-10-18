@@ -189,7 +189,13 @@ pub(crate) fn validate(
         {
             for (index, statement) in block.statements.iter().enumerate() {
                 let needed = scope(&statement.value, &scopes);
-                if needed.is_none() && !statement.value.is_fallible(analyses) {
+                let fallible_callee = match statement.value {
+                    Expression::Call { function, .. } if analyses[function].fallible => {
+                        Some(function)
+                    }
+                    _ => None,
+                };
+                if needed.is_none() && fallible_callee.is_none() {
                     continue;
                 }
                 let arguments = match &statement.value {
@@ -200,11 +206,7 @@ pub(crate) fn validate(
                     _ => Vec::new(),
                 };
                 let mut required = Requirements::default();
-                if let Expression::Call {
-                    function: callee, ..
-                } = statement.value
-                    && analyses[callee].fallible
-                {
+                if let Some(callee) = fallible_callee {
                     let mut failure = control[id].clone();
                     failure.merge(&summaries[callee].failure.substitute(&arguments));
                     if let Some(after) = cooperation_after(function, analysis, &scopes, id, index) {
