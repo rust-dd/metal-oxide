@@ -288,7 +288,7 @@ class Report(unittest.TestCase):
 class Timing(unittest.TestCase):
     def test_the_interleave_note_names_the_order_and_the_drift_between_runs(self):
         for words in ("take turns", "rotating every round", "separate processes",
-                      "report the spread", "drift control"):
+                      "report the spread", "confirms the interleave"):
             self.assertIn(words, bench.INTERLEAVE_TIMING)
 
 

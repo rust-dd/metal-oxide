@@ -40,8 +40,8 @@ INTERLEAVE_TIMING = ("per input type, the gemm candidates of one runner process 
                      "within the process reaches them alike. classic and metal4 run in separate "
                      "processes and MLX in its own process afterwards, so MLX and cross-backend "
                      "ratios carry drift between runs: repeat runs and report the spread. rust "
-                     "and msl run kernels with the same hot loops, so their ratio is the run's "
-                     "drift control")
+                     "and msl run kernels with the same hot loops, so a rust/msl ratio near 1 "
+                     "confirms the interleave; it cannot reveal drift between runs")
 MLX_TIMING = ("host_ns is the host time to build, evaluate and synchronize `repeat` independent "
               "GPU matmuls. Unlike the runner's GEMMs, which chain through one C, they may overlap "
               "on the GPU; a dependent chain measured within 1-5 % of them. The samples run back "
