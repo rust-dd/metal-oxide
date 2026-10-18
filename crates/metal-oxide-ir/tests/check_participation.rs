@@ -27,8 +27,8 @@ fn f() -> Function {
     )
 }
 
-/// `name(q) { f(q) }` over `f` as function 0, returning from a block after the call's.
-fn forward(name: &str) -> Function {
+/// `name(q) { f(q) }` over `f` as function 0; the call's block jumps to a block that returns.
+fn forward_then_goto(name: &str) -> Function {
     function(
         name,
         false,
@@ -48,7 +48,7 @@ fn nested_check(builtin: SimdBuiltin, after: Vec<Statement>) -> Module {
     ];
     module(vec![
         f(),
-        forward("a"),
+        forward_then_goto("a"),
         kernel(vec![block(statements.concat(), Terminator::Return)]),
     ])
 }
@@ -109,7 +109,7 @@ fn shared_helper(later: Vec<Statement>) -> Module {
         vec![Type::Unit, U32, U32],
         vec![block(statements.concat(), Terminator::Return)],
     );
-    module(vec![f(), forward("m"), uniform, lane])
+    module(vec![f(), forward_then_goto("m"), uniform, lane])
 }
 
 #[test]
@@ -241,8 +241,8 @@ fn a_group_uniform_check_in_a_helper_before_a_caller_barrier_is_rejected() {
 const PARAMETER: usize = 1;
 const LANE: usize = 2;
 
-/// `kernel(n) { lane = SimdCoordinate(Lane); f(arguments); after }` over `f` as function 0.
-fn calling(f: Function, arguments: &[usize], after: Vec<Statement>) -> Module {
+/// `kernel(n) { lane = SimdCoordinate(Lane); callee(arguments); after }` over function 0.
+fn calling(callee: Function, arguments: &[usize], after: Vec<Statement>) -> Module {
     let arguments = arguments
         .iter()
         .map(|&local| Operand::local(local))
@@ -266,7 +266,7 @@ fn calling(f: Function, arguments: &[usize], after: Vec<Statement>) -> Module {
         vec![Type::Unit, U32, U32],
         vec![block(statements.concat(), Terminator::Return)],
     );
-    module(vec![f, kernel])
+    module(vec![callee, kernel])
 }
 
 /// `panics(p) { if p < 16 { panic } }`, or `panics() { if lane < 16 { panic } }` when it reads
@@ -332,8 +332,8 @@ fn a_cooperative_callee_that_then_checks_precedes_later_cooperation() {
     validate(&after(LANE, vec![])).unwrap();
 }
 
-/// `name(q) { callee(q) }` in a single block that returns.
-fn forwarding(name: &str, callee: usize) -> Function {
+/// `name(q) { callee(q) }` in a single block that ends with the return.
+fn forward_then_return(name: &str, callee: usize) -> Function {
     function(
         name,
         false,
@@ -352,8 +352,8 @@ fn a_check_behind_three_calls_that_end_their_blocks_precedes_later_cooperation()
         ];
         module(vec![
             f(),
-            forwarding("g", 0),
-            forwarding("h", 1),
+            forward_then_return("g", 0),
+            forward_then_return("h", 1),
             kernel(vec![block(statements.concat(), Terminator::Return)]),
         ])
     };
