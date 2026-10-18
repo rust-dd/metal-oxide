@@ -298,7 +298,8 @@ tracked at three levels: block-uniform, uniform within a SIMD group (`group_id()
 computed from it), and lane-varying. Barriers and SIMD collectives need block-uniform control;
 matrix operations need control and operands uniform within the SIMD group, and a check before
 them may fail a whole SIMD group. A kernel that reaches a matrix operation fixes a block of
-whole 32-lane groups, and the runtime rejects pipelines with other SIMD widths.
+whole 32-lane groups, and the runtime rejects pipelines of artifacts that use SIMD-group matrices
+when their SIMD width is not 32.
 
 The compiler writes a diagnostic text dump of this structure to
 `kernels.oxide-ir`.

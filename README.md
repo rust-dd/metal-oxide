@@ -124,7 +124,8 @@ or `Err`, or a literal `assert!`/`panic!` stops the thread and returns `Error::K
 with the kernel, dispatch, Rust location and message; the dispatches that wait for it in its
 command buffer do not run. An operation committed while it ran that reads its writes skips
 its generated kernels and returns `Error::DependencyFailed` with the same failure. A check
-before a barrier or SIMD collective must be proved or uniform. `metal_oxide::device::log!`
+before a barrier or SIMD collective must be proved or uniform, and a check before a SIMD-group
+matrix operation must be proved or uniform within its SIMD group. `metal_oxide::device::log!`
 prints from kernels to stderr through Metal shader logging.
 
 Generic kernels list their concrete type and const arguments explicitly:
@@ -162,14 +163,17 @@ compiler toolchain.
 
 `device::simdgroup::Matrix<T>` holds an 8x8 `f32`, `F16` or `BF16` matrix in the 32 lanes of a
 SIMD group. `Matrix::splat` and `Matrix::multiply_accumulate` are safe; the product may use
-narrower input types than the accumulator, such as `F16` into `f32`. Unsafe `load_matrix`,
-`store_matrix` and their `_transposed` forms move row-major blocks of device and threadgroup
-buffers. Every lane of a SIMD group reaches a matrix operation with the same operands: control
-and operands may depend on block-uniform values and `simdgroup::group_id()`, and the kernel
-declares a fixed block whose thread count is a multiple of 32. Matrices and arrays of them go to
-helpers and come back by value; values read through references or `&mut` borrows count as
-lane-varying and are rejected as matrix operands. Matrix kernels need an Apple7 GPU (M1 or
-later); hosted Paravirtual devices reject them.
+narrower input types than the accumulator, such as `F16` into `f32`. Unsafe `load_matrix` and
+`load_matrix_transposed` are methods of `ReadBuffer`, `ReadWriteBuffer`, `ThreadgroupBuffer` and
+`DynamicThreadgroupBuffer`; `store_matrix` and `store_matrix_transposed` belong to `WriteBuffer`,
+`ReadWriteBuffer` and both threadgroup buffers. All four move row-major blocks. Every lane of a
+SIMD group reaches a matrix operation with the same operands: control and operands may depend on
+block-uniform values and `simdgroup::group_id()`, and the kernel declares
+`#[kernel(block = (X, Y, Z))]` with literal sizes whose product is a multiple of 32. Matrices and
+arrays of them go to helpers and come back by value; values read through references or `&mut`
+borrows count as lane-varying and are rejected as matrix operands. Matrix kernels need an Apple7
+GPU (M1 or later); the Paravirtual device of hosted M1 VMs reports no Apple7 family, so it
+rejects them.
 
 The `no_std` integration tests compile and execute `libm` f32 math and `num-traits`
 generic float/integer workloads. Dependencies remain subject to the supported device
