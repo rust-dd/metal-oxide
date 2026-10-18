@@ -133,3 +133,14 @@ is the CPU time of GEMM, whose exact result is computed once per shape.
 Submit time measures the first poll with prepared pipelines. Under saturation, later
 polls may submit the command. Host wait includes preparation, execution and scheduling,
 so it does not measure queue latency alone.
+
+`--backends classic` (or `metal4`) measures only the listed backends, for a Mac without
+Metal 4; MPS runs with classic only. `--mlx` also runs the GEMM with MLX in
+`target/benchmarks/mlx-venv`, which the driver creates and pins to `mlx==0.32.4`, and adds
+it under the report's `mlx` key. MLX runs the same R independent matmuls per sample, back to
+back, and checks them against the CPU's exact result before the warmup and after the last
+sample, since work between samples lets the GPU clock down. It exposes no GPU timestamps and
+returns an f16 C for f16 inputs, so compare its `host_per_gemm_ns` with the other backends'
+`(submit_ns + wait_ns) / R`, not with `gpu_ns`. The report's `machine` records the chip,
+model, memory and GPU core count beside the OS and toolchain versions; a value the host
+cannot report is null.
