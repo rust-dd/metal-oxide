@@ -2,7 +2,7 @@
 
 mod support;
 
-use metal_oxide_artifact::{Abi, ArtifactFile, COMPILER_OUTPUTS, Manifest, sha256};
+use metal_oxide_artifact::{ArtifactFile, Manifest, sha256};
 use std::{
     os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
@@ -130,7 +130,7 @@ fn interrupted_metal_builds_recover_and_failed_ones_keep_their_inputs() {
     for file in [
         "kernels.metal",
         "kernels.oxide-ir",
-        "abi.json",
+        "rustc-args.json",
         "metal-commands.json",
     ] {
         assert!(stage.join(file).is_file(), "{file}");
@@ -148,27 +148,38 @@ fn edit(project: &Project, edit: usize) {
     project.write(&format!("{KERNEL}\n// edit {edit}\n"));
 }
 
+/// The files of a cached artifact; its manifest holds the ABI and the checks.
+const CACHED: [ArtifactFile; 6] = [
+    ArtifactFile::Msl,
+    ArtifactFile::OxideIr,
+    ArtifactFile::RustcArgs,
+    ArtifactFile::Air,
+    ArtifactFile::Metallib,
+    ArtifactFile::Manifest,
+];
+
 fn validate(directory: &Path) {
     let manifest = std::fs::read_to_string(directory.join("manifest.json")).unwrap();
     let manifest = Manifest::from_json(&manifest).unwrap();
-    let abi = std::fs::read_to_string(directory.join("abi.json")).unwrap();
-    assert_eq!(manifest.abi, Abi::from_json(&abi).unwrap());
     for (file, hash) in manifest.files.entries() {
         assert_eq!(
             sha256(&std::fs::read(directory.join(file.name())).unwrap()),
             hash
         );
     }
+    for copy in [ArtifactFile::Abi, ArtifactFile::Checks] {
+        assert!(!directory.join(copy.name()).exists(), "{}", copy.name());
+    }
 }
 
 #[test]
 #[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
-fn damaged_artifacts_are_rebuilt_and_abandoned_stages_removed() {
+fn damaged_artifacts_are_rebuilt_identically_and_abandoned_stages_removed() {
     let project = Project::new(KERNEL);
     checked(project.cargo(&["build", "--quiet"]).output().unwrap());
     let directory = project.artifact("recover");
-    let outputs =
-        COMPILER_OUTPUTS.map(|file| (file, std::fs::read(directory.join(file.name())).unwrap()));
+    validate(&directory);
+    let cached = CACHED.map(|file| (file, std::fs::read(directory.join(file.name())).unwrap()));
     let root = directory.parent().unwrap();
     let abandoned = root.join(".build-999999-0");
     std::fs::create_dir(&abandoned).unwrap();
@@ -176,15 +187,7 @@ fn damaged_artifacts_are_rebuilt_and_abandoned_stages_removed() {
     let unrelated = root.join(format!(".build-not-owned-{}", std::process::id()));
     std::fs::create_dir(&unrelated).unwrap();
     let mut edits = 0;
-    for file in [
-        ArtifactFile::Msl,
-        ArtifactFile::OxideIr,
-        ArtifactFile::Air,
-        ArtifactFile::Metallib,
-        ArtifactFile::RustcArgs,
-        ArtifactFile::Abi,
-        ArtifactFile::Manifest,
-    ] {
+    for file in CACHED {
         for missing in [false, true] {
             let path = directory.join(file.name());
             if missing {
@@ -196,12 +199,10 @@ fn damaged_artifacts_are_rebuilt_and_abandoned_stages_removed() {
             edit(&project, edits);
             checked(project.cargo(&["build", "--quiet"]).output().unwrap());
             assert_eq!(project.artifact("recover"), directory);
-            validate(&directory);
-            for (file, expected) in &outputs {
-                assert_eq!(
-                    &std::fs::read(directory.join(file.name())).unwrap(),
-                    expected
-                );
+            // A rebuild in a new stage reproduces every file, the AIR and the manifest too.
+            for (file, expected) in &cached {
+                let rebuilt = std::fs::read(directory.join(file.name())).unwrap();
+                assert!(rebuilt == *expected, "{} differs", file.name());
             }
         }
     }

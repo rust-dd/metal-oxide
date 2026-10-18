@@ -61,6 +61,17 @@ fn saved_artifacts_build_unchanged_kernels_without_the_toolchain() {
         library,
         std::fs::read(project.artifact("scale").join("kernels.metallib")).unwrap()
     );
+    // Neither the build's arguments nor the toolchain leave a path of this machine behind.
+    let local = [
+        support::root().display().to_string(),
+        std::env::var("HOME").unwrap(),
+    ];
+    for file in ["manifest.json", "inputs.json"] {
+        let text = std::fs::read_to_string(saved.join(file)).unwrap();
+        for path in &local {
+            assert!(!text.contains(path.as_str()), "{file} names {path}");
+        }
+    }
 
     let target = project.0.join("elsewhere");
     let build = || {

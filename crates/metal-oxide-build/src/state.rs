@@ -3,7 +3,6 @@ use crate::{
     process::Result,
     recorded::{Recorded, Request, dependencies},
 };
-use metal_oxide_artifact::{Abi, ArtifactFile};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -102,13 +101,10 @@ impl State {
 
     /// The recorded artifact, while its files are intact.
     pub(crate) fn artifact(&self, base: &Path) -> Option<BuiltKernels> {
-        if !cache::valid(&self.artifact, self.artifact.file_name()?.to_str()?) {
-            return None;
-        }
-        let abi = std::fs::read_to_string(self.artifact.join(ArtifactFile::Abi.name())).ok()?;
+        let manifest = cache::manifest(&self.artifact, self.artifact.file_name()?.to_str()?)?;
         Some(BuiltKernels {
             directory: self.artifact.clone(),
-            abi: Abi::from_json(&abi).ok()?,
+            abi: manifest.abi,
             tracked: std::iter::once(self.compiler.clone())
                 .chain(self.inputs.paths(base))
                 .collect(),

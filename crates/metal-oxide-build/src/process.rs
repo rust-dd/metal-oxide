@@ -47,7 +47,8 @@ pub(crate) fn run(command: &mut Command) -> Result<()> {
     Ok(())
 }
 
-/// Drops the settings Cargo passes to build scripts so nested builds use their own toolchain.
+/// Drops the host build's toolchain, wrapper, flag and target settings so nested builds use
+/// their own.
 pub(crate) fn isolate(command: &mut Command) -> &mut Command {
     for name in [
         "RUSTC",

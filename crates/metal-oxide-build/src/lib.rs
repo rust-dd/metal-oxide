@@ -40,6 +40,8 @@ pub fn disassemble(air: &std::path::Path) -> Result<String, Error> {
 
 /// Compiles the MSL of a compiler output directory into its metallib with the Metal flags
 /// its ABI requires, as kernel builds do, and returns those flags.
+// Hidden: only the compiler's tests call it, to build their outputs as kernel builds do.
+#[doc(hidden)]
 pub fn compile_msl(directory: &std::path::Path) -> Result<Vec<String>, Error> {
     let compile = || -> process::Result<Vec<String>> {
         let abi = metal_oxide_artifact::Abi::from_json(&std::fs::read_to_string(

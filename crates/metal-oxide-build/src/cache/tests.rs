@@ -1,5 +1,5 @@
 use super::*;
-use metal_oxide_artifact::{ABI_VERSION, BuildInfo, DEVICE_TARGET, Files, Kernel};
+use metal_oxide_artifact::{ABI_VERSION, Abi, BuildInfo, Files, Kernel};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -45,14 +45,18 @@ fn cached_artifact_rejects_tampering_missing_files_and_wrong_identity() {
             requires: Vec::new(),
         }],
     };
-    let manifest = Manifest {
-        abi: abi.clone(),
+    let metal_flags = abi
+        .target_flags()
+        .into_iter()
+        .chain(abi.math_mode.metal_flags().map(str::to_owned))
+        .collect();
+    let written = Manifest {
+        abi,
         checks: vec![],
-        target: DEVICE_TARGET.into(),
-        msl_version: abi.msl_version(),
         files: Files {
             msl: hash.clone(),
             oxide_ir: hash.clone(),
+            rustc_args: hash.clone(),
             ir: hash.clone(),
             metallib: hash,
         },
@@ -62,51 +66,40 @@ fn cached_artifact_rejects_tampering_missing_files_and_wrong_identity() {
             rustc: "nightly".into(),
             metal: "metal".into(),
             sdk: "macosx".into(),
-            rustc_args: vec![],
-            metal_flags: abi
-                .target_flags()
-                .into_iter()
-                .chain(abi.math_mode.metal_flags().map(str::to_owned))
-                .collect(),
+            metal_flags,
         },
     };
     std::fs::write(
         directory.0.join("manifest.json"),
-        manifest.to_json().unwrap(),
+        written.to_json().unwrap(),
     )
     .unwrap();
-    std::fs::write(directory.0.join("abi.json"), abi.to_json().unwrap()).unwrap();
-    std::fs::write(directory.0.join("rustc-args.json"), b"[]").unwrap();
     let files = [
         "kernels.metal",
         "kernels.oxide-ir",
+        "rustc-args.json",
         "kernels.ir",
         "kernels.metallib",
     ];
     for name in files {
         std::fs::write(directory.0.join(name), b"file").unwrap();
     }
-    assert!(valid(&directory.0, &fingerprint));
-    assert!(!valid(&directory.0, &sha256(b"other build")));
+    assert_eq!(manifest(&directory.0, &fingerprint), Some(written));
+    assert!(manifest(&directory.0, &sha256(b"other build")).is_none());
     for name in files {
         let path = directory.0.join(name);
         std::fs::write(&path, b"changed").unwrap();
         assert!(
-            !valid(&directory.0, &fingerprint),
+            manifest(&directory.0, &fingerprint).is_none(),
             "accepted changed {name}"
         );
         std::fs::remove_file(&path).unwrap();
         assert!(
-            !valid(&directory.0, &fingerprint),
+            manifest(&directory.0, &fingerprint).is_none(),
             "accepted missing {name}"
         );
         std::fs::write(&path, b"file").unwrap();
     }
-    let mut abi = abi;
-    std::fs::write(directory.0.join("rustc-args.json"), b"[\"--cfg=changed\"]").unwrap();
-    assert!(!valid(&directory.0, &fingerprint));
-    std::fs::write(directory.0.join("rustc-args.json"), b"[]").unwrap();
-    abi.kernels[0].name = "different".into();
-    std::fs::write(directory.0.join("abi.json"), abi.to_json().unwrap()).unwrap();
-    assert!(!valid(&directory.0, &fingerprint));
+    std::fs::write(directory.0.join("manifest.json"), b"{}").unwrap();
+    assert!(manifest(&directory.0, &fingerprint).is_none());
 }

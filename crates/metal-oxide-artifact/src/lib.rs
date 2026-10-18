@@ -27,7 +27,6 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 pub const ABI_VERSION: u32 = 4;
-pub const DEVICE_TARGET: &str = "metal64-unknown-none";
 /// The Metal compiler flag that keeps `os_log` calls of artifacts that require logging.
 pub const LOGGING_FLAG: &str = "-fmetal-enable-logging";
 

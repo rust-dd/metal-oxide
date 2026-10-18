@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use metal_oxide::{Device, Error, Module};
-use metal_oxide_artifact::{Abi, ArtifactFile, BuildInfo, DEVICE_TARGET, Files, Manifest, sha256};
+use metal_oxide_artifact::{Abi, ArtifactFile, BuildInfo, Files, Manifest, sha256};
 use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 /// Loads generated kernels as an artifact: offline MSL compilation and a manifest of the outputs.
@@ -57,20 +57,17 @@ pub fn manifest(directory: &Path) -> metal_oxide::Result<(Manifest, Vec<u8>)> {
     let metal_flags = metal_oxide_build::compile_msl(directory)
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let read = |file: ArtifactFile| std::fs::read(directory.join(file.name())).unwrap();
-    let abi = Abi::from_json(&String::from_utf8(read(ArtifactFile::Abi)).unwrap())?;
+    let metal = metal_oxide_build::metal_compiler().unwrap();
     let manifest = Manifest {
-        msl_version: abi.msl_version(),
-        abi,
+        abi: Abi::from_json(&String::from_utf8(read(ArtifactFile::Abi)).unwrap())?,
         checks: serde_json::from_slice(&read(ArtifactFile::Checks)).unwrap(),
-        target: DEVICE_TARGET.into(),
         files: Files::from_directory(directory)?,
         build: BuildInfo {
             fingerprint: sha256(&read(ArtifactFile::Msl)),
             compiler: "metal-oxide-compiler tests".into(),
             rustc: "nightly".into(),
-            metal: metal_oxide_build::metal_compiler().unwrap(),
+            metal: metal.lines().next().unwrap().into(),
             sdk: "macosx".into(),
-            rustc_args: Vec::new(),
             metal_flags,
         },
     };
@@ -94,5 +91,6 @@ pub fn ir_module(device: &Device, ir: &metal_oxide_ir::Module) -> metal_oxide::R
         ArtifactFile::Checks,
         serde_json::to_vec(codegen.checks()).unwrap(),
     )?;
+    write(ArtifactFile::RustcArgs, b"[]".to_vec())?;
     module(device, &directory)
 }

@@ -44,15 +44,17 @@ impl Files {
         Ok(Self {
             msl: hash(ArtifactFile::Msl)?,
             oxide_ir: hash(ArtifactFile::OxideIr)?,
+            rustc_args: hash(ArtifactFile::RustcArgs)?,
             ir: hash(ArtifactFile::Air)?,
             metallib: hash(ArtifactFile::Metallib)?,
         })
     }
 
-    pub fn entries(&self) -> [(ArtifactFile, &str); 4] {
+    pub fn entries(&self) -> [(ArtifactFile, &str); 5] {
         [
             (ArtifactFile::Msl, &self.msl),
             (ArtifactFile::OxideIr, &self.oxide_ir),
+            (ArtifactFile::RustcArgs, &self.rustc_args),
             (ArtifactFile::Air, &self.ir),
             (ArtifactFile::Metallib, &self.metallib),
         ]

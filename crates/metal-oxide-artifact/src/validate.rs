@@ -1,8 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    ABI_VERSION, Abi, Access, DEVICE_TARGET, Error, LOGGING_FLAG, Manifest, Operand, ParameterType,
-    Scalar,
+    ABI_VERSION, Abi, Access, Error, LOGGING_FLAG, Manifest, Operand, ParameterType, Scalar,
 };
 
 pub(crate) fn identifier(name: &str) -> bool {
@@ -217,9 +216,6 @@ impl Manifest {
             .any(|check| check.location.file.is_empty() || check.location.line == 0)
         {
             return Err(Error("runtime checks require source locations".into()));
-        }
-        if self.target != DEVICE_TARGET || self.msl_version != self.abi.msl_version() {
-            return Err(Error("unsupported artifact target or MSL version".into()));
         }
         if self
             .files

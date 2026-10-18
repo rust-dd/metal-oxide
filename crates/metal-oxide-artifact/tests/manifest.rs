@@ -34,11 +34,10 @@ fn manifest() -> Manifest {
                 column: 13,
             },
         }],
-        target: DEVICE_TARGET.into(),
-        msl_version: "3.2".into(),
         files: Files {
             msl: sha256(b"msl"),
             oxide_ir: sha256(b"oxide ir"),
+            rustc_args: sha256(b"rustc args"),
             ir: sha256(b"ir"),
             metallib: sha256(b"library"),
         },
@@ -48,7 +47,6 @@ fn manifest() -> Manifest {
             rustc: "nightly".into(),
             metal: "metal".into(),
             sdk: "macosx".into(),
-            rustc_args: vec![],
             metal_flags: ["-std=metal3.2", "-mmacosx-version-min=15.0"]
                 .into_iter()
                 .chain(MathMode::Precise.metal_flags())
@@ -196,6 +194,7 @@ fn manifest_mutations_fail_without_panicking() {
         ("/checks/0/location/line", serde_json::json!(0)),
         ("/checks/0/kind", serde_json::json!("unknown")),
         ("/files/metallib", serde_json::json!("invalid")),
+        ("/files/rustc_args", serde_json::json!("")),
         ("/build/fingerprint", serde_json::json!("")),
     ] {
         let mut value = valid.clone();
@@ -226,7 +225,7 @@ fn rejects_incompatible_metadata() {
     value.abi.required_features.push("atomic_u64".into());
     assert!(value.validate().is_err());
     let mut value = manifest();
-    value.msl_version = "4.0".into();
+    value.build.metal_flags[0] = "-std=metal4.0".into();
     assert!(value.validate().is_err());
     let mut value = manifest();
     value.build.fingerprint = "unversioned".into();
@@ -334,8 +333,6 @@ fn ordered_atomic_artifacts_require_matching_language_and_deployment_flags() {
         .abi
         .required_features
         .push("atomic_acquire_release".into());
-    assert!(value.validate().is_err());
-    value.msl_version = value.abi.msl_version();
     assert!(value.validate().is_err());
     value.build.metal_flags = value
         .abi

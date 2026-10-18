@@ -111,9 +111,9 @@ pub struct BuildInfo {
     pub fingerprint: String,
     pub compiler: String,
     pub rustc: String,
+    /// The first line of `metal --version`, which names the compiler without its install path.
     pub metal: String,
     pub sdk: String,
-    pub rustc_args: Vec<String>,
     pub metal_flags: Vec<String>,
 }
 
@@ -122,6 +122,7 @@ pub struct BuildInfo {
 pub struct Files {
     pub msl: String,
     pub oxide_ir: String,
+    pub rustc_args: String,
     pub ir: String,
     pub metallib: String,
 }
@@ -131,8 +132,6 @@ pub struct Files {
 pub struct Manifest {
     pub abi: Abi,
     pub checks: Vec<crate::Check>,
-    pub target: String,
-    pub msl_version: String,
     pub files: Files,
     pub build: BuildInfo,
 }

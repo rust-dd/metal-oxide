@@ -131,29 +131,35 @@ impl Metal {
         command
     }
 
+    /// Compiles the directory's MSL into its AIR and metallib; `metal-commands.json` there
+    /// records the commands and the full toolchain version.
     pub(crate) fn compile(&self, directory: &Path, flags: &[String]) -> Result<()> {
+        let msl = directory.join(ArtifactFile::Msl.name());
+        let air = directory.join(ArtifactFile::Air.name());
         let mut compile = self.command();
+        // MSL read from stdin leaves no source path in the AIR, so equal MSL gives equal AIR.
         compile
             .args(flags)
-            .arg("-c")
-            .arg(directory.join(ArtifactFile::Msl.name()))
-            .arg("-o")
-            .arg(directory.join(ArtifactFile::Air.name()));
+            .args(["-x", "metal", "-c", "-", "-o"])
+            .arg(&air)
+            .stdin(std::fs::File::open(&msl)?);
         let mut link = self.command();
         link.args(flags.iter().filter(|flag| *flag == RECORD_SOURCES))
-            .arg(directory.join(ArtifactFile::Air.name()))
+            .arg(&air)
             .arg("-o")
             .arg(directory.join(ArtifactFile::Metallib.name()));
-        let commands = [&compile, &link].map(|command| {
+        let commands = [(&compile, Some(&msl)), (&link, None)].map(|(command, stdin)| {
             serde_json::json!({
                 "program": command.get_program().to_string_lossy(),
                 "arguments": command.get_args().map(|a| a.to_string_lossy()).collect::<Vec<_>>(),
+                "stdin": stdin,
                 "SDKROOT": self.sdk_path,
             })
         });
+        let record = serde_json::json!({ "version": self.version, "commands": commands });
         std::fs::write(
             directory.join("metal-commands.json"),
-            serde_json::to_vec_pretty(&commands)?,
+            serde_json::to_vec_pretty(&record)?,
         )?;
         // Warnings stay in the log; the kernels' authors cannot act on generated MSL.
         let mut log = std::fs::File::create(directory.join("metal.log"))?;

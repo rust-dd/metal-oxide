@@ -514,8 +514,9 @@ a kernel build
   saved artifact an error, also on hosts without Metal, which otherwise skip kernels.
 
 A build with the toolchain rewrites a saved artifact whose inputs changed. Commit and
-publish the `metal/` directory. A removed kernel leaves its directory behind; deleting
-`metal/` and building again keeps only the current ones.
+publish the `metal/` directory; its files name no path of the machine that built them. A
+removed kernel leaves its directory behind; deleting `metal/` and building again keeps
+only the current ones.
 
 ## Apple compilation and artifact
 
@@ -527,12 +528,13 @@ xcrun -sdk macosx metal \
     -std=metal3.2 -mmacosx-version-min=15.0 \
     -fmetal-math-mode=safe -fmetal-math-fp32-functions=precise \
     -ffp-contract=off -O2 \
-    -c kernels.metal -o kernels.ir
+    -x metal -c - -o kernels.ir < kernels.metal
 xcrun -sdk macosx metal kernels.ir -o kernels.metallib
 ```
 
-When `xcrun` cannot locate the compiler, it also resolves the installed
-Metal Toolchain component. The default precise math mode uses safe math,
+Read from standard input, the MSL leaves no source path in the AIR, so the same MSL
+compiles to the same AIR. When `xcrun` cannot locate the compiler, it also resolves the
+installed Metal Toolchain component. The default precise math mode uses safe math,
 precise floating-point functions, and disabled floating-point contraction.
 
 `#[kernels(math = "fast")]` selects Metal's relaxed
@@ -566,10 +568,10 @@ The artifact is stored under `target/metal/<build-hash>/`:
 | `kernels.oxide-ir` | MIR importer/output stage | Diagnostic dump of our IR |
 | `rustc-args.json` | Compiler driver | Effective kernel compiler arguments, included in the build identity |
 | `kernels.metal` | MSL codegen | Input to the Apple compiler; inspectable shader source |
-| `abi.json` | ABI codegen | Standalone kernel contract |
 | `kernels.ir` | Apple compiler | Apple's intermediate code used to build the library |
 | `kernels.metallib` | Apple compiler | Loaded by the runtime |
-| `manifest.json` | `metal-oxide-build` | ABI, requirements, file hashes, and build identity |
+| `manifest.json` | `metal-oxide-build` | ABI, runtime checks, file hashes, and build identity |
+| `metal-commands.json` | `metal-oxide-build` | The Apple compiler's commands and full version text |
 
 `kernels.oxide-ir` and `kernels.ir` are different representations produced
 by different compilers. The host embeds `manifest.json` and

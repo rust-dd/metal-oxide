@@ -1,5 +1,5 @@
 use crate::process::Result;
-use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, sha256};
+use metal_oxide_artifact::{ArtifactFile, Manifest, sha256};
 use std::{path::Path, time::SystemTime};
 
 /// Dates the files that hosts embed back to 1970: Cargo takes a file written during a build
@@ -36,34 +36,21 @@ pub(crate) fn discard_abandoned(root: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn valid(directory: &Path, fingerprint: &str) -> bool {
-    let validate = || -> Result<()> {
-        let manifest = Manifest::from_json(&std::fs::read_to_string(
-            directory.join(ArtifactFile::Manifest.name()),
-        )?)?;
-        if manifest.build.fingerprint != fingerprint {
-            return Err("artifact fingerprint mismatch".into());
-        }
-        let abi = Abi::from_json(&std::fs::read_to_string(
-            directory.join(ArtifactFile::Abi.name()),
-        )?)?;
-        if abi != manifest.abi {
-            return Err("cached ABI differs from manifest".into());
-        }
-        let arguments: Vec<String> = serde_json::from_slice(&std::fs::read(
-            directory.join(ArtifactFile::RustcArgs.name()),
-        )?)?;
-        if arguments != manifest.build.rustc_args {
-            return Err("cached compiler arguments differ from manifest".into());
-        }
-        for (file, expected) in manifest.files.entries() {
-            if sha256(&std::fs::read(directory.join(file.name()))?) != expected {
-                return Err(format!("artifact hash mismatch: {}", file.name()).into());
-            }
-        }
-        Ok(())
-    };
-    validate().is_ok()
+/// The manifest of the artifact cached in `directory`, while it records `fingerprint` and every
+/// file it hashes is intact.
+pub(crate) fn manifest(directory: &Path, fingerprint: &str) -> Option<Manifest> {
+    let text = std::fs::read_to_string(directory.join(ArtifactFile::Manifest.name())).ok()?;
+    let manifest = Manifest::from_json(&text).ok()?;
+    let intact = manifest.build.fingerprint == fingerprint
+        && manifest
+            .files
+            .entries()
+            .into_iter()
+            .all(|(file, expected)| {
+                std::fs::read(directory.join(file.name()))
+                    .is_ok_and(|bytes| sha256(&bytes) == expected)
+            });
+    intact.then_some(manifest)
 }
 
 #[cfg(test)]

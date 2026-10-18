@@ -8,10 +8,11 @@ use crate::{
     toolchain::{Metal, debug_flags, metal_flags},
 };
 use metal_oxide_artifact::{
-    Abi, ArtifactFile, BuildInfo, COMPILER_NIGHTLY, COMPILER_OUTPUTS, DEVICE_TARGET, Files,
-    Manifest, MathMode, sha256,
+    Abi, ArtifactFile, BuildInfo, COMPILER_NIGHTLY, COMPILER_OUTPUTS, Files, Manifest, MathMode,
+    sha256,
 };
 use std::{
+    collections::BTreeMap,
     fs::{File, OpenOptions, TryLockError},
     path::{Path, PathBuf},
     process::Command,
@@ -46,6 +47,7 @@ pub struct BuiltKernels {
 
 struct Compiled {
     directory: PathBuf,
+    abi: Abi,
     kernels: KernelBuild,
     compiler: PathBuf,
 }
@@ -96,9 +98,8 @@ impl Kernels {
             request,
         )?;
         State::new(inputs.clone(), &compiled.directory, &compiled.compiler)?.write(state)?;
-        let abi = std::fs::read_to_string(compiled.directory.join(ArtifactFile::Abi.name()))?;
         let built = BuiltKernels {
-            abi: Abi::from_json(&abi)?,
+            abi: compiled.abi,
             directory: compiled.directory,
             tracked: std::iter::once(compiled.compiler)
                 .chain(inputs.paths(base))
@@ -116,19 +117,17 @@ impl Kernels {
         let output = &kernels.output;
         let metal = Metal::find()?;
         let generated = COMPILER_OUTPUTS
-            .map(|file| std::fs::read(output.join(file.name())))
             .into_iter()
-            .collect::<std::io::Result<Vec<_>>>()?;
-        let abi = Abi::from_json(&std::fs::read_to_string(
-            output.join(ArtifactFile::Abi.name()),
-        )?)?;
+            .map(|file| Ok((file.name(), std::fs::read(output.join(file.name()))?)))
+            .collect::<std::io::Result<BTreeMap<_, _>>>()?;
+        let abi = Abi::from_json(std::str::from_utf8(&generated[ArtifactFile::Abi.name()])?)?;
         let mut flags = metal_flags(&abi);
         if let Some(root) = &self.debug_info {
             flags.extend(debug_flags(root));
         }
         let profile = std::env::vars()
             .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
-            .collect::<std::collections::BTreeMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
         let identity = serde_json::to_vec(&(
             env!("CARGO_PKG_VERSION"),
             &kernels.inputs,
@@ -143,38 +142,26 @@ impl Kernels {
         ))?;
         let fingerprint = sha256(&identity);
         let directory = root.join(&fingerprint);
-        if !cache::valid(&directory, &fingerprint) {
-            static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let stage = root.join(format!(
-                ".build-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            std::fs::create_dir(&stage)?;
-            let result = create(&stage, &generated, &rust, &metal, &fingerprint, flags)
-                .and_then(|()| cache::settle(&stage));
-            if let Err(error) = result {
-                let failed = root.join(
-                    stage
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()
-                        .replacen(".build-", ".failed-", 1),
-                );
-                std::fs::rename(&stage, &failed)?;
-                return Err(format!(
-                    "Metal build failed; inputs retained at {}: {error}",
-                    failed.display()
-                )
-                .into());
+        let manifest = match cache::manifest(&directory, &fingerprint) {
+            Some(manifest) => manifest,
+            None => {
+                let build = BuildInfo {
+                    fingerprint,
+                    compiler: rust.identity.clone(),
+                    rustc: rust.version.clone(),
+                    // metal-commands.json keeps the full text, which names the toolchain's path.
+                    metal: metal.version.lines().next().unwrap_or_default().into(),
+                    sdk: metal.sdk.clone(),
+                    metal_flags: flags,
+                };
+                staged(&root, &directory, |stage| {
+                    create(stage, &generated, abi, &metal, build)
+                })?
             }
-            if directory.exists() {
-                std::fs::remove_dir_all(&directory)?;
-            }
-            std::fs::rename(&stage, &directory)?;
-        }
+        };
         Ok(Compiled {
             directory,
+            abi: manifest.abi,
             kernels,
             compiler: rust.compiler,
         })
@@ -223,42 +210,71 @@ impl BuildLock {
     }
 }
 
+/// Creates an artifact in a new stage directory that then replaces `directory`; a failed
+/// build keeps its stage for inspection.
+fn staged(
+    root: &Path,
+    directory: &Path,
+    create: impl FnOnce(&Path) -> Result<Manifest>,
+) -> Result<Manifest> {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let stage = root.join(format!(
+        ".build-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir(&stage)?;
+    let result = create(&stage).and_then(|manifest| cache::settle(&stage).map(|()| manifest));
+    let manifest = match result {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            let failed = root.join(
+                stage
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .replacen(".build-", ".failed-", 1),
+            );
+            std::fs::rename(&stage, &failed)?;
+            return Err(format!(
+                "Metal build failed; inputs retained at {}: {error}",
+                failed.display()
+            )
+            .into());
+        }
+    };
+    if directory.exists() {
+        std::fs::remove_dir_all(directory)?;
+    }
+    std::fs::rename(&stage, directory)?;
+    Ok(manifest)
+}
+
 fn create(
     stage: &Path,
-    generated: &[Vec<u8>],
-    rust: &Rust,
+    generated: &BTreeMap<&str, Vec<u8>>,
+    abi: Abi,
     metal: &Metal,
-    fingerprint: &str,
-    flags: Vec<String>,
-) -> Result<()> {
-    for (file, bytes) in COMPILER_OUTPUTS.into_iter().zip(generated) {
-        std::fs::write(stage.join(file.name()), bytes)?;
+    build: BuildInfo,
+) -> Result<Manifest> {
+    // The manifest holds the ABI and the checks; the other compiler outputs stay beside it.
+    for file in [
+        ArtifactFile::Msl,
+        ArtifactFile::OxideIr,
+        ArtifactFile::RustcArgs,
+    ] {
+        std::fs::write(stage.join(file.name()), &generated[file.name()])?;
     }
-    let abi = Abi::from_json(&std::fs::read_to_string(
-        stage.join(ArtifactFile::Abi.name()),
-    )?)?;
-    metal.compile(stage, &flags)?;
+    metal.compile(stage, &build.metal_flags)?;
     let manifest = Manifest {
-        msl_version: abi.msl_version(),
         abi,
-        checks: serde_json::from_slice(&std::fs::read(stage.join(ArtifactFile::Checks.name()))?)?,
-        target: DEVICE_TARGET.into(),
+        checks: serde_json::from_slice(&generated[ArtifactFile::Checks.name()])?,
         files: Files::from_directory(stage)?,
-        build: BuildInfo {
-            fingerprint: fingerprint.into(),
-            compiler: rust.identity.clone(),
-            rustc: rust.version.clone(),
-            metal: metal.version.clone(),
-            sdk: metal.sdk.clone(),
-            rustc_args: serde_json::from_slice(&std::fs::read(
-                stage.join(ArtifactFile::RustcArgs.name()),
-            )?)?,
-            metal_flags: flags,
-        },
+        build,
     };
     std::fs::write(
         stage.join(ArtifactFile::Manifest.name()),
         manifest.to_json()?,
     )?;
-    Ok(())
+    Ok(manifest)
 }

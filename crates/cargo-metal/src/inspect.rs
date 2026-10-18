@@ -2,7 +2,7 @@ use crate::{
     cli::{Emit, Inspect},
     run::cargo,
 };
-use metal_oxide_artifact::{Abi, ArtifactFile};
+use metal_oxide_artifact::{ArtifactFile, Manifest};
 use std::{collections::BTreeSet, path::Path};
 
 /// Builds the packages and prints the kernels their builds compiled. Each kernel macro of the
@@ -36,10 +36,11 @@ pub(crate) fn execute(options: &Inspect) -> Result<(), Box<dyn std::error::Error
             continue;
         }
         let path = Path::new(directory);
-        let abi = Abi::from_json(&std::fs::read_to_string(
-            path.join(ArtifactFile::Abi.name()),
+        let manifest = Manifest::from_json(&std::fs::read_to_string(
+            path.join(ArtifactFile::Manifest.name()),
         )?)?;
-        let kernels = abi
+        let kernels = manifest
+            .abi
             .kernels
             .iter()
             .map(|kernel| kernel.name.as_str())
