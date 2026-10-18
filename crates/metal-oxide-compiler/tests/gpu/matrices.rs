@@ -33,14 +33,28 @@ fn transposed(index: usize) -> usize {
     (row / 8 * 8 + column) * 8 + row % 8
 }
 
+/// The line of the uniformity fixture that contains `text`, as a check location reports it.
+fn line(text: &str) -> u32 {
+    let source = include_str!("../fixtures/matrix_uniformity.rs");
+    source.lines().position(|line| line.contains(text)).unwrap() as u32 + 1
+}
+
+/// Multiples of 1/4 and of 1/2: their products and sums stay exact in every element type,
+/// whatever order Metal accumulates in.
+fn patterns(left: usize, right: usize) -> (Vec<f32>, Vec<f32>) {
+    let quarters = (0..left).map(|i| ((i % 7) as f32 - 3.0) * 0.25);
+    let halves = (0..right).map(|i| ((i % 5) as f32 - 2.0) * 0.5);
+    (quarters.collect(), halves.collect())
+}
+
 fn round_trip<T: Element>(device: &Device, entry: &str) -> metal_oxide::Result<()> {
     let Some(pipeline) = supported_pipeline(device, MATRICES, entry, FEATURES)? else {
         return Ok(());
     };
     let input = (0..128).map(|i| T::from_f32(i as f32)).collect::<Vec<_>>();
     let source = device.buffer_from_slice(&input)?;
-    let mut output = device.buffer_zeroed::<T>(640)?;
-    // SAFETY: one block reads 128 elements, writes 640 and stages 128 in threadgroup memory.
+    let mut output = device.buffer_zeroed::<T>(896)?;
+    // SAFETY: one block reads 128 elements, writes 896 and stages 256 in each threadgroup buffer.
     unsafe {
         Launch::new(
             Ok(&pipeline),
@@ -50,7 +64,7 @@ fn round_trip<T: Element>(device: &Device, entry: &str) -> metal_oxide::Result<(
                 Ok([
                     Argument::read(source),
                     Argument::write(output),
-                    Argument::threadgroup::<T>(128)?,
+                    Argument::threadgroup::<T>(256)?,
                 ])
             },
         )
@@ -59,7 +73,7 @@ fn round_trip<T: Element>(device: &Device, entry: &str) -> metal_oxide::Result<(
     let output = output.read().wait();
     for index in 0..128 {
         let (plain, flipped) = (input[index], input[transposed(index)]);
-        for (path, expected) in [plain, flipped, flipped, plain, flipped]
+        for (path, expected) in [plain, flipped, flipped, plain, flipped, flipped, flipped]
             .into_iter()
             .enumerate()
         {
@@ -83,17 +97,14 @@ fn matrix_loads_and_stores_round_trip_through_device_and_threadgroup_memory()
     round_trip::<BF16>(&device, "round_trip_bf16")
 }
 
-fn product<A: Element, C: Element>(device: &Device, entry: &str) -> metal_oxide::Result<()> {
+fn product<A: Element, B: Element, C: Element>(
+    device: &Device,
+    entry: &str,
+) -> metal_oxide::Result<()> {
     let Some(pipeline) = supported_pipeline(device, MATRICES, entry, FEATURES)? else {
         return Ok(());
     };
-    // Multiples of 1/8 whose sums stay exact in every element type, whatever Metal's order.
-    let a = (0..64)
-        .map(|i| ((i % 7) as f32 - 3.0) * 0.25)
-        .collect::<Vec<_>>();
-    let b = (0..64)
-        .map(|i| ((i % 5) as f32 - 2.0) * 0.5)
-        .collect::<Vec<_>>();
+    let (a, b) = patterns(64, 64);
     let c = (0..64).map(|i| (i % 3) as f32).collect::<Vec<_>>();
     let expected = (0..64)
         .map(|index| {
@@ -105,7 +116,7 @@ fn product<A: Element, C: Element>(device: &Device, entry: &str) -> metal_oxide:
         })
         .collect::<Vec<_>>();
     let a = device.buffer_from_slice(&a.into_iter().map(A::from_f32).collect::<Vec<_>>())?;
-    let b = device.buffer_from_slice(&b.into_iter().map(A::from_f32).collect::<Vec<_>>())?;
+    let b = device.buffer_from_slice(&b.into_iter().map(B::from_f32).collect::<Vec<_>>())?;
     let c = device.buffer_from_slice(&c.into_iter().map(C::from_f32).collect::<Vec<_>>())?;
     let mut d = device.buffer_zeroed::<C>(64)?;
     // SAFETY: each buffer holds one 8x8 matrix; one SIMD group runs.
@@ -133,13 +144,48 @@ fn product<A: Element, C: Element>(device: &Device, entry: &str) -> metal_oxide:
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn multiply_accumulate_matches_cpu_products_in_every_precision() -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
-    product::<f32, f32>(&device, "multiply_f32")?;
-    product::<F16, f32>(&device, "multiply_f16")?;
-    product::<BF16, f32>(&device, "multiply_bf16")?;
-    product::<F16, F16>(&device, "multiply_f16_accumulator")
+    product::<f32, f32, f32>(&device, "multiply_f32")?;
+    product::<F16, F16, f32>(&device, "multiply_f16")?;
+    product::<BF16, BF16, f32>(&device, "multiply_bf16")?;
+    product::<F16, F16, F16>(&device, "multiply_f16_accumulator")?;
+    product::<BF16, BF16, BF16>(&device, "multiply_bf16_accumulator")?;
+    product::<F16, BF16, f32>(&device, "multiply_f16_bf16")?;
+    product::<f32, F16, f32>(&device, "multiply_f32_f16")
 }
 
-fn gemm(device: &Device, entry: &str, transposed: bool) -> metal_oxide::Result<()> {
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn a_read_write_buffer_is_multiplied_and_transposed_in_place() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let Some(pipeline) = supported_pipeline(&device, MATRICES, "in_place_f32", FEATURES)? else {
+        return Ok(());
+    };
+    let (c, b) = patterns(64, 64);
+    let expected = (0..64)
+        .map(|index| {
+            // The result at (row, column) is element (column, row) of C * B + C.
+            let (row, column) = (index / 8, index % 8);
+            let sum = (0..8).map(|k| c[column * 8 + k] * b[k * 8 + row]);
+            sum.sum::<f32>() + c[column * 8 + row]
+        })
+        .collect::<Vec<_>>();
+    let b = device.buffer_from_slice(&b)?;
+    let mut c = device.buffer_from_slice(&c)?;
+    // SAFETY: each buffer holds one 8x8 matrix; one SIMD group runs.
+    unsafe {
+        Launch::new(
+            Ok(&pipeline),
+            LaunchConfig::<32>::new(Dim3::x(1)),
+            (&b, &mut c),
+            |(b, c)| Ok([Argument::read(b), Argument::read_write(c)]),
+        )
+        .wait()?;
+    }
+    assert_eq!(c.read().wait()[..], expected[..]);
+    Ok(())
+}
+
+fn gemm(device: &Device, entry: &str, nt: bool) -> metal_oxide::Result<()> {
     let Some(pipeline) = supported_pipeline(device, MATRICES, entry, FEATURES)? else {
         return Ok(());
     };
@@ -149,18 +195,13 @@ fn gemm(device: &Device, entry: &str, transposed: bool) -> metal_oxide::Result<(
         (8, 8, 8),
         (1, 1, 1),
     ] {
-        let a = (0..m * k)
-            .map(|i| ((i % 7) as f32 - 3.0) * 0.25)
-            .collect::<Vec<_>>();
-        let b = (0..k * n)
-            .map(|i| ((i % 5) as f32 - 2.0) * 0.5)
-            .collect::<Vec<_>>();
+        let (a, b) = patterns(m * k, k * n);
         let expected = (0..m * n)
             .map(|index| {
                 let (row, column) = (index / n, index % n);
                 (0..k)
                     .map(|i| {
-                        let right = if transposed {
+                        let right = if nt {
                             b[column * k + i]
                         } else {
                             b[i * n + column]
@@ -252,13 +293,16 @@ fn group_uniform_control_and_checks_guard_matrix_operations() -> metal_oxide::Re
         let Err(Error::KernelFailed(failure)) = result else {
             panic!("expected a kernel failure, got {result:?}");
         };
+        assert_eq!(failure.kernel, "checked_group");
         assert_eq!(failure.message, "SIMD group outside the launch contract");
         assert!(
             failure.file.ends_with("fixtures/matrix_uniformity.rs"),
             "{failure}"
         );
-        // The group that passes its check still stores its block.
-        assert!(stored[..64].iter().all(|&x| x == 1.0) && stored[64..].iter().all(|&x| x == 0.0));
+        assert_eq!(failure.line, line("assert!(group < groups"));
+        // The group that passes its check still stores its block; the other one does not.
+        assert!(stored[..64].iter().all(|&x| x == 1.0), "{stored:?}");
+        assert!(stored[64..].iter().all(|&x| x == 0.0), "{stored:?}");
     }
     Ok(())
 }

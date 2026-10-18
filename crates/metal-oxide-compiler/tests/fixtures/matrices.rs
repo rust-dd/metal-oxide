@@ -1,6 +1,7 @@
 #![no_std]
 use metal_oxide_device::{
-    BF16, DynamicThreadgroupBuffer, F16, ReadBuffer, WriteBuffer, block_idx, kernel,
+    BF16, DynamicThreadgroupBuffer, F16, ReadBuffer, ReadWriteBuffer, WriteBuffer, block_idx,
+    kernel,
     simdgroup::{self, Matrix},
     thread_idx, threadgroup,
 };
@@ -14,7 +15,7 @@ macro_rules! round_trip {
             output: WriteBuffer<$ty>,
             scratch: DynamicThreadgroupBuffer<$ty>,
         ) {
-            let shared = threadgroup::shared::<$ty, 128>();
+            let shared = threadgroup::shared::<$ty, 256>();
             let row = simdgroup::group_id() * 8;
             // SAFETY: every block lies in its buffer and a barrier orders the threadgroup copies.
             unsafe {
@@ -24,9 +25,14 @@ macro_rules! round_trip {
                 output.store_matrix_transposed(32 + row, 0, 8, block);
                 shared.store_matrix(row, 0, 8, block);
                 scratch.store_matrix_transposed(row, 0, 8, block);
+                shared.store_matrix_transposed(16 + row, 0, 8, block);
+                scratch.store_matrix(16 + row, 0, 8, block);
                 threadgroup::barrier();
                 output.store_matrix(48 + row, 0, 8, shared.load_matrix(row, 0, 8));
                 output.store_matrix(64 + row, 0, 8, scratch.load_matrix(row, 0, 8));
+                let flipped = scratch.load_matrix_transposed(16 + row, 0, 8);
+                output.store_matrix(80 + row, 0, 8, flipped);
+                output.store_matrix(96 + row, 0, 8, shared.load_matrix(16 + row, 0, 8));
             }
         }
     };
@@ -36,11 +42,11 @@ round_trip!(round_trip_f16, F16);
 round_trip!(round_trip_bf16, BF16);
 
 macro_rules! multiply {
-    ($name:ident, $input:ty, $accumulator:ty) => {
+    ($name:ident, $left:ty, $right:ty, $accumulator:ty) => {
         #[kernel(block = (32, 1, 1))]
         pub unsafe fn $name(
-            a: ReadBuffer<$input>,
-            b: ReadBuffer<$input>,
+            a: ReadBuffer<$left>,
+            b: ReadBuffer<$right>,
             c: ReadBuffer<$accumulator>,
             d: WriteBuffer<$accumulator>,
         ) {
@@ -56,10 +62,24 @@ macro_rules! multiply {
         }
     };
 }
-multiply!(multiply_f32, f32, f32);
-multiply!(multiply_f16, F16, f32);
-multiply!(multiply_bf16, BF16, f32);
-multiply!(multiply_f16_accumulator, F16, F16);
+multiply!(multiply_f32, f32, f32, f32);
+multiply!(multiply_f16, F16, F16, f32);
+multiply!(multiply_bf16, BF16, BF16, f32);
+multiply!(multiply_f16_accumulator, F16, F16, F16);
+multiply!(multiply_bf16_accumulator, BF16, BF16, BF16);
+multiply!(multiply_f16_bf16, F16, BF16, f32);
+multiply!(multiply_f32_f16, f32, F16, f32);
+
+// C = transpose(C * B + C), computed in place in one 8x8 block.
+#[kernel(block = (32, 1, 1))]
+pub unsafe fn in_place_f32(b: ReadBuffer<f32>, c: ReadWriteBuffer<f32>) {
+    // SAFETY: each buffer holds one 8x8 matrix and the loads precede the store.
+    unsafe {
+        let loaded = c.load_matrix(0, 0, 8);
+        let product = Matrix::multiply_accumulate(loaded, b.load_matrix(0, 0, 8), loaded);
+        c.store_matrix_transposed(0, 0, 8, product);
+    }
+}
 
 fn accumulate(
     acc: [Matrix<f32>; 2],

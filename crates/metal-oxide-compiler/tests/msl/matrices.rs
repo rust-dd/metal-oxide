@@ -83,7 +83,7 @@ fn matrix_loads_and_stores_keep_their_flag_and_pass_column_before_row() {
         let text = kernel(name);
         assert!(text.contains(fragment), "{name} lacks {fragment:?}");
     }
-    // Of the four loads and seven stores, one load and two stores are transposed.
+    // Of the six loads and eleven stores, two loads and three stores are transposed.
     let round_trip = kernel("round_trip_f32");
     let count = |operation: &str, flag: &str| {
         round_trip
@@ -92,8 +92,8 @@ fn matrix_loads_and_stores_keep_their_flag_and_pass_column_before_row() {
     };
     let load = "metal_oxide_matrix_load<float>(v, ulong(8u), ulong2(0u, v)";
     let store = "simdgroup_store(v, v, ulong(8u), ulong2(0u, v)";
-    assert_eq!((count(load, "false"), count(load, "true")), (3, 1));
-    assert_eq!((count(store, "false"), count(store, "true")), (5, 2));
+    assert_eq!((count(load, "false"), count(load, "true")), (4, 2));
+    assert_eq!((count(store, "false"), count(store, "true")), (8, 3));
 }
 
 /// Emits `INVALID` with `cfg` set and checks the compiler rejects it with `message`.
