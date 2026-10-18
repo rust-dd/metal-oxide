@@ -23,10 +23,12 @@ impl Program {
         Ok(Self::Twin(pipelines))
     }
 
-    /// Pushes `step` over every tile of `keys`; it must hold a padded count, used by no one else.
+    /// Pushes `step`, a step of `plan(keys.len())`, over every tile of `keys`, which nothing else
+    /// uses meanwhile.
     unsafe fn push(&self, batch: &mut Batch, keys: &mut Buffer<u32>, step: Step) -> Result<()> {
         let launch = LaunchConfig::<256>::new(Dim3::x(keys.len() as u32 / bitonic::TILE));
-        // SAFETY: a block per tile of the caller's keys meets each kernel's contract.
+        // SAFETY: with a block per tile, the steps of `plan(keys.len())` keep every stride a power
+        // of two that divides the thread count, as the kernels require.
         unsafe {
             match (self, step) {
                 (Self::Generated(device), Step::SortLocal) => batch
@@ -80,7 +82,7 @@ pub(super) fn sort(device: &Device, program: &Program, keys: &[u32]) -> Result<V
     let steps = plan(len);
     sequence(|batch| {
         for &step in &steps {
-            // SAFETY: the buffer holds the padded count that the plan sorts, and only it.
+            // SAFETY: the steps come from `plan(buffer.len())`; only this batch uses the buffer.
             unsafe { program.push(batch, &mut buffer, step)? };
         }
         Ok(())

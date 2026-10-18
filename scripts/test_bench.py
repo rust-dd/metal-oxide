@@ -266,6 +266,14 @@ class Timeouts(unittest.TestCase):
         self.assertIn("the classic runner did not finish within 1800 s", str(error))
         self.assertIn("--gemm 4096 512 8 --gemm-repeat 64", str(error))
 
+    def test_a_timeout_without_gemm_names_the_cases_instead_of_the_gemm_options(self):
+        args = self.args("--cases", "sort,vec-add")
+        error = str(bench.timed_out("the metal4 runner", args, 1800))
+        self.assertIn("the metal4 runner did not finish within 1800 s for --cases vec-add,sort",
+                      error)
+        self.assertIn("lower --samples, --warmup or the case sizes", error)
+        self.assertNotIn("--gemm", error)
+
     def test_an_mlx_timeout_becomes_that_error(self):
         def run(args, **options):
             raise subprocess.TimeoutExpired(args, options["timeout"])

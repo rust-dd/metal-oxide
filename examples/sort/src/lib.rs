@@ -33,11 +33,13 @@ pub mod bitonic {
         }
     }
 
-    /// Runs the steps of stage `k` from stride `j` down to 1; every lane calls it alike.
+    /// Runs stage `k` from stride `j`, a power of two up to 256, down to 1 in `tile`; every lane of
+    /// the block calls it alike.
     unsafe fn merge(tile: Tile, base: u32, lane: u32, k: u32, mut j: u32) {
         while j > 0 {
             let i = lower(lane, j);
-            // SAFETY: the barrier orders the previous step; lanes own disjoint pairs of the tile.
+            // SAFETY: the barrier orders the previous step, and strides up to 256 give the lanes
+            // disjoint pairs within the tile.
             unsafe {
                 threadgroup::barrier();
                 let (a, b) = (tile.load_unchecked(i), tile.load_unchecked(i + j));
@@ -66,7 +68,8 @@ pub mod bitonic {
     pub unsafe fn sort_local(keys: ReadWriteBuffer<u32>) {
         let tile = threadgroup::shared::<u32, 512>();
         let (lane, base) = (thread_idx().x, block_idx().x * TILE);
-        // SAFETY: the block owns its tile of the caller's keys, and every lane runs each stage.
+        // SAFETY: the block owns its tile of the caller's keys, and every lane runs each stage;
+        // stage `k` starts at stride `k / 2`, at most 256.
         unsafe {
             load(keys, tile, base, lane);
             let mut k = 2;
@@ -79,11 +82,11 @@ pub mod bitonic {
     }
 
     /// # Safety
-    /// `j` is a power of two, `keys` holds two keys per grid thread, and nothing else uses it.
+    /// `keys` holds two keys per grid thread, and `j` is a power of two dividing the thread count.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn merge_global(keys: ReadWriteBuffer<u32>, j: u32, k: u32) {
         let i = lower(block_idx().x * 256 + thread_idx().x, j);
-        // SAFETY: each thread owns its pair of the caller's keys.
+        // SAFETY: `j` divides the thread count, so each thread's pair is its own and in `keys`.
         unsafe {
             let (a, b) = (keys.load_unchecked(i), keys.load_unchecked(i + j));
             if out_of_order(a, b, i, k) {
@@ -99,7 +102,7 @@ pub mod bitonic {
     pub unsafe fn merge_local(keys: ReadWriteBuffer<u32>, k: u32) {
         let tile = threadgroup::shared::<u32, 512>();
         let (lane, base) = (thread_idx().x, block_idx().x * TILE);
-        // SAFETY: the block owns its tile of the caller's keys, and every lane runs each step.
+        // SAFETY: the block owns its tile of the caller's keys; every lane runs strides 256 to 1.
         unsafe {
             load(keys, tile, base, lane);
             merge(tile, base, lane, k, TILE >> 1);

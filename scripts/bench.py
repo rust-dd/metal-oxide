@@ -232,7 +232,11 @@ def mlx_timeout(args):
 
 
 def timed_out(what, args, timeout):
-    """The error for `what` running longer than `timeout` seconds."""
+    """The error for `what` running longer than `timeout` seconds, naming the options that set
+    the work of the selected cases."""
+    if "gemm" not in args.cases:
+        return RuntimeError(f"{what} did not finish within {timeout} s for --cases "
+                            f"{','.join(args.cases)}; lower --samples, --warmup or the case sizes")
     m, n, k = args.gemm
     return RuntimeError(f"{what} did not finish within {timeout} s at --gemm {m} {n} {k} "
                         f"--gemm-repeat {args.gemm_repeat}; lower --gemm-repeat or the shape")
