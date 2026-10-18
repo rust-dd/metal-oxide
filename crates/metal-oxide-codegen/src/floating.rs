@@ -1,7 +1,7 @@
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::{Expression, MathOp, Module, Scalar, sin_cos_type};
 
-use crate::expressions::scalar_name;
+use crate::{expressions::scalar_name, interface::uses};
 
 pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     let (minimum, maximum) = if scalar.is_signed() {
@@ -89,20 +89,15 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
 
 /// Defines `metal_oxide_sin_cos` when a function uses `MathOp::SinCos`.
 pub(crate) fn helpers(module: &Module, math_mode: MathMode) -> String {
-    let used = module
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.statements)
-        .any(|statement| {
-            matches!(
-                statement.value,
-                Expression::Math {
-                    op: MathOp::SinCos,
-                    ..
-                }
-            )
-        });
+    let used = uses(module, |value| {
+        matches!(
+            value,
+            Expression::Math {
+                op: MathOp::SinCos,
+                ..
+            }
+        )
+    });
     if !used {
         return String::new();
     }

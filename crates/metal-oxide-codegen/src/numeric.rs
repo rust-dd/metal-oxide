@@ -1,15 +1,13 @@
 use metal_oxide_ir::*;
 use std::fmt::Write;
 
+use crate::interface::uses;
+
 pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
     let mut output = String::new();
-    if module
-        .functions
-        .iter()
-        .flat_map(|f| &f.blocks)
-        .flat_map(|b| &b.statements)
-        .any(|s| matches!(s.value, Expression::Cast(_, Scalar::BF16)))
-    {
+    if uses(module, |value| {
+        matches!(value, Expression::Cast(_, Scalar::BF16))
+    }) {
         // Integer rounding preserves f32 subnormals that native bfloat conversion flushes.
         output.push_str("static inline bfloat metal_oxide_bf16_from_f32(float value) {\n    uint bits = as_type<uint>(value);\n    uint rounded = (bits + 0x7fffu + ((bits >> 16) & 1u)) >> 16;\n    ushort result = ushort((bits & 0x7fffffffu) > 0x7f800000u ? (bits >> 16) | 0x40u : rounded);\n    return as_type<bfloat>(result);\n}\n\n");
     }
