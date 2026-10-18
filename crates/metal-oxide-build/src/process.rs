@@ -11,7 +11,7 @@ impl fmt::Display for Error {
     }
 }
 
-// Build scripts that return `Result<(), Error>` from `main` print this form.
+// Debug prints the message alone, so an unwrapped failure reads like its Display form.
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)

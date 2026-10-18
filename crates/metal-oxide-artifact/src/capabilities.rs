@@ -96,7 +96,7 @@ impl crate::Abi {
         format!("{major}.{minor}")
     }
 
-    pub fn minimum_macos(&self) -> u32 {
+    fn minimum_macos(&self) -> u32 {
         self.required_features
             .iter()
             .filter_map(|f| Capability::named(f))

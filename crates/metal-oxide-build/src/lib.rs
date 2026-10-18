@@ -21,7 +21,6 @@ mod toolchain;
 pub use compile::BuiltKernels;
 pub use compiler::Compiler;
 pub use kernel_crate::KernelCrate;
-pub use metal_oxide_artifact::MathMode;
 pub use process::Error;
 pub use source::SourceKernels;
 

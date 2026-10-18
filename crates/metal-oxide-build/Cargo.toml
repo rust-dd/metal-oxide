@@ -1,7 +1,7 @@
 [package]
 name = "metal-oxide-build"
 categories = ["development-tools::build-utils", "hardware-support"]
-description = "Builds metal-oxide kernel artifacts from Cargo build scripts and tools"
+description = "Builds metal-oxide kernel artifacts for the kernel macros and cargo-metal"
 edition.workspace = true
 keywords = ["build", "gpu", "kernel", "metal", "msl"]
 license.workspace = true

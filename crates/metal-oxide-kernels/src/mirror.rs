@@ -145,12 +145,16 @@ impl Mirrors {
 
 fn scalar_type(scalar: Scalar) -> TokenStream {
     match scalar {
+        Scalar::F32 => quote!(::core::primitive::f32),
         Scalar::F16 => quote!(::metal_oxide::F16),
         Scalar::BF16 => quote!(::metal_oxide::BF16),
-        _ => {
-            let name = format_ident!("{}", scalar.rust_name());
-            quote!(::core::primitive::#name)
-        }
+        Scalar::U32 => quote!(::core::primitive::u32),
+        Scalar::U64 => quote!(::core::primitive::u64),
+        Scalar::I32 => quote!(::core::primitive::i32),
+        Scalar::U8 => quote!(::core::primitive::u8),
+        Scalar::U16 => quote!(::core::primitive::u16),
+        Scalar::I8 => quote!(::core::primitive::i8),
+        Scalar::I16 => quote!(::core::primitive::i16),
     }
 }
 

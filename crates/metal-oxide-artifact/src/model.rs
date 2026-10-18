@@ -33,21 +33,6 @@ impl Scalar {
     pub const fn is_integer(self) -> bool {
         !matches!(self, Self::F32 | Self::F16 | Self::BF16)
     }
-
-    pub const fn rust_name(self) -> &'static str {
-        match self {
-            Self::F32 => "f32",
-            Self::F16 => "metal_oxide::F16",
-            Self::BF16 => "metal_oxide::BF16",
-            Self::U32 => "u32",
-            Self::U64 => "u64",
-            Self::I32 => "i32",
-            Self::U8 => "u8",
-            Self::U16 => "u16",
-            Self::I8 => "i8",
-            Self::I16 => "i16",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
