@@ -1,7 +1,7 @@
 use metal_oxide_artifact::MathMode;
 use metal_oxide_ir::{Expression, MathOp, Module, Scalar, sin_cos_type};
 
-use crate::{expressions::scalar_name, interface::uses};
+use crate::{expressions::scalar_name, scan::uses};
 
 pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     let (minimum, maximum) = if scalar.is_signed() {

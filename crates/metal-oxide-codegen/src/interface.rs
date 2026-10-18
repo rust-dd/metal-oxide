@@ -3,6 +3,8 @@ use metal_oxide_ir::{
     Access, AddressSpace, Error, Function, FunctionAnalysis, Module, Scalar, Type,
 };
 
+use crate::scan::uses;
+
 #[derive(Debug)]
 pub(crate) struct KernelInterfaces {
     pub(crate) kernels: Vec<Option<artifact::Kernel>>,
@@ -176,18 +178,6 @@ fn contains_scalar(module: &Module, ty: Type, scalar: Scalar) -> bool {
         }
         _ => false,
     }
-}
-
-pub(crate) fn uses(
-    module: &Module,
-    operation: impl Fn(&metal_oxide_ir::Expression) -> bool,
-) -> bool {
-    module
-        .functions
-        .iter()
-        .flat_map(|f| &f.blocks)
-        .flat_map(|b| &b.statements)
-        .any(|s| operation(&s.value))
 }
 
 fn scalar(value: Scalar, function: &Function) -> Result<artifact::Scalar, Error> {

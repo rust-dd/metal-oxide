@@ -1,6 +1,6 @@
 use metal_oxide_ir::*;
 
-use crate::interface::uses;
+use crate::scan::uses;
 
 pub(crate) fn expression(op: SimdOp, arguments: Vec<String>) -> String {
     let name = match op {

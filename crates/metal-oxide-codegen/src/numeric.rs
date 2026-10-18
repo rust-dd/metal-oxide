@@ -1,7 +1,7 @@
 use metal_oxide_ir::*;
 use std::fmt::Write;
 
-use crate::interface::uses;
+use crate::scan::uses;
 
 pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
     let mut output = String::new();

@@ -1,6 +1,6 @@
 use metal_oxide_ir::*;
 
-use crate::{expressions::scalar_name, interface::uses};
+use crate::{expressions::scalar_name, scan::uses};
 
 /// MSL for a matrix operation over operands of these types.
 pub(crate) fn expression(op: MatrixOp, types: &[Type], arguments: &[String]) -> String {

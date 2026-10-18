@@ -15,6 +15,7 @@ mod log;
 mod matrix;
 mod names;
 mod numeric;
+mod scan;
 mod simd;
 mod structured;
 mod unused;
