@@ -123,7 +123,10 @@ python3 scripts/bench.py --samples 20 --warmup 5 --output target/benchmarks/base
 `python3 scripts/test_bench.py` checks the driver itself. The benchmark compares
 vec-add, reduction, scan, histogram, particle update, matmul and the f32 and f16
 SIMD-group-matrix GEMM (`--gemm M N K`, 1024 cubed by default) with CPU results and
-matching handwritten MSL on both backends. The JSON report
+matching handwritten MSL on both backends; the classic run also measures the GEMM with
+MetalPerformanceShaders as backend `mps`. A GEMM sample runs `--gemm-repeat R` GEMMs
+(8 by default) back to back in one command buffer, so the GPU is not idle between timed
+GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R`. The JSON report
 separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
 native GPU times. Every sample is checked; unavailable GPU timestamps are null, and so
 is the CPU time of GEMM, whose exact result is computed once per shape.

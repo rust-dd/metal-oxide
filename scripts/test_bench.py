@@ -66,6 +66,13 @@ class Arguments(unittest.TestCase):
         for shape in (["0", "1", "1"], ["1", "1"], ["1", "1", "1", "1"]):
             self.rejection("--gemm", *shape)
 
+    def test_gemm_repeat_defaults_to_8_and_stays_from_1_to_256(self):
+        self.assertEqual(self.parse().gemm_repeat, 8)
+        for repeat in (1, 256):
+            self.assertEqual(self.parse("--gemm-repeat", str(repeat)).gemm_repeat, repeat)
+        self.assertIn("gemm repeat must be <= 256", self.rejection("--gemm-repeat", "257"))
+        self.rejection("--gemm-repeat", "0")
+
     def test_established_bounds_keep_their_messages(self):
         self.assertIn("elements must be <= 16000000", self.rejection("--elements", "16000001"))
         self.assertIn("matrix dimensions must be <= 1024", self.rejection("--matrix", "1", "1025", "1"))

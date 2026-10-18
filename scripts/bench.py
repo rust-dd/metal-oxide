@@ -117,6 +117,7 @@ def argument_parser():
                         metavar=("ROWS", "COLUMNS", "INNER"))
     parser.add_argument("--gemm", nargs=3, type=positive, default=[1024, 1024, 1024],
                         metavar=("M", "N", "K"))
+    parser.add_argument("--gemm-repeat", type=positive, default=8, metavar="R")
     parser.add_argument("--output", type=Path)
     return parser
 
@@ -126,6 +127,8 @@ def check_bounds(parser, args):
         parser.error("elements must be <= 16000000; matrix dimensions must be <= 1024")
     if max(args.gemm) > 8192:
         parser.error("gemm dimensions must be <= 8192")
+    if args.gemm_repeat > 256:
+        parser.error("gemm repeat must be <= 256")
 
 
 def main():
@@ -167,7 +170,7 @@ def main():
     host = build_binary("metal-oxide-bench", host_env, run / "host.log")
     config = {"artifacts": artifacts, "references": references, "samples": args.samples,
               "warmup": args.warmup, "elements": args.elements, "matrix": args.matrix,
-              "gemm": args.gemm}
+              "gemm": args.gemm, "gemm_repeat": args.gemm_repeat}
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -176,7 +179,9 @@ def main():
         result = run / f"{backend}.json"
         command([host, config_path, result],
                 env=dict(host_env, METAL_OXIDE_BACKEND=backend), log=run / f"{backend}.log")
-        backends.append(json.loads(result.read_text()))
+        backends.extend(json.loads(result.read_text()))
+    # The stable sort keeps classic and metal4 at indices 0 and 1.
+    backends.sort(key=lambda report: report["backend"] == "mps")
     revision, _ = command(["git", "rev-parse", "HEAD"])
     status, _ = command(["git", "status", "--porcelain"])
     rustc, _ = command(["rustc", "-vV"])
@@ -201,7 +206,18 @@ def main():
                   "cpu": "serial reference including result allocation; null for gemm, whose "
                          "exact result is computed once per shape before the samples",
                   "gemm": "C is set to NaN before each sample, outside every timed phase, then "
-                          "compared bitwise with the exact result",
+                          "compared bitwise with the exact result; gemm-f32 takes f32 A and B, "
+                          "gemm-f16 takes F16 A and B, and every variant returns an f32 C",
+                  "repeat": "each case reports repeat, the runs per sample: 1, except gemm, which "
+                            "encodes, submits and waits for that many back-to-back GEMMs in one "
+                            "command buffer. Its encode, submit, wait and gpu times cover all of "
+                            "them; gpu_per_gemm_ns is gpu_ns / repeat rounded to 1 ns, summarized "
+                            "over the samples",
+                  "mps": "MPSMatrixMultiplication cases form the backend mps, measured in the "
+                         "classic run only, on their own queue and shared buffers with MPS's row "
+                         "stride (padding is not checked); block is null, pipeline is the kernel "
+                         "object's creation, upload is 0, and encode is MPS's own encoding where "
+                         "rust and msl record only, so compare submit",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")

@@ -30,6 +30,26 @@ struct Config {
     elements: u32,
     matrix: [u32; 3],
     gemm: [u32; 3],
+    gemm_repeat: u32,
+}
+
+impl Config {
+    fn validate(&self) -> Result<()> {
+        if self.samples == 0
+            || self.elements == 0
+            || self.elements > 16_000_000
+            || self.matrix.iter().any(|&n| n == 0 || n > 1024)
+            || self.gemm.iter().any(|&n| n == 0 || n > 8192)
+        {
+            return Err(
+                "samples, elements, matrix and gemm dimensions must be positive and bounded".into(),
+            );
+        }
+        if !(1..=256).contains(&self.gemm_repeat) {
+            return Err("gemm repeat must be from 1 to 256".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Default, Serialize)]
@@ -49,7 +69,10 @@ struct Case {
     name: String,
     variant: String,
     shape: Vec<u32>,
-    block: [u32; 3],
+    /// Identical runs per sample, which share one command buffer.
+    repeat: u32,
+    /// Threads per threadgroup of our kernels; absent when a library picks its own.
+    block: Option<[u32; 3]>,
     library_load_ns: u64,
     pipeline_ns: u64,
     allocation_ns: u64,
@@ -63,12 +86,13 @@ impl Case {
             name: name.into(),
             variant: variant.into(),
             shape,
-            block: match name {
+            repeat: 1,
+            block: Some(match name {
                 "matmul" => [16, 16, 1],
                 "particle-update" => [64, 1, 1],
                 "gemm-f32" | "gemm-f16" => [128, 1, 1],
                 _ => [256, 1, 1],
-            },
+            }),
             library_load_ns: 0,
             pipeline_ns: 0,
             allocation_ns: 0,
@@ -174,21 +198,28 @@ impl Wake for Unpark {
     }
 }
 
+/// One report per measured backend; MPS ignores the runtime's backend, so it joins the classic run.
+fn backend_reports(
+    device: &str,
+    backend: &str,
+    cases: Vec<Case>,
+    mps: impl FnOnce() -> Result<Vec<Case>>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut backends =
+        vec![serde_json::json!({"device": device, "backend": backend, "cases": cases})];
+    if backend == "classic" {
+        backends.push(serde_json::json!({"device": device, "backend": "mps", "cases": mps()?}));
+    }
+    Ok(backends)
+}
+
 pub(super) fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let config: Config =
         serde_json::from_slice(&std::fs::read(args.next().ok_or("missing config")?)?)?;
     let output = args.next().ok_or("missing output path")?;
-    if config.samples == 0
-        || config.elements == 0
-        || config.elements > 16_000_000
-        || config.matrix.iter().any(|&n| n == 0 || n > 1024)
-        || config.gemm.iter().any(|&n| n == 0 || n > 8192)
-    {
-        return Err(
-            "samples, elements, matrix and gemm dimensions must be positive and bounded".into(),
-        );
-    }
+    config.validate()?;
+    let backend = std::env::var("METAL_OXIDE_BACKEND")?;
     let device = Device::system_default()?;
     let problem = gemm::Problem::new(config.gemm);
     let mut cases = Vec::new();
@@ -199,26 +230,12 @@ pub(super) fn run() -> Result<()> {
         cases.push(matrix::run(&device, &config, variant)?);
         cases.extend(gemm::run(&device, &config, &problem, variant)?);
     }
-    let report = serde_json::json!({"device": device.name(), "backend": std::env::var("METAL_OXIDE_BACKEND")?, "cases": cases});
-    std::fs::write(output, serde_json::to_vec_pretty(&report)?)?;
+    let backends = backend_reports(&device.name(), &backend, cases, || {
+        gemm::run(&device, &config, &problem, "mps")
+    })?;
+    std::fs::write(output, serde_json::to_vec_pretty(&backends)?)?;
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn report_requires_samples_and_keeps_unavailable_gpu_time_absent() {
-        assert!(Case::new("vec-add", "rust", vec![1]).finish().is_err());
-        let mut case = Case::new("vec-add", "rust", vec![1]);
-        case.samples.push(Sample {
-            submit_ns: 100,
-            ..Sample::default()
-        });
-        let report = case.finish().unwrap();
-        assert!(!report.summary_ns.contains_key("gpu_ns"));
-        assert_eq!(report.summary_ns["submit_ns"].median, 100);
-        assert!(serde_json::to_value(&report).unwrap()["samples"][0]["gpu_ns"].is_null());
-    }
-}
+mod tests;

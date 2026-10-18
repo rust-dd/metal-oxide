@@ -97,6 +97,7 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
     "objc2-core-foundation",
     "std",
 ] }
+objc2-metal-performance-shaders = { version = "0.3.2", default-features = false, features = ["MPSCore", "MPSCoreTypes", "MPSKernel", "MPSMatrix", "MPSMatrixMultiplication"] }
 particle-device-math = { path = "crates/metal-oxide-compiler/tests/crates/particle-device-math" }
 particle-update = { path = "examples/particle-update" }
 pipeline-device-math = { path = "crates/metal-oxide-compiler/tests/crates/pipeline-device-math" }

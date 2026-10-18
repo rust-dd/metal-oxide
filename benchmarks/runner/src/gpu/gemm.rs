@@ -1,6 +1,7 @@
 use super::*;
 use metal_oxide::{Argument, Dim3, F16, GpuValue, LaunchConfig};
 
+mod mps;
 #[cfg(test)]
 mod tests;
 
@@ -29,6 +30,11 @@ impl Problem {
             b,
             expected,
         }
+    }
+
+    /// A and B as F16, which holds every input exactly.
+    fn half(&self) -> [Vec<F16>; 2] {
+        [&self.a, &self.b].map(|values| values.iter().map(|&x| F16::from_f32(x)).collect())
     }
 }
 
@@ -69,13 +75,31 @@ fn check(case: &str, actual: &[f32], expected: &[f32], columns: u32) -> Result<(
     }
 }
 
+/// Finishes `case` and adds the GPU time of one GEMM, a sample's GPU time over its `repeat`.
+fn finish(case: Case) -> Result<Case> {
+    let mut case = case.finish()?;
+    let repeat = u64::from(case.repeat);
+    let each = case.samples.iter().filter_map(|sample| sample.gpu_ns);
+    let each = each
+        .map(|ns| (ns + repeat / 2) / repeat)
+        .collect::<Vec<_>>();
+    if !each.is_empty() {
+        case.summary_ns
+            .insert("gpu_per_gemm_ns".into(), Summary::new(&each)?);
+    }
+    Ok(case)
+}
+
 pub(super) fn run(
     device: &Device,
     config: &Config,
     problem: &Problem,
     variant: &str,
 ) -> Result<Vec<Case>> {
-    let half = |values: &[f32]| values.iter().map(|&x| F16::from_f32(x)).collect::<Vec<_>>();
+    if variant == "mps" {
+        return mps::run(device, config, problem);
+    }
+    let [a, b] = problem.half();
     Ok(vec![
         measure(
             device,
@@ -85,14 +109,7 @@ pub(super) fn run(
             "f32",
             (&problem.a, &problem.b),
         )?,
-        measure(
-            device,
-            config,
-            problem,
-            variant,
-            "f16",
-            (&half(&problem.a), &half(&problem.b)),
-        )?,
+        measure(device, config, problem, variant, "f16", (&a, &b))?,
     ])
 }
 
@@ -107,6 +124,7 @@ fn measure<T: GpuValue>(
     let [m, n, k] = problem.shape;
     let name = format!("gemm-{input}");
     let mut case = Case::new(&name, variant, problem.shape.to_vec());
+    case.repeat = config.gemm_repeat;
     let entry = if variant == "rust" {
         format!("gemm_{input}")
     } else {
@@ -131,14 +149,15 @@ fn measure<T: GpuValue>(
         c.upload();
         let upload = elapsed(start);
         let mut sample = dispatch(|batch| {
+            let (mut left, mut right, mut out) = (&a, &b, &mut c);
             // SAFETY: distinct buffers cover m*k, k*n and m*n elements, the grid is the kernel's,
             // and dimensions of at most 8192 keep every index in u32.
             unsafe {
-                batch
-                    .push(Launch::new(
+                for _ in 0..config.gemm_repeat {
+                    (left, right, out, ..) = batch.push(Launch::new(
                         Ok(&pipelines[0]),
                         launch,
-                        (&a, &b, &mut c, m, n, k),
+                        (left, right, out, m, n, k),
                         |(a, b, c, m, n, k)| {
                             Ok([
                                 Argument::read(a),
@@ -149,9 +168,10 @@ fn measure<T: GpuValue>(
                                 Argument::value(*k)?,
                             ])
                         },
-                    ))
-                    .map(drop)
+                    ))?;
+                }
             }
+            Ok(())
         })?;
         let start = Instant::now();
         let result = c.read().wait();
@@ -163,5 +183,5 @@ fn measure<T: GpuValue>(
             case.samples.push(sample);
         }
     }
-    case.finish()
+    finish(case)
 }

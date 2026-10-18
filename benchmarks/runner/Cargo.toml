@@ -15,5 +15,10 @@ particle-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+objc2.workspace = true
+objc2-metal.workspace = true
+objc2-metal-performance-shaders.workspace = true
+
 [lints]
 workspace = true

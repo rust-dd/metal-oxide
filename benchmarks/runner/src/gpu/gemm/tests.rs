@@ -48,7 +48,7 @@ fn gemm_cases_launch_128_threads_and_report_no_cpu_reference() {
     let mut case = Case::new("gemm-f16", "msl", vec![2, 2, 2]);
     case.samples.push(sample(None));
     let case = case.finish().unwrap();
-    assert_eq!(case.block, [128, 1, 1]);
+    assert_eq!(case.block, Some([128, 1, 1]));
     assert!(!case.summary_ns.contains_key("cpu_reference_ns"));
     assert!(serde_json::to_value(&case).unwrap()["samples"][0]["cpu_reference_ns"].is_null());
     let mut measured = Case::new("matmul", "rust", vec![2, 2, 2]);
@@ -57,4 +57,37 @@ fn gemm_cases_launch_128_threads_and_report_no_cpu_reference() {
         measured.finish().unwrap().summary_ns["cpu_reference_ns"].median,
         7
     );
+}
+
+#[test]
+fn problem_holds_its_inputs_exactly_in_f16() {
+    let problem = Problem::new([17, 13, 3]);
+    let [a, b] = problem.half();
+    let widen = |values: &[F16]| values.iter().map(|x| x.to_f32()).collect::<Vec<_>>();
+    assert_eq!(widen(&a), problem.a);
+    assert_eq!(widen(&b), problem.b);
+}
+
+#[test]
+fn finish_adds_the_gpu_time_of_one_gemm_rounded_to_the_nanosecond() {
+    let mut case = Case::new("gemm-f32", "mps", vec![2, 2, 2]);
+    case.repeat = 4;
+    for gpu_ns in [400, 1000, 2002] {
+        case.samples.push(Sample {
+            gpu_ns: Some(gpu_ns),
+            ..Sample::default()
+        });
+    }
+    let case = finish(case).unwrap();
+    assert_eq!(case.summary_ns["gpu_ns"].median, 1000);
+    let each = &case.summary_ns["gpu_per_gemm_ns"];
+    assert_eq!((each.min, each.median, each.max), (100, 250, 501));
+}
+
+#[test]
+fn finish_reports_no_gemm_time_without_gpu_timestamps() {
+    let mut case = Case::new("gemm-f32", "rust", vec![2, 2, 2]);
+    case.samples.push(Sample::default());
+    let case = finish(case).unwrap();
+    assert!(!case.summary_ns.contains_key("gpu_per_gemm_ns"));
 }
