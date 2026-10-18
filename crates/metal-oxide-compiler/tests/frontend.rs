@@ -224,6 +224,7 @@ fn matrix_adapters_require_unsafe_memory_access_and_matching_buffers() {
     for (variant, message) in [
         ("safe_load", "invalid device intrinsic signature"),
         ("other_element", "invalid device intrinsic signature"),
+        ("wrong_buffer", "invalid device intrinsic signature"),
         (
             "read_store",
             "foreign ABI calls are not supported in Metal kernels",
@@ -236,6 +237,20 @@ fn matrix_adapters_require_unsafe_memory_access_and_matching_buffers() {
                 &["--cfg", variant],
             ),
             message,
+        );
+    }
+}
+
+#[test]
+fn matrix_adapters_call_one_bridge_that_takes_a_bool_flag() {
+    for variant in ["bridge_flag", "two_calls"] {
+        support::rejected(
+            support::invalid_device(
+                "malformed_matrix",
+                "malformed_matrix_client",
+                &["--cfg", variant],
+            ),
+            "invalid device intrinsic signature",
         );
     }
 }

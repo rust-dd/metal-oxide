@@ -1,23 +1,11 @@
+#[allow(dead_code)]
+mod support;
+
 use metal_oxide_ir::*;
+use support::{block, source, uint};
 
-fn source() -> SourceLocation {
-    SourceLocation {
-        file: "kernel.rs".into(),
-        line: 1,
-        column: 1,
-    }
-}
-
-fn statement(local: usize, op: MatrixOp, arguments: Vec<Operand>) -> Statement {
-    Statement {
-        destination: Place::local(local),
-        value: Expression::Matrix { op, arguments },
-        source: source(),
-    }
-}
-
-fn uint(value: u32) -> Operand {
-    Operand::Constant(Constant::U32(value))
+fn matrix(op: MatrixOp, arguments: Vec<Operand>) -> Expression {
+    Expression::Matrix { op, arguments }
 }
 
 fn buffer(element: Scalar, access: Access) -> Type {
@@ -36,50 +24,47 @@ fn product(element: Scalar, load: bool) -> Module {
         element: Type::Matrix(Scalar::F32),
         length: 2,
     });
-    let block = if load {
-        statement(
-            3,
+    let block_matrix = if load {
+        matrix(
             MatrixOp::Load { transposed: false },
             vec![Operand::local(1), uint(8), uint(0), uint(16)],
         )
     } else {
         assert_eq!(element, Scalar::F32);
-        statement(
-            3,
-            MatrixOp::Splat,
-            vec![Operand::Constant(Constant::F32(0))],
-        )
+        matrix(MatrixOp::Splat, vec![Operand::Constant(Constant::F32(0))])
     };
     let statements = vec![
-        block,
-        statement(
+        (3, block_matrix),
+        (
             4,
-            MatrixOp::Splat,
-            vec![Operand::Constant(Constant::F32(0))],
+            matrix(MatrixOp::Splat, vec![Operand::Constant(Constant::F32(0))]),
         ),
-        statement(
+        (
             4,
-            MatrixOp::MultiplyAccumulate,
-            vec![Operand::local(3), Operand::local(3), Operand::local(4)],
+            matrix(
+                MatrixOp::MultiplyAccumulate,
+                vec![Operand::local(3), Operand::local(3), Operand::local(4)],
+            ),
         ),
-        Statement {
-            destination: Place::local(5),
-            value: Expression::Aggregate {
+        (
+            5,
+            Expression::Aggregate {
                 ty: 0,
                 fields: vec![Operand::local(4), Operand::local(4)],
             },
-            source: source(),
-        },
-        statement(
+        ),
+        (
             0,
-            MatrixOp::Store { transposed: true },
-            vec![
-                Operand::local(2),
-                uint(0),
-                uint(8),
-                uint(16),
-                Operand::local(4),
-            ],
+            matrix(
+                MatrixOp::Store { transposed: true },
+                vec![
+                    Operand::local(2),
+                    uint(0),
+                    uint(8),
+                    uint(16),
+                    Operand::local(4),
+                ],
+            ),
         ),
     ];
     Module {
@@ -98,11 +83,7 @@ fn product(element: Scalar, load: bool) -> Module {
                 Type::Matrix(Scalar::F32),
                 pair,
             ],
-            blocks: vec![Block {
-                statements,
-                terminator: Terminator::Return,
-                source: source(),
-            }],
+            blocks: vec![block(statements, Terminator::Return)],
             source: source(),
         }],
     }
@@ -170,4 +151,42 @@ fn modules_without_matrix_loads_or_products_omit_the_load_helper() {
         .unwrap();
     assert!(!msl.contains("template <typename T, typename P>"), "{msl}");
     assert!(msl.contains("make_filled_simdgroup_matrix<float, 8, 8>("));
+}
+
+/// A kernel that holds a pair of `element` matrices.
+fn pair_of(element: Scalar) -> Module {
+    let mut types = TypeTable::default();
+    types.intern(Aggregate::Array {
+        element: Type::Matrix(element),
+        length: 2,
+    });
+    Module {
+        types,
+        functions: vec![Function {
+            name: "pair".into(),
+            kernel: true,
+            required_block: Some([32, 1, 1]),
+            requires: Vec::new(),
+            parameters: 0,
+            locals: vec![Type::Unit, Type::Aggregate(0)],
+            blocks: vec![block(vec![], Terminator::Return)],
+            source: source(),
+        }],
+    }
+}
+
+#[test]
+fn arrays_of_half_and_bfloat_matrices_lay_out_by_their_element_size() {
+    for element in [Scalar::F16, Scalar::BF16] {
+        let msl = metal_oxide_codegen::Codegen::new(&pair_of(element))
+            .unwrap()
+            .emit()
+            .unwrap();
+        let layout =
+            "sizeof(metal_oxide_aggregate_0) == 256 && alignof(metal_oxide_aggregate_0) == 128";
+        assert!(
+            msl.contains(layout),
+            "missing {layout:?} for {element:?} in\n{msl}"
+        );
+    }
 }
