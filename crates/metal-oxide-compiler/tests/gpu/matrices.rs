@@ -51,10 +51,12 @@ fn round_trip<T: Element>(device: &Device, entry: &str) -> metal_oxide::Result<(
     let Some(pipeline) = supported_pipeline(device, MATRICES, entry, FEATURES)? else {
         return Ok(());
     };
+    // Paths: device copy, load^T, store^T; shared copy; scratch store^T, load^T; shared store^T.
+    let paths = [false, true, true, false, true, true, true];
     let input = (0..128).map(|i| T::from_f32(i as f32)).collect::<Vec<_>>();
     let source = device.buffer_from_slice(&input)?;
-    let mut output = device.buffer_zeroed::<T>(896)?;
-    // SAFETY: one block reads 128 elements, writes 896 and stages 256 in each threadgroup buffer.
+    let mut output = device.buffer_zeroed::<T>(paths.len() * 128)?;
+    // SAFETY: one block reads 128 elements, writes 128 per path, stages 256 per threadgroup buffer.
     unsafe {
         Launch::new(
             Ok(&pipeline),
@@ -72,11 +74,8 @@ fn round_trip<T: Element>(device: &Device, entry: &str) -> metal_oxide::Result<(
     }
     let output = output.read().wait();
     for index in 0..128 {
-        let (plain, flipped) = (input[index], input[transposed(index)]);
-        for (path, expected) in [plain, flipped, flipped, plain, flipped, flipped, flipped]
-            .into_iter()
-            .enumerate()
-        {
+        for (path, &flipped) in paths.iter().enumerate() {
+            let expected = input[if flipped { transposed(index) } else { index }];
             assert_eq!(
                 output[path * 128 + index],
                 expected,
@@ -165,8 +164,8 @@ fn a_read_write_buffer_is_multiplied_and_transposed_in_place() -> metal_oxide::R
         .map(|index| {
             // The result at (row, column) is element (column, row) of C * B + C.
             let (row, column) = (index / 8, index % 8);
-            let sum = (0..8).map(|k| c[column * 8 + k] * b[k * 8 + row]);
-            sum.sum::<f32>() + c[column * 8 + row]
+            let products = (0..8).map(|k| c[column * 8 + k] * b[k * 8 + row]);
+            products.sum::<f32>() + c[column * 8 + row]
         })
         .collect::<Vec<_>>();
     let b = device.buffer_from_slice(&b)?;
