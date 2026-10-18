@@ -117,7 +117,7 @@ trigger.
 ## Benchmarks
 
 ```sh
-python3 scripts/bench.py --samples 20 --warmup 5 --output target/benchmarks/baseline.json
+python3 scripts/bench.py --samples 20 --warmup 10 --output target/benchmarks/baseline.json
 ```
 
 `python3 scripts/test_bench.py` checks the driver itself. The benchmark compares
@@ -125,7 +125,7 @@ vec-add, reduction, scan, histogram, particle update, matmul and the f32 and f16
 SIMD-group-matrix GEMM (`--gemm M N K`, 1024 cubed by default) with CPU results and
 matching handwritten MSL on both backends; the classic run also measures the GEMM with
 MetalPerformanceShaders as backend `mps`. A GEMM sample runs `--gemm-repeat R` GEMMs
-(8 by default) back to back in one command buffer, so the GPU is not idle between timed
+(64 by default) back to back in one command buffer, so the GPU is not idle between timed
 GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
 `(submit_ns + wait_ns) / R`. Within a runner process the GEMM candidates take turns sample
 by sample (rust, msl and, in the classic run, mps; the first one rotates every round).
@@ -150,9 +150,9 @@ backends' `host_per_gemm_ns`, not with GPU times. The report's `machine` records
 model, memory and GPU core count beside the OS and toolchain versions; a value the host
 cannot report is null.
 
-Measured on an M4 Max: compare GEMMs with `--gemm-repeat 64 --warmup 10`, since at R = 8 the
-rust and msl kernels measured up to 30 % above their R = 64 times while MPS did not. MPS's
-host time includes its own encoding (about 14 us per GEMM), so compare MPS on
+Measured on an M4 Max: compare GEMMs at the default R = 64 with `--warmup 10`; single runner
+runs at R = 8 measured 0-31 % slower for rust and msl at 1024 cubed while MPS did not move.
+MPS's host time includes its own encoding (about 14 us per GEMM), so compare MPS on
 `gpu_per_gemm_ns`; the first MPS case's pipeline time includes MPS's library load. MLX's
 matmuls are independent and may overlap, unlike the runner's GEMMs, which chain through one
 C; a dependent MLX chain measured within 1-5 %. GPU work of other applications moved the

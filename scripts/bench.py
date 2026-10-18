@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -24,6 +25,11 @@ WORKLOADS = {
     "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
 BACKENDS = ("classic", "metal4")
+# A command's limit; GEMM runs scale theirs with their work at an assumed slowest GEMM rate.
+TIMEOUT_S = 1800
+MIN_GEMM_FLOPS = 0.5e12
+# A runner process measures rust, msl and, in the classic run, mps, for f32 and f16 inputs.
+RUNNER_GEMM_CASES = 6
 MLX_VERSION = "0.32.4"
 MLX_VENV = ROOT / "target/benchmarks/mlx-venv"
 MLX_INPUTS = ("f32", "f16")
@@ -47,12 +53,12 @@ MLX_TIMING = ("host_ns is the host time to build, evaluate and synchronize `repe
               "against the first, bitwise")
 
 
-def command(args, *, env=None, log=None):
+def command(args, *, env=None, log=None, timeout=TIMEOUT_S):
     args = list(map(str, args))
     start = time.perf_counter_ns()
     result = subprocess.run(args, cwd=ROOT, env=env, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            timeout=1800)
+                            timeout=timeout)
     duration = time.perf_counter_ns() - start
     if log:
         log.write_text(result.stdout)
@@ -147,8 +153,11 @@ def argument_parser():
     parser.add_argument("--matrix", nargs=3, type=positive, default=[129, 131, 127],
                         metavar=("ROWS", "COLUMNS", "INNER"))
     parser.add_argument("--gemm", nargs=3, type=positive, default=[1024, 1024, 1024],
-                        metavar=("M", "N", "K"))
-    parser.add_argument("--gemm-repeat", type=positive, default=8, metavar="R")
+                        metavar=("M", "N", "K"),
+                        help="GEMM shape, each dimension at most 8192 (default: 1024 1024 1024)")
+    parser.add_argument("--gemm-repeat", type=positive, default=64, metavar="R",
+                        help="GEMMs per sample, back to back in one command buffer "
+                             "(default: 64, at most 256)")
     parser.add_argument("--backends", type=backend_list, default=list(BACKENDS), metavar="LIST",
                         help="comma-separated backends to measure (default: classic,metal4)")
     parser.add_argument("--mlx", action="store_true",
@@ -182,12 +191,42 @@ def mlx_python(venv=MLX_VENV):
     return python
 
 
+def gemm_timeout(args, gemms):
+    """Seconds for a command that runs `gemms` GEMMs of the configured shape: their work at
+    MIN_GEMM_FLOPS, and never less than TIMEOUT_S."""
+    m, n, k = args.gemm
+    return max(TIMEOUT_S, math.ceil(2 * m * n * k * gemms / MIN_GEMM_FLOPS))
+
+
+def runner_timeout(args):
+    return gemm_timeout(args, args.gemm_repeat * (args.warmup + args.samples) * RUNNER_GEMM_CASES)
+
+
+def mlx_timeout(args):
+    # bench_mlx.py runs one checked sample per input type before its warmup.
+    rounds = 1 + args.warmup + args.samples
+    return gemm_timeout(args, args.gemm_repeat * rounds * len(MLX_INPUTS))
+
+
+def timed_out(what, args, timeout):
+    """The error for `what` running longer than `timeout` seconds."""
+    m, n, k = args.gemm
+    return RuntimeError(f"{what} did not finish within {timeout} s at --gemm {m} {n} {k} "
+                        f"--gemm-repeat {args.gemm_repeat}; lower --gemm-repeat or the shape")
+
+
 def measure_mlx(interpreter, args, run):
     """Runs scripts/bench_mlx.py on the GEMM options of `args` and returns its result."""
+    print("Measuring MLX", flush=True)
     result = run / "mlx.json"
-    command([interpreter, ROOT / "scripts/bench_mlx.py", "--shape", *args.gemm,
-             "--dtypes", *MLX_INPUTS, "--samples", args.samples, "--warmup", args.warmup,
-             "--repeat", args.gemm_repeat, "--output", result], log=run / "mlx.log")
+    timeout = mlx_timeout(args)
+    try:
+        command([interpreter, ROOT / "scripts/bench_mlx.py", "--shape", *args.gemm,
+                 "--dtypes", *MLX_INPUTS, "--samples", args.samples, "--warmup", args.warmup,
+                 "--repeat", args.gemm_repeat, "--output", result], log=run / "mlx.log",
+                timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise timed_out("MLX", args, timeout) from None
     return json.loads(result.read_text())
 
 
@@ -216,6 +255,21 @@ def merge_mlx(report, mlx):
         if measured != expected:
             raise RuntimeError(f"mlx {case['name']} measured {measured}, not {expected}")
     return dict(report, mlx=mlx, timing=dict(report["timing"], mlx=MLX_TIMING))
+
+
+def write_report(output, report, mlx=None):
+    """Writes `report`, then, if `mlx` measures MLX, rewrites it with that result; an MLX failure
+    leaves the written report."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(report, indent=2) + "\n")
+    if mlx is None:
+        return report
+    try:
+        report = merge_mlx(report, mlx())
+    except Exception as error:
+        raise RuntimeError(f"MLX failed: {error}\n{output} holds the report without MLX") from error
+    output.write_text(json.dumps(report, indent=2) + "\n")
+    return report
 
 
 def tool_output(args):
@@ -297,18 +351,18 @@ def main():
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
+    timeout = runner_timeout(args)
     for backend in args.backends:
         print(f"Measuring {backend}", flush=True)
         result = run / f"{backend}.json"
-        command([host, config_path, result],
-                env=dict(host_env, METAL_OXIDE_BACKEND=backend), log=run / f"{backend}.log")
+        try:
+            command([host, config_path, result], env=dict(host_env, METAL_OXIDE_BACKEND=backend),
+                    log=run / f"{backend}.log", timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise timed_out(f"the {backend} runner", args, timeout) from None
         backends.extend(json.loads(result.read_text()))
     # The stable sort moves mps after the runtime backends, which stay in their order.
     backends.sort(key=lambda report: report["backend"] == "mps")
-    mlx = None
-    if args.mlx:
-        print("Measuring MLX", flush=True)
-        mlx = measure_mlx(interpreter, args, run)
     revision, _ = command(["git", "rev-parse", "HEAD"])
     status, _ = command(["git", "status", "--porcelain"])
     rustc, _ = command(["rustc", "-vV"])
@@ -352,10 +406,8 @@ def main():
                          "write to C serializes its repeats, and the first MPS case's pipeline "
                          "time includes MPS's one-time library load",
                   "percentiles": "p10 lower, p90 upper rank at fraction*(n-1); median midpoint"}}
-    if mlx:
-        report = merge_mlx(report, mlx)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, indent=2) + "\n")
+    mlx = (lambda: measure_mlx(interpreter, args, run)) if args.mlx else None
+    write_report(output, report, mlx)
     print(output, flush=True)
 
 

@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -68,8 +69,8 @@ class Arguments(unittest.TestCase):
         for shape in (["0", "1", "1"], ["1", "1"], ["1", "1", "1", "1"]):
             self.rejection("--gemm", *shape)
 
-    def test_gemm_repeat_defaults_to_8_and_stays_from_1_to_256(self):
-        self.assertEqual(self.parse().gemm_repeat, 8)
+    def test_gemm_repeat_defaults_to_64_and_stays_from_1_to_256(self):
+        self.assertEqual(self.parse().gemm_repeat, 64)
         for repeat in (1, 256):
             self.assertEqual(self.parse("--gemm-repeat", str(repeat)).gemm_repeat, repeat)
         self.assertIn("gemm repeat must be <= 256", self.rejection("--gemm-repeat", "257"))
@@ -181,20 +182,22 @@ class Statistics(unittest.TestCase):
         self.assertEqual(bench.per_gemm_ns(7, 1), 7)
 
 
+def mlx_result(**changes):
+    """An MLX result for 256^3, R = 8 and two samples, with `changes` to its case."""
+    case = {"name": "gemm-f32", "variant": "mlx", "shape": [256, 256, 256], "repeat": 8,
+            "samples": [{"host_ns": 800, "host_per_gemm_ns": 100}] * 2}
+    return {"version": "0.32.4", "python": "3.12.12", "device": "Apple M4 Max",
+            "cases": [dict(case, **changes)]}
+
+
 class Merge(unittest.TestCase):
     def report(self):
         return {"config": {"gemm": [256, 256, 256], "gemm_repeat": 8, "samples": 2},
                 "backends": [{"backend": "classic"}, {"backend": "metal4"}, {"backend": "mps"}],
                 "timing": {"unit": "ns", "mps": "note"}}
 
-    def mlx(self, **changes):
-        case = {"name": "gemm-f32", "variant": "mlx", "shape": [256, 256, 256], "repeat": 8,
-                "samples": [{"host_ns": 800, "host_per_gemm_ns": 100}] * 2}
-        return {"version": "0.32.4", "python": "3.12.12", "device": "Apple M4 Max",
-                "cases": [dict(case, **changes)]}
-
     def test_mlx_joins_the_report_beside_the_runner_array(self):
-        report, mlx = self.report(), self.mlx()
+        report, mlx = self.report(), mlx_result()
         merged = bench.merge_mlx(report, mlx)
         self.assertEqual(merged["mlx"], mlx)
         self.assertEqual(merged["backends"], self.report()["backends"])
@@ -214,7 +217,72 @@ class Merge(unittest.TestCase):
         for changes in ({"shape": [256, 256, 128]}, {"repeat": 4},
                         {"samples": [{"host_ns": 800, "host_per_gemm_ns": 100}]}):
             with self.assertRaises(RuntimeError, msg=changes):
-                bench.merge_mlx(self.report(), self.mlx(**changes))
+                bench.merge_mlx(self.report(), mlx_result(**changes))
+
+
+class Timeouts(unittest.TestCase):
+    def args(self, *arguments):
+        return bench.argument_parser().parse_args(arguments)
+
+    def test_small_runs_keep_the_fixed_timeout(self):
+        args = self.args()
+        self.assertEqual(bench.runner_timeout(args), bench.TIMEOUT_S)
+        self.assertEqual(bench.mlx_timeout(args), bench.TIMEOUT_S)
+
+    def test_large_runs_allow_their_gemm_work_at_half_a_teraflop(self):
+        args = self.args("--gemm", "8192", "8192", "8192", "--samples", "20", "--warmup", "10")
+        gemm = 2 * 8192 ** 3
+        self.assertEqual(bench.runner_timeout(args), math.ceil(gemm * 64 * 30 * 6 / 0.5e12))
+        self.assertEqual(bench.mlx_timeout(args), math.ceil(gemm * 64 * 31 * 2 / 0.5e12))
+        self.assertGreater(bench.runner_timeout(args), bench.TIMEOUT_S)
+
+    def test_a_timeout_names_the_shape_and_the_repeat(self):
+        error = bench.timed_out("the classic runner", self.args("--gemm", "4096", "512", "8"), 1800)
+        self.assertIn("the classic runner did not finish within 1800 s", str(error))
+        self.assertIn("--gemm 4096 512 8 --gemm-repeat 64", str(error))
+
+    def test_an_mlx_timeout_becomes_that_error(self):
+        def run(args, **options):
+            raise subprocess.TimeoutExpired(args, options["timeout"])
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        with mock.patch.object(bench, "command", run), tempfile.TemporaryDirectory() as temporary:
+            with quiet, self.assertRaises(RuntimeError) as failure:
+                bench.measure_mlx(Path("python"), self.args(), Path(temporary))
+        self.assertIn("MLX did not finish within 1800 s", str(failure.exception))
+        self.assertIn("--gemm-repeat 64", str(failure.exception))
+
+
+class Report(unittest.TestCase):
+    REPORT = {"config": {"gemm": [256, 256, 256], "gemm_repeat": 8, "samples": 2},
+              "backends": [{"backend": "classic"}], "timing": {"unit": "ns"}}
+
+    def test_the_runner_report_is_written_before_mlx_and_rewritten_with_it(self):
+        mlx = mlx_result()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "report.json"
+
+            def measure():
+                self.assertNotIn("mlx", json.loads(output.read_text()))
+                return mlx
+            bench.write_report(output, self.REPORT, measure)
+            self.assertEqual(json.loads(output.read_text())["mlx"], mlx)
+
+    def test_a_failing_mlx_run_keeps_the_runner_report(self):
+        def measure():
+            raise RuntimeError("MLX did not finish")
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "report.json"
+            with self.assertRaises(RuntimeError) as failure:
+                bench.write_report(output, self.REPORT, measure)
+            self.assertEqual(json.loads(output.read_text()), self.REPORT)
+        self.assertIn("MLX did not finish", str(failure.exception))
+        self.assertIn("holds the report without MLX", str(failure.exception))
+
+    def test_without_mlx_the_report_is_written_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "nested" / "report.json"
+            self.assertEqual(bench.write_report(output, self.REPORT), self.REPORT)
+            self.assertEqual(json.loads(output.read_text()), self.REPORT)
 
 
 class Timing(unittest.TestCase):
