@@ -170,8 +170,8 @@ def argument_parser():
     parser.add_argument("--gemm-repeat", type=positive, default=64, metavar="R",
                         help="GEMMs per sample, back to back in one command buffer "
                              "(default: 64, at most 256)")
-    parser.add_argument("--sort", type=positive, default=1 << 20, metavar="KEYS",
-                        help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 20})")
+    parser.add_argument("--sort", type=positive, default=1 << 22, metavar="KEYS",
+                        help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 22})")
     parser.add_argument("--cases", type=case_list, default=list(WORKLOADS), metavar="LIST",
                         help="comma-separated workloads to build and measure "
                              f"(default: {','.join(WORKLOADS)})")
