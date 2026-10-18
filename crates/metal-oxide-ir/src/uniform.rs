@@ -185,12 +185,7 @@ pub(crate) fn validate(
         {
             for (index, statement) in block.statements.iter().enumerate() {
                 let needed = scope(&statement.value, &scopes);
-                let fallible_callee = match statement.value {
-                    Expression::Call { function, .. } if analyses[function].fallible => {
-                        Some(function)
-                    }
-                    _ => None,
-                };
+                let fallible_callee = statement.value.fallible_callee(analyses);
                 if needed.is_none() && fallible_callee.is_none() {
                     continue;
                 }

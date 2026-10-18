@@ -35,8 +35,16 @@ impl Expression {
         }
     }
 
+    /// The index of the called function, if the expression calls one that can fail a check.
+    pub fn fallible_callee(&self, functions: &[FunctionAnalysis]) -> Option<usize> {
+        match self {
+            Self::Call { function, .. } if functions[*function].fallible => Some(*function),
+            _ => None,
+        }
+    }
+
     pub fn is_fallible(&self, functions: &[FunctionAnalysis]) -> bool {
-        matches!(self, Self::Call { function, .. } if functions[*function].fallible)
+        self.fallible_callee(functions).is_some()
     }
 
     /// A dispatch skipped after an earlier failure must not evaluate the expression.
