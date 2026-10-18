@@ -62,7 +62,6 @@ dependencies = [
  "metal-oxide-artifact",
  "metal-oxide-build",
  "miniz_oxide",
- "serde",
  "serde_json",
 ]
 
@@ -415,7 +414,6 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "fft",
  "metal-oxide",
- "metal-oxide-artifact",
  "objc2",
  "objc2-metal",
  "objc2-metal-performance-shaders",
