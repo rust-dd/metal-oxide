@@ -43,8 +43,8 @@ impl DeviceType {
     }
 }
 
-/// The buffers that SIMD-group matrices load from.
-pub(super) fn loads_matrices(kind: DeviceType) -> bool {
+/// The buffers that elements and SIMD-group matrices load from.
+pub(super) fn readable(kind: DeviceType) -> bool {
     matches!(
         kind,
         DeviceType::ReadBuffer
@@ -54,8 +54,8 @@ pub(super) fn loads_matrices(kind: DeviceType) -> bool {
     )
 }
 
-/// The buffers that SIMD-group matrices store to.
-pub(super) fn stores_matrices(kind: DeviceType) -> bool {
+/// The buffers that elements and SIMD-group matrices store to.
+pub(super) fn writable(kind: DeviceType) -> bool {
     matches!(
         kind,
         DeviceType::WriteBuffer
@@ -202,20 +202,8 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         device_type(tcx, owner.did())?,
         tcx.item_name(definition).as_str(),
     ) {
-        (
-            DeviceType::ReadBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer,
-            "load_unchecked",
-        ) => Some(Intrinsic::BufferLoad),
-        (
-            DeviceType::WriteBuffer
-            | DeviceType::ReadWriteBuffer
-            | DeviceType::ThreadgroupBuffer
-            | DeviceType::DynamicThreadgroupBuffer,
-            "store_unchecked",
-        ) => Some(Intrinsic::BufferStore),
+        (kind, "load_unchecked") if readable(kind) => Some(Intrinsic::BufferLoad),
+        (kind, "store_unchecked") if writable(kind) => Some(Intrinsic::BufferStore),
         (
             DeviceType::ReadBuffer
             | DeviceType::WriteBuffer
@@ -237,12 +225,12 @@ pub(super) fn operation(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic>
         (DeviceType::Matrix, "multiply_accumulate") => {
             Some(Intrinsic::Matrix(MatrixOp::MultiplyAccumulate))
         }
-        (kind, method @ ("load_matrix" | "load_matrix_transposed")) if loads_matrices(kind) => {
+        (kind, method @ ("load_matrix" | "load_matrix_transposed")) if readable(kind) => {
             Some(Intrinsic::Matrix(MatrixOp::Load {
                 transposed: method == "load_matrix_transposed",
             }))
         }
-        (kind, method @ ("store_matrix" | "store_matrix_transposed")) if stores_matrices(kind) => {
+        (kind, method @ ("store_matrix" | "store_matrix_transposed")) if writable(kind) => {
             Some(Intrinsic::Matrix(MatrixOp::Store {
                 transposed: method == "store_matrix_transposed",
             }))
