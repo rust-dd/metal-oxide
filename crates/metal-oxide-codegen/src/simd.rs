@@ -1,5 +1,7 @@
 use metal_oxide_ir::*;
 
+use crate::interface::uses;
+
 pub(crate) fn expression(op: SimdOp, arguments: Vec<String>) -> String {
     let name = match op {
         SimdOp::InclusiveSum => "simd_prefix_inclusive_sum".into(),
@@ -16,21 +18,16 @@ pub(crate) fn expression(op: SimdOp, arguments: Vec<String>) -> String {
 }
 
 pub(crate) fn helpers(module: &Module) -> String {
-    if !module
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.statements)
-        .any(|statement| {
-            matches!(
-                statement.value,
-                Expression::Simd {
-                    op: SimdOp::Ballot,
-                    ..
-                }
-            )
-        })
-    {
+    let ballot = uses(module, |value| {
+        matches!(
+            value,
+            Expression::Simd {
+                op: SimdOp::Ballot,
+                ..
+            }
+        )
+    });
+    if !ballot {
         return String::new();
     }
     let ty =

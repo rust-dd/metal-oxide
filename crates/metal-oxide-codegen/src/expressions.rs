@@ -269,16 +269,9 @@ pub(crate) fn expression(
             op: operation,
             arguments,
         } => {
-            let element = match ty(&arguments[0])? {
-                Type::Scalar(scalar) | Type::Matrix(scalar) => scalar,
-                Type::Buffer {
-                    element: Element::Scalar(scalar),
-                    ..
-                } => scalar,
-                _ => unreachable!("validated matrix operand"),
-            };
+            let types = arguments.iter().map(ty).collect::<Result<Vec<_>, _>>()?;
             let arguments = arguments.iter().map(op).collect::<Vec<_>>();
-            crate::matrix::expression(*operation, element, &arguments)
+            crate::matrix::expression(*operation, &types, &arguments)
         }
         Expression::ThreadgroupAlloc { id, .. } => format!("metal_oxide_shared_{id}"),
         Expression::ThreadgroupBarrier => "threadgroup_barrier(mem_flags::mem_threadgroup)".into(),

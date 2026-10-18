@@ -1,13 +1,13 @@
 use metal_oxide_ir::*;
 
-use crate::expressions::scalar_name;
+use crate::{expressions::scalar_name, interface::uses};
 
-/// MSL for a matrix operation whose first operand holds or is an `element` value.
-pub(crate) fn expression(op: MatrixOp, element: Scalar, arguments: &[String]) -> String {
-    let name = scalar_name(element);
+/// MSL for a matrix operation over operands of these types.
+pub(crate) fn expression(op: MatrixOp, types: &[Type], arguments: &[String]) -> String {
     match op {
         MatrixOp::Splat => format!(
-            "make_filled_simdgroup_matrix<{name}, 8, 8>({})",
+            "make_filled_simdgroup_matrix<{}, 8, 8>({})",
+            element_name(types[0]),
             arguments[0]
         ),
         MatrixOp::MultiplyAccumulate => format!(
@@ -16,8 +16,12 @@ pub(crate) fn expression(op: MatrixOp, element: Scalar, arguments: &[String]) ->
         ),
         // Metal takes the origin as (column, row).
         MatrixOp::Load { transposed } => format!(
-            "metal_oxide_matrix_load<{name}>({}, ulong({}), ulong2({}, {}), {transposed})",
-            arguments[0], arguments[3], arguments[2], arguments[1]
+            "metal_oxide_matrix_load<{}>({}, ulong({}), ulong2({}, {}), {transposed})",
+            element_name(types[0]),
+            arguments[0],
+            arguments[3],
+            arguments[2],
+            arguments[1]
         ),
         MatrixOp::Store { transposed } => format!(
             "simdgroup_store({}, {}, ulong({}), ulong2({}, {}), {transposed})",
@@ -26,22 +30,29 @@ pub(crate) fn expression(op: MatrixOp, element: Scalar, arguments: &[String]) ->
     }
 }
 
+/// The MSL element type of a splat value or of the buffer a matrix is loaded from.
+fn element_name(ty: Type) -> &'static str {
+    match ty {
+        Type::Scalar(scalar)
+        | Type::Buffer {
+            element: Element::Scalar(scalar),
+            ..
+        } => scalar_name(scalar),
+        _ => unreachable!("validated matrix operand"),
+    }
+}
+
 /// Value-returning forms of the Metal matrix operations that write an out-parameter.
 pub(crate) fn helpers(module: &Module) -> &'static str {
-    let used = module
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.statements)
-        .any(|statement| {
-            matches!(
-                statement.value,
-                Expression::Matrix {
-                    op: MatrixOp::Load { .. } | MatrixOp::MultiplyAccumulate,
-                    ..
-                }
-            )
-        });
+    let used = uses(module, |value| {
+        matches!(
+            value,
+            Expression::Matrix {
+                op: MatrixOp::Load { .. } | MatrixOp::MultiplyAccumulate,
+                ..
+            }
+        )
+    });
     if used { HELPERS } else { "" }
 }
 

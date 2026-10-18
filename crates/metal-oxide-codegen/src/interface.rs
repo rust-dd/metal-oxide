@@ -178,7 +178,10 @@ fn contains_scalar(module: &Module, ty: Type, scalar: Scalar) -> bool {
     }
 }
 
-fn uses(module: &Module, operation: impl Fn(&metal_oxide_ir::Expression) -> bool) -> bool {
+pub(crate) fn uses(
+    module: &Module,
+    operation: impl Fn(&metal_oxide_ir::Expression) -> bool,
+) -> bool {
     module
         .functions
         .iter()
