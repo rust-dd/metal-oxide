@@ -31,7 +31,8 @@ impl Program {
         n: u32,
         half_span: u32,
     ) -> Result<()> {
-        // SAFETY: the caller's rows, `n` and `half_span` meet the kernel's contract.
+        // SAFETY: the caller's rows, `n` and `half_span` meet the kernel's contract; the borrows
+        // exclude other users, and the batch orders its other stages around this one.
         unsafe {
             match self {
                 Self::Generated(device) => batch
@@ -84,6 +85,10 @@ pub(super) fn fft(
     re: &[f32],
     im: &[f32],
 ) -> Result<(Vec<f32>, Vec<f32>)> {
+    assert!(
+        im.len() == re.len() && re.len().is_multiple_of(n as usize),
+        "both parts hold whole rows of {n} values"
+    );
     let rows = u32::try_from(re.len() / n as usize).expect("at most u32::MAX rows");
     let unwritten = vec![f32::NAN; re.len()];
     let mut pairs = [

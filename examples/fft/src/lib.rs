@@ -12,8 +12,8 @@ pub mod stockham {
     pub const BLOCK: u32 = 256;
 
     /// # Safety
-    /// Every buffer holds `n` values, a power of two, per row of a two-dimensional grid's y axis;
-    /// `half_span` is a power of two below `n`.
+    /// Every buffer holds `n` values, a power of two, per row of a two-dimensional grid's y axis,
+    /// and nothing else accesses them; `half_span` is a power of two below `n`.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn fft_stage(
         input_re: ReadBuffer<f32>,
@@ -30,8 +30,8 @@ pub mod stockham {
             let j = butterfly & (half_span - 1);
             let (sin, cos) = math::sin_cos(-2.0 * PI * j as f32 / (half_span << 1) as f32);
             let (input, output) = (row + butterfly, row + (butterfly << 1) - j);
-            // SAFETY: with powers of two, both inputs and both outputs lie in the butterfly's row,
-            // and no other butterfly writes these outputs.
+            // SAFETY: with powers of two, the inputs and outputs lie in the butterfly's row; only
+            // this butterfly writes these outputs, and nothing else accesses the buffers.
             unsafe {
                 let a_re = input_re.load_unchecked(input);
                 let a_im = input_im.load_unchecked(input);

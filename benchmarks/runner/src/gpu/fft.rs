@@ -136,7 +136,8 @@ unsafe fn push(
     n: u32,
     half_span: u32,
 ) -> metal_oxide::Result<()> {
-    // SAFETY: the caller's rows, `n` and `half_span` meet the kernel's contract.
+    // SAFETY: the caller's rows, `n` and `half_span` meet the kernel's contract; the borrows
+    // exclude other users, and the batch orders its other stages around this one.
     unsafe {
         batch
             .push(Launch::new(
