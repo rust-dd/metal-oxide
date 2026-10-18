@@ -198,19 +198,25 @@ impl Wake for Unpark {
     }
 }
 
-/// One report per measured backend; MPS ignores the runtime's backend, so it joins the classic run.
+/// Whether this process also measures MPS, which ignores the runtime's backend: only the classic
+/// run does.
+fn measures_mps(backend: &str) -> bool {
+    backend == "classic"
+}
+
+/// One report per measured backend, with MPS's cases as a backend of their own.
 fn backend_reports(
     device: &str,
     backend: &str,
     cases: Vec<Case>,
-    mps: impl FnOnce() -> Result<Vec<Case>>,
-) -> Result<Vec<serde_json::Value>> {
+    mps: Option<Vec<Case>>,
+) -> Vec<serde_json::Value> {
     let mut backends =
         vec![serde_json::json!({"device": device, "backend": backend, "cases": cases})];
-    if backend == "classic" {
-        backends.push(serde_json::json!({"device": device, "backend": "mps", "cases": mps()?}));
+    if let Some(mps) = mps {
+        backends.push(serde_json::json!({"device": device, "backend": "mps", "cases": mps}));
     }
-    Ok(backends)
+    backends
 }
 
 pub(super) fn run() -> Result<()> {
@@ -228,11 +234,10 @@ pub(super) fn run() -> Result<()> {
         cases.push(scan::run(&device, &config, variant)?);
         cases.push(particle::run(&device, &config, variant)?);
         cases.push(matrix::run(&device, &config, variant)?);
-        cases.extend(gemm::run(&device, &config, &problem, variant)?);
     }
-    let backends = backend_reports(&device.name(), &backend, cases, || {
-        gemm::run(&device, &config, &problem, "mps")
-    })?;
+    let (gemm, mps) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
+    cases.extend(gemm);
+    let backends = backend_reports(&device.name(), &backend, cases, mps);
     std::fs::write(output, serde_json::to_vec_pretty(&backends)?)?;
     Ok(())
 }

@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use super::*;
 
 #[test]
@@ -85,7 +87,7 @@ fn finish_adds_the_gpu_time_of_one_gemm_rounded_to_the_nanosecond() {
 }
 
 #[test]
-fn finish_reports_no_gemm_time_without_gpu_timestamps() {
+fn finish_reports_no_gpu_time_per_gemm_without_gpu_timestamps() {
     let mut case = Case::new("gemm-f32", "rust", vec![2, 2, 2]);
     case.samples.push(Sample::default());
     let case = finish(case).unwrap();
@@ -109,4 +111,77 @@ fn finish_adds_the_host_time_of_one_gemm_from_submit_and_wait() {
     let each = &case.summary_ns["host_per_gemm_ns"];
     assert_eq!((each.min, each.median, each.max), (100, 250, 501));
     assert!(!case.summary_ns.contains_key("gpu_per_gemm_ns"));
+}
+
+#[test]
+fn every_round_takes_each_candidate_once_starting_one_further() {
+    let order = |count, round| round_order(count, round).collect::<Vec<_>>();
+    assert_eq!(order(3, 0), [0, 1, 2]);
+    assert_eq!(order(3, 1), [1, 2, 0]);
+    assert_eq!(order(3, 2), [2, 0, 1]);
+    assert_eq!(order(3, 3), [0, 1, 2]);
+    assert_eq!(order(2, 5), [1, 0]);
+    assert_eq!(order(1, 7), [0]);
+    assert!(order(0, 4).is_empty());
+}
+
+/// Records which candidate sampled, in order, and whether the sample was kept.
+struct Recorder {
+    id: usize,
+    log: Rc<RefCell<Vec<(usize, bool)>>>,
+    case: Case,
+}
+
+impl Candidate for Recorder {
+    fn sample(&mut self, _: &Problem, keep: bool) -> Result<()> {
+        self.log.borrow_mut().push((self.id, keep));
+        if keep {
+            self.case.samples.push(Sample {
+                submit_ns: 10 * self.id as u64,
+                ..Sample::default()
+            });
+        }
+        Ok(())
+    }
+
+    fn finish(self: Box<Self>) -> Result<Case> {
+        finish(self.case)
+    }
+}
+
+#[test]
+fn interleaving_rotates_the_candidates_through_warmup_and_timed_rounds() {
+    let config: Config = serde_json::from_value(serde_json::json!({
+        "artifacts": {}, "references": {}, "samples": 2, "warmup": 1, "elements": 1,
+        "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": 1,
+    }))
+    .unwrap();
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let candidates = (0..3)
+        .map(|id| {
+            let case = Case::new("gemm-f32", ["rust", "msl", "mps"][id], vec![1, 1, 1]);
+            let log = Rc::clone(&log);
+            Box::new(Recorder { id, log, case }) as Box<dyn Candidate>
+        })
+        .collect();
+    let cases = interleave(&config, &Problem::new([1, 1, 1]), candidates).unwrap();
+    let warmup = [(0, false), (1, false), (2, false)];
+    let timed = [
+        (1, true),
+        (2, true),
+        (0, true),
+        (2, true),
+        (0, true),
+        (1, true),
+    ];
+    assert_eq!(log.borrow()[..], [&warmup[..], &timed[..]].concat());
+    let variants = cases
+        .iter()
+        .map(|case| case.variant.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(variants, ["rust", "msl", "mps"]);
+    for (id, case) in cases.iter().enumerate() {
+        assert_eq!(case.samples.len(), 2);
+        assert_eq!(case.summary_ns["host_per_gemm_ns"].median, 10 * id as u64);
+    }
 }

@@ -1,5 +1,5 @@
 use super::*;
-use metal_oxide::{Argument, Dim3, F16, GpuValue, LaunchConfig};
+use metal_oxide::{Argument, Buffer, Dim3, F16, GpuValue, LaunchConfig};
 
 mod mps;
 #[cfg(test)]
@@ -96,57 +96,121 @@ fn finish(case: Case) -> Result<Case> {
     Ok(case)
 }
 
+/// A GEMM variant set up for one input type: each call measures and checks one sample.
+trait Candidate {
+    /// Runs one sample, kept for the report unless it belongs to the warmup.
+    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()>;
+
+    fn finish(self: Box<Self>) -> Result<Case>;
+}
+
+/// The candidates of `round` in turn: each once, starting with the one at `round` modulo `count`.
+fn round_order(count: usize, round: usize) -> impl Iterator<Item = usize> {
+    (0..count).map(move |offset| (round + offset) % count)
+}
+
+/// Gives every candidate one sample per warmup and timed round, so drift during the run reaches
+/// them alike.
+fn interleave(
+    config: &Config,
+    problem: &Problem,
+    mut candidates: Vec<Box<dyn Candidate + '_>>,
+) -> Result<Vec<Case>> {
+    for round in 0..config.warmup + config.samples {
+        for index in round_order(candidates.len(), round) {
+            candidates[index].sample(problem, round >= config.warmup)?;
+        }
+    }
+    candidates
+        .into_iter()
+        .map(|candidate| candidate.finish())
+        .collect()
+}
+
+/// The rust and msl GEMM cases of this process and, with `with_mps`, MPS's, interleaved per
+/// input type.
 pub(super) fn run(
     device: &Device,
     config: &Config,
     problem: &Problem,
-    variant: &str,
-) -> Result<Vec<Case>> {
-    if variant == "mps" {
-        return mps::run(device, config, problem);
-    }
+    with_mps: bool,
+) -> Result<(Vec<Case>, Option<Vec<Case>>)> {
     let [a, b] = problem.half();
-    Ok(vec![
-        measure(
-            device,
-            config,
-            problem,
-            variant,
-            "f32",
-            (&problem.a, &problem.b),
-        )?,
-        measure(device, config, problem, variant, "f16", (&a, &b))?,
-    ])
+    let values = (problem.a.as_slice(), problem.b.as_slice());
+    let mut cases = measure(device, config, problem, "f32", values, with_mps)?;
+    cases.extend(measure(device, config, problem, "f16", (&a, &b), with_mps)?);
+    let (mps, kernels): (Vec<_>, Vec<_>) =
+        cases.into_iter().partition(|case| case.variant == "mps");
+    Ok((kernels, with_mps.then_some(mps)))
 }
 
-fn measure<T: GpuValue>(
+fn measure<T: GpuValue + mps::Element>(
     device: &Device,
     config: &Config,
     problem: &Problem,
-    variant: &str,
     input: &str,
-    (a_values, b_values): (&[T], &[T]),
-) -> Result<Case> {
-    let [m, n, k] = problem.shape;
-    let name = format!("gemm-{input}");
-    let mut case = Case::new(&name, variant, problem.shape.to_vec());
-    case.repeat = config.gemm_repeat;
-    let entry = if variant == "rust" {
-        format!("gemm_{input}")
-    } else {
-        format!("gemm_{input}_reference")
-    };
-    let pipelines = case.pipelines(device, config, "gemm", &[&entry])?;
-    let start = Instant::now();
-    let mut a = device.buffer_zeroed::<T>(a_values.len())?;
-    let mut b = device.buffer_zeroed::<T>(b_values.len())?;
-    let mut c = device.buffer_zeroed::<f32>(problem.expected.len())?;
-    case.allocation_ns = elapsed(start);
-    let launch = LaunchConfig::<128>::new(Dim3::xy(n.div_ceil(64), m.div_ceil(64)));
-    for iteration in 0..config.warmup + config.samples {
+    values: (&[T], &[T]),
+    with_mps: bool,
+) -> Result<Vec<Case>> {
+    let mut candidates = Vec::<Box<dyn Candidate + '_>>::new();
+    for variant in ["rust", "msl"] {
+        let kernel = Kernel::new(device, config, problem, (variant, input), values)?;
+        candidates.push(Box::new(kernel));
+    }
+    if with_mps {
+        let library = mps::Mps::new(device, config, problem, input, values)?;
+        candidates.push(Box::new(library));
+    }
+    interleave(config, problem, candidates)
+}
+
+/// The generated kernel (`rust`) or its MSL twin (`msl`) with buffers of its own.
+struct Kernel<'a, T: GpuValue> {
+    case: Case,
+    pipeline: Pipeline,
+    values: (&'a [T], &'a [T]),
+    buffers: (Buffer<T>, Buffer<T>, Buffer<f32>),
+}
+
+impl<'a, T: GpuValue> Kernel<'a, T> {
+    fn new(
+        device: &Device,
+        config: &Config,
+        problem: &Problem,
+        (variant, input): (&str, &str),
+        values: (&'a [T], &'a [T]),
+    ) -> Result<Self> {
+        let mut case = Case::new(&format!("gemm-{input}"), variant, problem.shape.to_vec());
+        case.repeat = config.gemm_repeat;
+        let entry = if variant == "rust" {
+            format!("gemm_{input}")
+        } else {
+            format!("gemm_{input}_reference")
+        };
+        let pipeline = case.pipelines(device, config, "gemm", &[&entry])?.remove(0);
         let start = Instant::now();
-        a.write().wait().copy_from_slice(a_values);
-        b.write().wait().copy_from_slice(b_values);
+        let buffers = (
+            device.buffer_zeroed::<T>(values.0.len())?,
+            device.buffer_zeroed::<T>(values.1.len())?,
+            device.buffer_zeroed::<f32>(problem.expected.len())?,
+        );
+        case.allocation_ns = elapsed(start);
+        Ok(Self {
+            case,
+            pipeline,
+            values,
+            buffers,
+        })
+    }
+}
+
+impl<T: GpuValue> Candidate for Kernel<'_, T> {
+    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()> {
+        let [m, n, k] = problem.shape;
+        let (a, b, c) = &mut self.buffers;
+        let start = Instant::now();
+        a.write().wait().copy_from_slice(self.values.0);
+        b.write().wait().copy_from_slice(self.values.1);
         let copy = elapsed(start);
         c.write().wait().fill(f32::NAN);
         let start = Instant::now();
@@ -154,14 +218,16 @@ fn measure<T: GpuValue>(
         b.upload();
         c.upload();
         let upload = elapsed(start);
+        let launch = LaunchConfig::<128>::new(Dim3::xy(n.div_ceil(64), m.div_ceil(64)));
+        let (pipeline, repeat) = (&self.pipeline, self.case.repeat);
         let mut sample = dispatch(|batch| {
-            let (mut left, mut right, mut out) = (&a, &b, &mut c);
+            let (mut left, mut right, mut out) = (&*a, &*b, &mut *c);
             // SAFETY: distinct buffers cover m*k, k*n and m*n elements, the grid is the kernel's,
             // and dimensions of at most 8192 keep every index in u32.
             unsafe {
-                for _ in 0..config.gemm_repeat {
+                for _ in 0..repeat {
                     (left, right, out, ..) = batch.push(Launch::new(
-                        Ok(&pipelines[0]),
+                        Ok(pipeline),
                         launch,
                         (left, right, out, m, n, k),
                         |(a, b, c, m, n, k)| {
@@ -182,12 +248,22 @@ fn measure<T: GpuValue>(
         let start = Instant::now();
         let result = c.read().wait();
         sample.readback_ns = elapsed(start);
-        check(&format!("{name} {variant}"), result, &problem.expected, n)?;
+        let case = &mut self.case;
+        check(
+            &format!("{} {}", case.name, case.variant),
+            result,
+            &problem.expected,
+            n,
+        )?;
         sample.input_copy_ns = copy;
         sample.upload_ns = upload;
-        if iteration >= config.warmup {
+        if keep {
             case.samples.push(sample);
         }
+        Ok(())
     }
-    finish(case)
+
+    fn finish(self: Box<Self>) -> Result<Case> {
+        finish(self.case)
+    }
 }

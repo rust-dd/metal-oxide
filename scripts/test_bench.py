@@ -217,6 +217,13 @@ class Merge(unittest.TestCase):
                 bench.merge_mlx(self.report(), self.mlx(**changes))
 
 
+class Timing(unittest.TestCase):
+    def test_the_interleave_note_names_the_order_and_the_drift_between_runs(self):
+        for words in ("take turns", "rotating every round", "separate processes",
+                      "report the spread", "drift control"):
+            self.assertIn(words, bench.INTERLEAVE_TIMING)
+
+
 class MlxEnvironment(unittest.TestCase):
     PIN = f"mlx=={bench.MLX_VERSION}"
 

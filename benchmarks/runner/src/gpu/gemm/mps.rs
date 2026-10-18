@@ -61,7 +61,7 @@ impl Matrix {
 }
 
 /// An input element type and the MPS data type that names it.
-trait Element: Copy {
+pub(super) trait Element: Copy {
     const DATA_TYPE: MPSDataType;
 
     fn bytes(self) -> impl IntoIterator<Item = u8>;
@@ -163,73 +163,93 @@ fn submit(
     })
 }
 
-pub(super) fn run(device: &Device, config: &Config, problem: &Problem) -> Result<Vec<Case>> {
-    let [a, b] = problem.half();
-    Ok(vec![
-        measure(device, config, problem, "f32", (&problem.a, &problem.b))?,
-        measure(device, config, problem, "f16", (&a, &b))?,
-    ])
+/// MPSMatrixMultiplication for one input type, on its own queue and shared matrices.
+pub(super) struct Mps {
+    case: Case,
+    queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
+    kernel: Retained<MPSMatrixMultiplication>,
+    matrices: [Matrix; 3],
+    /// A and B with MPS's row stride.
+    values: [Vec<u8>; 2],
+    result: Vec<f32>,
 }
 
-fn measure<T: Element>(
-    device: &Device,
-    config: &Config,
-    problem: &Problem,
-    input: &str,
-    (a_values, b_values): (&[T], &[T]),
-) -> Result<Case> {
-    let [m, n, k] = problem.shape.map(|dimension| dimension as usize);
-    let name = format!("gemm-{input}");
-    let mut case = new_case(&name, problem.shape, config.gemm_repeat);
-    let native = device.as_native();
-    let queue = native
-        .newCommandQueue()
-        .ok_or("MPS command queue creation failed")?;
-    let start = Instant::now();
-    // SAFETY: the kernel is created for the shapes of the matrices below.
-    let kernel = unsafe {
-        MPSMatrixMultiplication::initWithDevice_resultRows_resultColumns_interiorColumns(
-            MPSMatrixMultiplication::alloc(),
-            native,
-            m,
-            n,
-            k,
-        )
-    };
-    case.pipeline_ns = elapsed(start);
-    let start = Instant::now();
-    let mut a = Matrix::new(native, [m, k], T::DATA_TYPE)?;
-    let mut b = Matrix::new(native, [k, n], T::DATA_TYPE)?;
-    let mut c = Matrix::new(native, [m, n], MPSDataType::Float32)?;
-    case.allocation_ns = elapsed(start);
-    let tight = |values: &[T]| values.iter().flat_map(|&x| x.bytes()).collect::<Vec<_>>();
-    let a_values = pad_rows(&tight(a_values), m, a.row_bytes);
-    let b_values = pad_rows(&tight(b_values), k, b.row_bytes);
-    let mut result = Vec::with_capacity(m * n);
-    for iteration in 0..config.warmup + config.samples {
+impl Mps {
+    pub(super) fn new<T: Element>(
+        device: &Device,
+        config: &Config,
+        problem: &Problem,
+        input: &str,
+        (a_values, b_values): (&[T], &[T]),
+    ) -> Result<Self> {
+        let [m, n, k] = problem.shape.map(|dimension| dimension as usize);
+        let mut case = new_case(&format!("gemm-{input}"), problem.shape, config.gemm_repeat);
+        let native = device.as_native();
+        let queue = native
+            .newCommandQueue()
+            .ok_or("MPS command queue creation failed")?;
         let start = Instant::now();
-        a.bytes().copy_from_slice(&a_values);
-        b.bytes().copy_from_slice(&b_values);
+        // SAFETY: the kernel is created for the shapes of the matrices below.
+        let kernel = unsafe {
+            MPSMatrixMultiplication::initWithDevice_resultRows_resultColumns_interiorColumns(
+                MPSMatrixMultiplication::alloc(),
+                native,
+                m,
+                n,
+                k,
+            )
+        };
+        case.pipeline_ns = elapsed(start);
+        let start = Instant::now();
+        let matrices = [
+            Matrix::new(native, [m, k], T::DATA_TYPE)?,
+            Matrix::new(native, [k, n], T::DATA_TYPE)?,
+            Matrix::new(native, [m, n], MPSDataType::Float32)?,
+        ];
+        case.allocation_ns = elapsed(start);
+        let tight = |values: &[T]| values.iter().flat_map(|&x| x.bytes()).collect::<Vec<_>>();
+        let values = [
+            pad_rows(&tight(a_values), m, matrices[0].row_bytes),
+            pad_rows(&tight(b_values), k, matrices[1].row_bytes),
+        ];
+        Ok(Self {
+            case,
+            queue,
+            kernel,
+            matrices,
+            values,
+            result: Vec::with_capacity(m * n),
+        })
+    }
+}
+
+impl Candidate for Mps {
+    fn sample(&mut self, problem: &Problem, keep: bool) -> Result<()> {
+        let [a, b, c] = &mut self.matrices;
+        let start = Instant::now();
+        a.bytes().copy_from_slice(&self.values[0]);
+        b.bytes().copy_from_slice(&self.values[1]);
         let copy = elapsed(start);
         // 0xFF bytes read as f32 NaN, so an element MPS leaves unwritten fails the check.
         c.bytes().fill(0xFF);
         let matrices = [&*a.matrix, &*b.matrix, &*c.matrix];
-        let mut sample = submit(&queue, &kernel, matrices, config.gemm_repeat)?;
+        let mut sample = submit(&self.queue, &self.kernel, matrices, self.case.repeat)?;
         let row_bytes = c.row_bytes;
         let start = Instant::now();
         let bytes = c.bytes();
         sample.readback_ns = elapsed(start);
-        unpad_rows(bytes, n, row_bytes, &mut result);
-        check(
-            &format!("{name} mps"),
-            &result,
-            &problem.expected,
-            problem.shape[1],
-        )?;
+        let columns = problem.shape[1];
+        unpad_rows(bytes, columns as usize, row_bytes, &mut self.result);
+        let name = format!("{} mps", self.case.name);
+        check(&name, &self.result, &problem.expected, columns)?;
         sample.input_copy_ns = copy;
-        if iteration >= config.warmup {
-            case.samples.push(sample);
+        if keep {
+            self.case.samples.push(sample);
         }
+        Ok(())
     }
-    finish(case)
+
+    fn finish(self: Box<Self>) -> Result<Case> {
+        finish(self.case)
+    }
 }

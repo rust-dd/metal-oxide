@@ -55,8 +55,10 @@ fn config_keeps_the_established_bounds() {
 
 #[test]
 fn mps_is_a_backend_of_its_own_in_the_classic_run_only() {
-    let mps = || Ok(vec![Case::new("gemm-f32", "mps", vec![1, 1, 1])]);
-    let classic = backend_reports("GPU", "classic", vec![], mps).unwrap();
+    assert!(measures_mps("classic"));
+    assert!(!measures_mps("metal4"));
+    let mps = vec![Case::new("gemm-f32", "mps", vec![1, 1, 1])];
+    let classic = backend_reports("GPU", "classic", vec![], Some(mps));
     let names = |reports: &[serde_json::Value]| {
         reports
             .iter()
@@ -66,6 +68,8 @@ fn mps_is_a_backend_of_its_own_in_the_classic_run_only() {
     assert_eq!(names(&classic), ["classic", "mps"]);
     assert_eq!(classic[1]["cases"][0]["variant"], "mps");
     assert_eq!(classic[1]["device"], "GPU");
-    let metal4 = backend_reports("GPU", "metal4", vec![], || panic!("MPS ran under Metal 4"));
-    assert_eq!(names(&metal4.unwrap()), ["metal4"]);
+    assert_eq!(
+        names(&backend_reports("GPU", "metal4", vec![], None)),
+        ["metal4"]
+    );
 }
