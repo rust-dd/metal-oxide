@@ -4,6 +4,10 @@ fn apple(newest: MTLGPUFamily) -> impl Fn(MTLGPUFamily) -> bool {
     move |family| (MTLGPUFamily::Apple1.0..=newest.0).contains(&family.0)
 }
 
+fn mac2(family: MTLGPUFamily) -> bool {
+    family == MTLGPUFamily::Mac2
+}
+
 #[test]
 fn bfloat_requires_an_apple_family_that_supports_it() {
     assert!(require("bfloat16", 15, apple(MTLGPUFamily::Apple6)).is_ok());
@@ -12,7 +16,7 @@ fn bfloat_requires_an_apple_family_that_supports_it() {
         Err(Error::UnsupportedDevice(_))
     ));
     assert!(matches!(
-        require("bfloat16", 15, |family| family == MTLGPUFamily::Mac2),
+        require("bfloat16", 15, mac2),
         Err(Error::UnsupportedDevice(_))
     ));
 }
@@ -26,7 +30,7 @@ fn apple_or_mac2_families_satisfy_artifact_features() {
         "logging",
     ] {
         assert!(require(feature, 15, apple(MTLGPUFamily::Apple7)).is_ok());
-        assert!(require(feature, 15, |family| family == MTLGPUFamily::Mac2).is_ok());
+        assert!(require(feature, 15, mac2).is_ok());
         assert!(matches!(
             require(feature, 15, |_| false),
             Err(Error::UnsupportedDevice(_))
@@ -48,7 +52,7 @@ fn atomic_features_check_os_and_apple_family() {
         assert!(require(name, macos, apple(family)).is_ok());
         assert!(require(name, macos - 1, apple(family)).is_err());
         assert!(require(name, macos, apple(MTLGPUFamily(family.0 - 1))).is_err());
-        assert!(require(name, macos, |family| family == MTLGPUFamily::Mac2).is_err());
+        assert!(require(name, macos, mac2).is_err());
     }
 }
 
@@ -60,8 +64,7 @@ fn simdgroup_matrices_require_apple7_and_32_lane_simd_groups() {
         Err(Error::UnsupportedDevice(_))
     ));
     assert!(matches!(
-        require("simdgroup_matrix", 15, |family| family
-            == MTLGPUFamily::Mac2),
+        require("simdgroup_matrix", 15, mac2),
         Err(Error::UnsupportedDevice(_))
     ));
     let matrices = ["simd_groups".to_owned(), "simdgroup_matrix".to_owned()];
