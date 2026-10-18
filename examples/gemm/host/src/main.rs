@@ -1,12 +1,13 @@
 #[metal_oxide::kernels(path = "../kernels")]
 mod kernels {}
 
-/// (m, n, k) from one element to an 8x8 grid of whole 64x64 tiles, ragged in every dimension.
+/// (m, n, k) from one element to an 8x8 grid of whole 64x64 tiles, ragged in every dimension;
+/// (63, 129, 33) gives the last edge turn a nonzero 31x32 part in two blocks.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 const SHAPES: [(u32, u32, u32); 7] = [
     (1, 1, 1),
     (8, 8, 8),
-    (63, 65, 17),
+    (63, 129, 33),
     (64, 64, 64),
     (128, 96, 48),
     (257, 129, 95),
@@ -41,6 +42,10 @@ fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<bool> {
     for (m, n, k) in SHAPES {
         let (a, b) = inputs(m, n, k);
         let expected = reference(&a, &b, (m, n, k));
+        assert!(
+            expected.iter().any(|&x| x != 0.0),
+            "gemm {m}x{n}x{k}: an all-zero C checks no value"
+        );
         let config = LaunchConfig::<128>::new(Dim3::xy(n.div_ceil(64), m.div_ceil(64)));
         let output = vec![SENTINEL; expected.len() + 8];
         let (input_a, input_b) = (device.buffer_from_slice(&a)?, device.buffer_from_slice(&b)?);
