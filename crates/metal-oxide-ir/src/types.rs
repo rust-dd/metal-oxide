@@ -1,4 +1,4 @@
-use crate::{Error, SourceLocation};
+use crate::{Access, Error, SourceLocation};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Scalar {
@@ -87,14 +87,6 @@ impl Scalar {
             Self::Isize => "isize",
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Access {
-    Read,
-    Write,
-    ReadWrite,
-    Atomic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

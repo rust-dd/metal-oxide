@@ -125,7 +125,7 @@ impl Mirrors {
                     ParameterType::Value { layout } => Kind::Value(ty(layout)?),
                     ParameterType::Buffer {
                         element, access, ..
-                    } => Kind::Buffer((*access).into(), ty(element)?),
+                    } => Kind::Buffer(*access, ty(element)?),
                     ParameterType::Threadgroup { element, .. } => Kind::Threadgroup(ty(element)?),
                 };
                 Ok(Parameter {

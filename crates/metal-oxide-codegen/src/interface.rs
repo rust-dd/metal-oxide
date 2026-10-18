@@ -54,12 +54,7 @@ impl KernelInterfaces {
                                 ParameterType::Buffer {
                                     stride: element.size,
                                     element,
-                                    access: match access {
-                                        Access::Read => artifact::Access::Read,
-                                        Access::Write => artifact::Access::Write,
-                                        Access::Atomic => artifact::Access::Atomic,
-                                        Access::ReadWrite => artifact::Access::ReadWrite,
-                                    },
+                                    access,
                                 }
                             }
                             _ => {

@@ -1,5 +1,5 @@
 use metal_oxide_artifact as artifact;
-use metal_oxide_ir::{Check, FunctionAnalysis, Module, OverflowOp, Terminator};
+use metal_oxide_ir::{Check, FunctionAnalysis, Module, Terminator};
 use std::collections::HashMap;
 
 /// Runtime check sites in emission order; a site's index is its id in the artifact table.
@@ -44,16 +44,7 @@ impl CheckTable {
 fn kind(check: &Check) -> artifact::CheckKind {
     match check {
         Check::Bounds => artifact::CheckKind::Bounds,
-        Check::Overflow(op) => artifact::CheckKind::Overflow(match op {
-            OverflowOp::Add => artifact::OverflowOp::Add,
-            OverflowOp::Sub => artifact::OverflowOp::Sub,
-            OverflowOp::Mul => artifact::OverflowOp::Mul,
-            OverflowOp::Div => artifact::OverflowOp::Div,
-            OverflowOp::Rem => artifact::OverflowOp::Rem,
-            OverflowOp::Neg => artifact::OverflowOp::Neg,
-            OverflowOp::Shl => artifact::OverflowOp::Shl,
-            OverflowOp::Shr => artifact::OverflowOp::Shr,
-        }),
+        Check::Overflow(op) => artifact::CheckKind::Overflow(*op),
         Check::DivisionByZero => artifact::CheckKind::DivisionByZero,
         Check::RemainderByZero => artifact::CheckKind::RemainderByZero,
         Check::SliceStart => artifact::CheckKind::SliceStart,

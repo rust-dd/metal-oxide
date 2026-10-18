@@ -1,17 +1,10 @@
+use metal_oxide_artifact::Access;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
     Attribute, FnArg, GenericArgument, Ident, ItemFn, Pat, PathArguments, ReturnType, Safety, Type,
     Visibility, ext::IdentExt,
 };
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Access {
-    Read,
-    Write,
-    ReadWrite,
-    Atomic,
-}
 
 pub(crate) enum Kind {
     Value(Type),

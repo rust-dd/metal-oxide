@@ -1,4 +1,4 @@
-use crate::launch::{Access, Kernel, Kind};
+use crate::launch::{Kernel, Kind};
 use metal_oxide_artifact::{Abi, ParameterType};
 use proc_macro2::Span;
 use syn::ext::IdentExt;
@@ -24,7 +24,7 @@ pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()
                 (Kind::Value(_), ParameterType::Value { .. })
                 | (Kind::Threadgroup(_), ParameterType::Threadgroup { .. }) => true,
                 (Kind::Buffer(access, _), ParameterType::Buffer { access: built, .. }) => {
-                    *access == Access::from(*built)
+                    access == built
                 }
                 _ => false,
             };
@@ -50,15 +50,4 @@ pub(crate) fn check(kernels: &[Kernel], abi: &Abi, span: Span) -> syn::Result<()
         return mismatch(&extra.name, "it has no `#[kernel]` function here".into());
     }
     Ok(())
-}
-
-impl From<metal_oxide_artifact::Access> for Access {
-    fn from(access: metal_oxide_artifact::Access) -> Self {
-        match access {
-            metal_oxide_artifact::Access::Read => Self::Read,
-            metal_oxide_artifact::Access::Write => Self::Write,
-            metal_oxide_artifact::Access::ReadWrite => Self::ReadWrite,
-            metal_oxide_artifact::Access::Atomic => Self::Atomic,
-        }
-    }
 }
