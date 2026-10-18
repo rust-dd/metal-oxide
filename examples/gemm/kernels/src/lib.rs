@@ -25,6 +25,42 @@ type Fragments = [[Matrix<f32>; 4]; 4];
 /// The 64x16 slice of A or the 16x64 slice of B that a block stages for one K step.
 type Staged<T> = ThreadgroupBuffer<T, 1024>;
 
+/// Loads the four fragments of `$source` down from (`$row`, `$column`).
+macro_rules! load_down {
+    ($source:expr, $row:expr, $column:expr, $stride:expr) => {
+        [
+            $source.load_matrix($row, $column, $stride),
+            $source.load_matrix($row + 8, $column, $stride),
+            $source.load_matrix($row + 16, $column, $stride),
+            $source.load_matrix($row + 24, $column, $stride),
+        ]
+    };
+}
+
+/// Loads the four fragments of `$source` across from (`$row`, `$column`).
+macro_rules! load_across {
+    ($source:expr, $row:expr, $column:expr, $stride:expr) => {
+        [
+            $source.load_matrix($row, $column, $stride),
+            $source.load_matrix($row, $column + 8, $stride),
+            $source.load_matrix($row, $column + 16, $stride),
+            $source.load_matrix($row, $column + 24, $stride),
+        ]
+    };
+}
+
+/// `$acc` plus the products of the A fragments `$a` (down) and the B fragments `$b` (across).
+macro_rules! multiply_slice {
+    ($acc:expr, $a:expr, $b:expr) => {
+        [
+            multiply_row($acc[0], $a[0], $b),
+            multiply_row($acc[1], $a[1], $b),
+            multiply_row($acc[2], $a[2], $b),
+            multiply_row($acc[3], $a[3], $b),
+        ]
+    };
+}
+
 /// Stores a SIMD group's fragments, the first at (`$row`, `$column`) of `$target`; literal
 /// indices keep the fragments in registers.
 macro_rules! store_fragments {
@@ -59,18 +95,25 @@ pub unsafe fn gemm<T: Input>(
     let group = simdgroup::group_id();
     let (row, column) = (group / 2 * 32, group % 2 * 32);
     let mut acc = [[Matrix::splat(0.0_f32); 4]; 4];
-    let mut base = 0;
+    let full = row0 + 64 <= m && column0 + 64 <= n;
     // SAFETY: the caller's contract bounds every global access and the block's tile of C is its
     // own; barriers that every thread reaches order the threadgroup accesses.
     unsafe {
-        while base < k {
-            stage(a, b, tile_a, tile_b, (row0, column0, base), (m, n, k));
-            threadgroup::barrier();
-            acc = multiply(acc, tile_a, tile_b, (row, column));
-            threadgroup::barrier();
-            base += 16;
+        // Device loads measured faster than staging; edge blocks stage to zero-pad partial tiles.
+        // `&` keeps one branch: the compiler does not duplicate the staged loop's barriers.
+        if full & k.is_multiple_of(16) {
+            acc = direct(acc, a, b, (row0 + row, column0 + column), (n, k));
+        } else {
+            let mut base = 0;
+            while base < k {
+                stage(a, b, tile_a, tile_b, (row0, column0, base), (m, n, k));
+                threadgroup::barrier();
+                acc = multiply(acc, tile_a, tile_b, (row, column));
+                threadgroup::barrier();
+                base += 16;
+            }
         }
-        if row0 + 64 <= m && column0 + 64 <= n {
+        if full {
             store_fragments!(c, acc, row0 + row, column0 + column, n);
             return;
         }
@@ -92,6 +135,33 @@ pub unsafe fn gemm<T: Input>(
             threadgroup::barrier();
         }
     }
+}
+
+/// Adds A * B to the fragments of the SIMD group whose 32x32 part of C starts at (`top`, `left`),
+/// two k slices per step straight from device memory; that part lies inside C and 16 divides k.
+unsafe fn direct<T: Input>(
+    mut acc: Fragments,
+    a: ReadBuffer<T>,
+    b: ReadBuffer<T>,
+    (top, left): (u32, u32),
+    (n, k): (u32, u32),
+) -> Fragments {
+    let mut inner = 0;
+    while inner < k {
+        // SAFETY: rows top..top + 32 of A, columns left..left + 32 of B and depth inner + 16 exist.
+        let (a0, b0, a1, b1) = unsafe {
+            (
+                load_down!(a, top, inner, k),
+                load_across!(b, inner, left, n),
+                load_down!(a, top, inner + 8, k),
+                load_across!(b, inner + 8, left, n),
+            )
+        };
+        acc = multiply_slice!(acc, a0, b0);
+        acc = multiply_slice!(acc, a1, b1);
+        inner += 16;
+    }
+    acc
 }
 
 /// Stages 8 elements of the A and B slices at depth `base` per thread, zero outside the matrices,
@@ -140,26 +210,11 @@ unsafe fn multiply<T: Input>(
         // SAFETY: the tiles are staged, and row and column of at most 32 keep each load inside.
         let (a, b) = unsafe {
             (
-                [
-                    tile_a.load_matrix(row, inner, 16),
-                    tile_a.load_matrix(row + 8, inner, 16),
-                    tile_a.load_matrix(row + 16, inner, 16),
-                    tile_a.load_matrix(row + 24, inner, 16),
-                ],
-                [
-                    tile_b.load_matrix(inner, column, 64),
-                    tile_b.load_matrix(inner, column + 8, 64),
-                    tile_b.load_matrix(inner, column + 16, 64),
-                    tile_b.load_matrix(inner, column + 24, 64),
-                ],
+                load_down!(tile_a, row, inner, 16),
+                load_across!(tile_b, inner, column, 64),
             )
         };
-        acc = [
-            multiply_row(acc[0], a[0], b),
-            multiply_row(acc[1], a[1], b),
-            multiply_row(acc[2], a[2], b),
-            multiply_row(acc[3], a[3], b),
-        ];
+        acc = multiply_slice!(acc, a, b);
     }
     acc
 }

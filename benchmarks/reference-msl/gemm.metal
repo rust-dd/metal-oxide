@@ -9,6 +9,18 @@ using namespace metal;
     X(2, 0) X(2, 1) X(2, 2) X(2, 3) X(3, 0) X(3, 1) X(3, 2) X(3, 3)
 #define ZERO(i, j) acc[i][j] = zero;
 #define MULTIPLY(i, j) simdgroup_multiply_accumulate(acc[i][j], fa[i], fb[j], acc[i][j]);
+#define MULTIPLY_NEXT(i, j) simdgroup_multiply_accumulate(acc[i][j], ga[i], gb[j], acc[i][j]);
+// Loads the four fragments `f` of `source` down from (row, column), or across from it.
+#define LOAD_DOWN(f, source, row, column, stride) \
+    simdgroup_load(f[0], source, stride, ulong2(column, row)); \
+    simdgroup_load(f[1], source, stride, ulong2(column, row + 8)); \
+    simdgroup_load(f[2], source, stride, ulong2(column, row + 16)); \
+    simdgroup_load(f[3], source, stride, ulong2(column, row + 24));
+#define LOAD_ACROSS(f, source, row, column, stride) \
+    simdgroup_load(f[0], source, stride, ulong2(column, row)); \
+    simdgroup_load(f[1], source, stride, ulong2(column + 8, row)); \
+    simdgroup_load(f[2], source, stride, ulong2(column + 16, row)); \
+    simdgroup_load(f[3], source, stride, ulong2(column + 24, row));
 #define STORE(i, j) \
     simdgroup_store(acc[i][j], c, n, ulong2(column0 + column + 8 * j, row0 + row + 8 * i));
 #define STAGE(i, j) simdgroup_store(acc[i][j], tile_c, 32, ulong2(8 * j, 8 * i));
@@ -36,34 +48,47 @@ static inline void gemm_block(
     simdgroup_matrix<float, 8, 8> zero = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
     simdgroup_matrix<float, 8, 8> acc[4][4];
     FRAGMENTS(ZERO)
-    for (uint base = 0; base < k; base += 16) {
-        for (uint step = 0; step < 8; ++step) {
-            uint slot = tid + 128 * step;
-            uint a_row = row0 + slot / 16;
-            uint a_inner = base + slot % 16;
-            tile_a[slot] = (a_row < m && a_inner < k) ? a[a_row * k + a_inner] : T(0);
-            uint b_inner = base + slot / 64;
-            uint b_column = column0 + slot % 64;
-            tile_b[slot] = (b_inner < k && b_column < n) ? b[b_inner * n + b_column] : T(0);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (uint slice = 0; slice < 2; ++slice) {
-            uint inner = 8 * slice;
+    bool full = row0 + 64 <= m && column0 + 64 <= n;
+    // Device loads measured faster than staging; edge blocks stage to zero-pad partial tiles.
+    if (full && k % 16 == 0) {
+        uint top = row0 + row;
+        uint left = column0 + column;
+        for (uint inner = 0; inner < k; inner += 16) {
             simdgroup_matrix<T, 8, 8> fa[4];
             simdgroup_matrix<T, 8, 8> fb[4];
-            simdgroup_load(fa[0], tile_a, 16, ulong2(inner, row));
-            simdgroup_load(fa[1], tile_a, 16, ulong2(inner, row + 8));
-            simdgroup_load(fa[2], tile_a, 16, ulong2(inner, row + 16));
-            simdgroup_load(fa[3], tile_a, 16, ulong2(inner, row + 24));
-            simdgroup_load(fb[0], tile_b, 64, ulong2(column, inner));
-            simdgroup_load(fb[1], tile_b, 64, ulong2(column + 8, inner));
-            simdgroup_load(fb[2], tile_b, 64, ulong2(column + 16, inner));
-            simdgroup_load(fb[3], tile_b, 64, ulong2(column + 24, inner));
+            simdgroup_matrix<T, 8, 8> ga[4];
+            simdgroup_matrix<T, 8, 8> gb[4];
+            LOAD_DOWN(fa, a, top, inner, k)
+            LOAD_ACROSS(fb, b, inner, left, n)
+            LOAD_DOWN(ga, a, top, inner + 8, k)
+            LOAD_ACROSS(gb, b, inner + 8, left, n)
             FRAGMENTS(MULTIPLY)
+            FRAGMENTS(MULTIPLY_NEXT)
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+    } else {
+        for (uint base = 0; base < k; base += 16) {
+            for (uint step = 0; step < 8; ++step) {
+                uint slot = tid + 128 * step;
+                uint a_row = row0 + slot / 16;
+                uint a_inner = base + slot % 16;
+                tile_a[slot] = (a_row < m && a_inner < k) ? a[a_row * k + a_inner] : T(0);
+                uint b_inner = base + slot / 64;
+                uint b_column = column0 + slot % 64;
+                tile_b[slot] = (b_inner < k && b_column < n) ? b[b_inner * n + b_column] : T(0);
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (uint slice = 0; slice < 2; ++slice) {
+                uint inner = 8 * slice;
+                simdgroup_matrix<T, 8, 8> fa[4];
+                simdgroup_matrix<T, 8, 8> fb[4];
+                LOAD_DOWN(fa, tile_a, row, inner, 16)
+                LOAD_ACROSS(fb, tile_b, inner, column, 64)
+                FRAGMENTS(MULTIPLY)
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
     }
-    if (row0 + 64 <= m && column0 + 64 <= n) {
+    if (full) {
         FRAGMENTS(STORE)
         return;
     }
