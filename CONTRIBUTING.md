@@ -52,6 +52,20 @@ cargo nextest run --features rustc-private --profile ci --locked --target-dir ..
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
 ```
 
+The scheduled generated-program fuzzer also runs locally from that directory:
+
+```sh
+METAL_OXIDE_BACKEND=classic METAL_OXIDE_FUZZ_GPU=1 METAL_OXIDE_FUZZ_SECONDS=2700 \
+  cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler \
+  --profile fuzz --test fuzz --run-ignored only --no-capture
+```
+
+This compares CPU Rust, host-executed MSL and GPU output for 45 minutes and prints
+progress each minute. On a Metal 4-capable device, repeat with
+`METAL_OXIDE_BACKEND=metal4`. Set `METAL_OXIDE_FUZZ_SEED` to a decimal `u64` to
+replay a sequence; otherwise the clock supplies the initial seed. Failures and
+their minimized programs are saved under the workspace's `target/fuzz/`.
+
 Compiler tests require `clang++`. They build matching device
 `core`/`compiler_builtins` metadata, the host marker macro, the device crate,
 and separate kernels. Portable tests

@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-metal"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "clap",
  "metal-oxide",
@@ -127,14 +127,14 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "cooperation"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "cooperation-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
 ]
@@ -194,7 +194,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "fft"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "gemm"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
  "objc2-metal",
@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "gemm-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
 ]
@@ -361,14 +361,14 @@ dependencies = [
 
 [[package]]
 name = "matmul"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "matmul-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
 ]
@@ -381,7 +381,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "metal-oxide"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "block2",
  "dispatch2",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-artifact"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "serde",
  "serde_json",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-bench"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "fft",
  "metal-oxide",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-build"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-artifact",
  "serde",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-codegen"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-artifact",
  "metal-oxide-ir",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-compiler"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-device"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "half",
  "metal-oxide-macros",
@@ -467,14 +467,14 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-ir"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-artifact",
 ]
 
 [[package]]
 name = "metal-oxide-kernel-tests"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
@@ -484,7 +484,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-artifact",
  "metal-oxide-build",
@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-macros"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 
 [[package]]
 name = "miniz_oxide"
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "nostd-numeric-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "libm",
  "metal-oxide-device",
@@ -604,18 +604,18 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "particle-device-math"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 
 [[package]]
 name = "particle-update"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "particle-update-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
  "particle-device-math",
@@ -629,18 +629,18 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipeline"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "pipeline-device-math"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 
 [[package]]
 name = "pipeline-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
  "pipeline-device-math",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "reduction"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
@@ -696,7 +696,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "saxpy"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
@@ -799,14 +799,14 @@ checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "sort"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "spectral"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
@@ -819,14 +819,14 @@ dependencies = [
 
 [[package]]
 name = "spectral-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
 ]
 
 [[package]]
 name = "stencil"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
@@ -1021,14 +1021,14 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vec-add"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide",
 ]
 
 [[package]]
 name = "vec-add-kernels"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 dependencies = [
  "metal-oxide-device",
 ]

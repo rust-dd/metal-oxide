@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "metal-oxide-device"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 source = "git+https://github.com/rust-dd/metal-oxide?rev=abc#abcdef"
 
 [[package]]
@@ -29,7 +29,7 @@ fn lock_entries_name_version_and_source() {
         lock_entries(LOCK),
         [
             "kernels 0.1.0 ",
-            "metal-oxide-device 0.1.0-alpha.1 git+https://github.com/rust-dd/metal-oxide?rev=abc#abcdef",
+            "metal-oxide-device 0.1.0-alpha0 git+https://github.com/rust-dd/metal-oxide?rev=abc#abcdef",
             "serde 1.0.229 registry+https://github.com/rust-lang/crates.io-index",
         ]
     );

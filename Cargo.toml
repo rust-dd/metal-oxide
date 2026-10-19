@@ -42,7 +42,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/rust-dd/metal-oxide"
 rust-version = "1.89"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha0"
 
 [workspace.dependencies]
 block2 = "0.6.2"
@@ -53,14 +53,14 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 half = { version = "2.7.1", default-features = false }
 libm = "0.2.16"
 loom = "0.7.2"
-metal-oxide = { path = "crates/metal-oxide", version = "=0.1.0-alpha.1" }
-metal-oxide-artifact = { path = "crates/metal-oxide-artifact", version = "=0.1.0-alpha.1" }
-metal-oxide-build = { path = "crates/metal-oxide-build", version = "=0.1.0-alpha.1" }
-metal-oxide-codegen = { path = "crates/metal-oxide-codegen", version = "=0.1.0-alpha.1" }
-metal-oxide-device = { path = "crates/metal-oxide-device", version = "=0.1.0-alpha.1" }
-metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha.1" }
-metal-oxide-kernels = { path = "crates/metal-oxide-kernels", version = "=0.1.0-alpha.1" }
-metal-oxide-macros = { path = "crates/metal-oxide-macros", version = "=0.1.0-alpha.1" }
+metal-oxide = { path = "crates/metal-oxide", version = "=0.1.0-alpha0" }
+metal-oxide-artifact = { path = "crates/metal-oxide-artifact", version = "=0.1.0-alpha0" }
+metal-oxide-build = { path = "crates/metal-oxide-build", version = "=0.1.0-alpha0" }
+metal-oxide-codegen = { path = "crates/metal-oxide-codegen", version = "=0.1.0-alpha0" }
+metal-oxide-device = { path = "crates/metal-oxide-device", version = "=0.1.0-alpha0" }
+metal-oxide-ir = { path = "crates/metal-oxide-ir", version = "=0.1.0-alpha0" }
+metal-oxide-kernels = { path = "crates/metal-oxide-kernels", version = "=0.1.0-alpha0" }
+metal-oxide-macros = { path = "crates/metal-oxide-macros", version = "=0.1.0-alpha0" }
 miniz_oxide = "0.9.1"
 nostd-numeric-kernels = { path = "crates/metal-oxide-compiler/tests/crates/nostd-numeric-kernels" }
 num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
