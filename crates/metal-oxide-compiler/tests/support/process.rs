@@ -7,6 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Fresh native executables can take over ten seconds to start on macOS.
+pub const EXECUTION_TIMEOUT: Duration =
+    Duration::from_secs(if cfg!(target_os = "macos") { 30 } else { 10 });
+
 pub fn output(command: &mut Command, timeout: Duration) -> io::Result<Output> {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let directory = super::root().join(format!(

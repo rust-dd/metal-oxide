@@ -109,8 +109,11 @@ impl Program {
             .arg(&binary);
         let output = support::process::output(&mut rustc, Duration::from_secs(60)).unwrap();
         support::succeeded(output).unwrap_or_else(|error| panic!("{}: {error}", source.display()));
-        let output =
-            support::process::output(&mut Command::new(&binary), Duration::from_secs(10)).unwrap();
+        let output = support::process::output(
+            &mut Command::new(&binary),
+            support::process::EXECUTION_TIMEOUT,
+        )
+        .unwrap();
         let output = support::checked(output);
         std::fs::write(directory.join("cpu.stdout"), &output).unwrap();
         let rows = output

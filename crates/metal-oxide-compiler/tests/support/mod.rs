@@ -348,11 +348,9 @@ pub fn run_msl(directory: &Path, main: &str) -> Result<String, String> {
     let output = process::output(&mut compiler, std::time::Duration::from_secs(60))
         .map_err(|error| format!("clang++: {error}"))?;
     succeeded(output)?;
-    // Fresh executables can take several seconds to start on macOS.
-    let timeout = if cfg!(target_os = "macos") { 30 } else { 5 };
     let run = process::output(
         &mut Command::new(directory.join("run")),
-        std::time::Duration::from_secs(timeout),
+        process::EXECUTION_TIMEOUT,
     )
     .map_err(|error| format!("the host build: {error}"))?;
     succeeded(run)

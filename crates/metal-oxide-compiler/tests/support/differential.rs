@@ -156,8 +156,9 @@ impl Case {
         let build = super::process::output(&mut rustc, Duration::from_secs(120))
             .map_err(|error| format!("rustc: {error}"))?;
         super::succeeded(build)?;
-        let run = super::process::output(&mut Command::new(binary), Duration::from_secs(10))
-            .map_err(|error| format!("the CPU build: {error}"))?;
+        let run =
+            super::process::output(&mut Command::new(binary), super::process::EXECUTION_TIMEOUT)
+                .map_err(|error| format!("the CPU build: {error}"))?;
         let mut computed = Run::default();
         for line in super::succeeded(run)?.lines() {
             if let Some(counters) = line.strip_prefix("counters ") {
