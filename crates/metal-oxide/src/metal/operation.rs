@@ -259,3 +259,6 @@ impl<O: BatchOperation> IntoFuture for Timed<O> {
         TimedPending(Run::Unpolled(self.0))
     }
 }
+
+#[cfg(all(test, not(loom)))]
+mod tests;

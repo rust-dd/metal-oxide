@@ -265,40 +265,6 @@ fn dropped_chains_start_no_later_stage_and_keep_cpu_access_synchronized() -> Res
 
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
-fn awaiting_a_chain_never_blocks_a_current_thread_runtime() -> Result<()> {
-    let (device, kernels) = setup()?;
-    let mut busy = device.buffer_zeroed::<u32>(32_768)?;
-    let rounds = calibrate(&kernels, &mut busy, Duration::from_millis(60))?;
-    let runtime = Builder::new_current_thread().enable_time().build()?;
-    runtime.block_on(async {
-        let ticks = Arc::new(AtomicUsize::new(0));
-        let ticker = tokio::spawn({
-            let ticks = Arc::clone(&ticks);
-            async move {
-                loop {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
-                    ticks.fetch_add(1, Ordering::Relaxed);
-                }
-            }
-        });
-        tokio::task::yield_now().await;
-        let before = ticks.load(Ordering::Relaxed);
-        let elements = spin(&kernels.spin, &mut busy, rounds)
-            .then(|(busy, rounds)| spin(&kernels.spin, busy, rounds))
-            .then(|(busy, _)| async move { Ok(busy.read().await.len()) })
-            .map(|len| len * 2)
-            .await?;
-        let during_chain = ticks.load(Ordering::Relaxed) - before;
-        ticker.abort();
-        assert_eq!(elements, 65_536);
-        // Each blocking stage would let the ticker run at most once.
-        assert!(during_chain >= 6, "{during_chain} ticks while awaiting");
-        Ok(())
-    })
-}
-
-#[test]
-#[ignore = "requires a Metal device on Apple Silicon"]
 fn a_shared_launch_runs_once_for_concurrent_readback_and_dependent_launches() -> Result<()> {
     let (device, kernels) = setup()?;
     let n = 1_000_003;
