@@ -64,10 +64,7 @@ fn main() {
 }
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-#[test]
-#[ignore = "requires a Metal device"]
-fn generated_spectral_kernels_match_cpu_and_native() {
-    validation::run().unwrap();
-}
+mod tests;
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod bench;

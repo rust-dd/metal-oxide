@@ -83,10 +83,4 @@ fn main() {
 }
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-mod tests {
-    #[test]
-    #[ignore = "requires a Metal device"]
-    fn kernels_match_the_cpu() -> metal_oxide::Result<()> {
-        super::run()
-    }
-}
+mod tests;

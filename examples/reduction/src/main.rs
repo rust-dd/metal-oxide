@@ -61,8 +61,4 @@ fn main() {
 }
 
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
-#[test]
-#[ignore = "requires a Metal device"]
-fn reduction_matches_cpu() {
-    main().unwrap();
-}
+mod tests;

@@ -37,7 +37,7 @@ jobs:
       - name: Unit tests only in tests.rs modules
         if: runner.os == 'Linux'
         run: |
-          ! grep -rnE '^[[:space:]]*(#\[test\]|mod tests \{)' crates/*/src | grep -vE '/(tests|loom)\.rs:'
+          ! grep -rnE '^[[:space:]]*(#\[test\]|mod tests \{)' crates benchmarks examples --include='*.rs' | grep -vE '/tests/|/(tests|loom)\.rs:'
       - name: Check capability reference
         run: cargo run -p metal-oxide-artifact --example capabilities --locked -- --check
       - name: Clippy

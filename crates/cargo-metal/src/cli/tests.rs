@@ -66,8 +66,7 @@ fn inspect_takes_an_emit_kind_and_an_optional_kernel() {
 fn rejects_missing_or_unknown_commands_and_repeated_or_incomplete_options() {
     for (arguments, kind) in [
         (&[][..], ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand),
-        (&["build"][..], ErrorKind::InvalidSubcommand),
-        (&["doctor"][..], ErrorKind::InvalidSubcommand),
+        (&["unknown"][..], ErrorKind::InvalidSubcommand),
         (&["inspect"][..], ErrorKind::MissingRequiredArgument),
         (&["inspect", "--emit", "llvm"][..], ErrorKind::InvalidValue),
         (
