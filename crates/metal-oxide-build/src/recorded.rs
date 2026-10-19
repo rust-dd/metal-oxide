@@ -1,4 +1,6 @@
 use crate::{
+    configuration::Configuration,
+    environment::Environment,
     metadata::{Metadata, Project},
     process::Result,
 };
@@ -13,7 +15,7 @@ use std::{
 mod tests;
 
 /// Increments when recording changes, which makes older records stale.
-const FORMAT: u32 = 2;
+pub(crate) const FORMAT: u32 = 3;
 
 /// What a kernel build is asked for besides its packages' files.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +37,9 @@ pub(crate) struct Recorded {
     /// The fingerprint in the artifact's manifest.
     pub(crate) artifact: String,
     pub(crate) request: Request,
+    pub(crate) profile: BTreeMap<String, String>,
+    pub(crate) configuration: Configuration,
+    pub(crate) environment: Environment,
     pub(crate) lock: String,
     /// The kernels' dependencies as `name version source` from the lock file.
     pub(crate) packages: Vec<String>,
@@ -75,6 +80,15 @@ impl Recorded {
         let kernel = &project.kernel().manifest_path;
         let mut packages = Vec::new();
         let mut files = BTreeMap::new();
+        let configuration = Configuration::record(&project.metadata.workspace_root, base, copied)?;
+        let mut environment = Environment::default();
+        if !copied {
+            let workspace = project.metadata.workspace_root.join("Cargo.toml");
+            files.insert(
+                relative(&workspace, base).to_string_lossy().into_owned(),
+                sha256(&std::fs::read(workspace)?),
+            );
+        }
         for line in messages.lines() {
             let Message::Artifact {
                 manifest_path,
@@ -83,6 +97,18 @@ impl Recorded {
             else {
                 continue;
             };
+            let mut sources = Vec::new();
+            for output in filenames
+                .iter()
+                .filter(|file| file.extension() == Some("rmeta".as_ref()))
+            {
+                let stem = output.file_stem().unwrap().to_string_lossy();
+                let info = output
+                    .with_file_name(format!("{}.d", stem.strip_prefix("lib").unwrap_or(&stem)));
+                let info = std::fs::read_to_string(&info)?;
+                environment.record(&info, &configuration.environment)?;
+                sources.extend(dependencies(&info, &project.metadata.workspace_root));
+            }
             if manifest_path.starts_with(sysroot) || copied && manifest_path == *kernel {
                 continue;
             }
@@ -124,19 +150,7 @@ impl Recorded {
             if !local {
                 continue;
             }
-            let mut sources = vec![manifest_path];
-            for output in filenames
-                .iter()
-                .filter(|f| f.extension() == Some("rmeta".as_ref()))
-            {
-                let stem = output.file_stem().unwrap().to_string_lossy();
-                let info = output
-                    .with_file_name(format!("{}.d", stem.strip_prefix("lib").unwrap_or(&stem)));
-                sources.extend(dependencies(
-                    &std::fs::read_to_string(&info)?,
-                    &project.metadata.workspace_root,
-                ));
-            }
+            sources.push(manifest_path);
             for source in sources
                 .into_iter()
                 .filter(|path| !path.starts_with(sysroot))
@@ -151,6 +165,9 @@ impl Recorded {
             format: FORMAT,
             artifact: artifact.into(),
             request,
+            profile: profile(),
+            configuration,
+            environment,
             lock: relative(&lock, base).to_string_lossy().into_owned(),
             packages,
             files,
@@ -159,7 +176,11 @@ impl Recorded {
 
     /// Whether every recorded file and package is unchanged, with `base` as the kernel package.
     pub(crate) fn current(&self, base: &Path) -> bool {
-        if self.format != FORMAT {
+        if self.format != FORMAT
+            || self.profile != profile()
+            || !self.configuration.current(base)
+            || !self.environment.current()
+        {
             return false;
         }
         let files = self.files.iter().all(|(path, hash)| {
@@ -180,8 +201,15 @@ impl Recorded {
             .keys()
             .chain([&self.lock])
             .map(|path| normalize(&base.join(path)))
+            .chain(self.configuration.paths(base))
             .collect()
     }
+}
+
+pub(crate) fn profile() -> BTreeMap<String, String> {
+    std::env::vars()
+        .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
+        .collect()
 }
 
 /// Each `[[package]]` of a Cargo.lock as `name version source`.
@@ -230,7 +258,7 @@ pub(crate) fn dependencies(info: &str, root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
@@ -250,7 +278,7 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 /// `path` relative to the directory `base`; both are absolute.
-fn relative(path: &Path, base: &Path) -> PathBuf {
+pub(crate) fn relative(path: &Path, base: &Path) -> PathBuf {
     let (path, base) = (normalize(path), normalize(base));
     let common = path
         .components()

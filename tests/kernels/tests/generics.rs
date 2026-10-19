@@ -78,10 +78,11 @@ pub fn copy<T: Element, const N: usize>(
 #[test]
 #[ignore = "requires a Metal device, the compiler nightly, rust-src and the Metal toolchain"]
 fn generic_instances_launch_in_all_authoring_forms_and_from_saved_artifacts() {
-    let lifetimes = include_str!("../../metal-oxide-compiler/tests/fixtures/lifetimes.rs")
-        .replace("#![no_std]", "")
-        .replace("metal_oxide_device", "metal_oxide::device")
-        .replace(", kernel,", ",");
+    let lifetimes =
+        include_str!("../../../crates/metal-oxide-compiler/tests/fixtures/lifetimes.rs")
+            .replace("#![no_std]", "")
+            .replace("metal_oxide_device", "metal_oxide::device")
+            .replace(", kernel,", ",");
     let source = format!(
         "use metal_oxide::{{Device, LaunchConfig, Operation}};\n\
          use metal_oxide::device::*;\n{}\n\

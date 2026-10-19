@@ -1,11 +1,20 @@
 {
-  "format": 2,
-  "artifact": "c42f4762de35e135eb6b01189ed2608a9f64a7e7ba65479f820825e4c24ca218",
+  "format": 3,
+  "artifact": "ce8993f511d0523c4a085aa5acd0bcd3472051c081c5277bff22808ff02c4e5a",
   "request": {
     "source": "3a6b646e2dd66086689e330c68624fff49f723cdaef3a7136902a81f0afdc4f9",
     "math_mode": "precise",
     "debug_info": false
   },
+  "profile": {},
+  "configuration": {
+    "root": "../../target/metal/sources/0494371002c43121",
+    "copied": true,
+    "files": {},
+    "home": null,
+    "environment": {}
+  },
+  "environment": {},
   "lock": "../../Cargo.lock",
   "packages": [
     "metal-oxide-device 0.1.0-alpha.1 ",

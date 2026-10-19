@@ -167,7 +167,7 @@ pub unsafe fn in_place(values: ReadWriteBuffer<u64>, increment: u64, n: u32) {
     );
     kernels.push_str("mod cooperation {\n");
     kernels.push_str(
-        include_str!("../../metal-oxide-compiler/tests/fixtures/dynamic_shared.rs")
+        include_str!("../../../crates/metal-oxide-compiler/tests/fixtures/dynamic_shared.rs")
             .trim_start_matches("#![no_std]"),
     );
     kernels.push_str("\n}\n");

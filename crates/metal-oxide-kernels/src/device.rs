@@ -141,11 +141,34 @@ pub(crate) fn kernel_crate(
 /// crate when the library, its inputs or the variables that steer kernel builds change;
 /// without a library the static is empty, which still lets the launch functions compile.
 pub(crate) fn library(name: &Ident, built: Option<&BuiltKernels>) -> syn::Result<TokenStream> {
+    let profile = [
+        "CODEGEN_UNITS",
+        "DEBUG",
+        "DEBUG_ASSERTIONS",
+        "INCREMENTAL",
+        "LTO",
+        "OPT_LEVEL",
+        "OVERFLOW_CHECKS",
+        "PANIC",
+        "RPATH",
+        "SPLIT_DEBUGINFO",
+        "STRIP",
+    ]
+    .into_iter()
+    .flat_map(|key| {
+        [
+            format!("CARGO_PROFILE_RELEASE_{key}"),
+            format!("CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_{key}"),
+        ]
+    });
     let tracking = quote! {
         const _: ::core::option::Option<&str> = ::core::option_env!(#CAPTURE);
         const _: ::core::option::Option<&str> = ::core::option_env!(#INSPECT);
         const _: ::core::option::Option<&str> = ::core::option_env!(#ARTIFACTS);
         const _: ::core::option::Option<&str> = ::core::option_env!(#COMPILER);
+        const _: ::core::option::Option<&str> = ::core::option_env!("CARGO_HOME");
+        const _: ::core::option::Option<&str> = ::core::option_env!("HOME");
+        #(const _: ::core::option::Option<&str> = ::core::option_env!(#profile);)*
     };
     let Some(built) = built.filter(|_| builds()) else {
         return Ok(quote! {
@@ -159,6 +182,7 @@ pub(crate) fn library(name: &Ident, built: Option<&BuiltKernels>) -> syn::Result
     let manifest = path(built.directory.join(ArtifactFile::Manifest.name()));
     let metallib = path(built.directory.join(ArtifactFile::Metallib.name()));
     let tracked = built.tracked.iter().map(|file| path(file.clone()));
+    let environment = &built.environment;
     let abi = built
         .abi
         .to_json()
@@ -172,7 +196,8 @@ pub(crate) fn library(name: &Ident, built: Option<&BuiltKernels>) -> syn::Result
             ::core::include_bytes!(#metallib),
             #abi,
         );
-        #(const _: &[::core::primitive::u8] = ::core::include_bytes!(#tracked);)*
+        #(const _: ::core::primitive::usize = ::core::include_bytes!(#tracked).len();)*
+        #(const _: ::core::primitive::bool = ::core::option_env!(#environment).is_some();)*
         #tracking
     })
 }

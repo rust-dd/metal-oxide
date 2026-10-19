@@ -2,6 +2,21 @@ use std::{fmt, process::Command};
 
 pub(crate) type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+pub(crate) const ISOLATED_ENV: [&str; 12] = [
+    "RUSTC",
+    "RUSTDOC",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "RUSTC_LINKER",
+    "RUSTFLAGS",
+    "CARGO_ENCODED_RUSTFLAGS",
+    "RUSTDOCFLAGS",
+    "CARGO_ENCODED_RUSTDOCFLAGS",
+    "CARGO_BUILD_TARGET",
+    "CARGO_TARGET_DIR",
+    "RUSTUP_TOOLCHAIN",
+];
+
 /// A kernel build or artifact check that failed, with the failing step's message.
 pub struct Error(pub(crate) Box<dyn std::error::Error + Send + Sync>);
 
@@ -50,20 +65,7 @@ pub(crate) fn run(command: &mut Command) -> Result<()> {
 /// Drops the host build's toolchain, wrapper, flag and target settings so nested builds use
 /// their own.
 pub(crate) fn isolate(command: &mut Command) -> &mut Command {
-    for name in [
-        "RUSTC",
-        "RUSTDOC",
-        "RUSTC_WRAPPER",
-        "RUSTC_WORKSPACE_WRAPPER",
-        "RUSTC_LINKER",
-        "RUSTFLAGS",
-        "CARGO_ENCODED_RUSTFLAGS",
-        "RUSTDOCFLAGS",
-        "CARGO_ENCODED_RUSTDOCFLAGS",
-        "CARGO_BUILD_TARGET",
-        "CARGO_TARGET_DIR",
-        "RUSTUP_TOOLCHAIN",
-    ] {
+    for name in ISOLATED_ENV {
         command.env_remove(name);
     }
     command

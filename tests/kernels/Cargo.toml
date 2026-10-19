@@ -1,0 +1,19 @@
+[package]
+name = "metal-oxide-kernel-tests"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dev-dependencies]
+metal-oxide = { workspace = true }
+metal-oxide-artifact = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
+objc2-metal = { workspace = true }
+
+[lints]
+workspace = true

@@ -9,9 +9,12 @@ use metal_oxide_artifact::{Manifest, MathMode, sha256};
 use std::path::Path;
 use support::Project;
 
-const RUST: &str = include_str!("../../metal-oxide-compiler/tests/fixtures/transcendentals.rs");
-const MSL: &str = include_str!("../../metal-oxide-compiler/tests/fixtures/transcendentals.metal");
-const FLOAT: &str = include_str!("../../metal-oxide-compiler/tests/fixtures/float_math.rs");
+const RUST: &str =
+    include_str!("../../../crates/metal-oxide-compiler/tests/fixtures/transcendentals.rs");
+const MSL: &str =
+    include_str!("../../../crates/metal-oxide-compiler/tests/fixtures/transcendentals.metal");
+const FLOAT: &str =
+    include_str!("../../../crates/metal-oxide-compiler/tests/fixtures/float_math.rs");
 
 const HOST: &str = r#"
 #[metal_oxide::kernels(path = "kernels")]

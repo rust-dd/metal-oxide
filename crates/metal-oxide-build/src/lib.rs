@@ -7,6 +7,8 @@
 mod cache;
 mod compile;
 mod compiler;
+mod configuration;
+mod environment;
 mod inputs;
 mod kernel_crate;
 mod metadata;

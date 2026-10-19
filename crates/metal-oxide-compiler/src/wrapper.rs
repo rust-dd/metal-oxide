@@ -23,6 +23,18 @@ pub(crate) fn forward(arguments: &mut Vec<String>) -> Option<ExitCode> {
             }
         });
     }
+    if let Ok(remap) = std::env::var("METAL_OXIDE_CARGO_REMAP") {
+        let remap = match serde_json::from_str::<Vec<(String, String)>>(&remap) {
+            Ok(remap) => remap,
+            Err(error) => {
+                eprintln!("error: invalid source-path remapping: {error}");
+                return Some(ExitCode::FAILURE);
+            }
+        };
+        for (from, to) in remap {
+            arguments.push(format!("--remap-path-prefix={from}={to}"));
+        }
+    }
     for argument in arguments.iter_mut() {
         if let Some(emit) = argument.strip_prefix("--emit=") {
             let outputs = emit.split(',').filter(|v| *v != "link").collect::<Vec<_>>();

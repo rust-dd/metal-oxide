@@ -431,6 +431,7 @@ dependencies = [
  "metal-oxide-artifact",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -472,16 +473,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "metal-oxide-kernels"
+name = "metal-oxide-kernel-tests"
 version = "0.1.0-alpha.1"
 dependencies = [
  "metal-oxide",
  "metal-oxide-artifact",
- "metal-oxide-build",
  "objc2-metal",
+ "serde_json",
+]
+
+[[package]]
+name = "metal-oxide-kernels"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "metal-oxide-artifact",
+ "metal-oxide-build",
  "proc-macro2",
  "quote",
- "serde_json",
  "syn 3.0.6",
 ]
 

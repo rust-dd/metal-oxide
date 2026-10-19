@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 if ! cargo nextest --version >/dev/null 2>&1; then
-    printf 'The GPU tests run with cargo-nextest: cargo install cargo-nextest --locked\n' >&2
+    printf 'The GPU tests run with cargo-nextest: cargo install cargo-nextest --version 0.9.148 --locked\n' >&2
     exit 1
 fi
 
@@ -29,7 +29,7 @@ fi
 for backend in $backends; do
     export METAL_OXIDE_BACKEND="$backend"
     printf 'Testing %s on %s\n' "$backend" "$(uname -m)"
-    cargo "${nextest[@]}" -p metal-oxide -p metal-oxide-kernels -p cargo-metal
+    cargo "${nextest[@]}" -p metal-oxide -p metal-oxide-kernel-tests -p cargo-metal
     (
         cd crates/metal-oxide-compiler
         cargo "${nextest[@]}" --features rustc-private --target-dir ../../target/compiler \

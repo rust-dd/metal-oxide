@@ -114,6 +114,53 @@ fn math_modes_build_separate_artifacts() {
 }
 
 #[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn release_overflow_settings_invalidate_cached_and_saved_kernels() {
+    let main = r#"
+use metal_oxide::device::{DisjointBuffer, thread_index};
+#[metal_oxide::kernel]
+pub fn add(mut out: DisjointBuffer<u32>, value: u32) {
+    if let Some(out) = out.get_mut(&thread_index()) {
+        *out = value + 1;
+    }
+}
+fn main() {}
+"#;
+    let project = Project::new(main);
+    let build = |enabled: bool| {
+        checked(
+            project
+                .cargo(&["build", "--quiet"])
+                .env("CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS", enabled.to_string())
+                .output()
+                .unwrap(),
+        );
+        let directory = project.artifact("add");
+        let text = std::fs::read_to_string(directory.join("manifest.json")).unwrap();
+        let manifest = metal_oxide_artifact::Manifest::from_json(&text).unwrap();
+        (directory, manifest.checks)
+    };
+    let (wrapping, checks) = build(false);
+    assert!(checks.is_empty(), "{checks:?}");
+    project.write(&format!("{main}\n// host edit\n"));
+    let (checked, checks) = build(true);
+    assert_ne!(
+        checked, wrapping,
+        "the cached artifact kept wrapping arithmetic"
+    );
+    assert_eq!(checks.len(), 1, "{checks:?}");
+    let saved = project
+        .0
+        .join("metal/src/main.rs/add-precise/manifest.json");
+    let saved = metal_oxide_artifact::Manifest::from_json(&std::fs::read_to_string(saved).unwrap())
+        .unwrap();
+    assert_eq!(saved.checks, checks);
+    let (restored, checks) = build(false);
+    assert_eq!(restored, wrapping);
+    assert!(checks.is_empty(), "{checks:?}");
+}
+
+#[test]
 #[ignore = "builds a separate project"]
 fn rust_analyzer_expansions_need_no_kernel_build() {
     let project = Project::new(&source(2));

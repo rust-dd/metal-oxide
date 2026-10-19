@@ -19,12 +19,5 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
 
-[dev-dependencies]
-metal-oxide = { workspace = true }
-serde_json = { workspace = true }
-
-[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dev-dependencies]
-objc2-metal = { workspace = true }
-
 [lints]
 workspace = true

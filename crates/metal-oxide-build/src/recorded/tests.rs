@@ -95,20 +95,28 @@ fn changed_files_and_lock_entries_are_not_current() {
             math_mode: MathMode::Fast,
             debug_info: false,
         },
+        profile: profile(),
+        configuration: Configuration::record(&kernels, &kernels, false).unwrap(),
+        environment: Environment::default(),
         lock: "../Cargo.lock".into(),
         packages: vec![lock_entries(LOCK)[1].clone()],
         files: BTreeMap::from([("src/lib.rs".into(), sha256(b"#![no_std]\n"))]),
     };
     assert!(recorded.current(&kernels));
+    let mut different_profile = recorded.clone();
+    different_profile.profile.insert(
+        "CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS".into(),
+        "different from the current environment".into(),
+    );
+    assert!(!different_profile.current(&kernels));
     let older = Recorded {
         format: FORMAT - 1,
         ..recorded.clone()
     };
     assert!(!older.current(&kernels));
-    assert_eq!(
-        recorded.paths(&kernels),
-        [kernels.join("src/lib.rs"), directory.0.join("Cargo.lock")]
-    );
+    let tracked = recorded.paths(&kernels);
+    assert!(tracked.contains(&kernels.join("src/lib.rs")));
+    assert!(tracked.contains(&directory.0.join("Cargo.lock")));
     std::fs::write(
         directory.0.join("Cargo.lock"),
         LOCK.replace("rev=abc#abcdef", "rev=fed#fedcba"),

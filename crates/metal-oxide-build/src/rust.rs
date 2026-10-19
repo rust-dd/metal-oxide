@@ -22,6 +22,7 @@ pub(crate) struct Rust {
     math_mode: MathMode,
     /// The kernel crate copies a host crate's source, which cannot declare `no_std`.
     copied: bool,
+    remap: Vec<(String, String)>,
 }
 
 pub(crate) struct KernelBuild {
@@ -45,6 +46,7 @@ impl Rust {
         math_mode: MathMode,
         compiler: &Compiler,
         copied: bool,
+        debug_info: bool,
     ) -> Result<Self> {
         let root = project.metadata.target_directory.join("metal");
         std::fs::create_dir_all(&root)?;
@@ -60,7 +62,32 @@ impl Rust {
             &version,
         )?;
         let identity = crate::compiler::verify(&compiler, &version)?.binary;
-        let configuration = serde_json::to_vec(&(&identity, &version, TARGET, math_mode))?;
+        let mut remap = Vec::new();
+        if !debug_info {
+            let sysroot = process::capture(
+                Command::new("rustup").args(["run", NIGHTLY, "rustc", "--print", "sysroot"]),
+            )?;
+            remap.push((
+                Path::new(&sysroot)
+                    .join("lib/rustlib/src/rust")
+                    .display()
+                    .to_string(),
+                "rust".into(),
+            ));
+            let workspace = &project.metadata.workspace_root;
+            remap.push((workspace.display().to_string(), ".".into()));
+            for package in &project.metadata.packages {
+                let directory = package.manifest_path.parent().unwrap();
+                if !directory.starts_with(workspace) {
+                    remap.push((
+                        directory.display().to_string(),
+                        format!("dependencies/{}-{}", package.name, package.version),
+                    ));
+                }
+            }
+        }
+        remap.sort_by_key(|(from, _)| from.len());
+        let configuration = serde_json::to_vec(&(&identity, &version, TARGET, math_mode, &remap))?;
         let directory = root.join("rust").join(sha256(&configuration));
         Ok(Self {
             compiler,
@@ -70,6 +97,7 @@ impl Rust {
             directory,
             math_mode,
             copied,
+            remap,
         })
     }
 
@@ -87,6 +115,10 @@ impl Rust {
                 project.kernel_crate().replace('-', "_"),
             )
             .env("METAL_OXIDE_CARGO_OUTPUT", output)
+            .env(
+                "METAL_OXIDE_CARGO_REMAP",
+                serde_json::to_string(&self.remap).unwrap(),
+            )
             .env("METAL_OXIDE_CARGO_MATH_MODE", self.math_mode.as_str());
         if self.copied {
             command.env("METAL_OXIDE_CARGO_SOURCE", "1");

@@ -109,6 +109,7 @@ impl State {
                 .chain(self.inputs.paths(base))
                 .collect(),
             saved: false,
+            environment: self.inputs.environment.names(),
         })
     }
 }

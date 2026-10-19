@@ -40,6 +40,8 @@ pub struct BuiltKernels {
     pub abi: Abi,
     /// Files whose changes call for rebuilding the crate that embeds the artifact.
     pub tracked: Vec<PathBuf>,
+    /// Referenced ambient variables whose changes rebuild the embedding crate.
+    pub environment: Vec<String>,
     /// The artifact is the one saved beside the package's sources, which holds only the
     /// manifest and the library.
     pub saved: bool,
@@ -105,6 +107,7 @@ impl Kernels {
                 .chain(inputs.paths(base))
                 .collect(),
             saved: false,
+            environment: inputs.environment.names(),
         };
         Ok((built, inputs))
     }
@@ -125,9 +128,6 @@ impl Kernels {
         if let Some(root) = &self.debug_info {
             flags.extend(debug_flags(root));
         }
-        let profile = std::env::vars()
-            .filter(|(key, _)| key.starts_with("CARGO_PROFILE_RELEASE_"))
-            .collect::<BTreeMap<_, _>>();
         let identity = serde_json::to_vec(&(
             env!("CARGO_PKG_VERSION"),
             &kernels.inputs,
@@ -138,7 +138,7 @@ impl Kernels {
             &metal.version,
             &metal.sdk,
             &flags,
-            profile,
+            crate::recorded::profile(),
         ))?;
         let fingerprint = sha256(&identity);
         let directory = root.join(&fingerprint);
@@ -173,6 +173,7 @@ impl Kernels {
             self.math_mode,
             &self.compiler,
             self.host.is_some(),
+            self.debug_info.is_some(),
         )
     }
 
