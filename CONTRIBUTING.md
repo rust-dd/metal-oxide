@@ -120,36 +120,34 @@ trigger.
 python3 scripts/bench.py --samples 20 --warmup 10 --output target/benchmarks/baseline.json
 ```
 
-`python3 scripts/test_bench.py` checks the driver itself. The benchmark compares
-vec-add, reduction, scan, histogram, particle update, matmul, a bitonic sort of u32 keys
-(`--sort KEYS`, 2^23 by default), a batched Stockham FFT (`--fft N ROWS`, 8192 rows of 4096
-complex values by default), a 5-point Jacobi stencil (`--stencil WIDTH HEIGHT ITERATIONS`,
-2048 sweeps of a 2048 x 2048 grid by default) and the f32 and f16 SIMD-group-matrix GEMM
-(`--gemm M N K`, 1024 cubed by default) with CPU results and matching handwritten MSL on both
+`python3 scripts/test_bench.py` checks the driver itself. The benchmark compares vec-add,
+reduction, scan, histogram, particle update, matmul, a bitonic sort of u32 keys (`--sort
+KEYS`, 2^23 by default), a batched Stockham FFT (`--fft N ROWS`, 8192 rows of 4096 complex
+values by default), a 5-point Jacobi stencil (`--stencil WIDTH HEIGHT ITERATIONS`, 2048
+sweeps of a 2048 x 2048 grid by default) and the f32 and f16 SIMD-group-matrix GEMM (`--gemm
+M N K`, 1024 cubed by default) with CPU results and matching handwritten MSL on both
 backends; the classic run also measures the GEMM with MetalPerformanceShaders as backend
 `mps`, and both backends measure Metal Performance Primitives' `matmul2d` as variant `mpp`
 (`benchmarks/reference-msl/gemm-mpp.metal`, MSL 4.0). Where the compiler has no Metal
 tensors, or the device lacks the Metal 4 family or rejects the library, the report records
 why `mpp` was skipped and the other candidates run. `--cases LIST` builds and measures only
-the listed workloads (all by default;
-`cooperation` holds histogram and scan). Sort and stencil results must equal the CPU's
-bitwise; FFT results must lie within 4e-6 * log2(n) * max(1, rms of their row) of an f64
-reference, and both FFT variants must agree bitwise. A GEMM sample runs `--gemm-repeat R` GEMMs
-(64 by default) back to back in one command buffer, so the GPU is not idle between timed
-GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
-`(submit_ns + wait_ns) / R`. Within a runner process the candidates of every case take turns
-sample by sample (rust and msl; for the GEMM also mpp and, in the classic run, mps; the first
-one rotates every round). Classic and Metal 4 run in separate processes and MLX afterwards in
-its own, so MLX and cross-backend ratios carry drift between runs: repeat runs and report the
-spread.
-The rust and msl kernels share their hot loops, so a rust/msl ratio near 1 confirms the
-interleave but cannot reveal drift between runs. The
+the listed workloads (all by default; `cooperation` holds histogram and scan). Sort and
+stencil results must equal the CPU's bitwise; FFT results must lie within 4e-6 * log2(n) *
+max(1, rms of their row) of an f64 reference, and both FFT variants must agree bitwise. A
+GEMM sample runs `--gemm-repeat R` GEMMs (64 by default) back to back in one command buffer,
+so the GPU is not idle between timed GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and
+`host_per_gemm_ns` is `(submit_ns + wait_ns) / R`. Within a runner process the candidates of
+every case take turns sample by sample (rust and msl; for the GEMM also mpp and, in the
+classic run, mps; the first one rotates every round). Classic and Metal 4 run in separate
+processes and MLX afterwards in its own, so MLX and cross-backend ratios carry drift between
+runs: repeat runs and report the spread. The rust and msl kernels share their hot loops, so
+a rust/msl ratio near 1 confirms the interleave but cannot reveal drift between runs. The
 JSON report separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
 native GPU times. Every sample is checked; unavailable GPU timestamps are null, and so is
-the CPU time of GEMM, whose exact result is computed once per shape.
-Submit time measures the first poll with prepared pipelines. Under saturation, later
-polls may submit the command. Host wait includes preparation, execution and scheduling,
-so it does not measure queue latency alone.
+the CPU time of GEMM, whose exact result is computed once per shape. Submit time measures
+the first poll with prepared pipelines. Under saturation, later polls may submit the
+command. Host wait includes preparation, execution and scheduling, so it does not measure
+queue latency alone.
 
 `--backends classic` (or `metal4`) measures only the listed backends, for a Mac without
 Metal 4; MPS runs with classic only. `--mlx` also runs the GEMM with MLX in

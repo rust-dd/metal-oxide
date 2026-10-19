@@ -181,7 +181,6 @@ struct Kernel<'a, T: GpuValue> {
 }
 
 impl<'a, T: GpuValue> Kernel<'a, T> {
-    /// The rust or msl candidate.
     fn new(
         device: &Device,
         config: &Config,
@@ -199,7 +198,6 @@ impl<'a, T: GpuValue> Kernel<'a, T> {
         Self::with_pipeline(device, case, pipeline, problem, values)
     }
 
-    /// The candidate of `case` that runs `pipeline`.
     fn with_pipeline(
         device: &Device,
         mut case: Case,
