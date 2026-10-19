@@ -1,13 +1,18 @@
 # metal-oxide
 
-Compile Rust compute kernels to Metal on Apple Silicon. Kernels use CUDA-style
-thread and block coordinates. The host runtime supports stable Rust and provides
-one API for classic Metal and Metal 4.
+Write compute kernels in Rust and run them on Apple GPUs. metal-oxide compiles
+Rust functions through rustc MIR to Metal Shading Language, then uses Apple's
+compiler to produce a `.metallib`. Each kernel gets a typed Rust launch function.
 
-There is no registry release yet. Use a path or git dependency; the API may change.
-The [book](book/src/SUMMARY.md) covers installation, kernel authoring and debugging.
+Kernels can live beside the host code that calls them, in a shared module, or in
+a separate `no_std` crate. The runtime supports stable Rust, async execution and
+both classic Metal and Metal 4 through the same API.
 
-## Example
+**Pre-release.** There is no crates.io release yet; use a path or git dependency.
+The API may change. See [known limitations](#known-limitations) for current
+correctness issues and hardware coverage.
+
+## A kernel and its host
 
 ```rust
 use metal_oxide::device::{DisjointBuffer, ReadBuffer, thread_index};
@@ -36,22 +41,89 @@ fn main() -> metal_oxide::Result<()> {
 }
 ```
 
-`cargo build` compiles the kernel through rustc MIR and MSL into a `.metallib`.
-The macro generates a host launch function with the same name. Launches are lazy:
-execution starts when the operation is awaited or waited.
+`cargo build` compiles the kernel and generates its launch function. No application
+build script is needed. `DisjointBuffer` gives each thread mutable access to its
+own element; `requires` checks the buffer-length relations before launch so the
+compiler can prove the indexing safe.
 
-`DisjointBuffer` gives each thread mutable access to its own element. `requires`
-checks the length relations before launch, allowing the compiler to prove the
-indexing safe. Checks that remain run on the GPU and report `Error::KernelFailed`
-with the Rust source location. An `unsafe fn` kernel produces an unsafe launch
-function whose caller must uphold its documented contract.
+Checks the compiler cannot prove run on the GPU. Bounds failures, division by
+zero, assertions and checked integer overflows return `Error::KernelFailed` with
+the Rust location. A kernel declared `unsafe fn` generates an unsafe launch
+function; callers must uphold the kernel's documented contract.
 
-## Run the checkout
+## Launches, buffers and async work
 
-GPU execution requires macOS 15 or later on Apple Silicon. The host runtime
-supports Rust 1.89 or later; this checkout uses Rust 1.99. Kernel authoring also
-requires Xcode with its Metal Toolchain and the pinned nightly Rust compiler.
-Install Xcode and select its developer directory, then run:
+`LaunchConfig<X, Y, Z>` specifies threads per block; its `grid` counts blocks.
+`DynamicLaunchConfig` accepts a runtime block shape. Kernels read CUDA-style
+`thread_idx()`, `block_idx()`, `block_dim()` and `grid_dim()` coordinates. Each
+block maps to one Metal threadgroup.
+
+A launch is lazy: calling it creates an operation, and awaiting it or calling
+`.wait()` drives execution. The same kernel can be used from async code:
+
+```rust
+let (a, b, out) = vec_add(&device, config, a, b, out).await?;
+let values = out.read().await;
+```
+
+Arguments come back in the form they were passed. Owned buffers allow a launch
+to move into a task; shared reads also accept `Arc<Buffer<T>>`. Writes require an
+owned buffer or an exclusive borrow. GPU readback can be awaited without blocking
+the executor thread.
+
+`sequence` records several operations in one command buffer. The runtime orders
+conflicting buffer accesses and allows independent work to overlap. `then` chains
+dependent work, `map` processes its result on the CPU, and `operation.timed()`
+returns optional GPU timing with the result. Native Metal resources can be imported and
+exported under the [ownership contract](CONCEPT.md#native-resource-ownership).
+
+## Kernel code
+
+The compiler works with a subset of Rust, checked by rustc before GPU lowering:
+
+- References, slices, records, tuples, arrays, enums, `Option`, `Result`, closures,
+  core iterators and generic helpers. Generic entrypoints list their concrete
+  type and const instances.
+- `f32`, `F16`, `BF16`, 8/16/32-bit integers and `u64`. Supported `libm` and
+  `num-traits` workloads are exercised by integration tests.
+- Static and dynamic threadgroup memory, barriers, SIMD-group reductions,
+  shuffles and scans, plus 8×8 SIMD-group matrix operations.
+- Device and threadgroup atomics, with supported operations and orderings checked
+  during compilation. Feature requirements are recorded in each artifact.
+
+Use `#[metal_oxide::kernels]` to share types and helpers between kernels. A
+`#[kernels(path = "../kernels")]` module loads a separate kernel crate; its
+`no_std` dependencies compile for the device alongside it.
+
+Precise math is the default and disables implicit floating-point contraction.
+`#[kernels(math = "fast")]` permits fast functions, reassociation and contraction.
+The selected mode is recorded in the artifact. See
+[supported Rust](book/src/supported-rust.md) and
+[numerical modes](book/src/performance.md#numerical-modes) for the exact boundaries.
+
+## Compared with other Rust GPU projects
+
+These projects operate at different levels: kernel compilers, tensor libraries,
+portable GPU APIs and native bindings.
+
+| Project | Kernel authoring | Compilation | Targets | Apple GPU path |
+| --- | --- | --- | --- | --- |
+| **metal-oxide** | Rust functions | rustc MIR → MSL at build time; saved artifacts | Apple Silicon on macOS | Native Metal and Metal 4 |
+| [CubeCL](https://github.com/tracel-ai/cubecl) | `#[cube]` Rust functions rewritten into IR-building code | JIT with caching | CUDA, HIP, Metal, Vulkan, WebGPU, CPU | MSL through wgpu or `metal-native` |
+| [Burn](https://github.com/tracel-ai/burn#supported-backends) | Tensor operations; custom CubeCL kernels | CubeCL JIT for accelerated backends; eager CPU backends also available | GPUs through CubeCL; CPU and Wasm backends | CubeCL Metal/WebGPU backends |
+| [Candle](https://github.com/huggingface/candle) | Tensor operations backed by device kernels | Embedded MSL compiled and cached at runtime | CPU, CUDA, Metal | Handwritten MSL |
+| [Rust GPU](https://github.com/Rust-GPU/rust-gpu) | `no_std` Rust shaders | rustc backend → SPIR-V; `spirv-builder` or `cargo gpu` | Vulkan and other SPIR-V consumers | Translation through compatible wgpu/MoltenVK paths |
+| [CUDA Rust — NVIDIA](https://github.com/NVIDIA/cuda-rust) | Rust SIMT kernels (`cuda-oxide`) or tile kernels (`cutile-rs`) | SIMT → PTX ahead of time; tiles → Tile IR → cubin via JIT | NVIDIA CUDA | — |
+| [Rust CUDA](https://github.com/Rust-GPU/rust-cuda) | `no_std` Rust | rustc/NVVM backend → PTX | NVIDIA CUDA | — |
+| [wgpu](https://github.com/gfx-rs/wgpu) | WGSL; optional SPIR-V, GLSL or Naga IR | Naga translation and native shader compilation at runtime | Vulkan, Metal, D3D12, OpenGL, WebGPU/WebGL2 | Naga → MSL, native Metal backend |
+| [objc2-metal](https://github.com/madsmtm/objc2) | Metal shaders or precompiled libraries | Apple's compiler and Metal APIs | Apple platforms | Native bindings; no Rust kernel compiler |
+
+## Try it
+
+GPU execution requires **macOS 15+ on Apple Silicon**. The host runtime supports
+**Rust 1.89+**; development uses Rust 1.99. Building kernels also requires Xcode
+with its Metal Toolchain and the pinned nightly Rust compiler. Install Xcode and
+select its developer directory, then run:
 
 ```sh
 git clone https://github.com/rust-dd/metal-oxide.git
@@ -61,63 +133,35 @@ cargo run -p vec-add --locked
 ```
 
 Setup installs the pinned Rust components and downloads the Metal Toolchain if
-missing. For use in another application, follow the
-[installation guide](book/src/installation.md).
+missing. To use the checkout in another application:
 
-Builds save kernels under `metal/<file>/<item>-<math mode>/`. Commit and distribute
-these artifacts with the crate. Unchanged kernels can then be used without the
-kernel compiler. `METAL_OXIDE_ARTIFACTS=locked` requires current saved artifacts and
-fails if they are stale. rust-analyzer expands the macros without building kernels.
+```sh
+cargo install --locked --path /path/to/metal-oxide/crates/cargo-metal
+cargo metal setup
+cargo add metal-oxide --path /path/to/metal-oxide/crates/metal-oxide
+```
 
-## Kernel and runtime APIs
+You can also use `cargo add metal-oxide --git https://github.com/rust-dd/metal-oxide.git`.
+Keep the dependency and `cargo-metal` at the same revision. The
+[installation guide](book/src/installation.md) covers setup and saved artifacts.
 
-- Write a standalone `#[kernel]`, group shared types and helpers in a `#[kernels]`
-  module, or keep kernels in a separate `no_std` crate. Generic entrypoints declare
-  their concrete type and const instances. See [supported Rust](book/src/supported-rust.md).
-- `LaunchConfig<X, Y, Z>` fixes the threads per block; its `grid` counts blocks.
-  `DynamicLaunchConfig` accepts a runtime block shape. Both validate device limits.
-  See [launch geometry](book/src/geometry.md).
-- Buffers support borrowed and owned arguments; `Arc` arguments are read-only.
-  Await readback with `buffer.read().await`; use `sequence` for several operations
-  in one command buffer. See [memory](book/src/memory.md) and
-  [async operations](book/src/async.md).
-- Kernels can use threadgroup memory, SIMD-group operations and 8×8 matrix
-  operations, subject to the device requirements below.
-- Precise math is the default. `#[kernels(math = "fast")]` permits fast functions,
-  reassociation and contraction. See [numerical modes](book/src/performance.md#numerical-modes).
-- `cargo metal run|test --validate` enables Metal validation.
-  `cargo metal inspect --emit ir|msl|air` prints compiler output.
-  `cargo metal run|test --capture FILE.gputrace` records a GPU trace.
-  See [debugging](book/src/debugging.md).
+Kernel builds save `metal/<file>/<item>-<math mode>/` beside the crate's sources.
+Commit and distribute that directory: dependents can use unchanged kernels
+without installing the kernel compiler. `METAL_OXIDE_ARTIFACTS=locked` uses saved
+artifacts only and rejects stale ones.
 
-## Known limitations
+## Debugging and verification
 
-- **Unresolved numerical failure:** a scheduled classic Metal fuzz run on macOS 15
-  produced a different finite result from CPU Rust and host-executed MSL. The
-  minimized case combines narrow integer bit reversal and float arithmetic; its
-  cause is still under investigation. See the
-  [failing run](https://github.com/rust-dd/metal-oxide/actions/runs/39218928471).
-- **Hardware coverage:** native M1–M3 GPUs and a second Metal 4 GPU generation have
-  not been verified. Hosted Paravirtual GPUs do not establish native M1 coverage.
-- **Rust subset:** heap allocation, host I/O, recursion, indirect calls,
-  destructors, coroutines, `f64`, `i64` and 128-bit integers are unsupported.
-  A dependency being `no_std` does not make all its operations usable in kernels.
-  Device crates and their dependencies cannot use build scripts.
-- **Vectors and matrices:** `core::simd` supports 2–4 lanes of f32 or 8/16/32-bit
-  integers. Wider vectors, gather/scatter and masked loads are rejected. Vectors
-  cannot cross the kernel boundary. SIMD-group matrices require uniform operands
-  and control, and are unavailable on the hosted Paravirtual device.
-- **Atomics:** supported operations depend on type and address space. `SeqCst` is
-  rejected. Acquire/release requires macOS 27 and MSL 4.1; its hardware validation
-  is pending.
-- **Build configuration:** Cargo configuration `include` directives are
-  unsupported. Adding a previously absent configuration file that changes only
-  the release profile requires touching a kernel source or running `cargo clean`.
-  See [saved artifacts](book/src/installation.md#saved-artifacts).
-- **Tooling validation:** automated rust-analyzer checks pass; manual editor
-  rendering and Xcode Rust source display remain unverified.
+- `cargo metal run|test --validate` enables Metal API and shader validation.
+- `cargo metal inspect --emit ir|msl|air` prints the generated code.
+- `cargo metal run|test --capture FILE.gputrace` records a GPU trace for Xcode.
+- rust-analyzer expands kernel macros without invoking the kernel compiler.
 
-## Hardware coverage
+Differential tests compare CPU Rust, host-executed MSL and GPU results. Scheduled
+fuzzing minimizes failures and uploads them as CI artifacts; retained regression
+fixtures run in the regular test suites. Benchmarks compare generated kernels
+with CPU references and handwritten MSL, with MPS, MPP and MLX comparisons where
+applicable.
 
 Hardware suites have run on these configurations:
 
@@ -126,17 +170,41 @@ Hardware suites have run on these configurations:
 | M4 Max | 26.2 | 26.6 | classic Metal, Metal 4 |
 | Apple Paravirtual device, GitHub-hosted M1 VM | 15.7, 26.6 | 16.4, 26.6 | classic Metal |
 
-Differential tests compare generated programs on CPU Rust, host-executed MSL and
-the GPU. Scheduled fuzzing runs on hosted classic Metal; failing programs are
-minimized and uploaded as CI artifacts. Retained regression fixtures run in the
-regular test suites. See
-[verification and benchmarks](CONTRIBUTING.md) for commands and recorded results.
+The [contribution guide](CONTRIBUTING.md) has test commands and benchmark results.
+The [book](book/src/SUMMARY.md) covers kernel authoring, memory, async execution,
+performance and debugging.
 
-## Device requirements
+## Known limitations
 
-Artifacts record their feature requirements; the runtime checks them before
-loading. The compiler baseline is MSL 3.2 and macOS 15, even when a feature's
-minimum is lower. These requirements describe device eligibility, not test coverage.
+- **Open correctness issue:** a macOS 15 classic Metal fuzz run produced a wrong
+  finite result for a program combining narrow integer bit reversal and float
+  arithmetic. The same original and minimized cases pass locally on M4 Max with
+  both backends; the failing hosted environment is still being investigated.
+  [Failure details](https://github.com/rust-dd/metal-oxide/actions/runs/39218928471).
+- **Hardware coverage is incomplete.** Native M1–M3 GPUs and a second Metal 4 GPU
+  generation have not been verified. Paravirtual execution does not establish
+  native M1 coverage.
+- **Not all Rust is device code.** Heap allocation, host I/O, recursion, indirect
+  calls, destructors, coroutines, `f64`, `i64` and 128-bit integers are unsupported.
+  Device dependencies cannot use build scripts; `no_std` alone does not establish
+  compatibility.
+- **Cooperation has restrictions.** Barriers and SIMD collectives require uniform
+  participation. SIMD-group matrices require uniform operands and control.
+  Within-thread `core::simd` supports only 2–4 lanes of f32 or 8/16/32-bit integers;
+  wider vectors, gather/scatter and masked loads are rejected.
+- **Atomics are limited by type and address space.** `SeqCst` is rejected.
+  Acquire/release needs macOS 27/MSL 4.1 and still awaits hardware validation.
+- **Cargo configuration has two gaps.** Configuration `include` directives are
+  unsupported. After adding a new configuration file that changes only the
+  release profile, touch a kernel source or run `cargo clean`.
+- **Manual tooling checks remain open.** Automated rust-analyzer checks pass;
+  editor rendering and Rust source display in Xcode have not been verified.
+
+## Device feature requirements
+
+The runtime checks artifact requirements before loading. The compiler baseline
+is MSL 3.2 and macOS 15 even when a feature's minimum is lower. This table describes
+eligibility, not hardware test coverage.
 
 <!-- capabilities -->
 | Artifact feature | MSL | macOS | Apple GPU family | Mac2 |
@@ -152,8 +220,8 @@ minimum is lower. These requirements describe device eligibility, not test cover
 | `bfloat16` | 3.1 | 14 | 6 | no |
 <!-- /capabilities -->
 
-The `uint64_atomics` feature covers device min/max without returning the previous
-value. Regenerate the table with
+`uint64_atomics` covers device min/max without returning the previous value.
+Regenerate this table with
 `cargo run -p metal-oxide-artifact --example capabilities --locked`.
 
-[Architecture](CONCEPT.md) · [Build and test](CONTRIBUTING.md) · [Examples](examples) · [MIT](LICENSE)
+[Architecture](CONCEPT.md) · [Examples](examples) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
