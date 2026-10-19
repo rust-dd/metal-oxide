@@ -65,8 +65,8 @@ fn rotated(scalar: Scalar, value: &str, amount: &str) -> String {
     crate::arithmetic::integer_value(scalar, &format!("rotate({wide} * {copies}, {amount})"))
 }
 
-/// `value` zero-extended to `uint` and kept unknown: the M1 and M2 GPU compilers crash on 8-
-/// and 16-bit counts of values they fold, and narrow a plain extension back.
+/// `value` zero-extended to `uint` and kept unknown: hosted Metal can fail on 8- and
+/// 16-bit counts of values it folds, and narrow a plain extension back.
 fn widened(scalar: Scalar, value: &str) -> String {
     let unsigned = if scalar.bits() == 8 {
         "uchar"

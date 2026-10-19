@@ -373,7 +373,7 @@ The generated MSL includes these workarounds for Apple compiler defects found by
   `uint(thread_idx.x >= block_dim.x)`, which is zero but unknown to the compiler.
 - Metal's GPU compiler can fail on an 8- or 16-bit `count_ones`, or a 16-bit
   `trailing_zeros`, of a value it folds to a constant. Narrow counts run on the value
-  zero-extended to `uint` and XORed with the same zero, which they can neither fold nor
+  zero-extended to `uint` and XORed with the same zero, which it can neither fold nor
   narrow back.
 - A constant `reverse_bits` followed by float conversion and arithmetic can produce
   the wrong result. Reversal operands use the same opaque zero, with a cast back
