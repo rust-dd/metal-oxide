@@ -19,3 +19,9 @@ failure-output = "immediate-final"
 fail-fast = false
 test-threads = 1
 slow-timeout = { period = "60s", terminate-after = 30 }
+
+# The fuzzer owns its time budget; CI also bounds the entire job.
+[profile.fuzz]
+status-level = "pass"
+failure-output = "immediate-final"
+test-threads = 1

@@ -39,10 +39,14 @@ jobs:
         run: |
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
           rustup toolchain install 1.99.0 --profile minimal
+      - name: Install nextest
+        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        with:
+          tool: nextest@0.9.148
       - name: Compare retained regressions on classic Metal
         env:
           METAL_OXIDE_BACKEND: classic
-        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler --test differential -- --ignored --nocapture --test-threads=1
+        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile gpu --test differential --run-ignored only --no-capture
       - name: Compare generated programs on the CPU, the host and classic Metal
         # The hosted Apple Paravirtual device lacks the Metal 4 family.
         env:
@@ -51,7 +55,7 @@ jobs:
           METAL_OXIDE_FUZZ_SEED: ${{ inputs.seed }}
           METAL_OXIDE_FUZZ_SECONDS: ${{ inputs.seconds || '2700' }}
           METAL_OXIDE_FUZZ_SHRINK_SECONDS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.shrink_seconds) || '600' }}
-        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler --test fuzz -- --ignored --nocapture
+        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile fuzz --test fuzz --run-ignored only --no-capture
       - name: Upload failing programs and their minimized forms
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

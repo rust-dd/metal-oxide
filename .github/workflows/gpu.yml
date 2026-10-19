@@ -26,6 +26,6 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
         with:
-          tool: nextest@0.9.114
+          tool: nextest@0.9.148
       - name: Verify both native APIs and generated artifacts
         run: bash scripts/test-gpu.sh

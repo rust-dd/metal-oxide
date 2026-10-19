@@ -5,21 +5,24 @@ changing code.
 
 ## Workspace
 
+Install [cargo-nextest](https://nexte.st) with
+`cargo install cargo-nextest --version 0.9.148 --locked`, matching CI.
 From the repository root, run:
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
+cargo nextest run --workspace --profile ci --locked
+cargo test --workspace --doc --locked
 cargo +1.89.0 check --workspace --all-targets --locked
 bash scripts/test-gpu.sh
 ```
 
-`scripts/test-gpu.sh` runs the hardware suites through
-[cargo-nextest](https://nexte.st) (`cargo install cargo-nextest --locked`). CI runs the
-portable suites with `cargo nextest run --profile ci` and the documentation examples with
-`cargo test --doc`; the `ci` and `gpu` profiles in `.config/nextest.toml` print each finished
-test with a running `(N/total)` counter.
+Local checks and CI use nextest for the workspace, compiler, Loom and hardware suites.
+The `ci` and `gpu` profiles in `.config/nextest.toml` print each finished test with a
+running `(N/total)` counter. GPU tests run serially. Scheduled fuzzing uses the `fuzz`
+profile and its own time budget. Doctests still need `cargo test --doc`; Miri,
+plain Cargo installation checks and `cargo metal test --validate` run separately.
 
 Ordinary tests leave hardware checks ignored. The examples keep their saved artifacts
 in `metal/` beside their sources, and the stable CI job builds from them with
@@ -38,14 +41,14 @@ that a GPU kernel executed correctly. Changes to cross-thread runtime state also
 run its loom models:
 
 ```sh
-RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release --locked --target-dir target/loom loom
+RUSTFLAGS="--cfg loom" cargo nextest run -p metal-oxide --lib --release --profile ci --locked --target-dir target/loom loom
 ```
 
 Run the compiler checks from `crates/metal-oxide-compiler`, where the dated nightly
 is pinned:
 
 ```sh
-cargo test --features rustc-private --locked --target-dir ../../target/compiler
+cargo nextest run --features rustc-private --profile ci --locked --target-dir ../../target/compiler
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
 ```
 

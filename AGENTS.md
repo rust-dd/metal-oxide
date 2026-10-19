@@ -77,13 +77,14 @@ Read the relevant repository skill before working in its area:
 ## Verification
 
 Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked
--- -D warnings`, and `cargo test --workspace --locked` for Rust changes.
-GPU tests are explicit: `cargo test -p metal-oxide --test gpu --locked --
---ignored --test-threads=1`; `bash scripts/test-gpu.sh` runs every hardware suite through
-cargo-nextest. State when hardware checks were not run. A skipped
+-- -D warnings`, `cargo nextest run --workspace --profile ci --locked`, and
+`cargo test --workspace --doc --locked` for Rust changes.
+GPU tests are explicit: `cargo nextest run -p metal-oxide --test gpu --locked
+--profile gpu --run-ignored only`; `bash scripts/test-gpu.sh` runs every hardware suite.
+State when hardware checks were not run. A skipped
 GPU test is not evidence of correctness. Do not automatically run untrusted PR
 code on a personal or self-hosted runner.
 
-For compiler changes, also run tests and Clippy from `crates/metal-oxide-compiler`
-with `--features rustc-private --locked --target-dir ../../target/compiler`.
+For compiler changes, also run `cargo nextest run --profile ci` and Clippy from
+`crates/metal-oxide-compiler` with `--features rustc-private --locked --target-dir ../../target/compiler`.
 That directory pins the dated nightly; the workspace root stays on stable Rust.

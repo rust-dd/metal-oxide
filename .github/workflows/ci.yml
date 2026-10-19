@@ -31,7 +31,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
         with:
-          tool: nextest@0.9.114
+          tool: nextest@0.9.148
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Unit tests only in tests.rs modules
@@ -49,7 +49,7 @@ jobs:
         run: cargo test --workspace --doc --locked
       - name: Loom models of cross-thread runtime state
         if: runner.os == 'macOS'
-        run: RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release --locked --target-dir target/loom loom
+        run: RUSTFLAGS="--cfg loom" cargo nextest run -p metal-oxide --lib --release --profile ci --locked --target-dir target/loom loom
       - name: Minimum supported Rust
         run: |
           rustup toolchain install 1.89.0 --profile minimal
@@ -100,7 +100,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
         with:
-          tool: nextest@0.9.114
+          tool: nextest@0.9.148
       - name: Compiler Clippy
         run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
       - name: Frontend, IR, and MSL tests
@@ -155,7 +155,7 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
         with:
-          tool: nextest@0.9.114
+          tool: nextest@0.9.148
       - name: Report the toolchain and the Metal device
         run: cargo run -p cargo-metal --locked -- setup --check
       - name: Classic Metal kernels and artifacts
