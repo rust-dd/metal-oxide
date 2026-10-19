@@ -16,6 +16,12 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("bench", Path(__file__).with_name("bench.py"))
 bench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench)
+# bench-spectral.py imports its helpers from this module.
+sys.modules["bench"] = bench
+spec = importlib.util.spec_from_file_location("bench_spectral",
+                                              Path(__file__).with_name("bench-spectral.py"))
+spectral = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(spectral)
 
 
 class BuildIdentity(unittest.TestCase):
@@ -394,6 +400,60 @@ class MlxEnvironment(unittest.TestCase):
         calls = self.calls(exists=False, installed=None)
         self.assertEqual(calls[0][:3], [sys.executable, "-m", "venv"])
         self.assertEqual(calls[-1][-1], self.PIN)
+
+
+class SpectralDriver(unittest.TestCase):
+    SOURCES = ("common.metal", "fgn.metal", "sheet.metal", "euler.metal")
+
+    def test_both_modes_are_validated_then_measured_on_both_backends(self):
+        builds, hosts = [], []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "examples/spectral/host").mkdir(parents=True)
+            for name in self.SOURCES:
+                (root / "examples/spectral/host" / name).write_text(name)
+            artifact = root / "artifact"
+            artifact.mkdir()
+            (artifact / "manifest.json").write_text('{"build": {"metal_flags": []}}')
+
+            def build(package, source, environment, log, features):
+                builds.append([package, source, *features])
+                return artifact, ["cargo"], 1, 2
+
+            def run(args, *, env=None, log=None):
+                args = [str(arg) for arg in args]
+                if args[0].endswith("/spectral"):
+                    backend = env["METAL_OXIDE_BACKEND"]
+                    if "--bench" in args:
+                        Path(args[2]).write_text(json.dumps({"backend": backend}))
+                        args[2] = Path(args[2]).name
+                    hosts.append([backend, *args[1:]])
+                return ("abc123" if args[:2] == ["git", "rev-parse"] else ""), 0
+
+            output = root / "report.json"
+            arguments = ["bench-spectral.py", "--samples", "3", "--warmup", "1", "--max-rows",
+                         "16", "--output", str(output)]
+            with mock.patch.multiple(spectral, ROOT=root, build_kernels=build, command=run,
+                                     digest=lambda path: path.name), \
+                    mock.patch.object(sys, "argv", arguments), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                spectral.main()
+            report = json.loads(output.read_text())
+        main = "examples/spectral/host/src/main.rs"
+        self.assertEqual(builds, [["spectral", main], ["spectral", main, "--features", "fast"]])
+        self.assertEqual(hosts, [call for mode in ("precise", "fast")
+                                 for backend in ("classic", "metal4")
+                                 for call in ([backend], [backend, "--bench",
+                                                          f"{mode}-{backend}.json", "3", "1",
+                                                          "16"])])
+        self.assertEqual([mode["mode"] for mode in report["modes"]], ["precise", "fast"])
+        for mode in report["modes"]:
+            self.assertEqual(mode["backends"], [{"backend": "classic"}, {"backend": "metal4"}])
+            self.assertEqual((mode["first_build_ns"], mode["rebuild_ns"]), (1, 2))
+            self.assertEqual(mode["manifest"], {"build": {"metal_flags": []}})
+        self.assertEqual((report["revision"], report["dirty"]), ("abc123", False))
+        self.assertEqual(report["references"],
+                         {f"examples/spectral/host/{name}": name for name in self.SOURCES})
 
 
 if __name__ == "__main__":
