@@ -132,6 +132,18 @@ fn narrow_reverse_float_matches_cpu_and_host_msl() {
     for outcome in expected.threads {
         assert_eq!(outcome, Outcome::Words(vec![0, 0x41d8_0000, 0, 0]));
     }
+    for name in [
+        "narrow_reverse_constants",
+        "narrow_reverse_conversions",
+        "narrow_reverse_dynamic",
+    ] {
+        let path = support::root().join(format!(
+            "crates/metal-oxide-compiler/tests/fixtures/generated/{name}.rs"
+        ));
+        let case = support::differential::Case::saved(&path);
+        case.check()
+            .unwrap_or_else(|failure| panic!("{}: {failure}", path.display()));
+    }
 }
 
 #[test]
@@ -139,18 +151,52 @@ fn narrow_reverse_float_matches_cpu_and_host_msl() {
 #[ignore = "requires a Metal GPU"]
 fn narrow_reverse_float_matches_cpu_on_gpu() {
     let device = metal_oxide::Device::system_default().unwrap();
-    for case in
-        [
-            support::differential::Case::saved(&support::root().join(
-                "crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs",
-            )),
-            support::differential::Case::generated(0x44b6_8b45_d22d_f4c9),
-        ]
-    {
+    let mut cases = [
+        "narrow_reverse_float",
+        "narrow_reverse_constants",
+        "narrow_reverse_conversions",
+        "narrow_reverse_dynamic",
+    ]
+    .map(|name| {
+        support::differential::Case::saved(&support::root().join(format!(
+            "crates/metal-oxide-compiler/tests/fixtures/generated/{name}.rs"
+        )))
+    })
+    .into_iter()
+    .collect::<Vec<_>>();
+    cases.insert(
+        1,
+        support::differential::Case::generated(0x44b6_8b45_d22d_f4c9),
+    );
+    let mut failures = Vec::new();
+    for case in cases {
         eprintln!("checking {}", case.source.display());
-        let (expected, generated) = case.check().unwrap();
-        case.check_gpu(&device, &expected, &generated).unwrap();
+        let (expected, generated) = match case.check() {
+            Ok(checked) => checked,
+            Err(failure) => {
+                failures.push(format!("{}: {failure}", case.source.display()));
+                continue;
+            }
+        };
+        let actual = match case.gpu(&device, &generated) {
+            Ok(actual) => actual,
+            Err(failure) => {
+                failures.push(format!("{}: {failure}", case.source.display()));
+                continue;
+            }
+        };
+        eprintln!(
+            "thread 0: expected {:x?}, got {:x?}",
+            expected.threads.first(),
+            actual.words.get(..case.words.len())
+        );
+        if let Some(failure) =
+            case.gpu_mismatch(&expected, actual.failure, &actual.words, &actual.counters)
+        {
+            failures.push(format!("{}: {failure}", case.source.display()));
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

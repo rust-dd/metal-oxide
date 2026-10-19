@@ -39,6 +39,10 @@ jobs:
         run: |
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
           rustup toolchain install 1.99.0 --profile minimal
+      - name: Compare retained regressions on classic Metal
+        env:
+          METAL_OXIDE_BACKEND: classic
+        run: cargo test --features rustc-private --locked --target-dir ../../target/compiler --test differential -- --ignored --nocapture --test-threads=1
       - name: Compare generated programs on the CPU, the host and classic Metal
         # The hosted Apple Paravirtual device lacks the Metal 4 family.
         env:
