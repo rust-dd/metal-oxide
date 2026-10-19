@@ -371,10 +371,13 @@ The generated MSL includes these workarounds for Apple compiler defects found by
   estimate, and other numerators fail once the divisor also becomes constant there, as after
   it folds `reverse_bits`. Division by a variable XORs the numerator with
   `uint(thread_idx.x >= block_dim.x)`, which is zero but unknown to the compiler.
-- The M1 and M2 GPU compilers fail on an 8- or 16-bit `count_ones`, or a 16-bit
-  `trailing_zeros`, of a value they fold to a constant. Narrow counts run on the value
+- Metal's GPU compiler can fail on an 8- or 16-bit `count_ones`, or a 16-bit
+  `trailing_zeros`, of a value it folds to a constant. Narrow counts run on the value
   zero-extended to `uint` and XORed with the same zero, which they can neither fold nor
   narrow back.
+- A constant `reverse_bits` followed by float conversion and arithmetic can produce
+  the wrong result. Reversal operands use the same opaque zero, with a cast back
+  to their original integer width and sign before reversal.
 - After a loop over a private array whose end it knows, Metal's GPU compiler can read the
   array as it was before the loop and miss later stores, as in `values[i]` after
   `for value in values.iter_mut() { *value *= 10; }`. Slices of private memory XOR their
