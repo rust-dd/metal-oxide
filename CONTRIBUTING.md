@@ -98,8 +98,18 @@ Rust 1.89 with an unavailable compiler and executes them again.
 
 The smoke test uses a local source mirror of the exact archives and their locked
 dependencies. It neither publishes packages nor verifies crates.io availability.
-After publication, repeat installation from crates.io on a fresh hosted runner.
 The `Packaged installation` workflow runs the rehearsal on hosted classic Metal.
+When a GitHub release is published, its separate registry job installs that
+version from crates.io with a fresh Cargo home, runs setup, authors kernels with
+version dependencies and executes their saved artifacts on Rust 1.89 without
+the compiler. The downstream consumer's registry migration and packaging remain
+separate release checks.
+
+The documentation workflow uploads the checked book on every run and deploys the
+release's book to GitHub Pages when a GitHub release is published, including an
+alpha prerelease. Before publishing the first release, select GitHub Actions as
+the repository's Pages source and allow release tags in the `github-pages`
+environment. Pull requests and ordinary pushes build and upload without deploying.
 
 ## API design
 

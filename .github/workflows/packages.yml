@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -27,3 +29,55 @@ jobs:
           rustup toolchain install 1.89.0 --profile minimal
       - name: Package, install, author and consume saved kernels
         run: python3 scripts/check-release.py --smoke
+
+  registry:
+    if: github.event_name == 'release'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      METAL_OXIDE_BACKEND: classic
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Use a fresh Cargo home
+        run: echo "CARGO_HOME=$RUNNER_TEMP/registry-cargo" >> "$GITHUB_ENV"
+      - name: Install host and minimum supported Rust
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --no-self-update
+          rustup toolchain install 1.89.0 --profile minimal --no-self-update
+      - name: Prepare a consumer with the published version
+        id: consumer
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import tomllib
+
+          version = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          application = Path(os.environ["RUNNER_TEMP"]) / "installed"
+          shutil.copytree("tests/installed", application)
+          manifest = application / "Cargo.toml"
+          original = 'metal-oxide = { path = "../../crates/metal-oxide" }'
+          text = manifest.read_text()
+          assert text.count(original) == 1
+          manifest.write_text(text.replace(original, f'metal-oxide = "={version}"'))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
+          PY
+      - name: Install cargo-metal from crates.io
+        env:
+          RELEASE_VERSION: ${{ steps.consumer.outputs.version }}
+        run: |
+          cargo install cargo-metal --version "=$RELEASE_VERSION" --locked --root "$RUNNER_TEMP/registry-tools"
+          echo "$RUNNER_TEMP/registry-tools/bin" >> "$GITHUB_PATH"
+      - name: Install the published compiler and author kernels
+        working-directory: ${{ runner.temp }}/installed
+        run: |
+          cargo +1.99.0 metal setup
+          cargo +1.99.0 run
+      - name: Run saved kernels on minimum Rust without the compiler
+        working-directory: ${{ runner.temp }}/installed
+        env:
+          METAL_OXIDE_ARTIFACTS: locked
+          METAL_OXIDE_COMPILER: ${{ runner.temp }}/missing-compiler
+        run: cargo +1.89.0 run --locked --target-dir "$RUNNER_TEMP/saved-kernels"
