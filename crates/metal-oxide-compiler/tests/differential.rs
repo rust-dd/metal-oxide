@@ -123,7 +123,7 @@ fn generated_fixtures_match_cpu_and_emitted_msl() {
 }
 
 #[test]
-fn narrow_reverse_float_matches_cpu_and_host_msl() {
+fn bit_reversals_match_cpu_and_host_msl() {
     let case = support::differential::Case::saved(
         &support::root()
             .join("crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs"),
@@ -133,7 +133,7 @@ fn narrow_reverse_float_matches_cpu_and_host_msl() {
         assert_eq!(outcome, Outcome::Words(vec![0, 0x41d8_0000, 0, 0]));
     }
     for name in [
-        "narrow_reverse_constants",
+        "reverse_constant_floats",
         "narrow_reverse_conversions",
         "narrow_reverse_dynamic",
     ] {
@@ -149,11 +149,11 @@ fn narrow_reverse_float_matches_cpu_and_host_msl() {
 #[test]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
-fn narrow_reverse_float_matches_cpu_on_gpu() {
+fn bit_reversals_match_cpu_on_gpu() {
     let device = metal_oxide::Device::system_default().unwrap();
     let mut cases = [
         "narrow_reverse_float",
-        "narrow_reverse_constants",
+        "reverse_constant_floats",
         "narrow_reverse_conversions",
         "narrow_reverse_dynamic",
     ]

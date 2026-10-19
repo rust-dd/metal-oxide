@@ -91,3 +91,52 @@ fn half_arithmetic_and_integer_casts_use_half_values() {
         );
     }
 }
+
+#[test]
+fn bit_reversal_preserves_scalar_width_and_signed_bit_patterns() {
+    for (scalar, name) in [
+        (Scalar::U8, "uchar"),
+        (Scalar::I8, "char"),
+        (Scalar::U16, "ushort"),
+        (Scalar::I16, "short"),
+        (Scalar::U32, "uint"),
+        (Scalar::I32, "int"),
+        (Scalar::U64, "ulong"),
+        (Scalar::Usize, "ulong"),
+        (Scalar::Isize, "long"),
+    ] {
+        let module = module(
+            1,
+            vec![Type::Scalar(scalar); 2],
+            vec![block(
+                vec![(
+                    0,
+                    Expression::Integer {
+                        op: IntegerOp::ReverseBits,
+                        arguments: vec![local(1)],
+                    },
+                )],
+                Terminator::Return,
+            )],
+        );
+        let high = 1_u64 << (scalar.bits() - 1);
+        let reversed_one = if scalar.is_signed() {
+            0_u64.wrapping_sub(high)
+        } else {
+            high
+        };
+        let reversed_minus_two = u64::MAX >> (65 - scalar.bits());
+        assert_eq!(
+            support::execute(
+                &module,
+                &format!(
+                    "ctx.thread_idx.x = 7; ctx.block_dim.x = 8; \
+                     std::cout << ulong(metal_oxide_fn_0({name}(1), ctx)) << ',' \
+                     << ulong(metal_oxide_fn_0({name}(-2), ctx));"
+                )
+            ),
+            format!("{reversed_one},{reversed_minus_two}"),
+            "{scalar:?}"
+        );
+    }
+}

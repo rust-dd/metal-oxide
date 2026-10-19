@@ -1,14 +1,20 @@
-// words: exact exact exact exact
+// words: exact exact exact exact exact exact exact exact exact exact
 // overflow checks: off
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]
 
-fn run(input: u32) -> [u32; 4] {
+fn run(input: u32) -> [u32; 10] {
     [
         (27.0_f32 + (0_i8.reverse_bits() as f32).abs()).to_bits(),
         (27.0_f32 + (0_i8 as f32).abs()).to_bits(),
         (27.0_f32 + (0_u8.reverse_bits() as f32).abs()).to_bits(),
         (27.0_f32 + (0_u32.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_i16.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_u16.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_i32.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_u64.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_isize.reverse_bits() as f32).abs()).to_bits(),
+        (27.0_f32 + (0_usize.reverse_bits() as f32).abs()).to_bits(),
     ]
 }
 
@@ -16,7 +22,7 @@ fn run(input: u32) -> [u32; 4] {
 use metal_oxide_device::{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
 
 #[cfg(not(cpu_reference))]
-#[kernel(instances(generated(4)))]
+#[kernel(instances(generated(10)))]
 pub unsafe fn generated_body<const WORDS: u32>(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {
     let i = block_idx().x * block_dim().x + thread_idx().x;
     if i < n {
@@ -26,6 +32,12 @@ pub unsafe fn generated_body<const WORDS: u32>(input: ReadBuffer<u32>, output: W
         output.store_unchecked(i * WORDS + 1, words[1]);
         output.store_unchecked(i * WORDS + 2, words[2]);
         output.store_unchecked(i * WORDS + 3, words[3]);
+        output.store_unchecked(i * WORDS + 4, words[4]);
+        output.store_unchecked(i * WORDS + 5, words[5]);
+        output.store_unchecked(i * WORDS + 6, words[6]);
+        output.store_unchecked(i * WORDS + 7, words[7]);
+        output.store_unchecked(i * WORDS + 8, words[8]);
+        output.store_unchecked(i * WORDS + 9, words[9]);
         }
     }
 }

@@ -25,7 +25,14 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
             format!("popcount({})", widened(scalar, &values[0]))
         }
         IntegerOp::CountOnes => format!("uint(popcount({}))", values[0]),
-        IntegerOp::ReverseBits => format!("reverse_bits({})", values[0]),
+        IntegerOp::ReverseBits => {
+            // Hosted Metal miscomputes float arithmetic fed by reversed constants.
+            let value = crate::arithmetic::integer_value(
+                scalar,
+                &format!("({} ^ {})", values[0], crate::arithmetic::OPAQUE_ZERO),
+            );
+            format!("reverse_bits({value})")
+        }
         IntegerOp::RotateLeft if scalar.bits() < 32 => {
             rotated(scalar, &values[0], &format!("({} & {mask}u)", values[1]))
         }
