@@ -123,6 +123,37 @@ fn generated_fixtures_match_cpu_and_emitted_msl() {
 }
 
 #[test]
+fn narrow_reverse_float_matches_cpu_and_host_msl() {
+    let case = support::differential::Case::saved(
+        &support::root()
+            .join("crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs"),
+    );
+    let (expected, _) = case.check().unwrap();
+    for outcome in expected.threads {
+        assert_eq!(outcome, Outcome::Words(vec![0, 0x41d8_0000, 0, 0]));
+    }
+}
+
+#[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[ignore = "requires a Metal GPU"]
+fn narrow_reverse_float_matches_cpu_on_gpu() {
+    let device = metal_oxide::Device::system_default().unwrap();
+    for case in
+        [
+            support::differential::Case::saved(&support::root().join(
+                "crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs",
+            )),
+            support::differential::Case::generated(0x44b6_8b45_d22d_f4c9),
+        ]
+    {
+        eprintln!("checking {}", case.source.display());
+        let (expected, generated) = case.check().unwrap();
+        case.check_gpu(&device, &expected, &generated).unwrap();
+    }
+}
+
+#[test]
 fn failures_are_compared_by_location_and_completed_threads_by_words() {
     let case = support::differential::Case::generated(0);
     let words = case.words.len();

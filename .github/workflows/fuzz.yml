@@ -4,6 +4,19 @@ on:
   schedule:
     - cron: "23 2 * * *"
   workflow_dispatch:
+    inputs:
+      seed:
+        description: "Starting seed as a decimal u64; empty uses the clock"
+        type: string
+        default: ""
+      seconds:
+        description: "Time budget in seconds"
+        type: number
+        default: 2700
+      shrink_seconds:
+        description: "Time budget for minimizing each failure"
+        type: number
+        default: 600
 
 permissions:
   contents: read
@@ -31,7 +44,9 @@ jobs:
         env:
           METAL_OXIDE_BACKEND: classic
           METAL_OXIDE_FUZZ_GPU: "1"
-          METAL_OXIDE_FUZZ_SECONDS: "2700"
+          METAL_OXIDE_FUZZ_SEED: ${{ inputs.seed }}
+          METAL_OXIDE_FUZZ_SECONDS: ${{ inputs.seconds || '2700' }}
+          METAL_OXIDE_FUZZ_SHRINK_SECONDS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.shrink_seconds) || '600' }}
         run: cargo test --features rustc-private --locked --target-dir ../../target/compiler --test fuzz -- --ignored --nocapture
       - name: Upload failing programs and their minimized forms
         if: failure()
