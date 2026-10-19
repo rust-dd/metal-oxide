@@ -73,6 +73,34 @@ Unsupported Rust operations must fail with diagnostics. Do not discard MIR
 assertions or change numerical semantics to
 make a kernel compile.
 
+## Documentation
+
+The book includes tested examples directly and generates its capability table from
+`metal-oxide-artifact::CAPABILITIES`, together with the README table. To check both
+references, build the book and validate its internal links:
+
+```sh
+cargo install mdbook --version 0.5.4 --locked
+cargo run -p metal-oxide-artifact --example capabilities --locked -- --check
+mdbook build book
+python3 scripts/check-book.py
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-device -p metal-oxide-macros -p metal-oxide-kernels -p metal-oxide-build
+```
+
+## Release checks
+
+`python3 scripts/check-release.py` derives publication order from Cargo metadata
+and packages every public crate, verifying each archive. Add `--allow-dirty` while
+preparing changes. On a Mac, `--smoke` also installs the packaged tools into an
+isolated Cargo home, runs `cargo metal setup`, builds and executes
+`tests/installed` with version dependencies, then installs its saved kernels on
+Rust 1.89 with an unavailable compiler and executes them again.
+
+The smoke test uses a local source mirror of the exact archives and their locked
+dependencies. It neither publishes packages nor verifies crates.io availability.
+After publication, repeat installation from crates.io on a fresh hosted runner.
+The `Packaged installation` workflow runs the rehearsal on hosted classic Metal.
+
 ## API design
 
 Keep the public API small and direct, with one clear path for each operation.

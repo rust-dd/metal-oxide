@@ -71,7 +71,14 @@ pub(super) fn run(check: bool) -> ExitCode {
 
 fn install() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let status = Command::new("rustup")
-        .args(["toolchain", "install", NIGHTLY, "--profile", "minimal"])
+        .args([
+            "toolchain",
+            "install",
+            NIGHTLY,
+            "--profile",
+            "minimal",
+            "--no-self-update",
+        ])
         .args(["--component", "rustc-dev", "--component", "rust-src"])
         .args(["--component", "llvm-tools"])
         .status()?;
