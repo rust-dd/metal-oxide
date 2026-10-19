@@ -161,6 +161,71 @@ class Workloads(unittest.TestCase):
         self.assertEqual(bench.WORKLOADS["gemm"], ("examples/gemm/host/src/main.rs",
                                                    "benchmarks/reference-msl/gemm.metal"))
 
+    def test_the_mpp_gemm_lies_beside_the_msl_twin(self):
+        self.assertEqual(bench.MPP_SOURCE, "benchmarks/reference-msl/gemm-mpp.metal")
+        self.assertTrue((bench.ROOT / bench.MPP_SOURCE).is_file())
+
+
+class MppBuild(unittest.TestCase):
+    FLAGS = ["-std=metal3.2", "-mmacosx-version-min=15.0", "-fmetal-math-mode=safe",
+             "-fmetal-math-fp32-functions=precise", "-ffp-contract=off", "-O2"]
+    NUMERICS = FLAGS[2:]
+
+    def build(self, failure):
+        """build_mpp of FLAGS with `command` failing with `failure(args)` unless that is None."""
+        calls = []
+
+        def run(args, **_):
+            args = [str(arg) for arg in args]
+            calls.append(args)
+            output = failure(args)
+            if output is not None:
+                raise RuntimeError(f"{args!r} failed (1):\n{output}")
+            return "", 5
+
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.multiple(bench, command=run, digest=lambda path: path.name):
+            return bench.build_mpp(["metal"], self.FLAGS, {}, Path(temporary)), calls
+
+    def test_msl_4_and_macos_26_replace_the_artifacts_standard_and_target(self):
+        self.assertEqual(bench.mpp_flags(self.FLAGS),
+                         ["-std=metal4.0", "-mmacosx-version-min=26.0", *self.NUMERICS])
+        self.assertEqual(bench.mpp_flags([]), list(bench.MPP_STANDARD))
+
+    def test_a_compiler_without_tensors_is_a_recorded_skip_that_compiles_nothing(self):
+        output = ("tensor-probe.metal:3:2: error: Metal tensors need __HAVE_TENSOR__\n"
+                  "#error Metal tensors need __HAVE_TENSOR__\n1 error generated.")
+        result, calls = self.build(lambda args: output if "-E" in args else None)
+        reason = ("the Metal compiler has no tensor support: "
+                  "error: Metal tensors need __HAVE_TENSOR__")
+        self.assertEqual(result, ({"unavailable": reason}, {"mpp_skipped": reason}, {}))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:7], ["metal", *bench.mpp_flags(self.FLAGS)])
+
+    def test_a_compiler_without_msl_4_is_a_recorded_skip(self):
+        output = "error: invalid value 'metal4.0' in '-std=metal4.0'"
+        (config, build, _), _ = self.build(lambda args: output)
+        reason = f"the Metal compiler has no tensor support: {output}"
+        self.assertEqual((config, build), ({"unavailable": reason}, {"mpp_skipped": reason}))
+
+    def test_with_tensors_the_twin_compiles_and_links_with_the_mpp_flags(self):
+        (config, build, identity), calls = self.build(lambda args: None)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("-E", calls[0])
+        self.assertEqual(calls[1], build["mpp_reference_command"])
+        self.assertEqual(calls[1][:7], ["metal", *bench.mpp_flags(self.FLAGS)])
+        self.assertEqual(calls[1][7:9], ["-c", str(bench.ROOT / bench.MPP_SOURCE)])
+        self.assertEqual(calls[2], ["metal", calls[1][-1], "-o", config["metallib"]])
+        times = (build["mpp_reference_compile_ns"], build["mpp_reference_link_ns"])
+        self.assertEqual(times, (5, 5))
+        self.assertEqual(identity, {"mpp_reference_source": bench.MPP_SOURCE,
+                                    "mpp_reference_sha256": "gemm-mpp.metal",
+                                    "mpp_reference_metallib_sha256": "gemm-mpp.metallib"})
+
+    def test_a_failing_compile_of_a_compiler_with_tensors_is_an_error(self):
+        with self.assertRaises(RuntimeError):
+            self.build(lambda args: "error: no member named 'run'" if "-c" in args else None)
+
 
 PROFILE = json.dumps({"SPDisplaysDataType": [{
     "_name": "Apple M4 Max",
@@ -292,7 +357,7 @@ class Timeouts(unittest.TestCase):
     def test_large_runs_allow_their_gemm_work_at_half_a_teraflop(self):
         args = self.args("--gemm", "8192", "8192", "8192", "--samples", "20", "--warmup", "10")
         gemm = 2 * 8192 ** 3
-        self.assertEqual(bench.runner_timeout(args), math.ceil(gemm * 64 * 30 * 6 / 0.5e12))
+        self.assertEqual(bench.runner_timeout(args), math.ceil(gemm * 64 * 30 * 8 / 0.5e12))
         self.assertEqual(bench.mlx_timeout(args), math.ceil(gemm * 64 * 31 * 2 / 0.5e12))
         self.assertGreater(bench.runner_timeout(args), bench.TIMEOUT_S)
 
@@ -356,8 +421,13 @@ class Report(unittest.TestCase):
 class Timing(unittest.TestCase):
     def test_the_interleave_note_names_the_order_and_the_drift_between_runs(self):
         for words in ("every case", "take turns", "rotating every round", "separate processes",
-                      "report the spread", "confirms the interleave"):
+                      "report the spread", "confirms the interleave", "also mpp"):
             self.assertIn(words, bench.INTERLEAVE_TIMING)
+
+    def test_the_mpp_note_names_its_flags_and_where_a_skip_is_recorded(self):
+        for words in ("-std=metal4.0 -mmacosx-version-min=26.0", "zeroed cooperative tensor",
+                      "builds.gemm.mpp_skipped", "skipped list", "other candidates run"):
+            self.assertIn(words, bench.MPP_TIMING)
 
 
 class MlxEnvironment(unittest.TestCase):

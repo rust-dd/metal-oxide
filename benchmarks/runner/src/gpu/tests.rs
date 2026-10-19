@@ -162,7 +162,7 @@ fn mps_is_a_backend_of_its_own_in_the_classic_run_only() {
     assert!(measures_mps("classic"));
     assert!(!measures_mps("metal4"));
     let mps = vec![Case::new("gemm-f32", "mps", vec![1, 1, 1])];
-    let classic = backend_reports("GPU", "classic", vec![], Some(mps));
+    let classic = backend_reports("GPU", "classic", (vec![], vec![]), Some(mps));
     let names = |reports: &[serde_json::Value]| {
         reports
             .iter()
@@ -173,7 +173,44 @@ fn mps_is_a_backend_of_its_own_in_the_classic_run_only() {
     assert_eq!(classic[1]["cases"][0]["variant"], "mps");
     assert_eq!(classic[1]["device"], "GPU");
     assert_eq!(
-        names(&backend_reports("GPU", "metal4", vec![], None)),
+        names(&backend_reports("GPU", "metal4", (vec![], vec![]), None)),
         ["metal4"]
     );
+}
+
+#[test]
+fn a_skipped_candidate_is_reported_with_its_reason_beside_the_cases() {
+    let skipped = Skipped {
+        name: "gemm-f16".into(),
+        variant: "mpp".into(),
+        reason: "no tensors".into(),
+    };
+    let cases = vec![Case::new("gemm-f16", "rust", vec![1, 1, 1])];
+    let reports = backend_reports("GPU", "metal4", (cases, vec![skipped]), None);
+    assert_eq!(reports[0]["cases"][0]["variant"], "rust");
+    assert_eq!(
+        reports[0]["skipped"],
+        serde_json::json!([{"name": "gemm-f16", "variant": "mpp", "reason": "no tensors"}])
+    );
+    let classic = backend_reports("GPU", "classic", (vec![], vec![]), Some(vec![]));
+    let none = serde_json::json!([]);
+    assert!(classic.iter().all(|report| report["skipped"] == none));
+}
+
+#[test]
+fn config_names_the_mpp_library_or_why_bench_py_built_none() {
+    let with = |gemm_mpp| {
+        let mut value = serde_json::json!({
+            "artifacts": {}, "references": {}, "cases": ["gemm"], "samples": 1, "warmup": 0,
+            "elements": 1, "matrix": [1, 1, 1], "gemm": [1, 1, 1], "gemm_repeat": 1,
+            "sort": 1, "fft": [2, 1], "stencil": [1, 1, 1],
+        });
+        value["gemm_mpp"] = gemm_mpp;
+        serde_json::from_value::<Config>(value).unwrap().gemm_mpp
+    };
+    let built = with(serde_json::json!({"metallib": "/run/mpp.metallib"}));
+    assert!(matches!(built, Some(MppLibrary::Metallib(path)) if path.ends_with("mpp.metallib")));
+    let missing = with(serde_json::json!({"unavailable": "no tensors"}));
+    assert!(matches!(missing, Some(MppLibrary::Unavailable(reason)) if reason == "no tensors"));
+    assert!(config(1).gemm_mpp.is_none());
 }

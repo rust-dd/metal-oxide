@@ -68,6 +68,16 @@ struct Config {
     fft: [u32; 2],
     /// Grid width, height and iterations.
     stencil: [u32; 3],
+    /// The library of the gemm workload's mpp candidate; absent without that workload.
+    gemm_mpp: Option<MppLibrary>,
+}
+
+/// The MSL 4.0 GEMM library that bench.py built, or why it could not build one.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MppLibrary {
+    Metallib(PathBuf),
+    Unavailable(String),
 }
 
 impl Config {
@@ -171,6 +181,7 @@ impl Case {
         }
     }
 
+    /// The pipelines of `package`'s generated artifact for `rust`, of its MSL twin otherwise.
     fn pipelines(
         &mut self,
         device: &Device,
@@ -178,12 +189,26 @@ impl Case {
         package: &str,
         entries: &[&str],
     ) -> Result<Vec<Pipeline>> {
-        let start = Instant::now();
-        let module = if self.variant == "rust" {
-            Module::from_artifact(device, &config.artifacts[package])?
-        } else {
-            Module::from_metallib(device, &config.references[package])?
+        let rust = self.variant == "rust";
+        let load = || {
+            if rust {
+                Module::from_artifact(device, &config.artifacts[package])
+            } else {
+                Module::from_metallib(device, &config.references[package])
+            }
         };
+        Ok(self.load(device, load, entries)?)
+    }
+
+    /// Times `load` and the pipelines of `entries` in the module it returns.
+    fn load(
+        &mut self,
+        device: &Device,
+        load: impl FnOnce() -> metal_oxide::Result<Module>,
+        entries: &[&str],
+    ) -> metal_oxide::Result<Vec<Pipeline>> {
+        let start = Instant::now();
+        let module = load()?;
         self.library_load_ns = elapsed(start);
         let start = Instant::now();
         let pipelines = entries
@@ -220,6 +245,14 @@ impl Case {
         }
         Ok(self)
     }
+}
+
+/// A candidate this machine cannot run, reported in place of its case.
+#[derive(Serialize)]
+struct Skipped {
+    name: String,
+    variant: String,
+    reason: String,
 }
 
 fn elapsed(start: Instant) -> u64 {
@@ -278,13 +311,16 @@ fn measures_mps(backend: &str) -> bool {
 fn backend_reports(
     device: &str,
     backend: &str,
-    cases: Vec<Case>,
+    (cases, skipped): (Vec<Case>, Vec<Skipped>),
     mps: Option<Vec<Case>>,
 ) -> Vec<serde_json::Value> {
-    let mut backends =
-        vec![serde_json::json!({"device": device, "backend": backend, "cases": cases})];
+    let report = |backend: &str, cases: Vec<Case>, skipped: Vec<Skipped>| {
+        serde_json::json!({"device": device, "backend": backend, "cases": cases,
+                           "skipped": skipped})
+    };
+    let mut backends = vec![report(backend, cases, skipped)];
     if let Some(mps) = mps {
-        backends.push(serde_json::json!({"device": device, "backend": "mps", "cases": mps}));
+        backends.push(report("mps", mps, vec![]));
     }
     backends
 }
@@ -297,7 +333,7 @@ pub(super) fn run() -> Result<()> {
     config.validate()?;
     let backend = std::env::var("METAL_OXIDE_BACKEND")?;
     let device = Device::system_default()?;
-    let mut cases = Vec::new();
+    let (mut cases, mut skipped) = (Vec::new(), Vec::new());
     let mut mps = None;
     for workload in WORKLOADS {
         if !config.selects(workload) {
@@ -305,14 +341,15 @@ pub(super) fn run() -> Result<()> {
         }
         if workload == "gemm" {
             let problem = gemm::Problem::new(config.gemm);
-            let (gemm, measured) = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
-            cases.extend(gemm);
-            mps = measured;
+            let gemm = gemm::run(&device, &config, &problem, measures_mps(&backend))?;
+            cases.extend(gemm.cases);
+            skipped.extend(gemm.skipped);
+            mps = gemm.mps;
         } else {
             cases.extend(measure(&device, &config, workload)?);
         }
     }
-    let backends = backend_reports(&device.name(), &backend, cases, mps);
+    let backends = backend_reports(&device.name(), &backend, (cases, skipped), mps);
     std::fs::write(output, serde_json::to_vec_pretty(&backends)?)?;
     Ok(())
 }

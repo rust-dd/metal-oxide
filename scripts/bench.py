@@ -28,6 +28,14 @@ WORKLOADS = {
     "stencil": ("examples/stencil/src/lib.rs", "benchmarks/reference-msl/stencil.metal"),
     "gemm": ("examples/gemm/host/src/main.rs", "benchmarks/reference-msl/gemm.metal"),
 }
+# The gemm workload's mpp candidate: MSL 4.0, whose tensors need the compiler's __HAVE_TENSOR__.
+MPP_SOURCE = "benchmarks/reference-msl/gemm-mpp.metal"
+MPP_STANDARD = ("-std=metal4.0", "-mmacosx-version-min=26.0")
+TENSOR_PROBE = ("#include <metal_stdlib>\n"
+                "#if !defined(__HAVE_TENSOR__)\n"
+                "#error Metal tensors need __HAVE_TENSOR__\n"
+                "#endif\n"
+                "#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>\n")
 BACKENDS = ("classic", "metal4")
 SORT_KEYS = 1 << 24
 FFT_VALUES = 1 << 26
@@ -36,15 +44,16 @@ STENCIL_ITERATIONS = 4096
 # A command's limit; GEMM runs scale theirs with their work at an assumed slowest GEMM rate.
 TIMEOUT_S = 1800
 MIN_GEMM_FLOPS = 0.5e12
-# A runner process measures rust, msl and, in the classic run, mps, for f32 and f16 inputs.
-RUNNER_GEMM_CASES = 6
+# A runner process measures rust, msl, mpp and, in the classic run, mps, for f32 and f16 inputs.
+RUNNER_GEMM_CASES = 8
 MLX_VERSION = "0.32.4"
 MLX_VENV = ROOT / "target/benchmarks/mlx-venv"
 MLX_INPUTS = ("f32", "f16")
-INTERLEAVE_TIMING = ("within a runner process, the candidates of every case (rust and msl, and mps "
-                     "for the gemm in the classic process) take turns: every warmup and timed "
-                     "round runs one sample of each, the first candidate rotating every round, so "
-                     "drift within the process reaches them alike; cases run one after another. "
+INTERLEAVE_TIMING = ("within a runner process, the candidates of every case (rust and msl; for the "
+                     "gemm also mpp, and mps in the classic process) take turns: every warmup and "
+                     "timed round runs one sample of each, the first candidate rotating every "
+                     "round, so drift within the process reaches them alike; cases run one after "
+                     "another. "
                      "classic and metal4 run in separate processes and MLX in its own process "
                      "afterwards, so MLX and cross-backend ratios carry drift between runs: "
                      "repeat runs and report the spread. rust and msl run kernels with the same "
@@ -60,6 +69,14 @@ MLX_TIMING = ("host_ns is the host time to build, evaluate and synchronize `repe
               "product, bitwise for gemm-f32 and within f16 rounding for gemm-f16, which returns "
               "an f16 C since MLX has no f32-output GEMM for f16 inputs, and the other results "
               "against the first, bitwise")
+MPP_TIMING = ("the gemm variant mpp of both runtime backends runs Metal Performance Primitives' "
+              f"matmul2d of {MPP_SOURCE} on tensor_inline views of A, B and C, compiled with "
+              f"{' '.join(MPP_STANDARD)} and the artifact's other Metal flags. A block of four "
+              "SIMD groups computes a 64x64 tile of C in a zeroed cooperative tensor and stores "
+              "it, so each repeat overwrites C. Without tensor support in the compiler, "
+              "builds.gemm.mpp_skipped records why; on a device without the Metal 4 family, or "
+              "one that rejects the library, each backend's skipped list does. Either way the "
+              "other candidates run")
 
 
 def command(args, *, env=None, log=None, timeout=TIMEOUT_S):
@@ -137,6 +154,46 @@ def build_kernels(package, source, environment, log, arguments=()):
     if artifacts() != found:
         raise RuntimeError(f"rebuilding {package} with unchanged kernels changed its artifact")
     return Path(found.pop()), build, first_ns, rebuild_ns
+
+
+def mpp_flags(flags):
+    """The artifact's Metal `flags` with the language standard and deployment target that MSL 4.0
+    tensors need."""
+    kept = [flag for flag in flags if not flag.startswith(("-std=", "-mmacosx-version-min="))]
+    return [*MPP_STANDARD, *kept]
+
+
+def tensor_support(metal, flags, environment, run):
+    """None if `flags` preprocess Metal tensors and the MPP header, otherwise the compiler's
+    reason."""
+    probe = run / "tensor-probe.metal"
+    probe.write_text(TENSOR_PROBE)
+    try:
+        command(metal + flags + ["-E", probe, "-o", os.devnull], env=environment)
+    except RuntimeError as error:
+        lines = str(error).splitlines()
+        errors = [line[line.index("error:"):] for line in lines if "error:" in line]
+        return "the Metal compiler has no tensor support: " + ("; ".join(errors) or str(error))
+    return None
+
+
+def build_mpp(metal, flags, environment, run):
+    """Builds the MPP GEMM with the artifact's Metal `flags`. Returns its config entry and the
+    fields it adds to the gemm build and identity, which say only why without tensor support."""
+    flags = mpp_flags(flags)
+    reason = tensor_support(metal, flags, environment, run)
+    if reason:
+        return {"unavailable": reason}, {"mpp_skipped": reason}, {}
+    air, metallib = run / "gemm-mpp.ir", run / "gemm-mpp.metallib"
+    compile_command = metal + flags + ["-c", str(ROOT / MPP_SOURCE), "-o", str(air)]
+    _, compile_ns = command(compile_command, env=environment, log=run / "gemm-mpp-reference.log")
+    _, link_ns = command(metal + [air, "-o", metallib], env=environment)
+    build = {"mpp_reference_command": compile_command, "mpp_reference_compile_ns": compile_ns,
+             "mpp_reference_link_ns": link_ns}
+    identity = {"mpp_reference_source": MPP_SOURCE,
+                "mpp_reference_sha256": digest(ROOT / MPP_SOURCE),
+                "mpp_reference_metallib_sha256": digest(metallib)}
+    return {"metallib": str(metallib)}, build, identity
 
 
 def positive(value):
@@ -370,6 +427,7 @@ def main():
     print(f"Benchmark work directory: {run}", flush=True)
     environment = dict(os.environ, CARGO_TARGET_DIR=str(run / "build"))
     artifacts, references, builds, identities = {}, {}, {}, {}
+    gemm_mpp = None
     metal = metal_command()
     sdk, _ = command(["xcrun", "--sdk", "macosx", "--show-sdk-path"])
     metal_env = dict(os.environ, SDKROOT=sdk)
@@ -393,12 +451,19 @@ def main():
         identities[package] = {"manifest": manifest, "reference_source": source,
                                "reference_sha256": digest(ROOT / source),
                                "reference_metallib_sha256": digest(reference)}
+        if package == "gemm":
+            gemm_mpp, build, identity = build_mpp(metal, manifest["build"]["metal_flags"],
+                                                  metal_env, run)
+            builds[package].update(build)
+            identities[package].update(identity)
     host_env = dict(os.environ)
     host = build_binary("metal-oxide-bench", host_env, run / "host.log")
     config = {"artifacts": artifacts, "references": references, "cases": args.cases,
               "samples": args.samples, "warmup": args.warmup, "elements": args.elements,
               "matrix": args.matrix, "gemm": args.gemm, "gemm_repeat": args.gemm_repeat,
               "sort": args.sort, "fft": args.fft, "stencil": args.stencil}
+    if gemm_mpp:
+        config["gemm_mpp"] = gemm_mpp
     config_path = run / "config.json"
     config_path.write_text(json.dumps(config, indent=2))
     backends = []
@@ -449,6 +514,7 @@ def main():
                             "repeat, rounded to 1 ns and summarized over the samples. Compare "
                             "host_per_gemm_ns with MLX's",
                   "interleave": INTERLEAVE_TIMING,
+                  "mpp": MPP_TIMING,
                   "mps": "MPSMatrixMultiplication cases form the backend mps, measured in the "
                          "classic run only, on their own queue and shared buffers with MPS's row "
                          "stride (padding is not checked); block is null, pipeline is the kernel "

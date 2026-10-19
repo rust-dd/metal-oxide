@@ -1,6 +1,7 @@
 use super::*;
 use metal_oxide::{Argument, Buffer, Dim3, F16, GpuValue, LaunchConfig};
 
+mod mpp;
 mod mps;
 #[cfg(test)]
 mod tests;
@@ -96,23 +97,38 @@ fn finish(case: Case) -> Result<Case> {
     Ok(case)
 }
 
-/// The rust and msl GEMM cases of this process and, with `with_mps`, MPS's, interleaved per
-/// input type.
+/// The gemm cases of one runner process.
+pub(super) struct Gemm {
+    /// The rust, msl and mpp cases of the runtime backend.
+    pub(super) cases: Vec<Case>,
+    /// The mpp candidates this machine cannot run.
+    pub(super) skipped: Vec<Skipped>,
+    /// MPS's cases, which only the classic process measures.
+    pub(super) mps: Option<Vec<Case>>,
+}
+
+/// The rust, msl and mpp GEMM cases of this process and, with `with_mps`, MPS's, interleaved
+/// per input type.
 pub(super) fn run(
     device: &Device,
     config: &Config,
     problem: &Problem,
     with_mps: bool,
-) -> Result<(Vec<Case>, Option<Vec<Case>>)> {
+) -> Result<Gemm> {
     let [a, b] = problem.half();
     let values = (problem.a.as_slice(), problem.b.as_slice());
-    let mut cases = measure(device, config, problem, "f32", values, with_mps)?;
-    cases.extend(measure(device, config, problem, "f16", (&a, &b), with_mps)?);
-    let (mps, kernels): (Vec<_>, Vec<_>) =
-        cases.into_iter().partition(|case| case.variant == "mps");
-    Ok((kernels, with_mps.then_some(mps)))
+    let (mut cases, f32_skip) = measure(device, config, problem, "f32", values, with_mps)?;
+    let (f16_cases, f16_skip) = measure(device, config, problem, "f16", (&a, &b), with_mps)?;
+    cases.extend(f16_cases);
+    let (mps, cases) = cases.into_iter().partition(|case| case.variant == "mps");
+    Ok(Gemm {
+        cases,
+        skipped: f32_skip.into_iter().chain(f16_skip).collect(),
+        mps: with_mps.then_some(mps),
+    })
 }
 
+/// The interleaved cases of `input` and, if this machine cannot run the mpp candidate, its skip.
 fn measure<T: GpuValue + mps::Element>(
     device: &Device,
     config: &Config,
@@ -120,20 +136,42 @@ fn measure<T: GpuValue + mps::Element>(
     input: &str,
     values: (&[T], &[T]),
     with_mps: bool,
-) -> Result<Vec<Case>> {
+) -> Result<(Vec<Case>, Option<Skipped>)> {
     let mut candidates = Vec::<Box<dyn Candidate + '_>>::new();
     for variant in ["rust", "msl"] {
         let kernel = Kernel::new(device, config, problem, (variant, input), values)?;
         candidates.push(Box::new(kernel));
     }
+    let skipped = match mpp::candidate(device, config, problem, input, values)? {
+        Ok(kernel) => {
+            candidates.push(Box::new(kernel));
+            None
+        }
+        Err(reason) => Some(Skipped {
+            name: format!("gemm-{input}"),
+            variant: "mpp".into(),
+            reason,
+        }),
+    };
     if with_mps {
         let library = mps::Mps::new(device, config, problem, input, values)?;
         candidates.push(Box::new(library));
     }
-    interleave(config, candidates)
+    Ok((interleave(config, candidates)?, skipped))
 }
 
-/// The generated kernel (`rust`) or its MSL twin (`msl`) with buffers of its own.
+/// A gemm case of `variant` for `input`, with the configured repeat.
+fn kernel_case(config: &Config, problem: &Problem, variant: &str, input: &str) -> Case {
+    let mut case = Case::new(&format!("gemm-{input}"), variant, problem.shape.to_vec());
+    case.repeat = config.gemm_repeat;
+    case
+}
+
+/// The rows and columns of C that a block of each gemm kernel computes.
+const TILE: [u32; 2] = [64, 64];
+
+/// The generated kernel (`rust`), its MSL twin (`msl`) or the MPP GEMM (`mpp`) with buffers of
+/// its own.
 struct Kernel<'a, T: GpuValue> {
     case: Case,
     pipeline: Pipeline,
@@ -143,6 +181,7 @@ struct Kernel<'a, T: GpuValue> {
 }
 
 impl<'a, T: GpuValue> Kernel<'a, T> {
+    /// The rust or msl candidate.
     fn new(
         device: &Device,
         config: &Config,
@@ -150,14 +189,24 @@ impl<'a, T: GpuValue> Kernel<'a, T> {
         (variant, input): (&str, &str),
         values: (&'a [T], &'a [T]),
     ) -> Result<Self> {
-        let mut case = Case::new(&format!("gemm-{input}"), variant, problem.shape.to_vec());
-        case.repeat = config.gemm_repeat;
+        let mut case = kernel_case(config, problem, variant, input);
         let entry = if variant == "rust" {
             format!("gemm_{input}")
         } else {
             format!("gemm_{input}_reference")
         };
         let pipeline = case.pipelines(device, config, "gemm", &[&entry])?.remove(0);
+        Self::with_pipeline(device, case, pipeline, problem, values)
+    }
+
+    /// The candidate of `case` that runs `pipeline`.
+    fn with_pipeline(
+        device: &Device,
+        mut case: Case,
+        pipeline: Pipeline,
+        problem: &'a Problem,
+        values: (&'a [T], &'a [T]),
+    ) -> Result<Self> {
         let start = Instant::now();
         let buffers = (
             device.buffer_zeroed::<T>(values.0.len())?,
@@ -189,12 +238,13 @@ impl<T: GpuValue> Candidate for Kernel<'_, T> {
         b.upload();
         c.upload();
         let upload = elapsed(start);
-        let launch = LaunchConfig::<128>::new(Dim3::xy(n.div_ceil(64), m.div_ceil(64)));
+        let [rows, columns] = TILE;
+        let launch = LaunchConfig::<128>::new(Dim3::xy(n.div_ceil(columns), m.div_ceil(rows)));
         let (pipeline, repeat) = (&self.pipeline, self.case.repeat);
         let mut sample = dispatch(|batch| {
             let (mut left, mut right, mut out) = (&*a, &*b, &mut *c);
-            // SAFETY: distinct buffers cover m*k, k*n and m*n elements, the grid is the kernel's,
-            // and dimensions of at most 8192 keep every index in u32.
+            // SAFETY: distinct buffers hold m*k, k*n and m*n elements, blocks of four 32-lane SIMD
+            // groups tile C as each kernel expects, and dimensions up to 8192 keep indices in u32.
             unsafe {
                 for _ in 0..repeat {
                     (left, right, out, ..) = batch.push(Launch::new(

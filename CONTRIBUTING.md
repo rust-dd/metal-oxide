@@ -127,16 +127,21 @@ complex values by default), a 5-point Jacobi stencil (`--stencil WIDTH HEIGHT IT
 2048 sweeps of a 2048 x 2048 grid by default) and the f32 and f16 SIMD-group-matrix GEMM
 (`--gemm M N K`, 1024 cubed by default) with CPU results and matching handwritten MSL on both
 backends; the classic run also measures the GEMM with MetalPerformanceShaders as backend
-`mps`. `--cases LIST` builds and measures only the listed workloads (all by default;
+`mps`, and both backends measure Metal Performance Primitives' `matmul2d` as variant `mpp`
+(`benchmarks/reference-msl/gemm-mpp.metal`, MSL 4.0). Where the compiler has no Metal
+tensors, or the device lacks the Metal 4 family or rejects the library, the report records
+why `mpp` was skipped and the other candidates run. `--cases LIST` builds and measures only
+the listed workloads (all by default;
 `cooperation` holds histogram and scan). Sort and stencil results must equal the CPU's
 bitwise; FFT results must lie within 4e-6 * log2(n) * max(1, rms of their row) of an f64
 reference, and both FFT variants must agree bitwise. A GEMM sample runs `--gemm-repeat R` GEMMs
 (64 by default) back to back in one command buffer, so the GPU is not idle between timed
 GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
 `(submit_ns + wait_ns) / R`. Within a runner process the candidates of every case take turns
-sample by sample (rust, msl and, for the GEMM in the classic run, mps; the first one rotates
-every round). Classic and Metal 4 run in separate processes and MLX afterwards in its own,
-so MLX and cross-backend ratios carry drift between runs: repeat runs and report the spread.
+sample by sample (rust and msl; for the GEMM also mpp and, in the classic run, mps; the first
+one rotates every round). Classic and Metal 4 run in separate processes and MLX afterwards in
+its own, so MLX and cross-backend ratios carry drift between runs: repeat runs and report the
+spread.
 The rust and msl kernels share their hot loops, so a rust/msl ratio near 1 confirms the
 interleave but cannot reveal drift between runs. The
 JSON report separates build/rebuild, pipeline, host copy/upload/encoding/wait/readback and
