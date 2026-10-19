@@ -121,10 +121,16 @@ python3 scripts/bench.py --samples 20 --warmup 10 --output target/benchmarks/bas
 ```
 
 `python3 scripts/test_bench.py` checks the driver itself. The benchmark compares
-vec-add, reduction, scan, histogram, particle update, matmul and the f32 and f16
-SIMD-group-matrix GEMM (`--gemm M N K`, 1024 cubed by default) with CPU results and
-matching handwritten MSL on both backends; the classic run also measures the GEMM with
-MetalPerformanceShaders as backend `mps`. A GEMM sample runs `--gemm-repeat R` GEMMs
+vec-add, reduction, scan, histogram, particle update, matmul, a bitonic sort of u32 keys
+(`--sort KEYS`, 2^22 by default), a batched Stockham FFT (`--fft N ROWS`, 8192 rows of 4096
+complex values by default), a 5-point Jacobi stencil (`--stencil WIDTH HEIGHT ITERATIONS`,
+2048 sweeps of a 2048 x 2048 grid by default) and the f32 and f16 SIMD-group-matrix GEMM
+(`--gemm M N K`, 1024 cubed by default) with CPU results and matching handwritten MSL on both
+backends; the classic run also measures the GEMM with MetalPerformanceShaders as backend
+`mps`. `--cases LIST` builds and measures only the listed workloads (all by default;
+`cooperation` holds histogram and scan). Sort and stencil results must equal the CPU's
+bitwise; FFT results must lie within 4e-6 * log2(n) * max(1, rms of their row) of an f64
+reference, and both FFT variants must agree bitwise. A GEMM sample runs `--gemm-repeat R` GEMMs
 (64 by default) back to back in one command buffer, so the GPU is not idle between timed
 GEMMs; `gpu_per_gemm_ns` is `gpu_ns / R` and `host_per_gemm_ns` is
 `(submit_ns + wait_ns) / R`. Within a runner process the candidates of every case take turns
@@ -164,3 +170,20 @@ and repeat runs. The kernel's direct path needs k to be a multiple of 16, so a s
 matrices); elsewhere the run stops with `UnsupportedDevice`. `--mlx` downloads mlx from PyPI
 on first use. Very long command buffers (a large R times a large shape) may hit the GPU's
 interactivity limit and fail as a command-buffer error.
+
+Measured on an M4 Max for the other cases: each sample first runs its serial CPU reference
+(about 0.04 s for the sort, 0.3 s for the FFT and 1.1 s for the stencil at their defaults)
+while the GPU idles, so shorter GPU bursts pair poorly (256 stencil sweeps swung between 12
+and 27 ms); the sort, FFT and stencil defaults give about 8, 20 and 100 ms of GPU work per
+sample. A default run of every case takes about four minutes, and the FFT's runner process
+peaks at about 2.6 GB. Sample i of each candidate comes from the same round, so compare rust
+and msl by the median of per-round ratios: in three default runs it stayed within 0.95-1.10
+for every case and run, while one ratio of medians reached 1.70 at a per-round 1.01. Small
+cases' GPU times jumped between levels about 3x apart from one process to the next (vec-add
+0.029 or 0.096 ms on Metal 4), so their backend ratios are not meaningful: the FFT at
+4096 x 256 measured Metal 4 at 0.46-2.3x classic in separate processes and 1.00-1.04x with
+both backends alternating in one process. A dependent dispatch costs about 0.5 us more on
+Metal 4 than on classic (2.0 against 1.5 us per sweep of a 64 x 64 grid), at the encoder
+barrier between them, and on classic a generated kernel's gate test, a device load before
+its first load, adds 0.10-0.15 us per dispatch; at the default sizes both are about 1 % or
+less, and the FFT ran about 10 % faster on Metal 4.
