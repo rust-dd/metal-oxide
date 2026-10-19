@@ -27,8 +27,8 @@ impl Program {
     /// uses meanwhile.
     unsafe fn push(&self, batch: &mut Batch, keys: &mut Buffer<u32>, step: Step) -> Result<()> {
         let launch = LaunchConfig::<256>::new(Dim3::x(keys.len() as u32 / bitonic::TILE));
-        // SAFETY: a one-dimensional grid of a block per tile, and steps of `plan(keys.len())` with
-        // strides that are powers of two dividing the thread count, meet each kernel's contract.
+        // SAFETY: a one-dimensional grid of a block per tile and the steps of `plan(keys.len())`,
+        // at most 2^31 keys and power-of-two strides dividing the thread count, meet each contract.
         unsafe {
             match (self, step) {
                 (Self::Generated(device), Step::SortLocal) => batch

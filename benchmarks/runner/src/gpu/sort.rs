@@ -95,8 +95,8 @@ unsafe fn push(
     keys: &mut Buffer<u32>,
     step: Step,
 ) -> metal_oxide::Result<()> {
-    // SAFETY: on the caller's one-dimensional grid of a block per tile, plan steps keep every
-    // stride a power of two that divides the thread count, as each kernel requires.
+    // SAFETY: on the caller's one-dimensional grid of a block per tile of at most 2^31 keys, plan
+    // steps keep every stride a power of two dividing the thread count, as each kernel requires.
     unsafe {
         match step {
             Step::SortLocal => batch

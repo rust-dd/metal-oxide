@@ -63,7 +63,8 @@ pub mod bitonic {
     }
 
     /// # Safety
-    /// `keys` holds one tile per block of a one-dimensional grid, and nothing else accesses it.
+    /// `keys` holds one tile per block of a one-dimensional grid, at most 2^32 keys, and nothing
+    /// else accesses it.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn sort_local(keys: ReadWriteBuffer<u32>) {
         let tile = threadgroup::shared::<u32, 512>();
@@ -82,8 +83,8 @@ pub mod bitonic {
     }
 
     /// # Safety
-    /// `keys` holds two keys per thread of a one-dimensional grid, and nothing else accesses it;
-    /// `j` is a power of two dividing the thread count.
+    /// `keys` holds two keys per thread of a one-dimensional grid, at most 2^32, and nothing else
+    /// accesses it; `j` is a power of two dividing the thread count.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn merge_global(keys: ReadWriteBuffer<u32>, j: u32, k: u32) {
         let i = lower(block_idx().x * 256 + thread_idx().x, j);
@@ -98,7 +99,8 @@ pub mod bitonic {
     }
 
     /// # Safety
-    /// `keys` holds one tile per block of a one-dimensional grid, and nothing else accesses it.
+    /// `keys` holds one tile per block of a one-dimensional grid, at most 2^32 keys, and nothing
+    /// else accesses it.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn merge_local(keys: ReadWriteBuffer<u32>, k: u32) {
         let tile = threadgroup::shared::<u32, 512>();

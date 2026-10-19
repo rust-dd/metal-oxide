@@ -80,7 +80,7 @@ impl Candidate for Fft<'_> {
                     (&*b, &mut *a)
                 };
                 // SAFETY: both pairs hold `n` values per row of `launch`, and `half_spans` yields
-                // powers of two below `n`, itself a power of two.
+                // powers of two below `n`, itself a power of two; the config caps values at 2^26.
                 unsafe { push(batch, pipeline, launch, input, output, n, half_span)? };
             }
             Ok(())
@@ -125,8 +125,8 @@ impl Candidate for Fft<'_> {
     }
 }
 
-/// Pushes the kernel's or the twin's stage of `half_span`, a power of two below `n`, from `input`
-/// to `output`, pairs of `n` values, a power of two, per row of the two-dimensional `launch`.
+/// Pushes the kernel's or twin's stage of `half_span`, a power of two below `n`, from `input` to
+/// `output`, pairs of `n` values, a power of two, per row of the 2-D `launch`, at most 2^32 in all.
 unsafe fn push(
     batch: &mut Batch,
     pipeline: &Pipeline,

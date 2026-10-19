@@ -12,8 +12,8 @@ pub mod stockham {
     pub const BLOCK: u32 = 256;
 
     /// # Safety
-    /// Every buffer holds `n` values, a power of two, per row of a two-dimensional grid's y axis,
-    /// and nothing else accesses them; `half_span` is a power of two below `n`.
+    /// Every buffer holds `n` values, a power of two, per row of a 2-D grid's y axis, at most 2^32
+    /// in all, and nothing else accesses them; `half_span` is a power of two below `n`.
     #[kernel(block = (256, 1, 1))]
     pub unsafe fn fft_stage(
         input_re: ReadBuffer<f32>,

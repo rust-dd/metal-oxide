@@ -1,8 +1,8 @@
 {
   "format": 2,
-  "artifact": "ba7a02c3a4f2f33cee1d7ce9c5dcd7fe90799d7a0e178a3505da74bd485a488a",
+  "artifact": "0936005d19fca7423cb4df3b7ad5d92532532d8166faca2564b16b7c942595a1",
   "request": {
-    "source": "e1de965c51670eaf512673d2989902b4fadacdc3a7258159bf6fbf431ed4f6dc",
+    "source": "e10d94a721088ac5dd992c0a9919eb135920aded049bb57a4fff4e203a3f3422",
     "math_mode": "precise",
     "debug_info": false
   },

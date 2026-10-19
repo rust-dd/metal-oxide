@@ -21,7 +21,7 @@ impl Program {
     }
 
     /// Pushes the stage of `half_span`, a power of two below `n`, from `input` to `output`, pairs
-    /// that hold `n` values, a power of two, per row of the two-dimensional `launch`.
+    /// that hold `n` values, a power of two, per row of the 2-D `launch`, at most 2^32 in all.
     unsafe fn push(
         &self,
         batch: &mut Batch,
@@ -86,8 +86,8 @@ pub(super) fn fft(
     im: &[f32],
 ) -> Result<(Vec<f32>, Vec<f32>)> {
     assert!(
-        im.len() == re.len() && re.len().is_multiple_of(n as usize),
-        "both parts hold whole rows of {n} values"
+        im.len() == re.len() && re.len().is_multiple_of(n as usize) && re.len() as u64 <= 1 << 32,
+        "both parts hold whole rows of {n} values, at most 2^32"
     );
     let rows = u32::try_from(re.len() / n as usize).expect("at most u32::MAX rows");
     let unwritten = vec![f32::NAN; re.len()];
@@ -107,8 +107,8 @@ pub(super) fn fft(
             } else {
                 (&*b, &mut *a)
             };
-            // SAFETY: both pairs hold `n` values per row of `launch`, and `half_spans` yields
-            // powers of two below `n`, itself a power of two.
+            // SAFETY: both pairs hold `n` values per row of `launch`, at most 2^32 as asserted;
+            // `half_spans` yields powers of two below `n`, itself a power of two.
             unsafe { program.push(batch, launch, input, output, n, half_span)? };
         }
         Ok(())
