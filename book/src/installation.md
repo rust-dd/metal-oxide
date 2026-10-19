@@ -6,7 +6,25 @@ also requires Xcode with its Metal Toolchain and the compiler's pinned nightly,
 including `rustc-dev`, `rust-src` and `llvm-tools`. Install Xcode and select its
 developer directory before setup.
 
-## Run the checkout
+## Install the alpha
+
+In an existing Rust application, install the Cargo command and matching runtime:
+
+```sh
+cargo install cargo-metal --version '=0.1.0-alpha0' --locked
+cargo metal setup
+cargo add metal-oxide@=0.1.0-alpha0
+```
+
+Specify the prerelease version explicitly: plain `cargo install cargo-metal`
+skips alpha versions. Keep the runtime and Cargo command at the same version.
+Copy the tested source from [your first kernel](first-kernel.md) into
+`src/main.rs`, then run `cargo run`. No application build script is required.
+
+Setup installs the pinned compiler toolchain and downloads Apple's Metal Toolchain
+if missing, then checks the tools and reports the Metal device.
+
+## Run a development checkout
 
 With Rust and Git installed, run:
 
@@ -17,9 +35,9 @@ cargo run -p cargo-metal --locked -- setup
 cargo run -p vec-add --locked
 ```
 
-Setup installs the pinned compiler toolchain and downloads Apple's Metal Toolchain
-if missing, then checks the tools and reports the Metal device. The vec-add example
-verifies several sizes against CPU results, including zero and partial blocks.
+The vec-add example verifies several sizes against CPU results, including zero
+and partial blocks. To use the released source, check out `v0.1.0-alpha0` before
+running setup and the example.
 
 Install the Cargo command from the same checkout to use it in other applications:
 
@@ -29,7 +47,7 @@ cargo metal setup
 cargo metal setup --check
 ```
 
-## Use another application
+## Use a development dependency
 
 In an existing Cargo application, choose one dependency source:
 
@@ -47,9 +65,6 @@ Keep `cargo-metal` and the dependency at the same repository revision. Copy the
 tested source from [your first kernel](first-kernel.md) into `src/main.rs` and use
 plain `cargo run`. No application build script is required. For a reproducible git
 dependency, pin its revision and commit `Cargo.lock`.
-
-There is no registry release. A version dependency or `cargo install cargo-metal`
-from crates.io is appropriate only after the corresponding version is published.
 
 ## Saved artifacts
 

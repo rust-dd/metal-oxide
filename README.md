@@ -8,8 +8,8 @@ Kernels can live beside the host code that calls them, in a shared module, or in
 a separate `no_std` crate. The runtime supports stable Rust, async execution and
 both classic Metal and Metal 4 through the same API.
 
-**Pre-release.** There is no crates.io release yet; use a path or git dependency.
-The API may change. See [known limitations](#known-limitations) for language
+**Early alpha.** The API may change between releases.
+See [known limitations](#known-limitations) for language
 restrictions and hardware coverage.
 
 ## A kernel and its host
@@ -123,27 +123,31 @@ portable GPU APIs and native bindings.
 GPU execution requires **macOS 15+ on Apple Silicon**. The host runtime supports
 **Rust 1.89+**; development uses Rust 1.99. Building kernels also requires Xcode
 with its Metal Toolchain and the pinned nightly Rust compiler. Install Xcode and
-select its developer directory, then run:
+select its developer directory. In an existing Rust application, run:
 
 ```sh
-git clone https://github.com/rust-dd/metal-oxide.git
+cargo install cargo-metal --version '=0.1.0-alpha0' --locked
+cargo metal setup
+cargo add metal-oxide@=0.1.0-alpha0
+```
+
+Copy the kernel example above into `src/main.rs`, then run `cargo run`.
+Setup installs the pinned Rust components and downloads the Metal Toolchain if
+missing. Specify the alpha version when installing; plain `cargo install`
+skips prereleases.
+
+To run the repository's examples:
+
+```sh
+git clone --branch v0.1.0-alpha0 https://github.com/rust-dd/metal-oxide.git
 cd metal-oxide
 cargo run -p cargo-metal --locked -- setup
 cargo run -p vec-add --locked
 ```
 
-Setup installs the pinned Rust components and downloads the Metal Toolchain if
-missing. To use the checkout in another application:
-
-```sh
-cargo install --locked --path /path/to/metal-oxide/crates/cargo-metal
-cargo metal setup
-cargo add metal-oxide --path /path/to/metal-oxide/crates/metal-oxide
-```
-
-You can also use `cargo add metal-oxide --git https://github.com/rust-dd/metal-oxide.git`.
-Keep the dependency and `cargo-metal` at the same revision. The
-[installation guide](book/src/installation.md) covers setup and saved artifacts.
+Keep the dependency and `cargo-metal` at the same version. The
+[installation guide](book/src/installation.md) also covers development checkouts
+and saved artifacts.
 
 Kernel builds save `metal/<file>/<item>-<math mode>/` beside the crate's sources.
 Commit and distribute that directory: dependents can use unchanged kernels
