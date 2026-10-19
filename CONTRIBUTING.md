@@ -167,9 +167,11 @@ C; a dependent MLX chain measured within 1-5 %. Absolute times drifted by up to 
 runs while the GPU was shared with other applications, so compare candidates within one run
 and repeat runs. The kernel's direct path needs k to be a multiple of 16, so a shape such as
 1000 cubed measures its staged path. The gemm case needs an Apple7 or later GPU (SIMD-group
-matrices); elsewhere the run stops with `UnsupportedDevice`. `--mlx` downloads mlx from PyPI
-on first use. Very long command buffers (a large R times a large shape) may hit the GPU's
-interactivity limit and fail as a command-buffer error.
+matrices); elsewhere the runner reaches it only after every other case, minutes at the
+defaults, then stops with `UnsupportedDevice` and bench.py writes no report, so leave gemm
+out of `--cases` there. `--mlx` downloads mlx from PyPI on first use. Very long command
+buffers (a large R times a large shape) may hit the GPU's interactivity limit and fail as a
+command-buffer error.
 
 Measured on an M4 Max for the other cases: each sample first runs its serial CPU reference
 (about 0.09 s for the sort, 0.3 s for the FFT and 1.1 s for the stencil at their defaults)
@@ -186,4 +188,5 @@ separate processes and 1.00-1.04x with both backends alternating in one process.
 dispatch costs about 0.5 us more on Metal 4 than on classic (2.0 against 1.5 us per sweep of
 a 64 x 64 grid), at the encoder barrier between them, and on classic a generated kernel's
 gate test, a device load before its first load, adds 0.10-0.15 us per dispatch; at the
-default sizes both are about 1 % or less, and the FFT ran about 10 % faster on Metal 4.
+default sizes the barrier costs about 1 % of a stencil sweep and the gate up to 2 %, and the
+FFT ran about 10 % faster on Metal 4.

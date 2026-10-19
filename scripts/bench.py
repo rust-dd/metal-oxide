@@ -186,8 +186,9 @@ def argument_parser():
                         help=f"grid of at most {STENCIL_CELLS} cells and Jacobi iterations, at "
                              f"most {STENCIL_ITERATIONS} (default: 2048 2048 2048)")
     parser.add_argument("--cases", type=case_list, default=list(WORKLOADS), metavar="LIST",
-                        help="comma-separated workloads to build and measure "
-                             f"(default: {','.join(WORKLOADS)})")
+                        help="comma-separated workloads to build and measure; cooperation holds "
+                             "histogram and scan, and a GPU without Apple7 rejects gemm, so leave "
+                             f"it out there (default: {','.join(WORKLOADS)})")
     parser.add_argument("--backends", type=backend_list, default=list(BACKENDS), metavar="LIST",
                         help="comma-separated backends to measure (default: classic,metal4)")
     parser.add_argument("--mlx", action="store_true",
