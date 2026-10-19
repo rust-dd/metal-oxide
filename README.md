@@ -9,8 +9,8 @@ a separate `no_std` crate. The runtime supports stable Rust, async execution and
 both classic Metal and Metal 4 through the same API.
 
 **Pre-release.** There is no crates.io release yet; use a path or git dependency.
-The API may change. See [known limitations](#known-limitations) for current
-correctness issues and hardware coverage.
+The API may change. See [known limitations](#known-limitations) for language
+restrictions and hardware coverage.
 
 ## A kernel and its host
 
@@ -176,11 +176,6 @@ performance and debugging.
 
 ## Known limitations
 
-- **Open correctness issue:** a macOS 15 classic Metal fuzz run produced a wrong
-  finite result for a program combining narrow integer bit reversal and float
-  arithmetic. The same original and minimized cases pass locally on M4 Max with
-  both backends; the failing hosted environment is still being investigated.
-  [Failure details](https://github.com/rust-dd/metal-oxide/actions/runs/39218928471).
 - **Hardware coverage is incomplete.** Native M1–M3 GPUs and a second Metal 4 GPU
   generation have not been verified. Paravirtual execution does not establish
   native M1 coverage.
