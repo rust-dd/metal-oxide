@@ -154,3 +154,11 @@ pub fn plan(len: u32) -> Vec<Step> {
     }
     steps
 }
+
+/// The first position where `keys` and `expected`, which hold as many keys, differ.
+pub fn first_difference(keys: &[u32], expected: &[u32]) -> Option<usize> {
+    assert_eq!(keys.len(), expected.len(), "both hold as many keys");
+    keys.iter()
+        .zip(expected)
+        .position(|(key, expected)| key != expected)
+}

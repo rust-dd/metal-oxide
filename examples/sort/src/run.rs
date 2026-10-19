@@ -2,7 +2,7 @@ use metal_oxide::{
     Argument, Batch, Buffer, Device, Dim3, Launch, LaunchConfig, Module, Operation, Pipeline,
     Result, sequence,
 };
-use sort::{Step, bitonic, padded_len, plan};
+use sort::{Step, bitonic, first_difference, padded_len, plan};
 
 /// The generated kernels or their handwritten MSL twin.
 pub(super) enum Program {
@@ -119,7 +119,13 @@ pub(super) fn verify() -> Result<()> {
         let mut expected = input.clone();
         expected.sort_unstable();
         for (name, program) in &programs {
-            assert_eq!(sort(&device, program, &input)?, expected, "{name}, n={n}");
+            let sorted = sort(&device, program, &input)?;
+            if let Some(i) = first_difference(&sorted, &expected) {
+                panic!(
+                    "{name}, n={n}: key {i} is {} instead of {}",
+                    sorted[i], expected[i]
+                );
+            }
         }
         println!("sort n={n}: Rust, MSL and CPU agree");
     }

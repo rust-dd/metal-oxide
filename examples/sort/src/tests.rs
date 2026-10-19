@@ -1,5 +1,5 @@
 use super::run;
-use sort::{Step::*, padded_len, plan};
+use sort::{Step::*, first_difference, padded_len, plan};
 
 #[test]
 #[ignore = "requires a Metal device"]
@@ -30,4 +30,18 @@ fn each_stage_above_a_tile_merges_globally_down_to_a_tile_then_locally() {
     ];
     assert_eq!(plan(2048), stages);
     assert_eq!(plan(1 << 20).len(), 1 + 66 + 11);
+}
+
+#[test]
+fn the_first_difference_is_the_earliest_wrong_key() {
+    assert_eq!(first_difference(&[], &[]), None);
+    assert_eq!(first_difference(&[1, 2, 2, 7], &[1, 2, 2, 7]), None);
+    assert_eq!(first_difference(&[1, 7, 2, 2], &[1, 2, 2, 7]), Some(1));
+    assert_eq!(first_difference(&[1, 2, 2, 8], &[1, 2, 2, 7]), Some(3));
+}
+
+#[test]
+#[should_panic(expected = "both hold as many keys")]
+fn keys_of_another_length_are_rejected() {
+    first_difference(&[1, 2], &[1, 2, 3]);
 }

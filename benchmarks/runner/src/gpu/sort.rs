@@ -1,5 +1,5 @@
 use super::*;
-use ::sort::{Step, bitonic::TILE, padded_len, plan};
+use ::sort::{Step, bitonic::TILE, first_difference, padded_len, plan};
 use metal_oxide::{Argument, Buffer, Dim3, LaunchConfig};
 
 pub(super) struct Sort {
@@ -65,7 +65,12 @@ impl Candidate for Sort {
         sample.readback_ns = elapsed(start);
         let (sorted, padding) = result.split_at(n);
         let case = &mut self.case;
-        assert_eq!(sorted, expected, "{} {}", case.name, case.variant);
+        if let Some(i) = first_difference(sorted, &expected) {
+            panic!(
+                "{} {}: key {i} is {} instead of {}",
+                case.name, case.variant, sorted[i], expected[i]
+            );
+        }
         assert!(
             padding.iter().all(|&key| key == u32::MAX),
             "{} {}",
