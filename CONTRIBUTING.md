@@ -176,6 +176,13 @@ out of `--cases` there. `--mlx` downloads mlx from PyPI on first use. Very long 
 buffers (a large R times a large shape) may hit the GPU's interactivity limit and fail as a
 command-buffer error.
 
+MPP is a benchmark reference; Rust kernels expose SIMD-group matrices, without a tensor
+API. Three interleaved 2048-cubed runs on M4 Max/macOS 26.2 measured rust/MPP GPU-time
+ratios of 1.1604–1.1833 for f32 and 1.1554–1.2017 for F16. Neither input type met the
+1.20 threshold on both backends in every run. Random full-mantissa inputs matched the
+Rust kernel and MPS bitwise on this machine. MPP resolves its implementation from the OS,
+so repeat the comparison on another GPU generation or OS before extrapolating it.
+
 Measured on an M4 Max for the other cases: each sample first runs its serial CPU reference
 (about 0.09 s for the sort, 0.3 s for the FFT and 1.1 s for the stencil at their defaults)
 while the GPU idles, so shorter GPU bursts pair poorly (256 stencil sweeps swung between 12
