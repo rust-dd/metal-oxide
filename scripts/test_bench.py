@@ -113,8 +113,8 @@ class Arguments(unittest.TestCase):
                       self.rejection("--cases", "sort", "--mlx"))
         self.assertEqual(self.parse("--cases", "gemm", "--mlx").cases, ["gemm"])
 
-    def test_sort_defaults_to_2_to_the_20_keys_and_stays_from_1_to_2_to_the_24(self):
-        self.assertEqual(self.parse().sort, 1 << 22)
+    def test_sort_defaults_to_2_to_the_23_keys_and_stays_from_1_to_2_to_the_24(self):
+        self.assertEqual(self.parse().sort, 1 << 23)
         for keys in (1, 1 << 24):
             self.assertEqual(self.parse("--sort", str(keys)).sort, keys)
         self.assertIn("sort must be <= 16777216", self.rejection("--sort", str((1 << 24) + 1)))

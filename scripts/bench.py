@@ -175,8 +175,8 @@ def argument_parser():
     parser.add_argument("--gemm-repeat", type=positive, default=64, metavar="R",
                         help="GEMMs per sample, back to back in one command buffer "
                              "(default: 64, at most 256)")
-    parser.add_argument("--sort", type=positive, default=1 << 22, metavar="KEYS",
-                        help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 22})")
+    parser.add_argument("--sort", type=positive, default=1 << 23, metavar="KEYS",
+                        help=f"keys to sort, at most {SORT_KEYS} (default: {1 << 23})")
     parser.add_argument("--fft", nargs=2, type=positive, default=[4096, 8192],
                         metavar=("N", "ROWS"),
                         help="complex values per row, a power of two of at least 2, and rows, "
