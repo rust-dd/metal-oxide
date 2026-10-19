@@ -1,0 +1,37 @@
+name: Book and API documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation:
+    runs-on: macos-15
+    env:
+      METAL_OXIDE_ARTIFACTS: locked
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install Rust
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install mdBook
+        run: cargo install mdbook --version 0.5.4 --locked
+      - name: Check generated capabilities
+        run: cargo run -p metal-oxide-artifact --example capabilities --locked -- --check
+      - name: Check source includes and summary
+        run: python3 scripts/check-book.py --source-only
+      - name: Build book
+        run: mdbook build book
+      - name: Check internal links
+        run: python3 scripts/check-book.py
+      - name: Build API documentation without warnings
+        run: cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-device -p metal-oxide-macros -p metal-oxide-kernels -p metal-oxide-build

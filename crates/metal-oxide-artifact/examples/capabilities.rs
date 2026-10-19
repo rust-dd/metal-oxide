@@ -18,17 +18,22 @@ fn main() {
         )
         .unwrap();
     }
-    let readme = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../README.md");
-    let text = std::fs::read_to_string(&readme).unwrap();
-    let (before, rest) = text.split_once("<!-- capabilities -->\n").unwrap();
-    let (_, after) = rest.split_once("<!-- /capabilities -->").unwrap();
-    let expected = format!("{before}<!-- capabilities -->\n{table}<!-- /capabilities -->{after}");
-    if std::env::args().any(|arg| arg == "--check") {
-        assert_eq!(
-            text, expected,
-            "run cargo run -p metal-oxide-artifact --example capabilities"
-        );
-    } else {
-        std::fs::write(readme, expected).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let check = std::env::args().any(|arg| arg == "--check");
+    for file in ["README.md", "book/src/capabilities.md"] {
+        let path = root.join(file);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (before, rest) = text.split_once("<!-- capabilities -->\n").unwrap();
+        let (_, after) = rest.split_once("<!-- /capabilities -->").unwrap();
+        let expected =
+            format!("{before}<!-- capabilities -->\n{table}<!-- /capabilities -->{after}");
+        if check {
+            assert_eq!(
+                text, expected,
+                "{file}: run cargo run -p metal-oxide-artifact --example capabilities"
+            );
+        } else if text != expected {
+            std::fs::write(path, expected).unwrap();
+        }
     }
 }

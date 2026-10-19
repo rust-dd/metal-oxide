@@ -1,0 +1,15 @@
+[book]
+title = "metal-oxide"
+description = "Rust compute kernels for Metal on Apple Silicon"
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../target/book"
+
+[output.html]
+git-repository-url = "https://github.com/rust-dd/metal-oxide"
+edit-url-template = "https://github.com/rust-dd/metal-oxide/edit/main/book/{path}"
+
+[output.html.playground]
+runnable = false

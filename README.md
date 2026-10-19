@@ -4,6 +4,9 @@ Rust compute kernels for Metal on Apple Silicon. Kernels are ordinary Rust funct
 crate, beside the host code that launches them, with CUDA-style thread/block indices and a
 stable Rust host runtime. Supports classic Metal and Metal 4.
 
+Read the [book](https://github.com/rust-dd/metal-oxide/blob/main/book/src/SUMMARY.md)
+for installation, kernel authoring, safety and debugging.
+
 ## Example
 
 ```rust
