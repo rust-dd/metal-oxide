@@ -65,6 +65,8 @@ progress each minute. On a Metal 4-capable device, repeat with
 `METAL_OXIDE_BACKEND=metal4`. Set `METAL_OXIDE_FUZZ_SEED` to a decimal `u64` to
 replay a sequence; otherwise the clock supplies the initial seed. Failures and
 their minimized programs are saved under the workspace's `target/fuzz/`.
+Each GPU candidate runs in a separate process so a failed Metal compiler cannot
+corrupt subsequent minimization attempts.
 
 Scheduled fuzz CI and manual runs on the default branch open an issue for each
 failed macOS job. Reports include the commit, backend, job and artifact links,

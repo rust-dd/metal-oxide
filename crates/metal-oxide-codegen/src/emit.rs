@@ -145,7 +145,7 @@ impl<'a> ModuleEmitter<'a> {
                     ));
                 }
             }
-            let used = crate::unused::Used::new(function, &self.analyses[id]);
+            let used = crate::unused::Used::new(module, function, &self.analyses[id]);
             let mut body = String::new();
             crate::structured::body(
                 crate::structured::Context {

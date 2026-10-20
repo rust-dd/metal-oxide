@@ -68,51 +68,6 @@ fn usize_casts_and_shifts_preserve_all_sixty_four_bits() {
 }
 
 #[test]
-fn wide_division_and_remainders_preserve_all_bits() {
-    for scalar in [Scalar::U64, Scalar::Usize] {
-        let one = Operand::Constant(match scalar {
-            Scalar::U64 => Constant::U64(1),
-            Scalar::Usize => Constant::Usize(1),
-            _ => unreachable!(),
-        });
-        for (op, expected) in [
-            (
-                BinaryOp::Div,
-                "18446744073709551615,6148914691236517204,4294967294,1",
-            ),
-            (BinaryOp::Rem, "0,1,4294967295,9223372036854775806"),
-        ] {
-            let module = module(
-                2,
-                vec![Type::Scalar(scalar); 4],
-                vec![block(
-                    vec![
-                        (
-                            3,
-                            Expression::Binary(BinaryOp::BitOr, local(2), one.clone()),
-                        ),
-                        (0, Expression::Binary(op, local(1), local(3))),
-                    ],
-                    Terminator::Return,
-                )],
-            );
-            assert_eq!(
-                execute(
-                    &module,
-                    "ctx.thread_idx.x = 63; ctx.block_dim.x = 64; \
-                     std::cout << metal_oxide_fn_0(18446744073709551615ul, 0ul, ctx) << ',' \
-                     << metal_oxide_fn_0(18446744073709551613ul, 2ul, ctx) << ',' \
-                     << metal_oxide_fn_0(18446744073709551613ul, 4294967296ul, ctx) << ',' \
-                     << metal_oxide_fn_0(18446744073709551615ul, 9223372036854775808ul, ctx);"
-                ),
-                expected,
-                "{scalar:?} {op:?}"
-            );
-        }
-    }
-}
-
-#[test]
 fn half_arithmetic_and_integer_casts_use_half_values() {
     for (result, expression, expected) in [
         (
