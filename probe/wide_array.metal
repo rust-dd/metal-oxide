@@ -47,7 +47,7 @@ static_assert(sizeof(metal_oxide_aggregate_2) == 1 && alignof(metal_oxide_aggreg
 struct metal_oxide_aggregate_3 {
     uint elements[3];
 };
-static_assert(sizeof(metal_oxide_aggregate_3) == 3 && alignof(metal_oxide_aggregate_3) == 1, "metal_oxide_aggregate_3 layout");
+static_assert(sizeof(metal_oxide_aggregate_3) == 12 && alignof(metal_oxide_aggregate_3) == 4, "metal_oxide_aggregate_3 layout");
 
 static void metal_oxide_fail(metal_oxide_context ctx, uint check) {
     *ctx.failed = true;
