@@ -116,7 +116,8 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
 pub(crate) const OPAQUE_ZERO: &str =
     "uint(metal_oxide_ctx.thread_idx.x >= metal_oxide_ctx.block_dim.x)";
 
-/// The numerator of a 32-bit division by a variable, which Metal misdivides when it is constant.
+/// Keeps numerators unknown to Metal: constant 32-bit division can miscompile, and 64-bit
+/// division can fail pipeline compilation on Apple Paravirtual devices.
 pub(crate) fn division_numerator(op: BinaryOp, a: String, b: &Operand, ty: Type) -> String {
     if !matches!(op, BinaryOp::Div | BinaryOp::Rem) || matches!(b, Operand::Constant(_)) {
         return a;
@@ -124,6 +125,7 @@ pub(crate) fn division_numerator(op: BinaryOp, a: String, b: &Operand, ty: Type)
     match ty {
         Type::Scalar(Scalar::U32) => format!("({a} ^ {OPAQUE_ZERO})"),
         Type::Scalar(Scalar::I32) => format!("({a} ^ as_type<int>({OPAQUE_ZERO}))"),
+        Type::Scalar(Scalar::U64 | Scalar::Usize) => format!("({a} ^ ulong({OPAQUE_ZERO}))"),
         _ => a,
     }
 }

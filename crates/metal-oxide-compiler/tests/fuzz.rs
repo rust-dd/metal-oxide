@@ -119,3 +119,37 @@ fn generated_programs_agree_until_the_time_budget_ends() {
         output.display()
     );
 }
+
+#[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[ignore = "requires a Metal GPU"]
+fn gpu_process_preserves_results_and_reports_errors() {
+    use support::differential::Outcome;
+
+    let case = Case::saved(
+        &support::root()
+            .join("crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs"),
+    );
+    let (expected, generated) = case.check().unwrap();
+    fuzz_gpu::check(&case, &expected, &generated).unwrap();
+
+    let mut different = expected.clone();
+    let Outcome::Words(words) = &mut different.threads[0] else {
+        panic!("the fixture completes");
+    };
+    words[0] ^= 1;
+    assert!(matches!(
+        fuzz_gpu::check(&case, &different, &generated),
+        Err(Failure::Gpu(_))
+    ));
+
+    let source = generated.join("kernels.metal");
+    let original = std::fs::read(&source).unwrap();
+    std::fs::write(&source, "#error invalid GPU probe\n").unwrap();
+    assert!(matches!(
+        fuzz_gpu::check(&case, &expected, &generated),
+        Err(Failure::Device(error)) if error.contains("invalid GPU probe")
+    ));
+    std::fs::write(&source, original).unwrap();
+    fuzz_gpu::check(&case, &expected, &generated).unwrap();
+}
