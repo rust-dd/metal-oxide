@@ -23,6 +23,7 @@ impl Failure {
         match (self, other) {
             (Self::Compiler(a), Self::Compiler(b)) => diagnostic(a) == diagnostic(b),
             (Self::Gpu(a), Self::Gpu(b)) => difference(a) == difference(b),
+            (Self::Device(a), Self::Device(b)) => a == b,
             _ => std::mem::discriminant(self) == std::mem::discriminant(other),
         }
     }

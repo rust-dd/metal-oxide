@@ -95,6 +95,9 @@ fn compiler_failures_match_by_their_first_diagnostic_wherever_it_points() {
     assert!(!gpu("thread 3 (input 0x1)").same_as(&gpu("counters [1], expected [2]")));
     assert!(!gpu("the GPU completed").same_as(&gpu("the GPU failed Panic")));
     assert!(!gpu("thread 3").same_as(&Failure::Device("Compilation failed".into())));
+    let device = |detail: &str| Failure::Device(detail.into());
+    assert!(device("Compilation failed").same_as(&device("Compilation failed")));
+    assert!(!device("Compilation failed").same_as(&device("GPU process timed out")));
 }
 
 #[test]
