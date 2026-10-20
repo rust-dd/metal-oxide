@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # The hosted Apple Paravirtual device lacks the Metal 4 family.
+  METAL_OXIDE_BACKEND: classic
+
 jobs:
   fuzz:
     name: Generated programs (${{ matrix.os }})
@@ -44,13 +48,9 @@ jobs:
         with:
           tool: nextest@0.9.148
       - name: Compare retained regressions on classic Metal
-        env:
-          METAL_OXIDE_BACKEND: classic
         run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile gpu --test differential --run-ignored only --no-capture
       - name: Compare generated programs on the CPU, the host and classic Metal
-        # The hosted Apple Paravirtual device lacks the Metal 4 family.
         env:
-          METAL_OXIDE_BACKEND: classic
           METAL_OXIDE_FUZZ_GPU: "1"
           METAL_OXIDE_FUZZ_SEED: ${{ inputs.seed }}
           METAL_OXIDE_FUZZ_SECONDS: ${{ inputs.seconds || '2700' }}
@@ -60,6 +60,27 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: fuzz-${{ matrix.os }}
+          name: fuzz-${{ matrix.os }}-attempt-${{ github.run_attempt }}
           path: target/fuzz
           if-no-files-found: ignore
+
+  report:
+    name: Report fuzz failures
+    needs: fuzz
+    if: ${{ always() && needs.fuzz.result == 'failure' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check the issue reporter
+        run: python3 scripts/test_report_fuzz_failure.py
+      - name: Open or update an issue for each failed runner
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/report-fuzz-failure.py

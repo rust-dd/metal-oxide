@@ -56,6 +56,9 @@ jobs:
           cargo +1.89.0 check --workspace --all-targets --locked
       - name: Benchmark driver
         run: python3 scripts/test_bench.py
+      - name: Fuzz issue reporter
+        if: runner.os == 'Linux'
+        run: python3 scripts/test_report_fuzz_failure.py
 
   dependencies:
     name: Dependency licenses, advisories and sources

@@ -2,6 +2,10 @@
 
 mod support;
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "support/fuzz_gpu.rs"]
+mod fuzz_gpu;
+
 use std::{
     path::Path,
     time::{Duration, Instant, SystemTime},
@@ -11,23 +15,22 @@ use support::{differential::Case, generate::Program, oracle::Failure};
 /// The oracle on the host, and on the GPU that `METAL_OXIDE_FUZZ_GPU` asks for.
 struct Oracle {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    device: Option<metal_oxide::Device>,
+    gpu: bool,
 }
 
 impl Oracle {
     fn new() -> Self {
         Self {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            device: std::env::var_os("METAL_OXIDE_FUZZ_GPU")
-                .map(|_| metal_oxide::Device::system_default().unwrap()),
+            gpu: std::env::var_os("METAL_OXIDE_FUZZ_GPU").is_some(),
         }
     }
 
     fn check(&self, case: &Case) -> Result<(), Failure> {
         let (_expected, _generated) = case.check()?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-        if let Some(device) = &self.device {
-            case.check_gpu(device, &_expected, &_generated)?;
+        if self.gpu {
+            fuzz_gpu::check(case, &_expected, &_generated)?;
         }
         Ok(())
     }
@@ -65,6 +68,10 @@ fn report(oracle: &Oracle, seed: u64, program: Program, failure: &Failure, direc
 #[test]
 #[ignore = "fuzzes until METAL_OXIDE_FUZZ_SECONDS elapse"]
 fn generated_programs_agree_until_the_time_budget_ends() {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    if fuzz_gpu::child() {
+        return;
+    }
     let seconds = variable("METAL_OXIDE_FUZZ_SECONDS").unwrap_or(60);
     let mut seed = variable("METAL_OXIDE_FUZZ_SEED").unwrap_or_else(|| {
         SystemTime::now()
@@ -111,4 +118,38 @@ fn generated_programs_agree_until_the_time_budget_ends() {
         "failing seeds: {failures:#x?}, minimized under {}",
         output.display()
     );
+}
+
+#[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[ignore = "requires a Metal GPU"]
+fn gpu_process_preserves_results_and_reports_errors() {
+    use support::differential::Outcome;
+
+    let case = Case::saved(
+        &support::root()
+            .join("crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs"),
+    );
+    let (expected, generated) = case.check().unwrap();
+    fuzz_gpu::check(&case, &expected, &generated).unwrap();
+
+    let mut different = expected.clone();
+    let Outcome::Words(words) = &mut different.threads[0] else {
+        panic!("the fixture completes");
+    };
+    words[0] ^= 1;
+    assert!(matches!(
+        fuzz_gpu::check(&case, &different, &generated),
+        Err(Failure::Gpu(_))
+    ));
+
+    let source = generated.join("kernels.metal");
+    let original = std::fs::read(&source).unwrap();
+    std::fs::write(&source, "#error invalid GPU probe\n").unwrap();
+    assert!(matches!(
+        fuzz_gpu::check(&case, &expected, &generated),
+        Err(Failure::Device(error)) if error.contains("invalid GPU probe")
+    ));
+    std::fs::write(&source, original).unwrap();
+    fuzz_gpu::check(&case, &expected, &generated).unwrap();
 }
