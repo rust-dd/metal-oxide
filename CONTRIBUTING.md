@@ -66,6 +66,15 @@ progress each minute. On a Metal 4-capable device, repeat with
 replay a sequence; otherwise the clock supplies the initial seed. Failures and
 their minimized programs are saved under the workspace's `target/fuzz/`.
 
+Scheduled fuzz CI and manual runs on the default branch open an issue for each
+failed macOS job. Reports include the commit, backend, job and artifact links,
+saved seeds in hexadecimal and decimal, replay commands, minimized source excerpts
+and job logs. A rerun updates the same run's issue for that macOS version; each
+attempt retains its own artifact. Setup and retained-regression failures are
+reported even without a saved seed. Other branches skip reporting. Only the
+reporting job has permission to write issues.
+`python3 scripts/test_report_fuzz_failure.py` checks reporting without posting.
+
 Compiler tests require `clang++`. They build matching device
 `core`/`compiler_builtins` metadata, the host marker macro, the device crate,
 and separate kernels. Portable tests
