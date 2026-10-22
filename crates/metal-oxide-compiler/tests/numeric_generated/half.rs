@@ -110,9 +110,17 @@ pub struct Program {
 
 impl Program {
     pub fn generate(seed: u64) -> Self {
+        Self::with_kinds(seed, &KINDS)
+    }
+
+    pub fn without_bfloat(seed: u64) -> Self {
+        Self::with_kinds(seed, &[Kind::Half, Kind::Primitive])
+    }
+
+    fn with_kinds(seed: u64, kinds: &[Kind]) -> Self {
         let mut random = Random::new(seed);
         let mut steps = Vec::new();
-        for kind in KINDS {
+        for &kind in kinds {
             for (op, word) in [(Op::FromBits, 0), (Op::FromFloat, 1)] {
                 steps.push(Step {
                     kind,
@@ -123,8 +131,9 @@ impl Program {
                 });
             }
         }
-        let mut operations = KINDS
-            .into_iter()
+        let mut operations = kinds
+            .iter()
+            .copied()
             .flat_map(|kind| {
                 OPS.into_iter()
                     .chain([Op::PartialCompare])
@@ -133,7 +142,7 @@ impl Program {
             .collect::<Vec<_>>();
         for _ in 0..12 {
             operations.push((
-                KINDS[random.below(KINDS.len())],
+                kinds[random.below(kinds.len())],
                 OPS[random.below(OPS.len())],
             ));
         }

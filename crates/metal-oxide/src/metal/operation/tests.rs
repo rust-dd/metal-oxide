@@ -198,3 +198,28 @@ fn waiting_for_the_gpu_never_blocks_a_current_thread_runtime() -> Result<()> {
         Ok(())
     })
 }
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn formatting_a_buffer_does_not_wait_for_gpu_completion() -> Result<()> {
+    let (device, pipeline, mut buffer) = setup()?;
+    let gate = Gate::new(&device);
+    gate.block(&device, 1);
+    let before = format!("{buffer:?}");
+    let mut pending = increment(&pipeline, &mut buffer).into_future();
+    assert!(
+        Pin::new(&mut pending)
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    assert!(matches!(pending.0, Run::Running { .. }));
+    drop(pending);
+    assert_eq!(format!("{buffer:?}"), before);
+    assert!(
+        !gate.timed_out.load(Ordering::SeqCst),
+        "formatting waited for the GPU"
+    );
+    gate.event.setSignaledValue(1);
+    assert_eq!(buffer.read().wait(), [1]);
+    Ok(())
+}

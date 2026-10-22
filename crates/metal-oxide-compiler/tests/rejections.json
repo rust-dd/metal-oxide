@@ -179,7 +179,6 @@
   {"message": "unsized coercions require an array reference", "fixture": "rejections/unsized_struct_coercion.rs", "line": 12, "column": 38},
   {"message": "unsupported MIR aggregate type", "internal": "MIR building constructs non-enum aggregates into locals of their own type, which lower to records, tuples, arrays, Checked, Dim3 or Unit, while restricted wrappers take the is_wrapping path and F16 and buffer handles are only built inside the device crate by transmute or by intrinsics whose bodies are not imported."},
   {"message": "unsupported MIR assertion: {other:?}", "internal": "The other AssertKinds come from coroutine resumption, whose instances never reach import, and from the null, alignment and enum UB-check passes, which the driver disables with ub_checks = false; forced on with -Zmir-enable-passes they still emit pointer-to-integer transmutes or u128 temporaries that are rejected before their assertions."},
-  {"message": "unsupported MIR binary operation: {op:?}", "fixture": "rejections/integer_ordering.rs", "line": 8, "column": 20},
   {"message": "unsupported MIR place projection", "fixture": "rejections/array_rest_pattern.rs", "line": 6, "column": 17},
   {"message": "unsupported MIR rvalue: {other:?}", "fixture": "rejections/pointer_to_integer.rs", "line": 6, "column": 19},
   {"message": "unsupported MIR statement: {other:?}", "fixture": "rejections/copy_nonoverlapping_intrinsic.rs", "line": 9, "column": 14},

@@ -155,6 +155,45 @@ fn a_failed_dispatch_skips_the_dispatches_ordered_after_it() -> metal_oxide::Res
     Ok(())
 }
 
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn empty_dispatches_preserve_the_failure_push_index() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let lookup = Pipeline::new(&device, &module(&device)?, "lookup")?;
+    let invalid = device.buffer_from_slice(&[4_u32])?;
+    let mut out = device.buffer_from_slice(&[99_u32])?;
+    for empty_dispatches in [1, 3] {
+        // SAFETY: only the one-thread dispatch runs; both buffers cover its single element.
+        let result = sequence(|batch| unsafe {
+            batch.push(sequence(|batch| {
+                for dispatch in 0..=empty_dispatches + 1 {
+                    let grid = u32::from(dispatch == empty_dispatches);
+                    batch.push(Launch::new(
+                        Ok(&lookup),
+                        LaunchConfig::<1>::new(Dim3::x(grid)),
+                        (&invalid, &mut out, 1_u32),
+                        |(indices, out, n)| {
+                            Ok([
+                                Argument::read(indices),
+                                Argument::write(out),
+                                Argument::value(*n)?,
+                            ])
+                        },
+                    ))?;
+                }
+                Ok(())
+            }))
+        })
+        .wait();
+        let failure = failure(result);
+        assert_eq!(failure.dispatch, empty_dispatches);
+        assert_eq!(failure.kernel, "lookup");
+        assert_eq!(failure.message, "index out of bounds");
+        assert_eq!(out.read().wait(), [99]);
+    }
+    Ok(())
+}
+
 /// Commits `lookup` of `indices` into `looked_up` beside a long kernel in one command buffer
 /// and drops its future, so the command buffer still runs when the caller commits more work.
 fn detached_lookup(

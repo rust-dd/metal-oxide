@@ -60,6 +60,8 @@ mod control_flow;
 mod cooperation;
 #[path = "gpu/cooperative.rs"]
 mod cooperative;
+#[path = "gpu/core_methods.rs"]
+mod core_methods;
 #[path = "gpu/disjoint.rs"]
 mod disjoint;
 #[path = "gpu/dynamic_shared.rs"]

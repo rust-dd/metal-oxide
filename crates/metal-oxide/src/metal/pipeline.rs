@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    fmt,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use objc2::{
     rc::{Retained, autoreleasepool},
@@ -26,9 +29,21 @@ pub struct Pipeline {
     compiled: Arc<Compiled>,
 }
 
+impl fmt::Debug for Pipeline {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Pipeline")
+            .field("entrypoint", &self.compiled.entrypoint)
+            .field("device_id", &self.device.id())
+            .field("thread_execution_width", &self.thread_execution_width())
+            .field("max_threads_per_block", &self.max_threads_per_block())
+            .finish_non_exhaustive()
+    }
+}
+
 /// A native pipeline and its ABI, without the device, so a device can cache it.
 pub(super) struct Compiled {
     raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
+    entrypoint: Box<str>,
     abi: Option<metal_oxide_artifact::Kernel>,
     /// Present for generated kernels, which bind gate and failure words.
     checks: Option<Arc<KernelChecks>>,
@@ -172,6 +187,7 @@ impl Compiled {
         }
         Ok(Self {
             raw,
+            entrypoint: entrypoint.into(),
             validated: (0..abi.as_ref().map_or(0, |abi| abi.parameters.len()))
                 .map(|_| OnceLock::new())
                 .collect(),

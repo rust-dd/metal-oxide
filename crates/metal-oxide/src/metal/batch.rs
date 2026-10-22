@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::Arc,
     task::{Context, Poll, ready},
 };
@@ -28,6 +29,16 @@ use crate::{Dim3, DynamicLaunchConfig, Error, Result};
 pub struct Batch {
     device: Option<Device>,
     recording: Recording,
+}
+
+impl fmt::Debug for Batch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Batch")
+            .field("device_id", &self.device.as_ref().map(Device::id))
+            .field("dispatches", &self.recording.dispatches.len())
+            .field("bindings", &self.recording.bindings.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// A gate or failure word that a dispatch binds after its parameters.
@@ -105,9 +116,6 @@ impl Batch {
         self.recording
             .dispatches
             .retain(|dispatch| !dispatch.config.is_empty());
-        for (index, dispatch) in self.recording.dispatches.iter_mut().enumerate() {
-            dispatch.index = index;
-        }
         let completion = Arc::new(Completion::default());
         match &self.device {
             Some(device) if !self.recording.dispatches.is_empty() => {

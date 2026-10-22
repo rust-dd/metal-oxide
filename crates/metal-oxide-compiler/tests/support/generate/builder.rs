@@ -353,12 +353,24 @@ impl Builder {
             });
         }
         let count = 3 + self.random.below(5);
-        let body = self.block(&mut scope, count, 2);
+        let mut body = self.block(&mut scope, count, 2);
         let mut values = Vec::new();
         let mut kinds = Vec::new();
         for _ in 0..words {
             let ty = self.ty(0);
-            let value = Box::new(self.expr(&scope, &ty, 3));
+            let mut value = Box::new(self.expr(&scope, &ty, 3));
+            if matches!(ty, Type::Int(int) if int.bits == 64) {
+                let name = self.fresh("word");
+                body.push(Stmt::Let(name.clone(), ty.clone(), *value));
+                value = Box::new(Expr::Local(name));
+                values.push(Expr::Cast(value.clone(), U32));
+                kinds.push(Word::Exact);
+                value = Box::new(Expr::Binary(
+                    value,
+                    ">>",
+                    Box::new(Expr::Literal("32_u32".into())),
+                ));
+            }
             let (word, kind) = match ty {
                 Type::Float => (Expr::Method(value, "to_bits", vec![]), Word::Float),
                 _ => (Expr::Cast(value, U32), Word::Exact),
@@ -366,7 +378,7 @@ impl Builder {
             values.push(word);
             kinds.push(kind);
         }
-        let result = Type::Array(Box::new(U32), words);
+        let result = Type::Array(Box::new(U32), values.len() as u32);
         let run = Function {
             name: "run".into(),
             generic: None,

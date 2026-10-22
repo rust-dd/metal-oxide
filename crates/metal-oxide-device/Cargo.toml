@@ -2,7 +2,9 @@
 name = "metal-oxide-device"
 categories = ["hardware-support", "no-std"]
 description = "Device buffers and thread builtins for Metal kernels"
+documentation.workspace = true
 edition.workspace = true
+homepage.workspace = true
 keywords = ["apple", "gpgpu", "gpu", "kernel", "metal"]
 license.workspace = true
 readme = "../../README.md"

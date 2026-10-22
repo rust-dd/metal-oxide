@@ -213,7 +213,8 @@ fn failures_are_compared_by_location_and_completed_threads_by_words() {
     };
     let threads = [Outcome::Words(vec![0; words]), panic.clone()];
     let expected = run(&threads, &[]);
-    let zeros = vec![0; 2 * words];
+    let mut zeros = support::output::initial(2, words);
+    zeros[..2 * words].fill(0);
     assert_eq!(
         case.gpu_mismatch(&expected, Some(panic.clone()), &zeros, &[]),
         None

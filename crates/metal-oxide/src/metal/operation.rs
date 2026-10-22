@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     future::{Future, IntoFuture},
     pin::Pin,
     sync::Arc,
@@ -59,6 +60,16 @@ pub struct Launch<A, const N: usize> {
     config: DynamicLaunchConfig,
     arguments: A,
     bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
+}
+
+impl<A, const N: usize> fmt::Debug for Launch<A, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Launch")
+            .field("pipeline", &self.pipeline)
+            .field("config", &self.config)
+            .field("arguments", &N)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<A, const N: usize> Launch<A, N> {

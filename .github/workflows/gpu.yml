@@ -14,9 +14,9 @@ jobs:
   gpu:
     if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, macOS, ARM64, metal-oxide-gpu]
-    timeout-minutes: 30
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install runtime toolchains
         run: |
           rustup toolchain install 1.99.0 --profile minimal
@@ -24,8 +24,10 @@ jobs:
       - name: Install compiler toolchain
         run: rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
       - name: Install nextest
-        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: nextest@0.9.148
+          checksum: true
+          fallback: none
       - name: Verify both native APIs and generated artifacts
         run: bash scripts/test-gpu.sh

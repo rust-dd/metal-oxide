@@ -1,9 +1,10 @@
 use std::fmt;
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// A runtime check that failed in a kernel thread, reported like a Rust panic.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct KernelFailure {
     pub kernel: String,
     /// Position of the failed dispatch among the dispatches pushed into its command buffer.
@@ -25,6 +26,7 @@ impl fmt::Display for KernelFailure {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     DeviceUnavailable,
     UnsupportedDevice(String),

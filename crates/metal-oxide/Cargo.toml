@@ -2,7 +2,9 @@
 name = "metal-oxide"
 categories = ["hardware-support", "os::macos-apis"]
 description = "Metal compute runtime for Rust"
+documentation.workspace = true
 edition.workspace = true
+homepage.workspace = true
 keywords = ["apple", "compute", "gpgpu", "gpu", "metal"]
 license.workspace = true
 readme = "../../README.md"

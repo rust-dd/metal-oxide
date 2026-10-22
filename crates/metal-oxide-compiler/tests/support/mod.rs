@@ -7,6 +7,7 @@ pub mod generate;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod gpu;
 pub mod oracle;
+pub mod output;
 pub mod process;
 
 use std::{

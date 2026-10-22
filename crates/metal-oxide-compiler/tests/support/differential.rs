@@ -246,6 +246,10 @@ impl Case {
         words: &[u32],
         counters: &[u32],
     ) -> Option<String> {
+        let words = match super::output::payload(words, expected.threads.len(), self.words.len()) {
+            Ok(words) => words,
+            Err(error) => return Some(error),
+        };
         if counters != expected.counters {
             let expected = &expected.counters;
             return Some(format!("counters {counters:x?}, expected {expected:x?}"));

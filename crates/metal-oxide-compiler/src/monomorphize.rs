@@ -39,7 +39,10 @@ pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx B
     let impossible = body
         .basic_blocks
         .indices()
-        .filter(|&block| reads_uninhabited(tcx, instance, &body, block))
+        .filter(|&block| {
+            reads_uninhabited(tcx, instance, &body, block)
+                || unreachable_hint(tcx, body.basic_blocks[block].terminator())
+        })
         .collect::<Vec<_>>();
     if !impossible.is_empty() {
         let blocks = body.to_mut().basic_blocks_mut();
@@ -67,6 +70,18 @@ pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx B
         Cow::Borrowed(body) => body,
         Cow::Owned(body) => tcx.arena.alloc(body),
     }
+}
+
+/// Core's unchecked unreachable hint has the same undefined-behavior contract as MIR's
+/// `Unreachable`; core uses it for impossible primitive orderings.
+fn unreachable_hint(tcx: TyCtxt<'_>, terminator: &rustc_middle::mir::Terminator<'_>) -> bool {
+    let TerminatorKind::Call { func, .. } = &terminator.kind else {
+        return false;
+    };
+    let Some((definition, _)) = func.const_fn_def() else {
+        return false;
+    };
+    tcx.def_path_str(definition) == "core::hint::unreachable_unchecked"
 }
 
 /// Whether the block reads a value of an uninhabited type, as the `Break` arm of core's
@@ -134,7 +149,7 @@ fn doomed(body: &Body<'_>) -> Vec<bool> {
 }
 
 /// The `goto`s that replace what is fixed for every instance: a `cold_path` hint, and a switch
-/// on a runtime-check setting, read directly or through `check_language_ub`.
+/// on a runtime-check setting, or a conservative `is_val_statically_known` result.
 fn folded<'tcx>(
     tcx: TyCtxt<'tcx>,
     body: &Body<'tcx>,
@@ -154,7 +169,10 @@ fn folded<'tcx>(
             if tcx.is_intrinsic(definition, sym::cold_path) {
                 return vec![(block, *target)];
             }
-            if tcx.def_path_str(definition) != "core::ub_checks::check_language_ub" {
+            let statically_known = tcx.is_intrinsic(definition, sym::is_val_statically_known);
+            if !statically_known
+                && tcx.def_path_str(definition) != "core::ub_checks::check_language_ub"
+            {
                 return Vec::new();
             }
             match &body.basic_blocks[*target].terminator().kind {
@@ -162,6 +180,23 @@ fn folded<'tcx>(
                     if discr.place() == Some(*destination)
                         && body.basic_blocks.predecessors()[*target].len() == 1 =>
                 {
+                    if statically_known {
+                        if !body.basic_blocks[*target]
+                            .statements
+                            .iter()
+                            .all(|statement| {
+                                matches!(
+                                    statement.kind,
+                                    StatementKind::StorageLive(_)
+                                        | StatementKind::StorageDead(_)
+                                        | StatementKind::Nop
+                                )
+                            })
+                        {
+                            return Vec::new();
+                        }
+                        return vec![(*target, targets.target_for_value(0))];
+                    }
                     let enabled = u128::from(tcx.sess.ub_checks());
                     vec![
                         (block, *target),

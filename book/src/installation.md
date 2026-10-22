@@ -11,9 +11,9 @@ developer directory before setup.
 In an existing Rust application, install the Cargo command and matching runtime:
 
 ```sh
-cargo install cargo-metal --version '=0.1.0-alpha0' --locked
+cargo install cargo-metal --version '=0.1.0-alpha.1' --locked
 cargo metal setup
-cargo add metal-oxide@=0.1.0-alpha0
+cargo add metal-oxide@=0.1.0-alpha.1
 ```
 
 Specify the prerelease version explicitly: plain `cargo install cargo-metal`
@@ -36,7 +36,7 @@ cargo run -p vec-add --locked
 ```
 
 The vec-add example verifies several sizes against CPU results, including zero
-and partial blocks. To use the released source, check out `v0.1.0-alpha0` before
+and partial blocks. To use the released source, check out `v0.1.0-alpha.1` before
 running setup and the example.
 
 Install the Cargo command from the same checkout to use it in other applications:

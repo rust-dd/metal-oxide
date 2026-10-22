@@ -175,6 +175,8 @@ pub enum BinaryOp {
     Le,
     Gt,
     Ge,
+    /// Integer or boolean ordering as an `i8`: -1, 0 or 1.
+    Cmp,
     AddWithOverflow,
     SubWithOverflow,
     MulWithOverflow,
@@ -196,6 +198,7 @@ pub enum MathOp {
     Abs,
     Min,
     Max,
+    CopySign,
     Sqrt,
     Fma,
     Ln,
@@ -229,7 +232,7 @@ impl MathOp {
             | Self::Round
             | Self::Ceil
             | Self::Trunc => 1,
-            Self::Min | Self::Max | Self::Powf => 2,
+            Self::Min | Self::Max | Self::CopySign | Self::Powf => 2,
             Self::Fma => 3,
         }
     }
@@ -254,6 +257,7 @@ pub enum IntegerOp {
     TrailingZeros,
     CountOnes,
     ReverseBits,
+    SwapBytes,
     RotateLeft,
     RotateRight,
 }
@@ -261,7 +265,11 @@ pub enum IntegerOp {
 impl IntegerOp {
     pub const fn arity(self) -> usize {
         match self {
-            Self::LeadingZeros | Self::TrailingZeros | Self::CountOnes | Self::ReverseBits => 1,
+            Self::LeadingZeros
+            | Self::TrailingZeros
+            | Self::CountOnes
+            | Self::ReverseBits
+            | Self::SwapBytes => 1,
             Self::Min
             | Self::Max
             | Self::SaturatingAdd

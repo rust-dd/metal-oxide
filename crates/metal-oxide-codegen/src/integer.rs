@@ -25,6 +25,7 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
             format!("popcount({})", widened(scalar, &values[0]))
         }
         IntegerOp::CountOnes => format!("uint(popcount({}))", values[0]),
+        IntegerOp::SwapBytes => swap_bytes(scalar, &values[0]),
         IntegerOp::ReverseBits => {
             // Hosted Metal miscomputes float arithmetic fed by reversed constants.
             let value = crate::arithmetic::integer_value(
@@ -51,6 +52,26 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
             )
         }
     }
+}
+
+fn swap_bytes(scalar: Scalar, value: &str) -> String {
+    if scalar.bits() == 8 {
+        return value.to_owned();
+    }
+    let (wide, suffix) = if scalar.bits() == 64 {
+        ("ulong", "ul")
+    } else {
+        ("uint", "u")
+    };
+    let bytes = scalar.bits() / 8;
+    let parts = (0..bytes)
+        .map(|index| {
+            let from = index * 8;
+            let to = (bytes - 1 - index) * 8;
+            format!("((({wide}({value}) >> {from}u) & 0xff{suffix}) << {to}u)")
+        })
+        .collect::<Vec<_>>();
+    crate::arithmetic::integer_value(scalar, &parts.join(" | "))
 }
 
 /// An 8- or 16-bit `value` rotated left by `amount`, below its width, as a 32-bit rotation of

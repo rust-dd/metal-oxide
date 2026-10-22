@@ -323,7 +323,7 @@ fn a_shared_failure_reaches_every_consumer_and_starts_no_dependent() -> Result<(
         })
         .wait()
         .unwrap_err();
-    let direct = failed.wait().err().expect("the rejected launch fails");
+    let direct = failed.wait().expect_err("the rejected launch fails");
     assert!(Arc::ptr_eq(&dependent, &direct));
     assert!(matches!(*direct, Error::InvalidLaunch(_)), "{direct:?}");
     assert_eq!(later.load(Ordering::SeqCst), 0);

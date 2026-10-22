@@ -130,6 +130,9 @@ pub(crate) fn division_numerator(op: BinaryOp, a: String, b: &Operand, ty: Type)
 
 pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     use BinaryOp::*;
+    if op == Cmp {
+        return format!("char(int({a} > {b}) - int({a} < {b}))");
+    }
     let symbol = match op {
         Add | AddWithOverflow => "+",
         Sub | SubWithOverflow => "-",
@@ -149,6 +152,7 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
         Ge => ">=",
         Offset => "+",
         OffsetFrom => "-",
+        Cmp => unreachable!(),
     };
     if matches!(ty, Type::Pointer(_)) {
         // Pointers compare, move by element counts and subtract to an element count.

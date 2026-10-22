@@ -202,7 +202,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 Ok(ir::Expression::Use(ir::Operand::Place(place)))
             }
             mir::Rvalue::BinaryOp(op, values) => Ok(ir::Expression::Binary(
-                binary(*op, span)?,
+                binary(*op),
                 self.operand(&values.0, span)?,
                 self.operand(&values.1, span)?,
             )),
@@ -258,8 +258,8 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
 }
 
 /// MIR's operation; an unchecked one, whose overflow is undefined behavior, wraps.
-fn binary(op: mir::BinOp, span: Span) -> Result<ir::BinaryOp> {
-    Ok(match op {
+fn binary(op: mir::BinOp) -> ir::BinaryOp {
+    match op {
         mir::BinOp::Add | mir::BinOp::AddUnchecked => ir::BinaryOp::Add,
         mir::BinOp::Sub | mir::BinOp::SubUnchecked => ir::BinaryOp::Sub,
         mir::BinOp::Mul | mir::BinOp::MulUnchecked => ir::BinaryOp::Mul,
@@ -276,10 +276,10 @@ fn binary(op: mir::BinOp, span: Span) -> Result<ir::BinaryOp> {
         mir::BinOp::Le => ir::BinaryOp::Le,
         mir::BinOp::Gt => ir::BinaryOp::Gt,
         mir::BinOp::Ge => ir::BinaryOp::Ge,
+        mir::BinOp::Cmp => ir::BinaryOp::Cmp,
         mir::BinOp::AddWithOverflow => ir::BinaryOp::AddWithOverflow,
         mir::BinOp::SubWithOverflow => ir::BinaryOp::SubWithOverflow,
         mir::BinOp::MulWithOverflow => ir::BinaryOp::MulWithOverflow,
         mir::BinOp::Offset => ir::BinaryOp::Offset,
-        _ => return Err((span, format!("unsupported MIR binary operation: {op:?}"))),
-    })
+    }
 }

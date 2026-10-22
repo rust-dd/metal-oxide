@@ -1,4 +1,23 @@
-use metal_oxide::{F16, GpuValue};
+use metal_oxide::{BF16, F16, GpuValue};
+
+#[test]
+fn bfloat_native_layout_matches_its_codec_for_every_bit_pattern() {
+    assert_eq!((size_of::<BF16>(), align_of::<BF16>()), (2, 2));
+    assert_eq!((BF16::SIZE, BF16::ALIGNMENT), (2, 2));
+    let layout = BF16::layout().unwrap();
+    assert_eq!((layout.size, layout.alignment), (2, 2));
+    assert_eq!(BF16::zeroed().to_bits(), 0);
+    for bits in 0..=u16::MAX {
+        let value = BF16::from_bits(bits);
+        let mut bytes = [0xff; 2];
+        value.encode(&mut bytes);
+        assert_eq!(bytes, bits.to_le_bytes());
+        assert_eq!(BF16::decode(&bytes).to_bits(), bits);
+        // SAFETY: BF16 is transparent over u16, which has no padding or invalid bit patterns.
+        let native = unsafe { std::mem::transmute::<BF16, u16>(value) };
+        assert_eq!(native, bits);
+    }
+}
 
 #[test]
 fn half_codec_preserves_all_bit_patterns_in_little_endian_order() {

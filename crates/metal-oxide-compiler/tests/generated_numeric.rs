@@ -12,6 +12,24 @@ use numeric_generated::{SEEDS, atomics::FloatProgram, compile, half, wide};
 use std::collections::BTreeSet;
 
 #[test]
+fn half_only_programs_cover_f16_without_requiring_bfloat() {
+    for seed in SEEDS {
+        let program = half::Program::without_bfloat(seed);
+        assert_eq!(
+            program.source(),
+            half::Program::without_bfloat(seed).source()
+        );
+        let coverage = program.coverage();
+        assert!(coverage.iter().all(|entry| !entry.starts_with("BF16:")));
+        for kind in ["F16", "f16"] {
+            for operation in ["FromBits", "FromFloat", "Convert", "PartialCompare"] {
+                assert!(coverage.contains(&format!("{kind}:{operation}")));
+            }
+        }
+    }
+}
+
+#[test]
 fn generated_numeric_programs_are_deterministic_and_cover_each_operation() {
     let mut half_sources = BTreeSet::new();
     let mut float_sources = BTreeSet::new();
@@ -75,6 +93,11 @@ fn generated_numeric_programs_are_deterministic_and_cover_each_operation() {
 fn generated_numeric_sources_compile_with_reproducible_artifacts() {
     for seed in SEEDS {
         for (kind, source, features) in [
+            (
+                "half-only",
+                half::Program::without_bfloat(seed).source(),
+                vec![],
+            ),
             (
                 "half",
                 half::Program::generate(seed).source(),

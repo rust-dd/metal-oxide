@@ -9,6 +9,10 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 
 - Scalars: `bool`, `f32`, `F16`, `BF16`, 8/16/32-bit integers, `u64`, `usize` and
   internal `isize`. Separate kernel crates can also use unstable primitive `f16`.
+- Integer powers, checked division/remainder, byte swaps, `cmp`/`partial_cmp`,
+  derived ordering and `signum`; integer and float `clamp`, plus `f32::copysign`,
+  `signum` and `total_cmp`. Invalid clamp bounds remain checked, including NaN
+  bounds on `f32`.
 - Records, tuples, arrays, payload enums with default discriminants, `Option`,
   `Result`, exhaustive matches and `?`. Enums are internal values, not ABI parameters.
 - References, slices and lifetime-bearing aggregates inside kernels and helpers.
@@ -60,6 +64,14 @@ Heap allocation, host I/O and operating-system facilities are outside the device
 subset. A varying branch or early return that bypasses required cooperative work
 is rejected even when the corresponding scalar code would otherwise compile.
 
-Integer checks follow the kernel build profile: overflow checks follow that
-profile, while bounds, division and explicit panics remain checked. Numerical
-transformations follow the explicit [math mode](performance.md#numerical-modes).
+Kernels always compile with the release profile, even when the host uses a debug
+build. Integer overflow checks are off by default. To enable them, add this to
+the workspace `Cargo.toml`:
+
+```toml
+[profile.release]
+overflow-checks = true
+```
+
+Bounds, division and explicit panics remain checked regardless of this setting.
+Numerical transformations follow the explicit [math mode](performance.md#numerical-modes).

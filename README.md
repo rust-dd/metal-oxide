@@ -47,9 +47,12 @@ own element; `requires` checks the buffer-length relations before launch so the
 compiler can prove the indexing safe.
 
 Checks the compiler cannot prove run on the GPU. Bounds failures, division by
-zero, assertions and checked integer overflows return `Error::KernelFailed` with
-the Rust location. A kernel declared `unsafe fn` generates an unsafe launch
-function; callers must uphold the kernel's documented contract.
+zero and assertions return `Error::KernelFailed` with the Rust location. Kernels
+always build with the release profile, even when the host uses a debug build.
+Integer overflow checks are off by default; set `overflow-checks = true` under
+`[profile.release]` in the workspace `Cargo.toml` to report overflows as kernel
+failures too. A kernel declared `unsafe fn` generates an unsafe launch function;
+callers must uphold the kernel's documented contract.
 
 ## Launches, buffers and async work
 
@@ -126,9 +129,9 @@ with its Metal Toolchain and the pinned nightly Rust compiler. Install Xcode and
 select its developer directory. In an existing Rust application, run:
 
 ```sh
-cargo install cargo-metal --version '=0.1.0-alpha0' --locked
+cargo install cargo-metal --version '=0.1.0-alpha.1' --locked
 cargo metal setup
-cargo add metal-oxide@=0.1.0-alpha0
+cargo add metal-oxide@=0.1.0-alpha.1
 ```
 
 Copy the kernel example above into `src/main.rs`, then run `cargo run`.
@@ -139,7 +142,7 @@ skips prereleases.
 To run the repository's examples:
 
 ```sh
-git clone --branch v0.1.0-alpha0 https://github.com/rust-dd/metal-oxide.git
+git clone --branch v0.1.0-alpha.1 https://github.com/rust-dd/metal-oxide.git
 cd metal-oxide
 cargo run -p cargo-metal --locked -- setup
 cargo run -p vec-add --locked
@@ -174,6 +177,7 @@ Hardware suites have run on these configurations:
 | M4 Max | 26.2 | 26.6 | classic Metal, Metal 4 |
 | Apple Paravirtual device, GitHub-hosted M1 VM | 15.7, 26.6 | 16.4, 26.6 | classic Metal |
 
+The [example index](https://github.com/rust-dd/metal-oxide/blob/main/examples/README.md) lists workloads and run commands.
 The [contribution guide](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md) has test commands and benchmark results.
 The [book](https://rust-dd.github.io/metal-oxide/) covers kernel authoring, memory, async execution,
 performance and debugging.

@@ -507,6 +507,7 @@ fn binary_type(
         Shl | Shr => integer && matches!(b, Type::Scalar(s) if s.is_integer()),
         BitAnd | BitOr | BitXor => (integer || boolean) && a == b,
         Eq | Ne | Lt | Le | Gt | Ge => (number || boolean || thin) && a == b,
+        Cmp => (integer || boolean) && a == b,
         AddWithOverflow | SubWithOverflow | MulWithOverflow => integer && a == b,
         Add | Sub | Mul | Div | Rem => number && a == b,
         Offset => thin && matches!(b, Type::Scalar(Usize | Isize)),
@@ -517,6 +518,7 @@ fn binary_type(
     }
     Ok(match op {
         Eq | Ne | Lt | Le | Gt | Ge => Type::Scalar(Bool),
+        Cmp => Type::Scalar(I8),
         AddWithOverflow | SubWithOverflow | MulWithOverflow => {
             let Type::Scalar(s) = a else { unreachable!() };
             Type::Checked(s)

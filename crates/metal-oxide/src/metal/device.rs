@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    fmt,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use objc2::{
@@ -32,6 +35,20 @@ static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 /// clones its pipelines hold.
 #[derive(Clone)]
 pub struct Device(Arc<Context>);
+
+impl fmt::Debug for Device {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let backend = match self.backend() {
+            Backend::Classic { .. } => "classic",
+            Backend::Metal4 { .. } => "metal4",
+        };
+        f.debug_struct("Device")
+            .field("name", &self.name())
+            .field("id", &self.id())
+            .field("backend", &backend)
+            .finish_non_exhaustive()
+    }
+}
 
 struct Context {
     raw: Retained<ProtocolObject<dyn MTLDevice>>,

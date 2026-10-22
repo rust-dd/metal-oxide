@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     sync::Arc,
     task::{Context, Poll, Waker},
 };
@@ -22,6 +23,25 @@ pub(in crate::metal) enum Source {
         entry: &'static str,
         preparation: Option<Preparation>,
     },
+}
+
+impl fmt::Debug for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ready(pipeline) => pipeline.fmt(f),
+            Self::Embedded {
+                device,
+                entry,
+                preparation,
+                ..
+            } => f
+                .debug_struct("Embedded")
+                .field("entrypoint", entry)
+                .field("device_id", &device.id())
+                .field("preparing", &preparation.is_some())
+                .finish_non_exhaustive(),
+        }
+    }
 }
 
 impl Source {

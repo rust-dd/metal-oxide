@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{fmt, path::Path, sync::Arc};
 
 use objc2::{
     rc::{Retained, autoreleasepool},
@@ -22,6 +22,16 @@ pub struct Module {
     pub(super) abi: Option<Abi>,
     /// The artifact's runtime checks, indexed by the ids its kernels record.
     pub(super) checks: Arc<[Check]>,
+}
+
+impl fmt::Debug for Module {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Module")
+            .field("device_id", &self.device_id)
+            .field("kernels", &self.abi.as_ref().map(|abi| abi.kernels.len()))
+            .field("checks", &self.checks.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Module {

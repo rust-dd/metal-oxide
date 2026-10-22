@@ -472,6 +472,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 let [value] = arguments(values, span)?;
                 ir::Expression::Use(value)
             }
+            Intrinsic::StaticallyKnown => {
+                arguments::<1>(values, span)?;
+                ir::Expression::Use(ir::Operand::Constant(ir::Constant::Bool(false)))
+            }
             Intrinsic::OffsetFrom => {
                 let [end, start] = arguments(values, span)?;
                 ir::Expression::Binary(ir::BinaryOp::OffsetFrom, end, start)

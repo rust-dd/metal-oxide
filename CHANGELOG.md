@@ -1,10 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.1
 
 Prereleases use dotted identifiers from `0.1.0-alpha.1` on. SemVer orders
 `0.1.0-alpha.1` below `0.1.0-alpha0`, so `0.1.0-alpha0` is yanked once
 `0.1.0-alpha.1` is published.
+
+### Added
+
+- Kernels support integer powers, checked division and remainder, comparisons and
+  byte swaps, integer and float clamps and signs, and `f32::copysign` and `total_cmp`.
+- `Device`, `Buffer`, `Pipeline`, `Module`, `Launch` and `Batch` implement `Debug`
+  without reading buffer contents or waiting for GPU work.
+- The examples index lists the command for each runnable example; crate metadata
+  links to the hosted book.
+
+### Changed
+
+- `Error` and `KernelFailure` are non-exhaustive. `Result<T, E = Error>` also accepts
+  a custom error type.
+- BF16 buffers expose direct shared-storage CPU views, avoiding mirror copies.
+- Generated-program tests compare both halves of `u64` results and detect missing
+  writes and overwritten output padding. F16 graphs run independently of BF16;
+  selecting a BF16 test on an unsupported device fails instead of passing.
 
 ### Fixed
 
@@ -12,6 +30,10 @@ Prereleases use dotted identifiers from `0.1.0-alpha.1` on. SemVer orders
   such stores failed with "Compilation failed" in the macOS 15 Metal compiler.
 - A missing or mismatched kernel compiler reports the matching `cargo-metal`
   install command.
+- Kernel failures retain the original dispatch push index when earlier dispatches
+  have empty grids.
+- The book and README explain release-profile overflow checks and the scope of
+  threadgroup barriers. CI verifies nextest downloads and enforces its version.
 
 ### Upgrading from 0.1.0-alpha0
 
@@ -22,6 +44,14 @@ Prereleases use dotted identifiers from `0.1.0-alpha.1` on. SemVer orders
 3. Build once with the kernel toolchain and commit the regenerated `metal/`
    directories. Saved artifacts record the locked package versions, so locked and
    toolchain-less builds of your own crates report them as stale until then.
+4. Add a wildcard arm to exhaustive `Error` matches, and `..` to `KernelFailure`
+   patterns. Constructing `KernelFailure` outside the runtime is no longer supported.
+   Compiler integrations matching `metal-oxide-ir` operation enums must handle
+   their new comparison, byte-swap and copy-sign variants.
+
+Artifacts retain ABI 4 and saved alpha0 dependencies remain loadable. The hardware
+coverage and limitations recorded for alpha0 still apply; the two-week scheduled
+fuzz observation period remains outstanding.
 
 ## 0.1.0-alpha0
 

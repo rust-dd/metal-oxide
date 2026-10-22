@@ -18,6 +18,7 @@ jobs:
   rust:
     name: Stable Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     # Kernels come from the artifacts saved beside their sources, which must be current.
     env:
       METAL_OXIDE_ARTIFACTS: locked
@@ -26,13 +27,15 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, macos-26]
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
       - name: Install nextest
-        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: nextest@0.9.148
+          checksum: true
+          fallback: none
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Unit tests only in tests.rs modules
@@ -50,6 +53,8 @@ jobs:
         run: cargo test --workspace --doc --locked
       - name: Loom models of cross-thread runtime state
         if: runner.os == 'macOS'
+        env:
+          CARGO_NET_RETRY: "10"
         run: RUSTFLAGS="--cfg loom" cargo nextest run -p metal-oxide --lib --release --profile ci --locked --target-dir target/loom loom
       - name: Minimum supported Rust
         run: |
@@ -67,17 +72,19 @@ jobs:
   dependencies:
     name: Dependency licenses, advisories and sources
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           rust-version: "1.99.0"
 
   miri:
     name: Miri on host code
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Miri
         run: rustup toolchain install nightly-2026-10-04 --profile minimal --component miri --component rust-src
       - name: Artifact contracts and layouts
@@ -89,6 +96,7 @@ jobs:
   compiler:
     name: Rust compiler (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -97,7 +105,7 @@ jobs:
       run:
         working-directory: crates/metal-oxide-compiler
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install compiler and workspace toolchains
         # Generated-host tests build with the workspace toolchain; installing it here avoids
         # concurrent rustup installs from parallel tests.
@@ -105,9 +113,11 @@ jobs:
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools --component clippy --component rustfmt
           rustup toolchain install 1.99.0 --profile minimal --component clippy --component rustfmt
       - name: Install nextest
-        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: nextest@0.9.148
+          checksum: true
+          fallback: none
       - name: Compiler Clippy
         run: cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
       - name: Frontend, IR, and MSL tests
@@ -129,7 +139,7 @@ jobs:
       matrix:
         os: [macos-15, macos-26]
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust
         run: rustup toolchain install 1.99.0 --profile minimal
       - name: Install cargo-metal and set up the kernel toolchain
@@ -152,7 +162,7 @@ jobs:
       matrix:
         os: [macos-15, macos-26]
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install compiler, workspace and minimum supported toolchains
         # The embedded-library test builds its host on the minimum supported Rust.
         run: |
@@ -160,9 +170,11 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal
           rustup toolchain install 1.89.0 --profile minimal
       - name: Install nextest
-        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: nextest@0.9.148
+          checksum: true
+          fallback: none
       - name: Report the toolchain and the Metal device
         run: cargo run -p cargo-metal --locked -- setup --check
       - name: Classic Metal kernels and artifacts

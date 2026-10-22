@@ -1,3 +1,5 @@
+nextest-version = { required = "0.9.148" }
+
 # The ci and gpu profiles print every finished test with a running (N/total) counter.
 
 [profile.default]
@@ -24,4 +26,5 @@ slow-timeout = { period = "60s", terminate-after = 30 }
 [profile.fuzz]
 status-level = "pass"
 failure-output = "immediate-final"
+fail-fast = false
 test-threads = 1

@@ -2,7 +2,9 @@
 name = "cargo-metal"
 categories = ["compilers", "development-tools::cargo-plugins"]
 description = "Cargo subcommand that builds metal-oxide kernel artifacts"
+documentation.workspace = true
 edition.workspace = true
+homepage.workspace = true
 keywords = ["cargo", "gpu", "kernel", "metal", "msl"]
 license.workspace = true
 readme = "../../README.md"

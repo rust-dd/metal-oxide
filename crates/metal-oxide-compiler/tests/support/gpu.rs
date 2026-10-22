@@ -13,8 +13,9 @@ impl Case {
         let input = device
             .buffer_from_slice(&self.inputs)
             .map_err(|e| e.to_string())?;
+        let initial = super::output::initial(self.inputs.len(), self.words.len());
         let mut output = device
-            .buffer_zeroed::<u32>(self.inputs.len() * self.words.len())
+            .buffer_from_slice(&initial)
             .map_err(|e| e.to_string())?;
         let n = self.inputs.len() as u32;
         let config = LaunchConfig::<64>::for_elements(n).map_err(|e| e.to_string())?;

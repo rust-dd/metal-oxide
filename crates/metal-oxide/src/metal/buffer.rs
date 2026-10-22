@@ -1,4 +1,4 @@
-use std::{any::TypeId, ptr::NonNull, sync::Arc};
+use std::{any::TypeId, fmt, ptr::NonNull, sync::Arc};
 
 use metal_oxide_artifact::Access;
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -55,6 +55,16 @@ pub struct Buffer<T: GpuValue> {
     access: Arc<AccessState>,
     mirror: Option<Mirror<T>>,
     len: usize,
+}
+
+impl<T: GpuValue> fmt::Debug for Buffer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("element", &std::any::type_name::<T>())
+            .field("len", &self.len)
+            .field("device_id", &self.device_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T: GpuValue> Buffer<T> {
@@ -217,6 +227,7 @@ fn native_layout<T: GpuValue>() -> bool {
         && [
             TypeId::of::<f32>(),
             TypeId::of::<crate::F16>(),
+            TypeId::of::<crate::BF16>(),
             TypeId::of::<u32>(),
             TypeId::of::<u64>(),
             TypeId::of::<i32>(),

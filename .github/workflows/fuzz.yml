@@ -38,15 +38,17 @@ jobs:
       run:
         working-directory: crates/metal-oxide-compiler
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install compiler and workspace toolchains
         run: |
           rustup toolchain install nightly-2026-10-04 --profile minimal --component rustc-dev --component rust-src --component llvm-tools
           rustup toolchain install 1.99.0 --profile minimal
       - name: Install nextest
-        uses: taiki-e/install-action@3a0adc33ab45d7b9b9da91822dd2b3c0151704be # nextest
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: nextest@0.9.148
+          checksum: true
+          fallback: none
       - name: Compare retained regressions on classic Metal
         run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile gpu --test differential --run-ignored only --no-capture
       - name: Compare generated programs on the CPU, the host and classic Metal
@@ -58,7 +60,7 @@ jobs:
         run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile fuzz --test fuzz --run-ignored only --no-capture
       - name: Upload failing programs and their minimized forms
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-${{ matrix.os }}-attempt-${{ github.run_attempt }}
           path: target/fuzz
@@ -75,7 +77,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check the issue reporter

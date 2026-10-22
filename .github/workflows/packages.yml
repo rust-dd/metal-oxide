@@ -23,7 +23,7 @@ jobs:
     env:
       METAL_OXIDE_BACKEND: classic
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install host and minimum supported Rust
         run: |
           rustup toolchain install 1.99.0 --profile minimal
@@ -38,7 +38,7 @@ jobs:
     env:
       METAL_OXIDE_BACKEND: classic
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use a fresh Cargo home
         run: echo "CARGO_HOME=$RUNNER_TEMP/registry-cargo" >> "$GITHUB_ENV"
       - name: Install host and minimum supported Rust

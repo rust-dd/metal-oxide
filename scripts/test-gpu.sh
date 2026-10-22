@@ -15,11 +15,8 @@ cargo "${nextest[@]}" -p metal-oxide-build
 # Arguments name the native APIs to test. By default Metal 4 runs from macOS 26 on;
 # virtual GPUs without the Metal 4 family pass `classic`.
 backends="$*"
-compiler_filter=(-E 'all()')
-if [ "$(sw_vers -productVersion | cut -d. -f1)" -lt 27 ]; then
-    compiler_filter=(-E 'not test(msl41_)')
-    printf 'MSL 4.1 acquire/release hardware tests require macOS 27.\n'
-fi
+filter=$(xcrun swift -module-cache-path target/swift-module-cache scripts/gpu-test-filter.swift)
+compiler_filter=(-E "$filter")
 if [ -z "$backends" ]; then
     backends="classic"
     if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then

@@ -7,14 +7,25 @@ use metal_oxide::{Argument, Device, Launch, LaunchConfig, Operation, Pipeline};
 #[test]
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn generated_half_expression_graphs_match_cpu() -> metal_oxide::Result<()> {
+    half_expression_graphs(false)
+}
+
+#[test]
+#[ignore = "requires a Metal device supporting bfloat16"]
+fn generated_bfloat_expression_graphs_match_cpu() -> metal_oxide::Result<()> {
+    half_expression_graphs(true)
+}
+
+fn half_expression_graphs(bfloat: bool) -> metal_oxide::Result<()> {
     let device = Device::system_default()?;
     for seed in SEEDS {
-        let program = half::Program::generate(seed);
-        let directory = compile(&format!("gpu-half-{seed:016x}"), &program.source());
-        let Some(module) = support::artifact::supported_module(&device, &directory, &["bfloat16"])?
-        else {
-            return Ok(());
+        let program = if bfloat {
+            half::Program::generate(seed)
+        } else {
+            half::Program::without_bfloat(seed)
         };
+        let directory = compile(&format!("gpu-half-{bfloat}-{seed:016x}"), &program.source());
+        let module = support::artifact::module(&device, &directory)?;
         let pipeline = Pipeline::new(&device, &module, "generated")?;
         let values = half::inputs(seed);
         let input = device.buffer_from_slice(&values)?;

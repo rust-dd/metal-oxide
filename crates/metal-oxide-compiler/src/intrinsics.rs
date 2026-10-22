@@ -41,8 +41,10 @@ pub(crate) enum Intrinsic {
     /// `Index::index` or `IndexMut::index_mut` on a slice or array; the index type selects the
     /// range.
     Subslice,
-    /// `IntoIterator::into_iter` of an iterator, which returns its argument.
+    /// A hint or adapter that returns its argument.
     Identity,
+    /// The conservative result of `is_val_statically_known`.
+    StaticallyKnown,
     /// `len`, `is_empty` and `as_slice` of a kernel buffer parameter.
     Buffer(BufferQuery),
     /// `ptr_offset_from_unsigned`: the element count between two pointers.
@@ -119,6 +121,7 @@ impl Intrinsic {
             Self::SliceLen => "slice_len",
             Self::Subslice => "subslice",
             Self::Identity => "identity",
+            Self::StaticallyKnown => "statically_known",
             Self::Buffer(BufferQuery::Length) => "buffer_length",
             Self::Buffer(BufferQuery::IsEmpty) => "buffer_is_empty",
             Self::Buffer(BufferQuery::Slice) => "buffer_slice",
@@ -149,6 +152,25 @@ pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEnt
     if items.panic_fmt() == Some(definition) {
         return Some(PanicEntry::PanicFmt);
     }
+    if tcx.crate_name(definition.krate).as_str() == "core"
+        && tcx.item_name(definition).as_str() == "do_panic"
+        && tcx.item_name(tcx.parent(definition)).as_str() == "clamp"
+    {
+        let signature = tcx.fn_sig(definition).instantiate_identity().skip_binder();
+        if signature.output().is_never() {
+            return Some(PanicEntry::Fixed(
+                if signature
+                    .inputs()
+                    .iter()
+                    .any(|ty| matches!(ty.kind(), ty::Float(_)))
+                {
+                    "min > max, or either was NaN"
+                } else {
+                    "min > max"
+                },
+            ));
+        }
+    }
     // The cold helpers of `unwrap` and `expect`; a `Result`'s error is not formatted.
     match tcx.def_path_str(definition).as_str() {
         "core::option::unwrap_failed" => {
@@ -158,6 +180,9 @@ pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEnt
         }
         "core::option::expect_failed" | "core::result::unwrap_failed" => {
             return Some(PanicEntry::Argument(0));
+        }
+        "core::num::imp::overflow_panic::pow" => {
+            return Some(PanicEntry::Fixed("attempt to exponentiate with overflow"));
         }
         _ => {}
     }
@@ -199,6 +224,12 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     if let Some(operation) = vector::operation(tcx, definition) {
         return Some(Intrinsic::Vector(operation));
     }
+    if matches!(
+        tcx.def_path_str(definition).as_str(),
+        "core::intrinsics::likely" | "core::intrinsics::unlikely"
+    ) {
+        return Some(Intrinsic::Identity);
+    }
     if let Some(intrinsic) = tcx.intrinsic(definition) {
         if intrinsic.name.as_str().starts_with("simd_") {
             return Some(Intrinsic::Vector(VectorOp::Intrinsic(intrinsic.name)));
@@ -208,13 +239,16 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
             "integer_max" => IntegerOp::Max,
             "saturating_add" => IntegerOp::SaturatingAdd,
             "saturating_sub" => IntegerOp::SaturatingSub,
-            "ctlz" => IntegerOp::LeadingZeros,
-            "cttz" => IntegerOp::TrailingZeros,
+            "ctlz" | "ctlz_nonzero" => IntegerOp::LeadingZeros,
+            "cttz" | "cttz_nonzero" => IntegerOp::TrailingZeros,
             "ctpop" => IntegerOp::CountOnes,
             "bitreverse" => IntegerOp::ReverseBits,
+            "bswap" => IntegerOp::SwapBytes,
             "rotate_left" => IntegerOp::RotateLeft,
             "rotate_right" => IntegerOp::RotateRight,
             "ptr_offset_from_unsigned" => return Some(Intrinsic::OffsetFrom),
+            "copysignf32" => return Some(Intrinsic::Math(MathOp::CopySign)),
+            "is_val_statically_known" => return Some(Intrinsic::StaticallyKnown),
             _ => return None,
         }));
     }

@@ -40,6 +40,12 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         MathOp::Abs => {
             return format!("as_type<float>(as_type<uint>({}) & 0x7fffffffu)", values[0]);
         }
+        MathOp::CopySign => {
+            return format!(
+                "as_type<float>((as_type<uint>({}) & 0x7fffffffu) | (as_type<uint>({}) & 0x80000000u))",
+                values[0], values[1]
+            );
+        }
         MathOp::SinCos => return format!("metal_oxide_sin_cos({})", values[0]),
         _ => {}
     }
@@ -59,7 +65,7 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         MathOp::Round => "round",
         MathOp::Ceil => "ceil",
         MathOp::Trunc => "trunc",
-        MathOp::Abs | MathOp::SinCos => unreachable!(),
+        MathOp::Abs | MathOp::CopySign | MathOp::SinCos => unreachable!(),
     };
     let namespace = if matches!(
         op,
