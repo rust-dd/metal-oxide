@@ -561,8 +561,8 @@ calls, so `Module::from_source` uses the same contract as offline compilation.
 The mode is required in the ABI and participates in the Rust build cache,
 artifact fingerprint and saved artifact name. Mismatched Metal flags,
 unknown modes and artifacts missing this field are rejected. Rebuild development
-artifacts after format changes, including the shared ABI tables; the pre-release
-ABI version remains 4.
+artifacts after format changes, including the shared ABI tables. Releases since
+`0.1.0-alpha0` use ABI 4; an incompatible change increments it.
 
 The artifact is stored under `target/metal/<build-hash>/`:
 

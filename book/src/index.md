@@ -8,8 +8,8 @@ Start with [installation](installation.md) and the [first kernel](first-kernel.m
 The examples in this book are included from the repository's executable examples;
 their hardware tests are explicit, separate from portable tests.
 
-There is no published release yet. Use a checkout, path dependency or git dependency.
-The API and development artifact format can change before publication.
+Alpha releases are published on crates.io; [installation](installation.md) names the
+current version. The API can change between alpha releases.
 
 ## Execution evidence
 

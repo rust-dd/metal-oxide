@@ -33,8 +33,9 @@ The host macros generate launch functions from the kernel signature, safety,
 contracts and block requirements. `metal-oxide-build` drives the compiler and
 stores the compiled library with its versioned ABI and input manifest. Source,
 dependencies, compiler/toolchain/SDK settings and numerical mode participate in
-artifact identity. Version and ABI checks remain enabled during development;
-`ABI_VERSION` is 4 until the first publication.
+artifact identity. Version and ABI checks are always enabled. Releases since
+`0.1.0-alpha0` use `ABI_VERSION` 4; an incompatible contract or artifact-format
+change increments it.
 
 Inline modules share host/device types and generate codecs for shared records.
 Separate `no_std` kernel crates can share helpers and dependencies without putting

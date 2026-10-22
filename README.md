@@ -75,7 +75,7 @@ the executor thread.
 conflicting buffer accesses and allows independent work to overlap. `then` chains
 dependent work, `map` processes its result on the CPU, and `operation.timed()`
 returns optional GPU timing with the result. Native Metal resources can be imported and
-exported under the [ownership contract](CONCEPT.md#native-resource-ownership).
+exported under the [ownership contract](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md#native-resource-ownership).
 
 ## Kernel code
 
@@ -98,8 +98,8 @@ Use `#[metal_oxide::kernels]` to share types and helpers between kernels. A
 Precise math is the default and disables implicit floating-point contraction.
 `#[kernels(math = "fast")]` permits fast functions, reassociation and contraction.
 The selected mode is recorded in the artifact. See
-[supported Rust](book/src/supported-rust.md) and
-[numerical modes](book/src/performance.md#numerical-modes) for the exact boundaries.
+[supported Rust](https://rust-dd.github.io/metal-oxide/supported-rust.html) and
+[numerical modes](https://rust-dd.github.io/metal-oxide/performance.html#numerical-modes) for the exact boundaries.
 
 ## Compared with other Rust GPU projects
 
@@ -146,7 +146,7 @@ cargo run -p vec-add --locked
 ```
 
 Keep the dependency and `cargo-metal` at the same version. The
-[installation guide](book/src/installation.md) also covers development checkouts
+[installation guide](https://rust-dd.github.io/metal-oxide/installation.html) also covers development checkouts
 and saved artifacts.
 
 Kernel builds save `metal/<file>/<item>-<math mode>/` beside the crate's sources.
@@ -174,8 +174,8 @@ Hardware suites have run on these configurations:
 | M4 Max | 26.2 | 26.6 | classic Metal, Metal 4 |
 | Apple Paravirtual device, GitHub-hosted M1 VM | 15.7, 26.6 | 16.4, 26.6 | classic Metal |
 
-The [contribution guide](CONTRIBUTING.md) has test commands and benchmark results.
-The [book](book/src/SUMMARY.md) covers kernel authoring, memory, async execution,
+The [contribution guide](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md) has test commands and benchmark results.
+The [book](https://rust-dd.github.io/metal-oxide/) covers kernel authoring, memory, async execution,
 performance and debugging.
 
 ## Known limitations
@@ -223,4 +223,4 @@ eligibility, not hardware test coverage.
 Regenerate this table with
 `cargo run -p metal-oxide-artifact --example capabilities --locked`.
 
-[Architecture](CONCEPT.md) · [Examples](examples) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)
+[Architecture](https://github.com/rust-dd/metal-oxide/blob/main/CONCEPT.md) · [Examples](https://github.com/rust-dd/metal-oxide/tree/main/examples) · [Contributing](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md) · [MIT license](https://github.com/rust-dd/metal-oxide/blob/main/LICENSE)
