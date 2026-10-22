@@ -305,8 +305,8 @@ impl Builder {
             2 => Expr::Unary("-", operand(self)),
             3 => match self.random.below(3) {
                 0 => Expr::Method(operand(self), "abs", vec![]),
-                1 => Expr::Method(operand(self), "min", vec![*operand(self)]),
-                _ => Expr::Method(operand(self), "max", vec![*operand(self)]),
+                1 => Expr::Extreme("min", operand(self), operand(self)),
+                _ => Expr::Extreme("max", operand(self), operand(self)),
             },
             4 => Expr::Cast(Box::new(self.any_int(scope, depth)), Type::Float),
             _ => {

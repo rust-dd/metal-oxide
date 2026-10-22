@@ -171,7 +171,7 @@ fn children(expr: &mut Expr) -> Vec<&mut Expr> {
         | Expr::Try(value)
         | Expr::Closure(_, _, value) => vec![value],
         Expr::Index(_, index, _) | Expr::Element(_, index, _) => vec![index],
-        Expr::Binary(left, _, right) => vec![left, right],
+        Expr::Binary(left, _, right) | Expr::Extreme(_, left, right) => vec![left, right],
         Expr::Method(receiver, _, arguments) => {
             std::iter::once(&mut **receiver).chain(arguments).collect()
         }
@@ -209,6 +209,7 @@ fn simpler(expr: &Expr) -> Vec<Expr> {
             }
             _ => vec![(**left).clone(), (**right).clone()],
         },
+        Expr::Extreme(_, left, right) => vec![(**left).clone(), (**right).clone()],
         Expr::Matches(..) => vec![literal("true"), literal("false")],
         Expr::Unary(_, operand) => vec![(**operand).clone()],
         Expr::Method(receiver, _, arguments) => std::iter::once(&**receiver)

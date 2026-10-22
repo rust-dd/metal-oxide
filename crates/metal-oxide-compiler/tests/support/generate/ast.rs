@@ -11,6 +11,9 @@ pub enum Expr {
     Unary(&'static str, Box<Expr>),
     Binary(Box<Expr>, &'static str, Box<Expr>),
     Method(Box<Expr>, &'static str, Vec<Expr>),
+    /// `f32::min` or `f32::max` of the operands plus `0.0`, which makes a zero result positive:
+    /// Rust lets the methods return either of two equal zeros.
+    Extreme(&'static str, Box<Expr>, Box<Expr>),
     Cast(Box<Expr>, Type),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     /// An integer match on `scrutinee & 3`, with arms for 0, 1 and 2.
@@ -64,6 +67,7 @@ impl Expr {
             | Expr::Deref(value)
             | Expr::Borrow(value, _) => value.mentions(name),
             Expr::Binary(left, _, right)
+            | Expr::Extreme(_, left, right)
             | Expr::Index(left, right, _)
             | Expr::Element(left, right, _) => left.mentions(name) || right.mentions(name),
             Expr::Method(receiver, _, arguments) => receiver.mentions(name) || any(arguments),
@@ -149,6 +153,10 @@ impl Printer<'_> {
             Expr::Method(receiver, method, arguments) => {
                 let arguments = arguments.iter().map(|a| self.expr(a)).collect::<Vec<_>>();
                 format!("{}.{method}({})", self.expr(receiver), arguments.join(", "))
+            }
+            Expr::Extreme(method, left, right) => {
+                let (left, right) = (self.expr(left), self.expr(right));
+                format!("({left}.{method}({right}) + 0.0_f32)")
             }
             Expr::Cast(value, ty) => {
                 format!(
