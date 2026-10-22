@@ -140,9 +140,9 @@ separate release checks.
 
 The documentation workflow uploads the checked book on every run and deploys the
 release's book to GitHub Pages when a GitHub release is published, including an
-alpha prerelease. Before publishing the first release, select GitHub Actions as
-the repository's Pages source and allow release tags in the `github-pages`
-environment. Pull requests and ordinary pushes build and upload without deploying.
+alpha prerelease. GitHub Actions is the repository's Pages source, and the
+`github-pages` environment accepts branch `main` and tags matching `v*`. Pull
+requests and ordinary pushes build and upload without deploying.
 
 ## API design
 
