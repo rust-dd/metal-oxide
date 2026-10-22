@@ -34,13 +34,7 @@ impl Compiler {
             .map(|directory| directory.join("metal-oxide-compiler"))
             .find(|path| path.is_file())
             .map(Self::Executable)
-            .ok_or_else(|| {
-                format!(
-                    "no metal-oxide-compiler found; install it with `cargo +{COMPILER_NIGHTLY} install metal-oxide-compiler --version ={} --features rustc-private` or set METAL_OXIDE_COMPILER",
-                    env!("CARGO_PKG_VERSION")
-                )
-                .into()
-            })
+            .ok_or_else(|| format!("no metal-oxide-compiler found; {}", installation()).into())
     }
 
     /// The installed compiler's version and ABI after checking it, or the source it builds from.
@@ -126,6 +120,14 @@ pub(crate) fn verify(path: &Path, rustc: &str) -> Result<CompilerInfo> {
     let response = process::capture(Command::new("rustup").args(["run", COMPILER_NIGHTLY]).arg(path).arg("--metal-compiler-info"))
         .map_err(|error| format!("cannot run compiler {} with {COMPILER_NIGHTLY}: {error}; install matching rustc-dev and llvm-tools components", path.display()))?;
     let info = CompilerInfo::from_json(&response)?;
-    info.verify(rustc, &std::fs::read(path)?)?;
+    info.verify(rustc, &std::fs::read(path)?)
+        .map_err(|error| format!("{error} in {}; {}", path.display(), installation()))?;
     Ok(info)
+}
+
+fn installation() -> String {
+    format!(
+        "install the matching compiler with `cargo install cargo-metal --version '={}' --locked` and `cargo metal setup`, or set METAL_OXIDE_COMPILER",
+        env!("CARGO_PKG_VERSION")
+    )
 }

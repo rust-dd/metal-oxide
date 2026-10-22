@@ -246,6 +246,11 @@ fn installed_compiler_executables_build_kernels_after_an_identity_check() {
     std::fs::set_permissions(&other, std::fs::Permissions::from_mode(0o755)).unwrap();
     let errors = failure(build(&other));
     assert!(errors.contains("compiler version mismatch"), "{errors}");
+    let install = format!(
+        "cargo install cargo-metal --version '={}' --locked",
+        env!("CARGO_PKG_VERSION")
+    );
+    assert!(errors.contains(&install), "{errors}");
 }
 
 #[test]
