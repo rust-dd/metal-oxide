@@ -1,6 +1,6 @@
 {
   "format": 3,
-  "artifact": "b6a349a673e587ef14c4f84cb573b6c37055e5fbc66d89e0ff6e5c9403b45bf3",
+  "artifact": "bdb652fb284e0008aabde0db186bcfd251d380f507f5ac2de566f4f07a54db5c",
   "request": {
     "source": "f5a68dad2dbcb385d0c0bc4ffe71f841c27369eca99e92eaec67644a6c2b8064",
     "math_mode": "fast",
@@ -21,8 +21,8 @@
     "metal-oxide-macros 0.1.0-alpha.1 "
   ],
   "files": {
-    "../../../Cargo.toml": "d6f9ed50b891f5c5afeba075e79309239f968888c389eac3c7c6a4a7d4af5236",
-    "../../../crates/metal-oxide-device/Cargo.toml": "bd6348773010b5022de854031097e02965dc1afbcb57e79d72e4b01a80d2340b",
+    "../../../Cargo.toml": "5c6cde9ce305683f8aba247e6924343e3e2e302e388aafe15ff48e3d35b0f611",
+    "../../../crates/metal-oxide-device/Cargo.toml": "7523f6e0aaef35d260c41412a987e850d0369be0cb2673c89ae1e6c632c6eac5",
     "../../../crates/metal-oxide-device/src/atomic.rs": "32882001fe917362fe972135cef7c4fc2b861658fb54f50cea58a54472385d0a",
     "../../../crates/metal-oxide-device/src/bfloat.rs": "50564ed800dc9cd397b4815756a0072ccd25f23c36f82d3153a24d0b3cb6bcf6",
     "../../../crates/metal-oxide-device/src/bfloat/ops.rs": "910d3f1ee13279239527f275f1ace3ebc78c7ff7e172f1f6e8f8a375216e1d91",
@@ -37,7 +37,7 @@
     "../../../crates/metal-oxide-device/src/simdgroup.rs": "dcc0a12783cc75c0704422b00b5ae21044899dabd33d971b9d916d0bed0159c7",
     "../../../crates/metal-oxide-device/src/thread.rs": "f5889baf70747a10160a623648c0d3e87a5d12032d840dd8b756aa465e8ad17a",
     "../../../crates/metal-oxide-device/src/threadgroup.rs": "f742af83f858664218e62e2a5f80211dbd551ac77e645ef7cc78f14ad761e706",
-    "../../../crates/metal-oxide-macros/Cargo.toml": "b98b38fb0778830a3271b6a89c7ded84437cfa187d82f9992e6909953cf52812",
+    "../../../crates/metal-oxide-macros/Cargo.toml": "3a31adbb7708e24673092e48f0caa03177350f97a1afd4a3bbef0fc44f4804db",
     "../kernels/Cargo.toml": "31894bcfc210afa1f8c22658c54a5d18843da7df8ce0d81e012e54409d2c9bb5",
     "../kernels/src/euler.rs": "b022adca13aa93f82596c7f2dabae331473f52e60d320f478f764a6320b043d5",
     "../kernels/src/fft.rs": "305f75efe0dab8327e24517c67b330d8b1db18b4c62e1741d2c7445916b342b5",

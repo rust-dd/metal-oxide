@@ -4,7 +4,6 @@ categories = ["compilers"]
 description = "Structured Metal Shading Language generation"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["codegen", "gpu", "metal", "msl"]
 license.workspace = true
 repository.workspace = true

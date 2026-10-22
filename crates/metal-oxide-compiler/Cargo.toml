@@ -4,7 +4,6 @@ categories = ["compilers"]
 description = "Rust frontend for Metal compute kernels"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["compiler", "gpu", "metal", "msl", "rustc"]
 license.workspace = true
 repository.workspace = true

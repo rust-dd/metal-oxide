@@ -4,7 +4,6 @@ categories = ["compilers"]
 description = "Typed kernel IR independent of rustc"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["compiler", "gpu", "ir", "metal"]
 license.workspace = true
 repository.workspace = true

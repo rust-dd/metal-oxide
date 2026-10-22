@@ -4,7 +4,6 @@ categories = ["development-tools::procedural-macro-helpers", "hardware-support"]
 description = "Compiles Metal kernels written in a host crate and generates their launch functions"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["gpu", "kernel", "metal", "msl"]
 license.workspace = true
 repository.workspace = true

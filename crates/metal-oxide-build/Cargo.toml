@@ -4,7 +4,6 @@ categories = ["development-tools::build-utils", "hardware-support"]
 description = "Builds metal-oxide kernel artifacts for the kernel macros and cargo-metal"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["build", "gpu", "kernel", "metal", "msl"]
 license.workspace = true
 readme = "../../README.md"

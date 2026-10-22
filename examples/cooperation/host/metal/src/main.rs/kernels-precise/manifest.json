@@ -297,7 +297,7 @@
     "metallib": "c9c7821d53ec96218e47803e5c5c10d107cbbed322dea33d05a13a3946d48292"
   },
   "build": {
-    "fingerprint": "386cb466f3388dce5b0f3c79a566e0d808a4e6087c334dcd56a0d804c54a34bd",
+    "fingerprint": "23e37a4271df0e2448aff7b98ff29f7f25a673bb9792d695fa0bbf7cecb02188",
     "compiler": "724a4bffdb7d2511740688c7058d4cfbc0e0af0ee6b442a87a96be289e5e7078",
     "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
     "metal": "Apple metal version 32023.883 (metalfe-32023.883)",

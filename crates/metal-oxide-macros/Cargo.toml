@@ -4,7 +4,6 @@ categories = ["development-tools::procedural-macro-helpers"]
 description = "Kernel entrypoint marker for metal-oxide"
 documentation.workspace = true
 edition.workspace = true
-homepage.workspace = true
 keywords = ["gpu", "kernel", "metal"]
 license.workspace = true
 repository.workspace = true
