@@ -121,6 +121,14 @@ isolated Cargo home, runs `cargo metal setup`, builds and executes
 `tests/installed` with version dependencies, then installs its saved kernels on
 Rust 1.89 with an unavailable compiler and executes them again.
 
+Before publishing, `--release` also requires the version to sort above every
+published, non-yanked version of each crate, README.md and the installation
+chapter to install and check out exactly that version, and every GitHub check of
+HEAD to have passed. `--supersedes VERSION` exempts a published version that the
+release yanks afterwards, such as `0.1.0-alpha0` for `0.1.0-alpha.1`. Prereleases
+use dotted identifiers (`0.1.0-alpha.2`); push each release tag on its own, never
+with `--tags`.
+
 The smoke test uses a local source mirror of the exact archives and their locked
 dependencies. It neither publishes packages nor verifies crates.io availability.
 The `Packaged installation` workflow runs the rehearsal on hosted classic Metal.
