@@ -6,6 +6,9 @@ use crate::{
 use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, MathMode};
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+mod tests;
+
 const INPUTS: &str = "inputs.json";
 
 /// An artifact that a package keeps in `metal/<file>/<item>-<math mode>` beside its sources,
