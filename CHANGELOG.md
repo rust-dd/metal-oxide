@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+Prereleases use dotted identifiers from `0.1.0-alpha.1` on. SemVer orders
+`0.1.0-alpha.1` below `0.1.0-alpha0`, so `0.1.0-alpha0` is yanked once
+`0.1.0-alpha.1` is published.
+
+### Fixed
+
+- Generated MSL omits stores that nothing reads and keeps their checks. Kernels with
+  such stores failed with "Compilation failed" in the macOS 15 Metal compiler.
+- A missing or mismatched kernel compiler reports the matching `cargo-metal`
+  install command.
+
+### Upgrading from 0.1.0-alpha0
+
+1. Install the matching tools with
+   `cargo install cargo-metal --version '=0.1.0-alpha.1' --locked`, then run
+   `cargo metal setup`.
+2. Change every metal-oxide dependency to `=0.1.0-alpha.1`.
+3. Build once with the kernel toolchain and commit the regenerated `metal/`
+   directories. Saved artifacts record the locked package versions, so locked and
+   toolchain-less builds of your own crates report them as stale until then.
+
 ## 0.1.0-alpha0
 
 ### Recorded hardware coverage

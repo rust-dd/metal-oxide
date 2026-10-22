@@ -158,6 +158,9 @@ A commit message is one subject line without a body. PRs describe the change
 and relevant verification. Do not append co-author trailers, AI attribution,
 session metadata, tool transcripts, or generated-by footers.
 
+Record user-visible changes under `## Unreleased` in CHANGELOG.md, with upgrade
+steps when users must act; a release renames the section to its version.
+
 Code comments explain a safety invariant or a non-obvious reason. Retain useful
 rustdoc and `SAFETY` comments. Avoid decorative banners, separator lines,
 edit-history narration, commented-out code, and comments that repeat a statement.
