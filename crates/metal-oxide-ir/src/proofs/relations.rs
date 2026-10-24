@@ -70,6 +70,12 @@ impl State<'_> {
             })
     }
 
+    pub fn equivalent_cast(&self, source: &Atom, to: Scalar) -> Option<Place> {
+        self.casts.iter().find_map(|(result, (operand, target))| {
+            (*target == to && self.same(source, operand)).then(|| result.clone())
+        })
+    }
+
     /// Whether the atoms' ranges, an assumed relation, or a stronger one give `a op b`.
     fn holds(&self, a: &Atom, op: Comparison, b: &Atom) -> bool {
         if compare(op, &self.atom(a), &self.atom(b)).singleton() == Some(1) {

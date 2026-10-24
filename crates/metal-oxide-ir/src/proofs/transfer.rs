@@ -24,9 +24,22 @@ impl Analysis<'_> {
             &statement.destination,
             &statement.source,
         )?;
-        let value = self.expression(state, &statement.value, ty, &statement.source)?;
+        let cast = match &statement.value {
+            Expression::Cast(operand, to)
+                if to.is_integer() && state.operand_range(operand).is_some() =>
+            {
+                state.written(operand).map(|source| (source, *to))
+            }
+            _ => None,
+        };
+        let repeated = cast
+            .as_ref()
+            .and_then(|(source, to)| state.equivalent_cast(source, *to))
+            .map(|place| Expression::Use(Operand::Place(place)));
+        let expression = repeated.as_ref().unwrap_or(&statement.value);
+        let value = self.expression(state, expression, ty, &statement.source)?;
         let predicate = if ty == Type::Scalar(Scalar::Bool) {
-            match &statement.value {
+            match expression {
                 Expression::Use(operand) => state.predicate(operand),
                 Expression::Unary(UnaryOp::Not, operand) => {
                     state.predicate(operand).map(|p| p.negate())
@@ -37,20 +50,20 @@ impl Analysis<'_> {
         } else {
             None
         };
-        let alias = match &statement.value {
+        let alias = match expression {
             Expression::Use(operand) => state.symbol(operand),
             _ => None,
         };
-        if matches!(statement.value, Expression::Call { .. }) {
+        if matches!(expression, Expression::Call { .. }) {
             state.forget_escaped();
         }
         state.assign(&statement.destination, value);
-        if statement.value == Expression::ThreadIndex
+        if *expression == Expression::ThreadIndex
             && let Some(destination) = state.resolve(&statement.destination)
         {
             state.threads.insert(destination);
         }
-        match &statement.value {
+        match expression {
             Expression::Len(Operand::Place(slice)) => state.length(&statement.destination, slice),
             Expression::Use(Operand::Place(source)) => {
                 state.copy(&statement.destination, source);
@@ -87,11 +100,9 @@ impl Analysis<'_> {
                 for (index, field) in fields.iter().enumerate() {
                     if let Operand::Place(source) = field {
                         let mut destination = statement.destination.clone();
-                        destination.projection.push(Projection::Field(component(
-                            state,
-                            &statement.value,
-                            index,
-                        )));
+                        destination
+                            .projection
+                            .push(Projection::Field(component(state, expression, index)));
                         state.copy(&destination, source);
                         if pointer(state, source) {
                             state.reborrow(&destination, source);
@@ -118,6 +129,11 @@ impl Analysis<'_> {
             _ => {}
         }
         if let Some(destination) = state.resolve(&statement.destination) {
+            if let Some((source, to)) = cast
+                && !source.uses(&destination)
+            {
+                state.casts.insert(destination.clone(), (source, to));
+            }
             if let Some(predicate) = predicate
                 && predicate.nodes() <= 64
                 && !predicate.uses(&destination)

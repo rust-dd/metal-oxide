@@ -46,6 +46,8 @@ mod artifact;
 mod atomic_numeric;
 #[path = "gpu/atomics.rs"]
 mod atomics;
+#[path = "gpu/cast_bounds.rs"]
+mod cast_bounds;
 #[path = "gpu/checks.rs"]
 mod checks;
 #[path = "gpu/closures.rs"]

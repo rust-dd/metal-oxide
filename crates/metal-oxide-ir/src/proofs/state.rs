@@ -52,6 +52,8 @@ pub(super) struct State<'a> {
     pub slices: BTreeMap<Place, Place>,
     /// Places that hold a copy of another place's unchanged value, by that place.
     pub copies: BTreeMap<Place, Place>,
+    /// Integer casts whose operands and results have not changed.
+    pub casts: BTreeMap<Place, (Atom, Scalar)>,
     /// Bounds of slice lengths: exact for whole arrays, refined by comparisons.
     pub lengths: BTreeMap<Place, Range>,
     /// The comparison each boolean place holds, between places and constants as written.
@@ -71,6 +73,7 @@ impl PartialEq for State<'_> {
             && self.truths == other.truths
             && self.slices == other.slices
             && self.copies == other.copies
+            && self.casts == other.casts
             && self.lengths == other.lengths
             && self.conditions == other.conditions
             && self.relations == other.relations
@@ -92,6 +95,7 @@ impl<'a> State<'a> {
             truths: BTreeMap::new(),
             slices: BTreeMap::new(),
             copies: BTreeMap::new(),
+            casts: BTreeMap::new(),
             lengths: BTreeMap::new(),
             conditions: BTreeMap::new(),
             relations: BTreeSet::new(),
@@ -318,6 +322,8 @@ impl<'a> State<'a> {
             .retain(|view, slice| independent(view) && independent(slice));
         self.copies
             .retain(|copy, source| independent(copy) && independent(source));
+        self.casts
+            .retain(|result, (source, _)| independent(result) && atom(source));
         self.lengths.retain(|slice, _| independent(slice));
         self.conditions
             .retain(|condition, (_, a, b)| independent(condition) && atom(a) && atom(b));
@@ -375,6 +381,7 @@ impl<'a> State<'a> {
         changed |= retain_common(&mut self.predicates, &other.predicates);
         changed |= retain_common(&mut self.slices, &other.slices);
         changed |= retain_common(&mut self.copies, &other.copies);
+        changed |= retain_common(&mut self.casts, &other.casts);
         changed |= join_common(&mut self.lengths, &other.lengths);
         changed |= retain_common(&mut self.conditions, &other.conditions);
         let relations = self.relations.len();

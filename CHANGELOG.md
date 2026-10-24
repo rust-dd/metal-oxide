@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Repeated integer casts retain proven slice bounds, including before threadgroup
+  barriers. Changed indices and different casts keep their runtime checks.
+
 ## 0.1.0-alpha.1
 
 Prereleases use dotted identifiers from `0.1.0-alpha.1` on. SemVer orders
