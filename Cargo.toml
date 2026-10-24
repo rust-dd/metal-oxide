@@ -115,7 +115,7 @@ sha2 = "0.11.0"
 sort = { path = "examples/sort" }
 stencil = { path = "examples/stencil" }
 syn = { version = "3.0.6", features = ["fold", "full", "visit"] }
-tokio = { version = "1.53.2", default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
+tokio = { version = "1.53.3", default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
 toml = { version = "1.1.6", default-features = false, features = ["parse", "serde", "std"] }
 trybuild = "1.0.121"
 

@@ -1,6 +1,6 @@
 {
   "format": 3,
-  "artifact": "802c55d7e9340c2440c56b9156b458be98add61bc7a05b336f4406e02b56cc53",
+  "artifact": "2d7c0f8f6da0261b291226fa592167960ef45183d234ecc7c9674270056c832e",
   "request": {
     "source": "f5a68dad2dbcb385d0c0bc4ffe71f841c27369eca99e92eaec67644a6c2b8064",
     "math_mode": "precise",
@@ -21,7 +21,7 @@
     "metal-oxide-macros 0.1.0-alpha.2 "
   ],
   "files": {
-    "../../../Cargo.toml": "9bfc8f65e7b08bd93a99074bd108a2f67ce9f2037376df9cdd72e692130fe488",
+    "../../../Cargo.toml": "1cdabce026e49f8684738dfb6acb88722dc4288e52ab3dac461dd1343853034d",
     "../../../crates/metal-oxide-device/Cargo.toml": "7523f6e0aaef35d260c41412a987e850d0369be0cb2673c89ae1e6c632c6eac5",
     "../../../crates/metal-oxide-device/src/atomic.rs": "32882001fe917362fe972135cef7c4fc2b861658fb54f50cea58a54472385d0a",
     "../../../crates/metal-oxide-device/src/bfloat.rs": "50564ed800dc9cd397b4815756a0072ccd25f23c36f82d3153a24d0b3cb6bcf6",
