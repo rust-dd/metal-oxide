@@ -125,11 +125,11 @@ fn tuple_field_names_and_record_names_are_canonical() {
 fn nested_layout_json_rejects_invalid_stride_and_unknown_fields() {
     let value = Layout::array(particle(), 2).unwrap();
     let json = serde_json::to_string(&value).unwrap();
-    let decoded: Layout = serde_json::from_str(&json).unwrap();
+    let decoded = serde_json::from_str::<Layout>(&json).unwrap();
     decoded.validate().unwrap();
     assert_eq!(decoded, value);
-    let changed: Layout =
-        serde_json::from_str(&json.replace("\"stride\":28", "\"stride\":27")).unwrap();
+    let changed =
+        serde_json::from_str::<Layout>(&json.replace("\"stride\":28", "\"stride\":27")).unwrap();
     assert!(changed.validate().is_err());
     assert!(
         serde_json::from_str::<Layout>(

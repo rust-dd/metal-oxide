@@ -174,7 +174,7 @@ impl<'a> State<'a> {
         if range.lo < 0 || range.hi > 63 {
             return Some(full);
         }
-        let mut combined: Option<Range> = None;
+        let mut combined = None::<Range>;
         for n in range.lo..=range.hi {
             if !range.contains(n) {
                 continue;

@@ -67,7 +67,7 @@ impl Builder {
     pub fn enumeration(&mut self) {
         let variants = (0..1 + self.random.below(4))
             .map(|_| (0..self.random.below(3)).map(|_| self.ty(1)).collect())
-            .collect();
+            .collect::<Vec<_>>();
         self.enums.push(Enum { variants });
     }
 
@@ -75,7 +75,7 @@ impl Builder {
     pub fn record(&mut self) {
         let fields = (0..1 + self.random.below(3))
             .map(|index| (format!("f{index}"), self.ty(1)))
-            .collect();
+            .collect::<Vec<_>>();
         let name = format!("R{}", self.records.len());
         self.records.push(Record { name, fields });
     }
@@ -284,7 +284,9 @@ impl Builder {
                 Type::Slice(Box::new(element), self.random.chance(1, 2))
             }
             2 => {
-                let parameters = (0..self.random.below(3)).map(|_| self.ty(1)).collect();
+                let parameters = (0..self.random.below(3))
+                    .map(|_| self.ty(1))
+                    .collect::<Vec<_>>();
                 Type::Closure(parameters, Box::new(self.ty(1)))
             }
             _ => self.ty(1),

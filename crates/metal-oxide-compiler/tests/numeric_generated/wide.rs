@@ -31,7 +31,7 @@ impl Program {
                 };
                 Step { minimum, transform }
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self { steps }
     }
 

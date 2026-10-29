@@ -58,7 +58,7 @@ impl Storage {
         let bytes = values
             .iter()
             .flat_map(|value| value.to_le_bytes())
-            .collect();
+            .collect::<Vec<_>>();
         Arc::new(Self(UnsafeCell::new(bytes)))
     }
 

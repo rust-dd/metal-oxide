@@ -10,6 +10,6 @@ enum Mode {
 
 #[kernel]
 pub unsafe fn enum_transmute(out: WriteBuffer<u32>, value: u32) {
-    let mode: Mode = unsafe { core::mem::transmute(value & 1) };
+    let mode = unsafe { core::mem::transmute::<_, Mode>(value & 1) };
     unsafe { out.store_unchecked(0, mode as u32) };
 }

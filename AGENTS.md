@@ -32,7 +32,9 @@ working features. Add crates and modules when they have an implementation.
   responsibility rather than compressing code or deleting useful documentation.
 - Keep tests out of source files: unit tests go in a sibling `tests.rs` module
   declared with `#[cfg(test)] mod tests;`, integration tests in the crate's `tests/`.
-- Prefer type parameters at the expression (`collect::<Vec<_>>()`) when possible.
+- Give inferred types with turbofish at the call (`collect::<Vec<_>>()`,
+  `parse::<u32>()`, `None::<T>`), not with a `let` annotation or a later use. Keep
+  annotations only where turbofish cannot express the type, such as coercions.
 - Keep compiler internals out of the runtime dependency graph. The runtime must
   continue to compile and test with stable Rust.
 - Keep `ABI_VERSION` at 4 until the first published release. Regenerate artifacts

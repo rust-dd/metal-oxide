@@ -245,7 +245,7 @@ fn calling(callee: Function, arguments: &[usize], after: Vec<Statement>) -> Modu
     let arguments = arguments
         .iter()
         .map(|&local| Operand::local(local))
-        .collect();
+        .collect::<Vec<_>>();
     let statements = [
         vec![
             assign(LANE, Expression::SimdCoordinate(SimdBuiltin::Lane)),

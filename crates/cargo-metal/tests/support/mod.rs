@@ -98,8 +98,8 @@ impl Project {
             .join("metal/sources")
             .join(key)
             .join("state.json");
-        let state: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&state).unwrap()).unwrap();
+        let state =
+            serde_json::from_slice::<serde_json::Value>(&std::fs::read(&state).unwrap()).unwrap();
         PathBuf::from(state["artifact"].as_str().unwrap())
     }
 }

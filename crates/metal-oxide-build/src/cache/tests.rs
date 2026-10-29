@@ -49,7 +49,7 @@ fn cached_artifact_rejects_tampering_missing_files_and_wrong_identity() {
         .target_flags()
         .into_iter()
         .chain(abi.math_mode.metal_flags().map(str::to_owned))
-        .collect();
+        .collect::<Vec<_>>();
     let written = Manifest {
         abi,
         checks: vec![],

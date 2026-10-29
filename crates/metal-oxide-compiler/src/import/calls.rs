@@ -173,9 +173,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         let adt = tcx.adt_def(definition);
         let variant = adt.variant_index_with_ctor_id(callee.definition);
         let kind = mir::AggregateKind::Adt(adt.did(), variant, callee.arguments, None, None);
-        let fields = args.iter().map(|argument| argument.node.clone()).collect();
+        let fields = args.iter().map(|argument| argument.node.clone());
         self.expression(
-            &mir::Rvalue::Aggregate(Box::new(kind), fields),
+            &mir::Rvalue::Aggregate(Box::new(kind), fields.collect()),
             destination,
             span,
         )

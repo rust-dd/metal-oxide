@@ -327,8 +327,8 @@ fn backend_reports(
 
 pub(super) fn run() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let config: Config =
-        serde_json::from_slice(&std::fs::read(args.next().ok_or("missing config")?)?)?;
+    let config =
+        serde_json::from_slice::<Config>(&std::fs::read(args.next().ok_or("missing config")?)?)?;
     let output = args.next().ok_or("missing output path")?;
     config.validate()?;
     let backend = std::env::var("METAL_OXIDE_BACKEND")?;

@@ -57,7 +57,7 @@ impl Builder {
         let arguments = parameters
             .iter()
             .map(|ty| self.expr(scope, ty, depth))
-            .collect();
+            .collect::<Vec<_>>();
         Some((result, Expr::Call(name, None, arguments)))
     }
 }

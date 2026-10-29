@@ -129,7 +129,7 @@ impl From<Abi> for AbiTables {
                             }
                         },
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
                 KernelEntry {
                     name: kernel.name,
                     signature: intern(&mut signatures, signature),
@@ -142,7 +142,7 @@ impl From<Abi> for AbiTables {
                     requires: kernel.requires,
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self {
             version: abi.version,
             math_mode: abi.math_mode,

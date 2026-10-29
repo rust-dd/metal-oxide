@@ -28,7 +28,7 @@ impl Program {
                 }
                 printed
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self {
             scalar,
             lanes,

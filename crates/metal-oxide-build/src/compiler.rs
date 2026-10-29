@@ -102,7 +102,7 @@ fn build(manifest: &Path, directory: &Path, rustc: &str) -> Result<PathBuf> {
     )?;
     let mut binaries = Vec::new();
     for line in messages.lines() {
-        let message: serde_json::Value = serde_json::from_str(line)?;
+        let message = serde_json::from_str::<serde_json::Value>(line)?;
         if message["reason"] == "compiler-artifact"
             && message["target"]["name"] == "metal-oxide-compiler"
             && let Some(path) = message["executable"].as_str()

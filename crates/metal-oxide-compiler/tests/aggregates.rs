@@ -58,8 +58,10 @@ fn unproved_dynamic_array_bounds_are_checked_at_runtime_in_both_overflow_modes()
             options,
         );
         support::checked(output);
-        let checks: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(directory.join("checks.json")).unwrap()).unwrap();
+        let checks = serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(directory.join("checks.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(checks[0]["kind"], "bounds", "{checks}");
         assert_eq!(checks[0]["location"]["line"], 7, "{checks}");
         assert!(

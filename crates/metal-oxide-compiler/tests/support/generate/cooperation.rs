@@ -233,7 +233,7 @@ impl Builder {
                 let ty = self.ty(0);
                 Expr::Cast(Box::new(self.expr(&scope, &ty, 3)), U32)
             })
-            .collect();
+            .collect::<Vec<_>>();
         self.fallible = fallible;
         self.plain = false;
         Function {

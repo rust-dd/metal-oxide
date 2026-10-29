@@ -120,7 +120,7 @@ impl Builder {
         let values = fields
             .iter()
             .map(|field| self.expr(scope, field, depth))
-            .collect();
+            .collect::<Vec<_>>();
         Expr::Aggregate(ty.clone(), values)
     }
 

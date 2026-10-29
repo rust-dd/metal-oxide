@@ -102,7 +102,9 @@ impl Launched<'_> {
         .wait();
         let failure = failure(result)?;
         let words = counters.read().wait().iter();
-        let words = words.map(|&counter| counter.into_word() as u32).collect();
+        let words = words
+            .map(|&counter| counter.into_word() as u32)
+            .collect::<Vec<_>>();
         Ok((failure, words))
     }
 }

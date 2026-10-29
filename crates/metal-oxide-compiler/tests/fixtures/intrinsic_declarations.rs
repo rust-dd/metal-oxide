@@ -15,7 +15,7 @@ pub unsafe fn declarations(input: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32
     let groups = grid_dim().x;
     if i < n {
         unsafe {
-            let mut pair: [f32; 2] = uninit_array();
+            let mut pair = uninit_array::<f32, 2>();
             pair[0] = input.load_unchecked(i);
             let half = F16::from_f32(math::sqrt(pair[0]));
             out.store_unchecked(i, math::fma(half.to_f32(), 2.0, groups as f32));

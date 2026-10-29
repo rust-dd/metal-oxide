@@ -208,7 +208,7 @@ impl Aggregate {
                     })
                     .collect()
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self::Enum {
             name: name.into(),
             variants,

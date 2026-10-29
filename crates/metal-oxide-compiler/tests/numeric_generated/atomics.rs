@@ -92,7 +92,7 @@ impl FloatProgram {
                     Argument::Input(random.below(4))
                 },
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self { steps }
     }
 

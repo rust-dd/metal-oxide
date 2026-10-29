@@ -66,7 +66,7 @@ impl<'a> Analysis<'a> {
         let mut inputs = vec![Vec::<State<'a>>::new(); function.blocks.len()];
         let mut merged = vec![false; inputs.len()];
         let mut pending = VecDeque::from([(0, entry)]);
-        let mut result: Option<Value> = None;
+        let mut result = None::<Value>;
         while let Some((id, mut state)) = pending.pop_front() {
             if inputs[id].contains(&state) {
                 continue;

@@ -81,7 +81,7 @@ impl Layout {
             .into_iter()
             .enumerate()
             .map(|(index, layout)| (format!("f{index}"), layout))
-            .collect();
+            .collect::<Vec<_>>();
         let (size, alignment, fields) = fields(values)?;
         Ok(Self {
             size,

@@ -56,7 +56,7 @@ pub fn sha256(bytes: &[u8]) -> String {
 
 impl Abi {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        let abi: Self = parse(json, false)?;
+        let abi = parse::<Self>(json, false)?;
         abi.validate()?;
         Ok(abi)
     }
@@ -69,7 +69,7 @@ impl Abi {
 
 impl Manifest {
     pub fn from_json(json: &str) -> Result<Self, Error> {
-        let manifest: Self = parse(json, true)?;
+        let manifest = parse::<Self>(json, true)?;
         manifest.validate()?;
         Ok(manifest)
     }
@@ -97,7 +97,7 @@ fn parse<T: DeserializeOwned>(json: &str, manifest: bool) -> Result<T, Error> {
 }
 
 fn check_version(json: &str, manifest: bool) -> Result<(), Error> {
-    let value: serde_json::Value = serde_json::from_str(json)?;
+    let value = serde_json::from_str::<serde_json::Value>(json)?;
     let value = if manifest { &value["abi"] } else { &value };
     if let Some(version) = value["version"].as_u64()
         && version != u64::from(ABI_VERSION)

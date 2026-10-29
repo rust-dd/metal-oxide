@@ -121,8 +121,8 @@ pub(super) fn fft(
 /// `len` complex values whose parts lie in [-1, 1).
 pub(super) fn signal(len: u32) -> (Vec<f32>, Vec<f32>) {
     let part = |i: u32| (i.wrapping_mul(2_654_435_761) >> 8) as f32 / 8_388_608.0 - 1.0;
-    let re = (0..len).map(part).collect();
-    let im = (0..len).map(|i| part(i ^ 0x5bd1_e995)).collect();
+    let re = (0..len).map(part).collect::<Vec<_>>();
+    let im = (0..len).map(|i| part(i ^ 0x5bd1_e995)).collect::<Vec<_>>();
     (re, im)
 }
 

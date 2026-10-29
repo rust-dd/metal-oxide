@@ -5,7 +5,7 @@ use metal_oxide_device::{ReadBuffer, WriteBuffer, kernel, uninit_array};
 pub unsafe fn running_sums(out: WriteBuffer<f32>, input: ReadBuffer<f32>, count: u32) {
     let count = if count < 64 { count } else { 64 };
     // SAFETY: element k is written at step k before any read of index k.
-    let mut history: [f32; 64] = unsafe { uninit_array() };
+    let mut history = unsafe { uninit_array::<f32, 64>() };
     let mut step = 0u32;
     while step < count {
         history[step as usize] = unsafe { input.load_unchecked(step) };

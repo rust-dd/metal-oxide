@@ -129,7 +129,7 @@ impl Metadata {
     }
 
     pub(crate) fn validate_units(&self, json: &str) -> Result<()> {
-        let graph: UnitGraph = serde_json::from_str(json)?;
+        let graph = serde_json::from_str::<UnitGraph>(json)?;
         for unit in graph.units.into_iter().filter(|unit| !unit.is_std) {
             let package = self
                 .packages

@@ -43,7 +43,7 @@ impl Builder {
                 let payload = payload
                     .iter()
                     .map(|ty| self.expr(scope, ty, depth))
-                    .collect();
+                    .collect::<Vec<_>>();
                 Expr::Variant(format!("E{index}::V{variant}"), payload)
             }
             _ => unreachable!("{ty:?} has no variants"),
@@ -124,7 +124,7 @@ impl Builder {
         let arms = arms
             .into_iter()
             .map(|(pattern, bindings)| (pattern, self.expr(&scope.bind(&bindings), ty, depth)))
-            .collect();
+            .collect::<Vec<_>>();
         Expr::MatchVariant(Box::new(scrutinee), arms)
     }
 

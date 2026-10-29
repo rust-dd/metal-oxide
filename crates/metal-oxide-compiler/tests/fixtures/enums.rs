@@ -42,7 +42,7 @@ pub unsafe fn areas(sizes: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
 }
 
 fn largest(values: &[f32]) -> Option<&f32> {
-    let mut best: Option<&f32> = None;
+    let mut best = None::<&f32>;
     for value in values {
         best = match best {
             Some(current) if *current >= *value => Some(current),

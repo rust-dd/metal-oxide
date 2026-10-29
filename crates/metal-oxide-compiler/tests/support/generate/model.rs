@@ -116,7 +116,7 @@ impl Block {
                     slots: (0..lanes).map(|_| AtomicU64::new(0)).collect(),
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
         Self {
             barrier: Barrier::new(size as usize),
             groups,
@@ -368,7 +368,7 @@ fn exchange<T: Bits>(value: T) -> (Vec<T>, usize) {
             .slots
             .iter()
             .map(|slot| T::from_word(slot.load(Relaxed)));
-        let values = values.collect();
+        let values = values.collect::<Vec<_>>();
         // The next exchange reuses the slots once every lane has read them.
         group.barrier.wait();
         (values, lane)

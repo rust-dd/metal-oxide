@@ -122,7 +122,7 @@ impl Metal {
             "MetalToolchain",
             "-json",
         ]))?;
-        let component: serde_json::Value = serde_json::from_str(&component)?;
+        let component = serde_json::from_str::<serde_json::Value>(&component)?;
         let mount = component["toolchainSearchPath"]
             .as_str()
             .ok_or("install Metal with xcodebuild -downloadComponent MetalToolchain")?;

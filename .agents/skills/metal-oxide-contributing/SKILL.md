@@ -12,7 +12,8 @@ actually performed. Keep unrelated work out of a change.
   workspace = true. Keep members and dependency keys alphabetically sorted.
 - Inherit package settings and lints. Keep handwritten Rust below 600 lines;
   split by responsibility instead of compressing formatting or removing docs.
-- Prefer turbofish at the expression when it carries the needed type.
+- Give inferred types with turbofish at the call, not with a `let` annotation or a
+  later use; keep annotations only for coercions and calls without a type parameter.
 - Review each public type, helper, option, and alternative path against a concrete
   current use case. Keep one clear path per operation; defer speculative wrappers
   and general abstractions. Implementation helpers stay private.

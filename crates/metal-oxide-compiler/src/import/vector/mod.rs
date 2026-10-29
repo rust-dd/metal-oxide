@@ -75,7 +75,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         let test = self.vector_test(value, input, statements, span);
                         self.vector_mask(test, output, statements, span)
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
                 ir::Expression::Use(self.vector_pack(result, lanes, statements, span)?)
             }
             VectorOp::ToBitmask => ir::Expression::Use(self.vector_bitmask(

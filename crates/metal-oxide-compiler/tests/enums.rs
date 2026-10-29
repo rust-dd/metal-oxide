@@ -65,8 +65,10 @@ fn question_marks_unwraps_and_expects_report_their_callers() {
         ),
         "5 6 3 3 "
     );
-    let checks: Vec<metal_oxide_artifact::Check> =
-        serde_json::from_slice(&std::fs::read(directory.join("checks.json")).unwrap()).unwrap();
+    let checks = serde_json::from_slice::<Vec<metal_oxide_artifact::Check>>(
+        &std::fs::read(directory.join("checks.json")).unwrap(),
+    )
+    .unwrap();
     let reported = checks
         .iter()
         .map(|check| {

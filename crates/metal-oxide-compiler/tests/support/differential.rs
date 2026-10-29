@@ -106,12 +106,12 @@ impl Case {
                 "float" => Word::Float,
                 other => panic!("{}: unknown word {other}", path.display()),
             })
-            .collect();
+            .collect::<Vec<_>>();
         let inputs = field("    let inputs = [")
             .trim_end_matches("];")
             .split(", ")
             .map(|input| input.trim_end_matches("_u32").parse().unwrap())
-            .collect();
+            .collect::<Vec<_>>();
         Self {
             directory: scratch(path.file_stem().unwrap().to_str().unwrap()),
             source: path.to_path_buf(),
