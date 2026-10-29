@@ -529,21 +529,21 @@ path of the machine that built them. A removed kernel leaves its directory behin
 ## Apple compilation and artifact
 
 `metal-oxide-build`, the library behind the kernel macros, invokes the Apple compiler in
-two steps:
+two steps with the same options:
 
 ```sh
-xcrun -sdk macosx metal \
-    -std=metal3.2 -mmacosx-version-min=15.0 \
-    -fmetal-math-mode=safe -fmetal-math-fp32-functions=precise \
-    -ffp-contract=off -O2 \
-    -x metal -c - -o kernels.ir < kernels.metal
-xcrun -sdk macosx metal kernels.ir -o kernels.metallib
+flags="-std=metal3.2 -mmacosx-version-min=15.0 -fmetal-math-mode=safe \
+    -fmetal-math-fp32-functions=precise -ffp-contract=off -O2"
+xcrun -sdk macosx metal $flags -x metal -c - -o kernels.ir < kernels.metal
+xcrun -sdk macosx metal $flags kernels.ir -o kernels.metallib
 ```
 
 Read from standard input, the MSL leaves no source path in the AIR, so the same MSL
-compiles to the same AIR. When `xcrun` cannot locate the compiler, it also resolves the
-installed Metal Toolchain component. The default precise math mode uses safe math,
-precise floating-point functions, and disabled floating-point contraction.
+compiles to the same AIR. Linking without the deployment target would give the library
+the SDK's macOS and AIR version, which older macOS releases reject. When `xcrun` cannot
+locate the compiler, it also resolves the installed Metal Toolchain component. The
+default precise math mode uses safe math, precise floating-point functions, and disabled
+floating-point contraction.
 
 `#[kernels(math = "fast")]` selects Metal's relaxed
 arithmetic mode, fast f32 functions and fast contraction. It permits reciprocal

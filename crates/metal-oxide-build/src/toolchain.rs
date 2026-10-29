@@ -8,7 +8,7 @@ use std::{
     sync::OnceLock,
 };
 
-/// Embeds the compile inputs in the metallib; linking keeps them only when it records them too.
+/// Embeds the compile inputs in the metallib.
 const RECORD_SOURCES: &str = "-frecord-sources";
 
 pub(crate) fn metal_flags(abi: &Abi) -> Vec<String> {
@@ -151,27 +151,25 @@ impl Metal {
 
     /// The textual form of an AIR file, from the toolchain's `metal-opt`.
     pub(crate) fn disassemble(&self, air: &Path) -> Result<String> {
-        let mut command = match self.prefix.as_slice() {
-            [] => Command::new(self.program.with_file_name("metal-opt")),
-            [sdk @ .., _] => {
-                let mut command = Command::new(&self.program);
-                command.args(sdk).arg("metal-opt");
-                command
-            }
-        };
-        command
-            .env("SDKROOT", &self.sdk_path)
-            .args(["-S", "-o", "-"])
-            .arg(air);
+        let mut command = self.tool("metal-opt");
+        command.args(["-S", "-o", "-"]).arg(air);
         process::capture(&mut command).map(|text| {
             text + "
 "
         })
     }
 
-    pub(crate) fn command(&self) -> Command {
-        let mut command = Command::new(&self.program);
-        command.args(&self.prefix).env("SDKROOT", &self.sdk_path);
+    /// Runs the toolchain's `name` program, which sits beside its `metal`.
+    pub(crate) fn tool(&self, name: &str) -> Command {
+        let mut command = match self.prefix.as_slice() {
+            [] => Command::new(self.program.with_file_name(name)),
+            [sdk @ .., _] => {
+                let mut command = Command::new(&self.program);
+                command.args(sdk).arg(name);
+                command
+            }
+        };
+        command.env("SDKROOT", &self.sdk_path);
         command
     }
 
@@ -180,15 +178,17 @@ impl Metal {
     pub(crate) fn compile(&self, directory: &Path, flags: &[String]) -> Result<()> {
         let msl = directory.join(ArtifactFile::Msl.name());
         let air = directory.join(ArtifactFile::Air.name());
-        let mut compile = self.command();
+        let mut compile = self.tool("metal");
         // MSL read from stdin leaves no source path in the AIR, so equal MSL gives equal AIR.
         compile
             .args(flags)
             .args(["-x", "metal", "-c", "-", "-o"])
             .arg(&air)
             .stdin(std::fs::File::open(&msl)?);
-        let mut link = self.command();
-        link.args(flags.iter().filter(|flag| *flag == RECORD_SOURCES))
+        // Without the deployment target the library would require the SDK's macOS, and without
+        // RECORD_SOURCES it would drop the recorded sources.
+        let mut link = self.tool("metal");
+        link.args(flags)
             .arg(&air)
             .arg("-o")
             .arg(directory.join(ArtifactFile::Metallib.name()));

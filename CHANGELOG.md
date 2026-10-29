@@ -23,6 +23,10 @@
 - `dependencies(...)` crates build with the features and `default-features` setting that
   the kernels' package declares, and renamed dependencies resolve to their package.
   They previously built with default features only.
+- Metal libraries target the minimum macOS that their kernels need. Linking omitted the
+  deployment target, so libraries built with the macOS 26 SDK used AIR 2.8 and macOS 15
+  refused to load them, saved artifacts included. The next build rewrites their
+  `kernels.metallib`.
 
 ### Upgrading
 
