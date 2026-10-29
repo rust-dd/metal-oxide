@@ -4,6 +4,7 @@
 //! its artifact beside the package's sources, so the package builds without them while its
 //! kernels are unchanged, and so do its dependents.
 
+mod apple_gpus;
 mod cache;
 mod compile;
 mod compiler;
@@ -54,4 +55,16 @@ pub fn compile_msl(directory: &std::path::Path) -> Result<Vec<String>, Error> {
         Ok(flags)
     };
     compile().map_err(Error)
+}
+
+/// Compiles a metallib for each Apple GPU that runs `abi`'s kernels with the Metal toolchain's
+/// offline compiler and returns the targets; hidden because only tests call it.
+#[doc(hidden)]
+pub fn compile_for_apple_gpus(
+    abi: &metal_oxide_artifact::Abi,
+    metallib: &std::path::Path,
+) -> Result<Vec<String>, Error> {
+    toolchain::Metal::current()
+        .and_then(|metal| metal.compile_for_apple_gpus(abi, metallib))
+        .map_err(Error)
 }

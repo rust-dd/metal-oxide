@@ -185,7 +185,11 @@ and macos-26. On macOS it also installs cargo-metal, runs `cargo metal setup` an
 tests `tests/installed`, an application outside the workspace, with plain Cargo.
 The macOS runners are M1 virtual machines whose Apple Paravirtual device lacks the
 Metal 4 family, so CI runs `bash scripts/test-gpu.sh classic` there; verify Metal 4
-on a Mac. Keep portable checks separate from explicit GPU
+on a Mac. On macOS, the `apple_gpus` tests of the compiler and of metal-oxide-build
+compile every fixture that the compiler accepts and every saved example for each Apple
+GPU that runs them, on the kernels' minimum macOS and on the SDK's, with the Metal
+toolchain's `applegpu-nt`. Kernels with shader logging are skipped: the offline compiler
+lacks the logging runtime. Keep portable checks separate from explicit GPU
 checks. Use a hardware runner only after verifying its actual Metal device. Do
 not automatically execute untrusted PR code on a personal or self-hosted runner.
 No self-hosted runner is registered yet. The manual GPU workflow runs only

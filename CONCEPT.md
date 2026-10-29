@@ -376,8 +376,9 @@ The generated MSL includes these workarounds for Apple compiler defects found by
   zero-extended to `uint` and XORed with the same zero, which it can neither fold nor
   narrow back.
 - A constant `reverse_bits` followed by float conversion and arithmetic can produce
-  the wrong result. Reversal operands use the same opaque zero, with a cast back
-  to their original integer width and sign before reversal.
+  the wrong result, and the M1 and M2 GPU compilers fail on it. Reversal operands use
+  the same opaque zero, with a cast back to their original integer width and sign
+  before reversal.
 - After a loop over a private array whose end it knows, Metal's GPU compiler can read the
   array as it was before the loop and miss later stores, as in `values[i]` after
   `for value in values.iter_mut() { *value *= 10; }`. Slices of private memory XOR their

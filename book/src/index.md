@@ -22,6 +22,9 @@ The full hardware suite has execution evidence on these devices only:
 
 Capability checks describe requirements, not proof of execution on every GPU
 family. The Paravirtual device lacks the Metal 4 family and Apple7 matrix support.
+Tests compile every compiler fixture and saved example for each Apple GPU generation
+with Apple's offline compiler, which catches GPU compiler failures on M1–M3 but not
+wrong results.
 Acquire/release atomics have compiler and capability-gate tests, but hardware
 validation is pending. Metal Performance Primitives (MPP) is a benchmark reference;
 Rust kernels expose SIMD-group matrices and do not expose a tensor API.

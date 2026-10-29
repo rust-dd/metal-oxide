@@ -96,7 +96,8 @@ impl crate::Abi {
         format!("{major}.{minor}")
     }
 
-    fn minimum_macos(&self) -> u32 {
+    /// The oldest macOS that runs this ABI's kernels.
+    pub fn minimum_macos(&self) -> u32 {
         self.required_features
             .iter()
             .filter_map(|f| Capability::named(f))

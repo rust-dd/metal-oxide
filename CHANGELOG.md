@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `Abi::minimum_macos` returns the oldest macOS that runs an artifact's kernels.
+
 ### Changed
 
 - Saved artifacts change only with their kernels or recorded inputs. Another compiler

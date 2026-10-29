@@ -187,7 +187,9 @@ performance and debugging.
 
 - **Hardware coverage is incomplete.** Native M1–M3 GPUs and a second Metal 4 GPU
   generation have not been verified. Paravirtual execution does not establish
-  native M1 coverage.
+  native M1 coverage. Tests compile every compiler fixture and saved example for each
+  Apple GPU generation with Apple's offline compiler, which catches GPU compiler
+  failures but not wrong results.
 - **Not all Rust is device code.** Heap allocation, host I/O, recursion, indirect
   calls, destructors, coroutines, `f64`, `i64` and 128-bit integers are unsupported.
   Device dependencies cannot use build scripts; `no_std` alone does not establish
