@@ -15,20 +15,30 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Configuration {
+    /// Where Cargo's configuration lookup starts, relative to the base.
     root: String,
-    copied: bool,
     files: BTreeMap<String, String>,
     home: Option<String>,
     pub(crate) environment: BTreeMap<String, bool>,
 }
 
 impl Configuration {
-    pub(crate) fn record(root: &Path, base: &Path, copied: bool) -> Result<Self> {
-        let root = normalize(root);
-        let home = cargo_home(&root);
+    /// The Cargo configuration of the kernel workspace at `workspace`, relative to `base`. A
+    /// copied workspace's own configuration names only its target directory, which is not a
+    /// portable input, so its parent is the root.
+    pub(crate) fn record(workspace: &Path, base: &Path, copied: bool) -> Result<Self> {
+        let workspace = normalize(workspace);
+        match workspace.parent().filter(|_| copied) {
+            Some(parent) => Self::at(parent, base),
+            None => Self::at(&workspace, base),
+        }
+    }
+
+    fn at(root: &Path, base: &Path) -> Result<Self> {
+        let home = cargo_home(root);
         let mut files = BTreeMap::new();
         let mut environment = BTreeMap::new();
-        for directory in ancestors(&root, copied, home.as_deref()) {
+        for directory in ancestors(root, home.as_deref()) {
             if let Some(path) = existing(&directory)?
                 && let Some(hash) = fingerprint(&path, &mut environment)?
             {
@@ -43,8 +53,7 @@ impl Configuration {
             .transpose()?
             .flatten();
         Ok(Self {
-            root: relative(&root, base).to_string_lossy().into_owned(),
-            copied,
+            root: relative(root, base).to_string_lossy().into_owned(),
             files,
             home,
             environment: environment
@@ -55,14 +64,13 @@ impl Configuration {
     }
 
     pub(crate) fn current(&self, base: &Path) -> bool {
-        Self::record(&base.join(&self.root), base, self.copied)
-            .is_ok_and(|current| current == *self)
+        Self::at(&normalize(&base.join(&self.root)), base).is_ok_and(|current| current == *self)
     }
 
     pub(crate) fn paths<'a>(&'a self, base: &'a Path) -> impl Iterator<Item = PathBuf> + 'a {
         let root = normalize(&base.join(&self.root));
         let home = cargo_home(&root);
-        let paths = ancestors(&root, self.copied, home.as_deref())
+        let paths = ancestors(&root, home.as_deref())
             .chain(home.clone())
             .filter_map(|directory| existing(&directory).ok().flatten())
             .collect::<Vec<_>>();
@@ -77,14 +85,8 @@ fn cargo_home(root: &Path) -> Option<PathBuf> {
         .map(|home| normalize(&root.join(home)))
 }
 
-fn ancestors<'a>(
-    root: &'a Path,
-    copied: bool,
-    home: Option<&'a Path>,
-) -> impl Iterator<Item = PathBuf> + 'a {
-    // Copied workspaces generate only target-dir here; that file is not a portable input.
+fn ancestors<'a>(root: &'a Path, home: Option<&'a Path>) -> impl Iterator<Item = PathBuf> + 'a {
     root.ancestors()
-        .skip(usize::from(copied))
         .map(|directory| directory.join(".cargo"))
         .filter(move |directory| Some(directory.as_path()) != home)
 }

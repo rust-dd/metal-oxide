@@ -1,6 +1,6 @@
 {
-  "format": 3,
-  "artifact": "d040346193b4c37385c76d7bae3b4f2995f591f227d6cd00e555fe1ed0c5a84c",
+  "format": 4,
+  "artifact": "819b98e58b2909a165f9f648b4591655f790c20e700087181fb5139e80bf3ec5",
   "request": {
     "source": "3503006063bb21c4037e6d12edb1c44aaaf182ee589f06b85dfe5c087094ccfe",
     "math_mode": "precise",
@@ -8,8 +8,7 @@
   },
   "profile": {},
   "configuration": {
-    "root": "../../target/metal/sources/c42e8cf42cc324ab",
-    "copied": true,
+    "root": "../../target/metal/sources",
     "files": {},
     "home": null,
     "environment": {}
@@ -17,8 +16,8 @@
   "environment": {},
   "lock": "../../Cargo.lock",
   "packages": [
-    "metal-oxide-device 0.1.0-alpha.2 ",
-    "metal-oxide-macros 0.1.0-alpha.2 "
+    "metal-oxide-device 0.1.0-alpha.2",
+    "metal-oxide-macros 0.1.0-alpha.2"
   ],
   "files": {
     "../../crates/metal-oxide-device/Cargo.toml": "7523f6e0aaef35d260c41412a987e850d0369be0cb2673c89ae1e6c632c6eac5",

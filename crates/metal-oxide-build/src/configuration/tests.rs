@@ -74,6 +74,13 @@ fn copied_workspaces_ignore_their_generated_target_configuration() {
     )
     .unwrap();
     assert!(configuration.current(&directory.0));
+    // Copies of the same kernels at other keys record the same configuration.
+    let other = directory.0.join("other");
+    std::fs::create_dir(&other).unwrap();
+    assert_eq!(
+        Configuration::record(&other, &directory.0, true).unwrap(),
+        configuration
+    );
     std::fs::write(
         directory.0.join(".cargo/config.toml"),
         "[profile.release]\noverflow-checks=true\n",

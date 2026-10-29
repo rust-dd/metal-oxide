@@ -12,6 +12,7 @@ mod environment;
 mod inputs;
 mod kernel_crate;
 mod metadata;
+mod modules;
 mod process;
 mod recorded;
 mod rust;

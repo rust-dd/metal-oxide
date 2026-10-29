@@ -1,5 +1,5 @@
 {
-  "format": 3,
+  "format": 4,
   "artifact": "d26261ec1bb12273b148ab6bff4ca8ae4ef24a91a2de1798a420f203c42514aa",
   "request": {
     "source": "f5a68dad2dbcb385d0c0bc4ffe71f841c27369eca99e92eaec67644a6c2b8064",
@@ -9,7 +9,6 @@
   "profile": {},
   "configuration": {
     "root": "../../..",
-    "copied": false,
     "files": {},
     "home": null,
     "environment": {}
@@ -17,8 +16,8 @@
   "environment": {},
   "lock": "../../../Cargo.lock",
   "packages": [
-    "metal-oxide-device 0.1.0-alpha.2 ",
-    "metal-oxide-macros 0.1.0-alpha.2 "
+    "metal-oxide-device 0.1.0-alpha.2",
+    "metal-oxide-macros 0.1.0-alpha.2"
   ],
   "files": {
     "../../../Cargo.toml": "1cdabce026e49f8684738dfb6acb88722dc4288e52ab3dac461dd1343853034d",

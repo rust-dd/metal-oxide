@@ -27,6 +27,7 @@ use std::{
 pub(crate) struct Kernels {
     project: Project,
     compiler: Compiler,
+    metal: &'static Metal,
     math_mode: MathMode,
     /// The host crate that the kernels were copied from, which resolves their packages.
     host: Option<Arc<Metadata>>,
@@ -60,6 +61,7 @@ impl Kernels {
     pub(crate) fn new(
         project: Project,
         compiler: Compiler,
+        metal: &'static Metal,
         math_mode: MathMode,
         host: Option<Arc<Metadata>>,
         debug_info: Option<PathBuf>,
@@ -67,6 +69,7 @@ impl Kernels {
         Self {
             project,
             compiler,
+            metal,
             math_mode,
             host,
             debug_info,
@@ -99,13 +102,22 @@ impl Kernels {
             &compiled.directory.file_name().unwrap().to_string_lossy(),
             request,
         )?;
-        State::new(inputs.clone(), &compiled.directory, &compiled.compiler)?.write(state)?;
+        let metal = self.metal.toolchain();
+        let tracked = std::iter::once(compiled.compiler.clone())
+            .chain(metal.files.iter().cloned())
+            .chain(inputs.paths(base))
+            .collect::<Vec<_>>();
+        State::new(
+            inputs.clone(),
+            &compiled.directory,
+            &compiled.compiler,
+            metal,
+        )?
+        .write(state)?;
         let built = BuiltKernels {
             abi: compiled.abi,
             directory: compiled.directory,
-            tracked: std::iter::once(compiled.compiler)
-                .chain(inputs.paths(base))
-                .collect(),
+            tracked,
             saved: false,
             environment: inputs.environment.names(),
         };
@@ -118,7 +130,7 @@ impl Kernels {
         let rust = self.rust()?;
         let kernels = rust.kernels(&self.project)?;
         let output = &kernels.output;
-        let metal = Metal::find()?;
+        let metal = self.metal;
         let generated = COMPILER_OUTPUTS
             .into_iter()
             .map(|file| Ok((file.name(), std::fs::read(output.join(file.name()))?)))
@@ -132,8 +144,8 @@ impl Kernels {
             env!("CARGO_PKG_VERSION"),
             &kernels.inputs,
             &generated,
-            &rust.identity,
-            &rust.version,
+            &rust.info.binary,
+            &rust.info.rustc,
             std::fs::read(&rust.target)?,
             &metal.version,
             &metal.sdk,
@@ -142,22 +154,22 @@ impl Kernels {
         ))?;
         let fingerprint = sha256(&identity);
         let directory = root.join(&fingerprint);
-        let manifest = match cache::manifest(&directory, &fingerprint) {
+        let build = BuildInfo {
+            fingerprint,
+            compiler: rust.info.version.clone(),
+            rustc: rust.info.rustc.clone(),
+            // metal-commands.json keeps the full text, which names the toolchain's path.
+            metal: metal.version.lines().next().unwrap_or_default().into(),
+            sdk: metal.sdk.clone(),
+            metal_flags: flags,
+        };
+        let cached = cache::manifest(&directory, &build.fingerprint)
+            .filter(|manifest| manifest.build == build);
+        let manifest = match cached {
             Some(manifest) => manifest,
-            None => {
-                let build = BuildInfo {
-                    fingerprint,
-                    compiler: rust.identity.clone(),
-                    rustc: rust.version.clone(),
-                    // metal-commands.json keeps the full text, which names the toolchain's path.
-                    metal: metal.version.lines().next().unwrap_or_default().into(),
-                    sdk: metal.sdk.clone(),
-                    metal_flags: flags,
-                };
-                staged(&root, &directory, |stage| {
-                    create(stage, &generated, abi, &metal, build)
-                })?
-            }
+            None => staged(&root, &directory, |stage| {
+                create(stage, &generated, abi, metal, build)
+            })?,
         };
         Ok(Compiled {
             directory,

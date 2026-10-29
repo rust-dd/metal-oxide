@@ -2,10 +2,34 @@
 
 ## Unreleased
 
+### Changed
+
+- Saved artifacts change only with their kernels or recorded inputs. Another compiler
+  build, machine or Metal toolchain that produces the same kernels leaves `metal/`
+  unchanged. Manifests name the metal-oxide compiler version instead of a compiler
+  binary hash, and recorded path packages no longer end in a space.
+- Kernel items inside inline modules save their artifacts below the module names, such
+  as `metal/src/lib.rs/tests/fill-precise/`, so same-named items in one file no longer
+  overwrite each other's artifacts.
+
 ### Fixed
 
 - Repeated integer casts retain proven slice bounds, including before threadgroup
   barriers. Changed indices and different casts keep their runtime checks.
+- Without the Metal compiler, kernel builds use a current saved artifact instead of
+  failing after the Rust build. Reused builds rebuild after a Metal compiler or SDK
+  change, and hosts track the toolchain's version files, so Cargo expands their kernels
+  again after an Xcode or Metal Toolchain update.
+- `dependencies(...)` crates build with the features and `default-features` setting that
+  the kernels' package declares, and renamed dependencies resolve to their package.
+  They previously built with default features only.
+
+### Upgrading
+
+- Saved inputs use format 4. Build once with the kernel toolchain and commit the
+  regenerated `metal/` directories; locked and toolchain-less builds report format 3
+  artifacts as unsupported until then.
+- `metal_oxide_build::KernelCrate` takes the module's `location` instead of its `file`.
 
 ## 0.1.0-alpha.1
 

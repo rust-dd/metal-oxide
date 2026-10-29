@@ -174,8 +174,10 @@ fn module(attributes: Tokens, item: Tokens, source: Source) -> syn::Result<Token
     } = &module;
     let body = match options.path.take() {
         Some(path) if items.is_empty() => {
-            let file = source.location.map(|location| location.file);
-            kernel_crate(&path, file, ident, options)?
+            let location = source
+                .location
+                .map(|location| (location.file, location.start));
+            kernel_crate(&path, location, ident, options)?
         }
         Some(path) => {
             return Err(syn::Error::new_spanned(
@@ -249,15 +251,15 @@ fn written(
     })
 }
 
-/// The body of a module in `file` that launches the kernels of the kernel crate in `path`.
+/// The body of a module at `location` that launches the kernels of the kernel crate in `path`.
 fn kernel_crate(
     path: &LitStr,
-    file: Option<std::path::PathBuf>,
+    location: Option<(std::path::PathBuf, (usize, usize))>,
     ident: &syn::Ident,
     options: ModuleOptions,
 ) -> syn::Result<Tokens> {
     let item = ident.unraw().to_string();
-    let Some(built) = device::kernel_crate(path, file, &item, options.math_mode)? else {
+    let Some(built) = device::kernel_crate(path, location, &item, options.math_mode)? else {
         return Ok(Tokens::new());
     };
     let mirrors = Mirrors::new(&built.abi)?;

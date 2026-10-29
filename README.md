@@ -152,10 +152,11 @@ Keep the dependency and `cargo-metal` at the same version. The
 [installation guide](https://rust-dd.github.io/metal-oxide/installation.html) also covers development checkouts
 and saved artifacts.
 
-Kernel builds save `metal/<file>/<item>-<math mode>/` beside the crate's sources.
-Commit and distribute that directory: dependents can use unchanged kernels
-without installing the kernel compiler. `METAL_OXIDE_ARTIFACTS=locked` uses saved
-artifacts only and rejects stale ones.
+Kernel builds save `metal/<file>/<item>-<math mode>/` beside the crate's sources,
+below the names of inline modules around the item. Commit and distribute that
+directory: dependents can use unchanged kernels without installing the kernel
+compiler. `METAL_OXIDE_ARTIFACTS=locked` uses saved artifacts only and rejects stale
+ones.
 
 ## Debugging and verification
 

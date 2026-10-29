@@ -358,3 +358,113 @@ fn kernel_builds_leave_out_host_only_dependencies() {
     let built = project.built(&mut project.cargo(&["build", "-p", "host", "--quiet"]));
     assert!(built.contains_key("kernels"), "{built:?}");
 }
+
+/// An `xcrun` first on `PATH` whose Metal compiler reports another version, as after an Xcode
+/// or Metal Toolchain update; compiling passes through to the installed one.
+fn updated_metal(project: &Project, command: &mut Command) {
+    let shims = project.0.join("updated-shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    std::fs::write(
+        shims.join("xcrun"),
+        "#!/bin/sh\nfor argument; do [ \"$argument\" = metal ] && metal=1; [ \"$argument\" = --version ] && version=1; done\nif [ -n \"$metal\" ] && [ -n \"$version\" ]; then /usr/bin/xcrun \"$@\" && echo 'Updated: test'; exit; fi\nexec /usr/bin/xcrun \"$@\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(shims.join("xcrun"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::env::var_os("PATH").unwrap();
+    let paths = std::iter::once(shims).chain(std::env::split_paths(&path));
+    command.env("PATH", std::env::join_paths(paths).unwrap());
+}
+
+/// The dependency file that rustc wrote for the project's host binary.
+fn host_dependencies(project: &Project) -> String {
+    let project = project.0.display().to_string();
+    std::fs::read_dir(Project::target().join("debug/deps"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            let name = path.file_name().unwrap().to_string_lossy();
+            name.starts_with("host-") && name.ends_with(".d")
+        })
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .find(|info| info.contains(&project))
+        .unwrap()
+}
+
+#[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn metal_toolchain_updates_rebuild_reused_kernels() {
+    let main = source(4);
+    let project = Project::new(&main);
+    checked(project.cargo(&["build", "--quiet"]).output().unwrap());
+    let artifact = project.artifact("scale");
+    let tracked = host_dependencies(&project);
+    for file in ["ToolchainInfo.plist", "SDKSettings.json"] {
+        assert!(tracked.contains(file), "{file} is untracked: {tracked}");
+    }
+    let saved = project.0.join("metal/src/main.rs/scale-precise");
+    let files = ["inputs.json", "manifest.json", "kernels.metallib"];
+    let before = files.map(|file| std::fs::read(saved.join(file)).unwrap());
+
+    project.write(&format!("{main}\n// edited outside the kernel\n"));
+    let mut build = project.cargo(&["build", "--quiet"]);
+    updated_metal(&project, &mut build);
+    checked(build.output().unwrap());
+    assert_ne!(
+        project.artifact("scale"),
+        artifact,
+        "the build reused an artifact of the previous Metal toolchain"
+    );
+    // The compiler that actually ran is unchanged, and so are the saved kernels.
+    for (file, bytes) in files.iter().zip(&before) {
+        assert_eq!(std::fs::read(saved.join(file)).unwrap(), *bytes, "{file}");
+    }
+}
+
+#[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn kernel_dependencies_keep_the_features_their_package_declares() {
+    let project = Project::new(
+        r#"
+#[metal_oxide::kernels(dependencies(kernel_helper))]
+mod scaled {
+    use metal_oxide::device::*;
+
+    #[kernel]
+    pub fn scale(mut out: DisjointBuffer<u32>) {
+        if let Some(out) = out.get_mut(&thread_index()) {
+            *out = kernel_helper::FACTOR;
+        }
+    }
+}
+
+fn main() {}
+"#,
+    );
+    let helper = project.0.join("helper");
+    std::fs::create_dir_all(helper.join("src")).unwrap();
+    std::fs::write(
+        helper.join("Cargo.toml"),
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[features]\ndefault = [\"std\"]\nstd = []\nscale = []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        helper.join("src/lib.rs"),
+        "#![no_std]\n#[cfg(feature = \"std\")]\nextern crate std;\n#[cfg(feature = \"scale\")]\npub const FACTOR: u32 = 3;\n",
+    )
+    .unwrap();
+    let manifest = project.0.join("Cargo.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap().replace(
+        "[dependencies]\n",
+        "[dependencies]\nkernel-helper = { package = \"helper\", path = \"helper\", default-features = false, features = [\"scale\"] }\n",
+    );
+    std::fs::write(manifest, text).unwrap();
+    checked(
+        Command::new("cargo")
+            .current_dir(&project.0)
+            .args(["generate-lockfile", "--offline"])
+            .output()
+            .unwrap(),
+    );
+    let built = project.built(&mut project.cargo(&["build", "--quiet"]));
+    assert!(built.contains_key("scaled"), "{built:?}");
+}

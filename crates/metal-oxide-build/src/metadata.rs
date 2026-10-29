@@ -23,6 +23,23 @@ pub(crate) struct Package {
     pub(crate) edition: String,
     pub(crate) manifest_path: PathBuf,
     pub(crate) targets: Vec<Target>,
+    dependencies: Vec<Dependency>,
+}
+
+#[derive(Deserialize)]
+struct Dependency {
+    name: String,
+    rename: Option<String>,
+    kind: Option<String>,
+    uses_default_features: bool,
+    features: Vec<String>,
+}
+
+/// How a package declares a dependency: the package it names and the features it enables.
+pub(crate) struct Declaration {
+    pub(crate) package: String,
+    pub(crate) default_features: bool,
+    pub(crate) features: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +152,45 @@ impl Metadata {
             }
         }
         Ok(())
+    }
+}
+
+impl Package {
+    /// The dependency that code names `name`, unified as Cargo unifies its normal declarations,
+    /// or else its dev-dependency declarations, which only tests use.
+    pub(crate) fn declaration(&self, name: &str) -> Result<Declaration> {
+        let declared = |kind: Option<&str>| {
+            self.dependencies
+                .iter()
+                .filter(|dependency| {
+                    let code = dependency.rename.as_ref().unwrap_or(&dependency.name);
+                    dependency.kind.as_deref() == kind && code.replace('-', "_") == name
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut declarations = declared(None);
+        if declarations.is_empty() {
+            declarations = declared(Some("dev"));
+        }
+        let first = declarations.first().ok_or_else(|| {
+            format!(
+                "the kernels use {name}, which {} does not declare as a dependency",
+                self.name
+            )
+        })?;
+        let mut features = declarations
+            .iter()
+            .flat_map(|dependency| dependency.features.iter().cloned())
+            .collect::<Vec<_>>();
+        features.sort();
+        features.dedup();
+        Ok(Declaration {
+            package: first.name.clone(),
+            default_features: declarations
+                .iter()
+                .any(|dependency| dependency.uses_default_features),
+            features,
+        })
     }
 }
 

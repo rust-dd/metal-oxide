@@ -69,10 +69,13 @@ dependency, pin its revision and commit `Cargo.lock`.
 ## Saved artifacts
 
 Each kernel build saves `metal/<file>/<item>-<math mode>/` beside the application's
-sources. Commit that directory and include it when distributing a kernel crate.
+sources; a kernel item in inline modules adds their names, as in
+`metal/src/lib.rs/tests/fill-precise/`. Commit that directory and include it when
+distributing a kernel crate. Builds rewrite it only when the kernels or their recorded
+inputs change, not for another machine or compiler build that produces the same kernels.
 An unchanged saved artifact allows dependents and hosts without the kernel
-toolchain to build. Editing kernels or their dependencies can make it stale and
-requires the kernel toolchain to regenerate it.
+toolchain, including the Metal compiler, to build. Editing kernels or their dependencies
+can make it stale and requires the kernel toolchain to regenerate it.
 
 ```sh
 METAL_OXIDE_ARTIFACTS=locked cargo build --locked

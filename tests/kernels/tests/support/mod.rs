@@ -131,8 +131,10 @@ impl Project {
         math_mode: metal_oxide_artifact::MathMode,
         debug_info: bool,
     ) -> serde_json::Value {
+        let modules: [&str; 0] = [];
         let identity =
-            serde_json::to_vec(&(&self.0, "src/main.rs", item, math_mode, debug_info)).unwrap();
+            serde_json::to_vec(&(&self.0, "src/main.rs", modules, item, math_mode, debug_info))
+                .unwrap();
         let key = &metal_oxide_artifact::sha256(&identity)[..16];
         let state = Self::target()
             .join("metal/sources")

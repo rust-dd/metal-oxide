@@ -504,22 +504,27 @@ Under rust-analyzer the macros generate the launch functions without a kernel bu
 ### Saved artifacts
 
 After each kernel build the macros save the artifact beside the crate's sources, in
-`metal/<file>/<item>-<math mode>/`: `manifest.json`, `kernels.metallib`, and `inputs.json`,
+`metal/<file>/<item>-<math mode>/`; an item inside inline modules of its file adds their
+names, as in `metal/src/lib.rs/tests/fill-precise/`. The directory holds `manifest.json`,
+which also names the metal-oxide compiler version, `kernels.metallib`, and `inputs.json`,
 which records what it was built from: a digest of the item's source with its file, name and
-dependencies, or of the kernel crate's path; the math mode; the registry and git packages
-from `Cargo.lock`; and digests of the path packages' files. The saved artifact stands in for
-a kernel build
+dependencies, or of the kernel crate's path; the math mode; the packages from `Cargo.lock`,
+as `name version source` or `name version` for path packages; and digests of the path
+packages' files. The saved artifact stands in for a kernel build
 
 - in a package that Cargo fetched from a registry, a git repository or a vendor directory,
   whose sources stay as published;
-- without the kernel toolchain, while its recorded inputs are unchanged;
+- without the kernel toolchain, including the Metal compiler, while its recorded inputs are
+  unchanged;
 - with `METAL_OXIDE_ARTIFACTS=locked`, which builds no kernels and makes a missing or stale
   saved artifact an error, also on hosts without Metal, which otherwise skip kernels.
 
-A build with the toolchain rewrites a saved artifact whose inputs changed. Commit and
-publish the `metal/` directory; its files name no path of the machine that built them. A
-removed kernel leaves its directory behind; deleting `metal/` and building again keeps
-only the current ones.
+A build with the toolchain rewrites a saved artifact when its recorded inputs or its kernels
+changed: the ABI, the checks, or the generated MSL, IR, AIR or library. A build identity
+alone, such as that of another compiler build, machine or toolchain that produced the same
+kernels, leaves it unchanged. Commit and publish the `metal/` directory; its files name no
+path of the machine that built them. A removed kernel leaves its directory behind; deleting
+`metal/` and building again keeps only the current ones.
 
 ## Apple compilation and artifact
 
@@ -583,7 +588,10 @@ by different compilers. The host embeds `manifest.json` and
 
 The cache identity includes sources and dependencies, compiler and toolchain
 versions, target configuration, enabled features, and compilation options.
-Cache reuse checks the generated files against the manifest.
+Cache reuse checks the generated files against the manifest. A target directory reuses
+a kernel build while its inputs, the compiler, and the Metal compiler and SDK are
+unchanged. Hosts track the toolchain's `ToolchainInfo.plist` and `SDKSettings.json`, so
+Cargo expands their kernel macros again after an Xcode or Metal Toolchain update.
 
 ## Host build and launch
 

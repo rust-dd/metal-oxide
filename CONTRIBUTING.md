@@ -28,7 +28,8 @@ Ordinary tests leave hardware checks ignored. The examples keep their saved arti
 in `metal/` beside their sources, and the stable CI job builds from them with
 `METAL_OXIDE_ARTIFACTS=locked`. A change to a kernel or to `metal-oxide-device` makes
 them stale: `cargo build --workspace` and `cargo build -p spectral --features fast`
-rewrite them; commit the result. Keep dependencies centralized and
+rewrite them; commit the result. Compiler changes that generate the same kernels leave
+them unchanged. Keep dependencies centralized and
 sorted in root `Cargo.toml`; every consumer uses `workspace = true`. The minimum
 supported stable Rust is 1.89; development uses the pinned 1.99 toolchain. Commit
 `Cargo.lock`. Keep the runtime buildable with stable Rust and independent of the

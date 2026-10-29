@@ -2,11 +2,12 @@ use crate::{
     BuiltKernels, Compiler, Error,
     compile::{BuildLock, Kernels},
     metadata::{self, Metadata},
+    modules,
     process::{self, Result},
     recorded::{Recorded, Request},
     saved::{self, Saved},
     state::State,
-    toolchain,
+    toolchain::{self, Metal},
 };
 use metal_oxide_artifact::{MathMode, sha256};
 use std::{
@@ -64,11 +65,9 @@ impl SourceKernels {
         let file = path
             .strip_prefix(&self.package)
             .map_err(|_| "kernels must be written in their package's directory")?;
-        let mut text = blank(
-            &std::fs::read_to_string(&path)?,
-            (self.start, self.end),
-            self.hole,
-        );
+        let original = std::fs::read_to_string(&path)?;
+        let modules = modules::enclosing(&original, self.start);
+        let mut text = blank(&original, (self.start, self.end), self.hole);
         text.push_str(MACROS);
         if self.prelude {
             text.push_str(PRELUDE);
@@ -79,31 +78,42 @@ impl SourceKernels {
             math_mode: self.math_mode,
             debug_info: self.debug_info,
         };
-        let saved = Saved::new(&self.package, file, &self.item, self.math_mode);
+        let saved = Saved::new(&self.package, file, &modules, &self.item, self.math_mode);
         saved::obtain(
             &self.package,
             &saved,
             &request,
             || {
-                let (directory, _) = self.directory()?;
+                let Ok(metal) = Metal::current() else {
+                    return Ok(None);
+                };
+                let (directory, _) = self.directory(&modules)?;
                 let state = State::read(&directory);
-                Ok(state.and_then(|state| state.reuse(&self.package, &request)))
+                Ok(
+                    state
+                        .and_then(|state| state.reuse(&self.package, &request, &metal.toolchain())),
+                )
             },
             || {
                 toolchain::nightly()?;
+                let metal = Metal::current()?;
                 let host = host(&self.package, true)?;
                 let compiler = Compiler::search(&host)?;
-                Ok((host, compiler))
+                Ok((host, compiler, metal))
             },
-            |(host, compiler)| self.compile(&text, &request, host, compiler),
+            |(host, compiler, metal)| {
+                self.compile(&text, &request, &modules, host, compiler, metal)
+            },
         )
     }
 
-    /// The directory of the item's device crate and the key that names it.
-    fn directory(&self) -> Result<(PathBuf, String)> {
+    /// The directory of the device crate of the item in the file's inline `modules`, and the
+    /// key that names it.
+    fn directory(&self, modules: &[String]) -> Result<(PathBuf, String)> {
         let identity = serde_json::to_vec(&(
             &self.package,
             &self.file,
+            modules,
             &self.item,
             self.math_mode,
             self.debug_info,
@@ -118,10 +128,12 @@ impl SourceKernels {
         &self,
         text: &str,
         request: &Request,
+        modules: &[String],
         host: Arc<Metadata>,
         compiler: Compiler,
+        metal: &'static Metal,
     ) -> Result<(BuiltKernels, Recorded)> {
-        let (directory, key) = self.directory()?;
+        let (directory, key) = self.directory(modules)?;
         // The expansions of one item for several targets share its directory; the lock keeps
         // one from rewriting it while another builds from it.
         let lock = BuildLock::acquire(&host.target_directory)?;
@@ -145,12 +157,15 @@ impl SourceKernels {
         ]))?;
         let project = metadata::load(&directory.join("Cargo.toml"))?;
         let debug_info = self.debug_info.then(|| host.workspace_root.clone());
-        Kernels::new(project, compiler, self.math_mode, Some(host), debug_info).record(
-            &self.package,
-            request.clone(),
-            &directory,
-            &lock,
+        Kernels::new(
+            project,
+            compiler,
+            metal,
+            self.math_mode,
+            Some(host),
+            debug_info,
         )
+        .record(&self.package, request.clone(), &directory, &lock)
     }
 
     fn manifest(&self, host: &Metadata, key: &str) -> Result<String> {
@@ -164,16 +179,20 @@ impl SourceKernels {
             package.edition,
             self.file.display().to_string()
         );
-        let (_, device) = source(host, "metal_oxide_device")?;
+        let device = source(host, "metal-oxide-device")?;
         manifest.push_str(&format!(
             "metal_oxide = {{ package = \"metal-oxide-device\", path = {:?} }}\n",
             device.display().to_string()
         ));
-        for dependency in &self.dependencies {
-            let (package, path) = source(host, dependency)?;
+        for name in &self.dependencies {
+            let declaration = package.declaration(name)?;
+            let path = source(host, &declaration.package)?;
             manifest.push_str(&format!(
-                "{dependency} = {{ package = {package:?}, path = {:?} }}\n",
-                path.display().to_string()
+                "{name} = {{ package = {:?}, path = {:?}, default-features = {}, features = {:?} }}\n",
+                declaration.package,
+                path.display().to_string(),
+                declaration.default_features,
+                declaration.features
             ));
         }
         manifest.push_str("\n[workspace]\n");
@@ -200,18 +219,11 @@ pub(crate) fn host(package: &Path, dependencies: bool) -> Result<Arc<Metadata>> 
     Ok(metadata)
 }
 
-/// The package name and source directory of the one crate that code names `name` in the
-/// host's dependency graph.
-fn source<'a>(host: &'a Metadata, name: &str) -> Result<(&'a str, PathBuf)> {
-    let mut found = host
-        .packages
-        .iter()
-        .filter(|package| package.name.replace('-', "_") == name);
+/// The source directory of the one package named `name` in the host's dependency graph.
+fn source(host: &Metadata, name: &str) -> Result<PathBuf> {
+    let mut found = host.packages.iter().filter(|package| package.name == name);
     match (found.next(), found.next()) {
-        (Some(package), None) => Ok((
-            &package.name,
-            package.manifest_path.parent().unwrap().to_owned(),
-        )),
+        (Some(package), None) => Ok(package.manifest_path.parent().unwrap().to_owned()),
         (None, _) => {
             Err(format!("the kernels use {name}, which the host does not depend on").into())
         }

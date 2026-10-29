@@ -23,8 +23,9 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 - Checked slice indexing, assertions and literal panics. Checks that cannot be
   proved become GPU failure checks where participation permits them.
 - Supported f32 math, including exercised `libm` and `num-traits` workloads.
-  `dependencies(...)` declares `no_std` kernel dependencies; it does not make all of
-  a dependency's operations available.
+  `dependencies(...)` declares `no_std` kernel dependencies, which build with the
+  features and `default-features` setting that their package declares; it does not make
+  all of a dependency's operations available.
 
 Only owned ABI values and buffer handles cross a kernel entry boundary. Host-shared
 records use canonical layout codecs rather than arbitrary host memory layout.

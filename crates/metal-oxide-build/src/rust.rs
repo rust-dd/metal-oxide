@@ -4,7 +4,7 @@ use crate::{
     metadata::Project,
     process::{self, Result},
 };
-use metal_oxide_artifact::{COMPILER_OUTPUTS, MathMode, sha256};
+use metal_oxide_artifact::{COMPILER_OUTPUTS, CompilerInfo, MathMode, sha256};
 use std::{
     path::{Path, PathBuf},
     process::Command,
@@ -15,8 +15,8 @@ const TARGET: &str = include_str!("../targets/metal64-unknown-none.json");
 
 pub(crate) struct Rust {
     pub(crate) compiler: PathBuf,
-    pub(crate) identity: String,
-    pub(crate) version: String,
+    /// The checked identity of `compiler`, with the nightly `rustc -vV` that runs it.
+    pub(crate) info: CompilerInfo,
     pub(crate) target: PathBuf,
     pub(crate) directory: PathBuf,
     math_mode: MathMode,
@@ -55,13 +55,11 @@ impl Rust {
             std::fs::write(&target, TARGET)?;
         }
         let target = target.canonicalize()?;
-        let version =
+        let rustc =
             process::capture(Command::new("rustup").args(["run", NIGHTLY, "rustc", "-vV"]))?;
-        let compiler = compiler.executable(
-            &project.metadata.target_directory.join("compiler"),
-            &version,
-        )?;
-        let identity = crate::compiler::verify(&compiler, &version)?.binary;
+        let compiler =
+            compiler.executable(&project.metadata.target_directory.join("compiler"), &rustc)?;
+        let info = crate::compiler::verify(&compiler, &rustc)?;
         let mut remap = Vec::new();
         if !debug_info {
             let sysroot = process::capture(
@@ -87,12 +85,12 @@ impl Rust {
             }
         }
         remap.sort_by_key(|(from, _)| from.len());
-        let configuration = serde_json::to_vec(&(&identity, &version, TARGET, math_mode, &remap))?;
+        let configuration =
+            serde_json::to_vec(&(&info.binary, &info.rustc, TARGET, math_mode, &remap))?;
         let directory = root.join("rust").join(sha256(&configuration));
         Ok(Self {
             compiler,
-            identity,
-            version,
+            info,
             target,
             directory,
             math_mode,

@@ -2,6 +2,7 @@ use crate::{
     BuiltKernels, cache,
     process::Result,
     recorded::{Recorded, Request, dependencies},
+    toolchain::Toolchain,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -28,6 +29,7 @@ pub(crate) struct State {
     requested: Option<PathBuf>,
     /// The compiler and, when it was built from source, the files it was built from.
     stamps: BTreeMap<PathBuf, Stamp>,
+    metal: Toolchain,
 }
 
 #[derive(PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +50,12 @@ impl Stamp {
 }
 
 impl State {
-    pub(crate) fn new(inputs: Recorded, artifact: &Path, compiler: &Path) -> Result<Self> {
+    pub(crate) fn new(
+        inputs: Recorded,
+        artifact: &Path,
+        compiler: &Path,
+        metal: Toolchain,
+    ) -> Result<Self> {
         let mut paths = vec![compiler.to_owned()];
         // Cargo writes the sources of a compiler it built beside the executable.
         if let Ok(info) = std::fs::read_to_string(compiler.with_extension("d")) {
@@ -67,6 +74,7 @@ impl State {
             compiler: compiler.to_owned(),
             requested: requested(),
             stamps,
+            metal,
         })
     }
 
@@ -82,11 +90,17 @@ impl State {
         Ok(())
     }
 
-    /// The recorded build, if the request, its inputs relative to `base` and the compiler are
-    /// unchanged.
-    pub(crate) fn reuse(self, base: &Path, request: &Request) -> Option<(BuiltKernels, Recorded)> {
+    /// The recorded build, if the request, its inputs relative to `base`, the compiler and the
+    /// `metal` toolchain are unchanged.
+    pub(crate) fn reuse(
+        self,
+        base: &Path,
+        request: &Request,
+        metal: &Toolchain,
+    ) -> Option<(BuiltKernels, Recorded)> {
         let current = self.inputs.request == *request
             && self.requested == requested()
+            && self.metal == *metal
             && self.inputs.current(base)
             && self
                 .stamps
@@ -106,6 +120,7 @@ impl State {
             directory: self.artifact.clone(),
             abi: manifest.abi,
             tracked: std::iter::once(self.compiler.clone())
+                .chain(self.metal.files.iter().cloned())
                 .chain(self.inputs.paths(base))
                 .collect(),
             saved: false,

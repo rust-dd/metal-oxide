@@ -15,7 +15,7 @@ use std::{
 mod tests;
 
 /// Increments when recording changes, which makes older records stale.
-pub(crate) const FORMAT: u32 = 3;
+pub(crate) const FORMAT: u32 = 4;
 
 /// What a kernel build is asked for besides its packages' files.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,7 +41,8 @@ pub(crate) struct Recorded {
     pub(crate) configuration: Configuration,
     pub(crate) environment: Environment,
     pub(crate) lock: String,
-    /// The kernels' dependencies as `name version source` from the lock file.
+    /// The kernels' dependencies from the lock file as `name version source`, or as
+    /// `name version` for path packages.
     pub(crate) packages: Vec<String>,
     /// SHA-256 of each manifest and source file of the path packages that the build read.
     pub(crate) files: BTreeMap<String, String>,
@@ -126,7 +127,7 @@ impl Recorded {
             // A path dependency that becomes a git or registry package changes its lock entry.
             if manifest_path != *kernel {
                 let prefix = if local {
-                    format!("{} {} ", package.name, package.version)
+                    format!("{} {}", package.name, package.version)
                 } else {
                     let source = package.id.rsplit_once('#').map_or("", |(source, _)| source);
                     format!("{} {} {source}", package.name, package.version)
@@ -212,14 +213,18 @@ pub(crate) fn profile() -> BTreeMap<String, String> {
         .collect()
 }
 
-/// Each `[[package]]` of a Cargo.lock as `name version source`.
+/// Each `[[package]]` of a Cargo.lock as `name version source`, or `name version` without a
+/// source.
 fn lock_entries(lock: &str) -> Vec<String> {
     let mut entries = Vec::new();
     let mut fields = [None, None, None];
     for line in lock.lines().map(str::trim).chain(["[[package]]"]) {
         if line.starts_with('[') && !line.starts_with("[[package]]") || line == "[[package]]" {
             if let [Some(name), Some(version), source] = std::mem::take(&mut fields) {
-                entries.push(format!("{name} {version} {}", source.unwrap_or_default()));
+                entries.push(match source {
+                    Some(source) => format!("{name} {version} {source}"),
+                    None => format!("{name} {version}"),
+                });
             }
             continue;
         }

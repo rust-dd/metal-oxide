@@ -3,7 +3,7 @@ use crate::{
     process::Result,
     recorded::{Recorded, Request},
 };
-use metal_oxide_artifact::{Abi, ArtifactFile, Manifest, MathMode};
+use metal_oxide_artifact::{ArtifactFile, Files, Manifest, MathMode};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -11,8 +11,8 @@ mod tests;
 
 const INPUTS: &str = "inputs.json";
 
-/// An artifact that a package keeps in `metal/<file>/<item>-<math mode>` beside its sources,
-/// so that it builds without the kernel toolchain, as for its dependents.
+/// An artifact that a package keeps in `metal/<file>/<modules>/<item>-<math mode>` beside its
+/// sources, so that it builds without the kernel toolchain, as for its dependents.
 pub(crate) struct Saved {
     directory: PathBuf,
     /// The directory relative to the package, for messages.
@@ -20,11 +20,17 @@ pub(crate) struct Saved {
 }
 
 impl Saved {
-    /// The artifact of `item` in `file`, relative to `package`.
-    pub(crate) fn new(package: &Path, file: &Path, item: &str, math_mode: MathMode) -> Self {
-        let name = Path::new("metal")
-            .join(file)
-            .join(format!("{item}-{}", math_mode.as_str()));
+    /// The artifact of `item` in the inline `modules` of `file`, relative to `package`.
+    pub(crate) fn new(
+        package: &Path,
+        file: &Path,
+        modules: &[String],
+        item: &str,
+        math_mode: MathMode,
+    ) -> Self {
+        let mut name = Path::new("metal").join(file);
+        name.extend(modules);
+        name.push(format!("{item}-{}", math_mode.as_str()));
         Self {
             directory: package.join(&name),
             name,
@@ -35,7 +41,7 @@ impl Saved {
     /// recorded inputs must also be unchanged relative to it.
     pub(crate) fn load(&self, request: &Request, base: Option<&Path>) -> Result<BuiltKernels> {
         let directory = self.name.display();
-        let (inputs, abi) = self.read().map_err(|error| match error {
+        let (inputs, manifest) = self.read().map_err(|error| match error {
             Read::Missing => format!("{directory} holds no saved Metal artifact"),
             Read::Damaged(reason) => {
                 format!("the saved Metal artifact in {directory} is damaged: {reason}")
@@ -46,20 +52,37 @@ impl Saved {
         }
         Ok(BuiltKernels {
             directory: self.directory.clone(),
-            abi,
+            abi: manifest.abi,
             tracked: base.map(|base| inputs.paths(base)).unwrap_or_default(),
             saved: true,
             environment: base.map(|_| inputs.environment.names()).unwrap_or_default(),
         })
     }
 
-    fn current(&self, request: &Request, artifact: &str, base: &Path) -> bool {
-        self.read().is_ok_and(|(inputs, _)| {
-            inputs.artifact == artifact && inputs.request == *request && inputs.current(base)
-        })
+    /// Whether the saved artifact holds `built`'s kernels and was recorded from `inputs`. A build
+    /// identity alone, such as that of another compiler build or machine, changes nothing.
+    fn holds(&self, built: &BuiltKernels, inputs: &Recorded) -> Result<bool> {
+        let Ok((saved_inputs, saved)) = self.read() else {
+            return Ok(false);
+        };
+        let manifest = built.directory.join(ArtifactFile::Manifest.name());
+        let built = Manifest::from_json(&std::fs::read_to_string(manifest)?)?;
+        // The rustc arguments name the building machine's paths.
+        let files = Files {
+            rustc_args: saved.files.rustc_args.clone(),
+            ..built.files
+        };
+        let inputs = Recorded {
+            artifact: saved_inputs.artifact.clone(),
+            ..inputs.clone()
+        };
+        Ok(saved.abi == built.abi
+            && saved.checks == built.checks
+            && saved.files == files
+            && saved_inputs == inputs)
     }
 
-    fn read(&self) -> std::result::Result<(Recorded, Abi), Read> {
+    fn read(&self) -> std::result::Result<(Recorded, Manifest), Read> {
         let read = |file: &str| match std::fs::read(self.directory.join(file)) {
             Ok(bytes) => Ok(bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(Read::Missing),
@@ -69,20 +92,22 @@ impl Saved {
         let manifest = read(ArtifactFile::Manifest.name())?;
         let library = read(ArtifactFile::Metallib.name())?;
         let damaged = |error: &dyn std::fmt::Display| Read::Damaged(error.to_string());
-        let inputs: Recorded = serde_json::from_slice(&inputs).map_err(|e| damaged(&e))?;
-        if inputs.format != crate::recorded::FORMAT {
+        let inputs =
+            serde_json::from_slice::<serde_json::Value>(&inputs).map_err(|e| damaged(&e))?;
+        if inputs["format"] != crate::recorded::FORMAT {
             return Err(Read::Damaged(format!(
                 "unsupported saved input format {}",
-                inputs.format
+                inputs["format"]
             )));
         }
+        let inputs = serde_json::from_value::<Recorded>(inputs).map_err(|e| damaged(&e))?;
         let manifest = String::from_utf8(manifest).map_err(|e| damaged(&e))?;
         let manifest = Manifest::from_json(&manifest).map_err(|e| damaged(&e))?;
         if manifest.build.fingerprint != inputs.artifact {
             return Err(Read::Damaged("its manifest and inputs differ".into()));
         }
         manifest.verify_library(&library).map_err(|e| damaged(&e))?;
-        Ok((inputs, manifest.abi))
+        Ok((inputs, manifest))
     }
 
     fn write(&self, built: &BuiltKernels, inputs: &Recorded) -> Result<()> {
@@ -142,7 +167,7 @@ pub(crate) fn obtain<T>(
             Err(missing) => return Err(missing),
         },
     };
-    if !request.debug_info && !saved.current(request, &inputs.artifact, package) {
+    if !request.debug_info && !saved.holds(&built, &inputs)? {
         saved.write(&built, &inputs)?;
     }
     Ok(built)

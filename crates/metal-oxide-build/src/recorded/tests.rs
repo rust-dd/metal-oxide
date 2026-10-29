@@ -28,7 +28,7 @@ fn lock_entries_name_version_and_source() {
     assert_eq!(
         lock_entries(LOCK),
         [
-            "kernels 0.1.0 ",
+            "kernels 0.1.0",
             "metal-oxide-device 0.1.0-alpha0 git+https://github.com/rust-dd/metal-oxide?rev=abc#abcdef",
             "serde 1.0.229 registry+https://github.com/rust-lang/crates.io-index",
         ]

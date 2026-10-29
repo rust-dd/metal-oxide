@@ -1,13 +1,13 @@
 use crate::{
     BuiltKernels, Compiler, Error,
     compile::{BuildLock, Kernels},
-    metadata,
+    metadata, modules,
     process::Result,
     recorded::Request,
     saved::{self, Saved},
     source::host,
     state::State,
-    toolchain,
+    toolchain::{self, Metal},
 };
 use metal_oxide_artifact::{MathMode, sha256};
 use std::path::PathBuf;
@@ -17,8 +17,9 @@ use std::path::PathBuf;
 pub struct KernelCrate {
     /// The host package's manifest directory.
     pub package: PathBuf,
-    /// The source file that names the kernel crate, as rustc names it; rust-analyzer gives none.
-    pub file: Option<PathBuf>,
+    /// The source file that names the kernel crate, as rustc names it, with the 1-based line and
+    /// column where the module item starts; rust-analyzer gives none.
+    pub location: Option<(PathBuf, (usize, usize))>,
     /// The module that launches the crate's kernels.
     pub item: String,
     /// The kernel crate's path, relative to the host package.
@@ -65,14 +66,15 @@ impl KernelCrate {
     }
 
     fn saved(&self) -> Result<(Saved, Request)> {
-        let file = self
-            .file
+        let (file, start) = self
+            .location
             .as_ref()
             .ok_or("kernels must be launched from a source file")?;
-        let file = std::env::current_dir()?.join(file);
-        let file = file
+        let path = std::env::current_dir()?.join(file);
+        let file = path
             .strip_prefix(&self.package)
             .map_err(|_| "kernels must be launched from their package's directory")?;
+        let modules = modules::enclosing(&std::fs::read_to_string(&path)?, *start);
         let source = serde_json::to_vec(&(file, &self.item, &self.path))?;
         let request = Request {
             source: sha256(&source),
@@ -80,7 +82,7 @@ impl KernelCrate {
             debug_info: false,
         };
         Ok((
-            Saved::new(&self.package, file, &self.item, self.math_mode),
+            Saved::new(&self.package, file, &modules, &self.item, self.math_mode),
             request,
         ))
     }
@@ -96,23 +98,30 @@ impl KernelCrate {
             &saved,
             &request,
             || {
+                let Ok(metal) = Metal::current() else {
+                    return Ok(None);
+                };
                 let state = State::read(&self.state()?);
-                Ok(state.and_then(|state| state.reuse(&self.package, &request)))
+                Ok(
+                    state
+                        .and_then(|state| state.reuse(&self.package, &request, &metal.toolchain())),
+                )
             },
             || {
                 toolchain::nightly()?;
+                let metal = Metal::current()?;
                 let project = metadata::load(&self.manifest())?;
                 let compiler = Compiler::search(&project.metadata)?;
-                Ok((project, compiler))
+                Ok((project, compiler, metal))
             },
-            |(project, compiler)| {
+            |(project, compiler, metal)| {
                 let state = self.state()?;
                 std::fs::create_dir_all(&state)?;
                 let debug_info = self
                     .debug_info
                     .then(|| project.metadata.workspace_root.clone());
                 let lock = BuildLock::acquire(&project.metadata.target_directory)?;
-                Kernels::new(project, compiler, self.math_mode, None, debug_info).record(
+                Kernels::new(project, compiler, metal, self.math_mode, None, debug_info).record(
                     &self.package,
                     request.clone(),
                     &state,

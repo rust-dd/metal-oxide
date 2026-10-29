@@ -103,16 +103,16 @@ pub(crate) fn source(request: Request) -> syn::Result<Option<BuiltKernels>> {
 }
 
 /// Builds the kernel crate in `path`, relative to the host package, for the module `item`
-/// in `file`; without a build, the last build's artifact describes its kernels.
+/// at `location`; without a build, the last build's artifact describes its kernels.
 pub(crate) fn kernel_crate(
     path: &LitStr,
-    file: Option<PathBuf>,
+    location: Option<(PathBuf, Position)>,
     item: &str,
     math_mode: MathMode,
 ) -> syn::Result<Option<BuiltKernels>> {
     let kernel_crate = KernelCrate {
         package: package()?,
-        file,
+        location,
         item: item.to_owned(),
         path: PathBuf::from(path.value()),
         math_mode,

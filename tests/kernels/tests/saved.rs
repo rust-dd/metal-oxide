@@ -2,6 +2,7 @@
 
 mod support;
 
+use metal_oxide_artifact::{Manifest, MathMode, sha256};
 use std::{os::unix::fs::PermissionsExt, process::Command};
 use support::{Project, checked, failure};
 
@@ -50,49 +51,68 @@ fn without_toolchain(project: &Project, command: &mut Command) {
     command.env("PATH", std::env::join_paths(paths).unwrap());
 }
 
+/// An `xcrun` and an `xcodebuild` first on `PATH` that find no Metal compiler, as on a machine
+/// with only the Command Line Tools.
+fn without_metal(project: &Project, command: &mut Command) {
+    let shims = project.0.join("metal-shims");
+    std::fs::create_dir_all(&shims).unwrap();
+    let scripts = [
+        (
+            "xcrun",
+            "#!/bin/sh\nfor argument; do [ \"$argument\" = metal ] && { echo 'no Metal compiler' >&2; exit 1; }; done\nexec /usr/bin/xcrun \"$@\"\n",
+        ),
+        (
+            "xcodebuild",
+            "#!/bin/sh\necho 'no Metal Toolchain component' >&2\nexit 1\n",
+        ),
+    ];
+    for (name, script) in scripts {
+        std::fs::write(shims.join(name), script).unwrap();
+        std::fs::set_permissions(shims.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let path = std::env::var_os("PATH").unwrap();
+    let paths = std::iter::once(shims).chain(std::env::split_paths(&path));
+    command.env("PATH", std::env::join_paths(paths).unwrap());
+}
+
 #[test]
 #[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
-fn saved_artifacts_follow_the_reused_build_identity() {
+fn saved_artifacts_change_only_with_their_kernels_or_inputs() {
     let main = source(2);
     let project = Project::new(&main);
     checked(project.cargo(&["build", "--quiet"]).output().unwrap());
     let artifact = project.artifact("scale");
     let saved = project.0.join("metal/src/main.rs/scale-precise");
     let files = ["inputs.json", "manifest.json", "kernels.metallib"];
-    let expected = files.map(|file| {
-        let directory = if file == "inputs.json" {
-            &saved
-        } else {
-            &artifact
-        };
-        std::fs::read(directory.join(file)).unwrap()
-    });
-    let target_inputs =
-        project.state("scale", metal_oxide_artifact::MathMode::Precise, false)["inputs"].clone();
+    let inputs = std::fs::read(saved.join("inputs.json")).unwrap();
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&expected[0]).unwrap(),
-        target_inputs
+        serde_json::from_slice::<serde_json::Value>(&inputs).unwrap(),
+        project.state("scale", MathMode::Precise, false)["inputs"]
     );
-    for (file, bytes) in files.iter().zip(&expected) {
-        assert_eq!(std::fs::read(saved.join(file)).unwrap(), *bytes, "{file}");
+    for file in ["manifest.json", "kernels.metallib"] {
+        let built = std::fs::read(artifact.join(file)).unwrap();
+        assert_eq!(std::fs::read(saved.join(file)).unwrap(), built, "{file}");
     }
+    let manifest = std::fs::read_to_string(saved.join("manifest.json")).unwrap();
+    let manifest = Manifest::from_json(&manifest).unwrap();
+    assert_eq!(manifest.build.compiler, env!("CARGO_PKG_VERSION"));
 
-    // A previous compiler can leave current source inputs with another build identity.
-    let previous = metal_oxide_artifact::sha256(b"previous Metal compiler artifact");
+    // Another compiler build or machine records another identity for the same kernels.
+    let other = sha256(b"another machine's build");
     for file in ["inputs.json", "manifest.json"] {
         let path = saved.join(file);
         let mut record =
             serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap();
-        let identity = if file == "inputs.json" {
-            &mut record["artifact"]
+        if file == "inputs.json" {
+            record["artifact"] = other.clone().into();
         } else {
-            &mut record["build"]["fingerprint"]
-        };
-        assert_ne!(identity.as_str().unwrap(), previous);
-        *identity = previous.clone().into();
+            record["build"]["fingerprint"] = other.clone().into();
+            record["build"]["compiler"] = "0.0.0-other".into();
+            record["files"]["rustc_args"] = other.clone().into();
+        }
         std::fs::write(path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
     }
-    let previous_files = files.map(|file| std::fs::read(saved.join(file)).unwrap());
+    let elsewhere = files.map(|file| std::fs::read(saved.join(file)).unwrap());
     checked(
         project
             .cargo(&["build", "--quiet"])
@@ -100,25 +120,20 @@ fn saved_artifacts_follow_the_reused_build_identity() {
             .output()
             .unwrap(),
     );
-    for (file, bytes) in files.iter().zip(previous_files) {
-        assert_eq!(std::fs::read(saved.join(file)).unwrap(), bytes, "{file}");
-    }
-
-    project.write(&main);
+    project.write(&format!("{main}\n// edited outside the kernel\n"));
     checked(project.cargo(&["build", "--quiet"]).output().unwrap());
     assert_eq!(project.artifact("scale"), artifact);
-    assert_eq!(
-        project.state("scale", metal_oxide_artifact::MathMode::Precise, false)["inputs"],
-        target_inputs
-    );
-    for (file, bytes) in files.into_iter().zip(expected) {
-        if file != "inputs.json" {
-            assert_eq!(std::fs::read(artifact.join(file)).unwrap(), bytes, "{file}");
-        }
-        assert!(
-            std::fs::read(saved.join(file)).unwrap() == bytes,
-            "{file} was not refreshed from the current build"
-        );
+    for (file, bytes) in files.iter().zip(&elsewhere) {
+        assert_eq!(std::fs::read(saved.join(file)).unwrap(), *bytes, "{file}");
+    }
+
+    project.write(&source(3));
+    checked(project.cargo(&["build", "--quiet"]).output().unwrap());
+    let changed = project.artifact("scale");
+    assert_ne!(changed, artifact);
+    for file in ["manifest.json", "kernels.metallib"] {
+        let built = std::fs::read(changed.join(file)).unwrap();
+        assert_eq!(std::fs::read(saved.join(file)).unwrap(), built, "{file}");
     }
 }
 
@@ -276,4 +291,88 @@ fn packaged_sources_keep_their_published_artifacts() {
         errors.contains("unsupported saved input format 999"),
         "{errors}"
     );
+}
+
+#[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn saved_artifacts_stand_in_when_the_metal_toolchain_is_missing() {
+    let project = Project::new(&source(2));
+    checked(project.cargo(&["build", "--quiet"]).output().unwrap());
+    let target = project.0.join("without-metal");
+    let build = || {
+        let mut command = project.cargo(&["build", "--quiet"]);
+        command.env("CARGO_TARGET_DIR", &target);
+        without_metal(&project, &mut command);
+        command
+    };
+    checked(build().output().unwrap());
+    assert!(
+        !target.join("metal").exists(),
+        "a kernel build started without the Metal compiler"
+    );
+
+    project.write(&source(3));
+    let errors = failure(build().output().unwrap());
+    assert!(
+        errors.contains("metal/src/main.rs/scale-precise is stale"),
+        "{errors}"
+    );
+    assert!(errors.contains("no Metal Toolchain component"), "{errors}");
+}
+
+const SAME_NAMES: &str = r#"
+use metal_oxide::device::{DisjointBuffer, thread_index};
+use metal_oxide::{Device, LaunchConfig, Operation};
+
+#[metal_oxide::kernel]
+pub fn fill(mut out: DisjointBuffer<u32>) {
+    if let Some(out) = out.get_mut(&thread_index()) {
+        *out = 1;
+    }
+}
+
+mod other {
+    use metal_oxide::device::{DisjointBuffer, thread_index};
+
+    #[metal_oxide::kernel]
+    pub fn fill(mut out: DisjointBuffer<u32>) {
+        if let Some(out) = out.get_mut(&thread_index()) {
+            *out = 2;
+        }
+    }
+
+    #[metal_oxide::kernels(path = "{root}/crates/metal-oxide-compiler/tests/crates/vec-add-kernels")]
+    pub mod added {}
+}
+
+fn main() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let mut first = device.buffer_zeroed::<u32>(4)?;
+    let mut second = device.buffer_zeroed::<u32>(4)?;
+    fill(&device, LaunchConfig::<64>::for_elements(4)?, &mut first).wait()?;
+    other::fill(&device, LaunchConfig::<64>::for_elements(4)?, &mut second).wait()?;
+    assert_eq!(first.read().wait(), [1; 4]);
+    assert_eq!(second.read().wait(), [2; 4]);
+    println!("same names passed");
+    Ok(())
+}
+"#;
+
+#[test]
+#[ignore = "requires a Metal device, the compiler nightly, rust-src and the Metal toolchain"]
+fn same_named_kernels_in_inline_modules_keep_separate_saved_artifacts() {
+    let project = Project::new(SAME_NAMES);
+    let run = |command: &mut Command| {
+        let output = checked(command.output().unwrap());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("same names passed"));
+    };
+    run(&mut project.cargo(&["run", "--quiet"]));
+    let saved = project.0.join("metal/src/main.rs");
+    let [first, second, added] = ["fill-precise", "other/fill-precise", "other/added-precise"]
+        .map(|directory| std::fs::read(saved.join(directory).join("kernels.metallib")).unwrap());
+    assert_ne!(first, second);
+    assert_ne!(second, added);
+    run(project
+        .cargo(&["run", "--quiet"])
+        .env("METAL_OXIDE_ARTIFACTS", "locked"));
 }

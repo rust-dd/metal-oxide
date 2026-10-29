@@ -1,9 +1,11 @@
 use crate::process::{self, Result};
 use metal_oxide_artifact::{Abi, ArtifactFile, COMPILER_NIGHTLY, LOGGING_FLAG};
+use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Command,
+    sync::OnceLock,
 };
 
 /// Embeds the compile inputs in the metallib; linking keeps them only when it records them too.
@@ -50,7 +52,49 @@ pub(crate) struct Metal {
     sdk_path: PathBuf,
 }
 
+/// The Metal compiler and SDK that built an artifact; reuse requires them unchanged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Toolchain {
+    version: String,
+    sdk: String,
+    /// Small files whose paths name the installed versions, for Cargo's change tracking.
+    pub(crate) files: Vec<PathBuf>,
+}
+
 impl Metal {
+    /// The toolchain that kernel builds in this process use, looked up once.
+    pub(crate) fn current() -> Result<&'static Self> {
+        static METAL: OnceLock<std::result::Result<Metal, String>> = OnceLock::new();
+        METAL
+            .get_or_init(|| Self::find().map_err(|error| error.to_string()))
+            .as_ref()
+            .map_err(|error| error.as_str().into())
+    }
+
+    pub(crate) fn toolchain(&self) -> Toolchain {
+        let info = self
+            .version
+            .lines()
+            .find_map(|line| line.strip_prefix("InstalledDir: "))
+            .and_then(|directory| {
+                Path::new(directory)
+                    .ancestors()
+                    .find(|ancestor| ancestor.extension() == Some("xctoolchain".as_ref()))
+            })
+            .map(|toolchain| toolchain.join("ToolchainInfo.plist"));
+        let files = info
+            .into_iter()
+            .chain([self.sdk_path.join("SDKSettings.json")])
+            .filter(|file| file.is_file())
+            .collect::<Vec<_>>();
+        Toolchain {
+            version: self.version.clone(),
+            sdk: self.sdk.clone(),
+            files,
+        }
+    }
+
     pub(crate) fn find() -> Result<Self> {
         let sdk = process::capture(Command::new("xcrun").args([
             "--sdk",
