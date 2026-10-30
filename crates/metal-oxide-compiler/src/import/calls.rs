@@ -75,7 +75,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             return Err((span, "indirect calls cannot be imported".into()));
         };
         let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
-        let instance = Instance::try_resolve(
+        let instance = crate::monomorphize::resolve(
             tcx,
             ty::TypingEnv::fully_monomorphized(),
             definition,

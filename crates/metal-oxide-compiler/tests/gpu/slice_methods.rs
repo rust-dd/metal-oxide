@@ -100,3 +100,38 @@ fn copy_from_slice_matches_rust_and_fails_on_a_length_mismatch() -> metal_oxide:
     );
     Ok(())
 }
+
+fn compared((a, b, n): ([u32; 4], [u32; 4], u32)) -> [u32; 7] {
+    let n = n as usize % 5;
+    [
+        (a == b) as u32,
+        (a != b) as u32,
+        (a[..n] == b[..n]) as u32,
+        (a[n..] == b[..]) as u32,
+        a.starts_with(&b[..n]) as u32,
+        ([a[0] as u8, a[1] as u8] == [b[0] as u8, b[1] as u8]) as u32,
+        ([a[2] > 1, a[3] > 1] == [b[2] > 1, b[3] > 1]) as u32,
+    ]
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn array_and_slice_equality_match_rust() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let base = [1, 2, 3, 0x100];
+    let mut cases = Vec::new();
+    for n in 0..5 {
+        cases.push((base, base, n));
+        cases.push((base, [0; 4], n));
+        for position in 0..4 {
+            let mut other = base;
+            other[position] ^= 0x100;
+            cases.push((base, other, n));
+        }
+    }
+    let output = run::<_, [u32; 7]>(&device, "compared", &cases)?;
+    for (&case, actual) in cases.iter().zip(&output) {
+        assert_eq!(*actual, compared(case), "{case:?}");
+    }
+    Ok(())
+}

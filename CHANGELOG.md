@@ -14,7 +14,8 @@
 - Kernels call integer `ilog`, `ilog2`, `ilog10` and signed `isqrt`, which fail with Rust's
   message on invalid arguments; `to_le_bytes`, `to_be_bytes`, `to_ne_bytes` and their
   `from_*` counterparts; `mem::swap`, `ptr::swap`, `ptr::copy_nonoverlapping`, and slice
-  `swap`, `reverse` and `copy_from_slice`.
+  `swap`, `reverse` and `copy_from_slice`. `==` and `starts_with` work on arrays and
+  slices of integers: core's bytewise comparisons run element by element.
   Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed

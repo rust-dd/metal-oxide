@@ -32,3 +32,21 @@ pub fn copied(input: ReadBuffer<([u32; 8], u32, u32)>, mut output: DisjointBuffe
         output[a as usize % 9..].copy_from_slice(tail);
     }
 }
+
+#[kernel(requires(input.len() == output.len()))]
+pub fn compared(input: ReadBuffer<([u32; 4], [u32; 4], u32)>, mut output: DisjointBuffer<[u32; 7]>) {
+    let index = thread_index();
+    if let Some(output) = output.get_mut(&index) {
+        let (a, b, n) = input.as_slice()[index.get()];
+        let n = n as usize % 5;
+        *output = [
+            (a == b) as u32,
+            (a != b) as u32,
+            (a[..n] == b[..n]) as u32,
+            (a[n..] == b[..]) as u32,
+            a.starts_with(&b[..n]) as u32,
+            ([a[0] as u8, a[1] as u8] == [b[0] as u8, b[1] as u8]) as u32,
+            ([a[2] > 1, a[3] > 1] == [b[2] > 1, b[3] > 1]) as u32,
+        ];
+    }
+}

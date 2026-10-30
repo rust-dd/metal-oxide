@@ -1,11 +1,61 @@
 use std::{borrow::Cow, collections::HashSet};
 
-use rustc_hir::def::{CtorKind, DefKind};
+use rustc_hir::{
+    def::{CtorKind, DefKind},
+    def_id::DefId,
+};
 use rustc_middle::{
     mir::{BasicBlock, Body, Operand, Rvalue, StatementKind, TerminatorKind, traversal},
     ty::{self, EarlyBinder, Instance, TyCtxt, TypingEnv},
 };
-use rustc_span::{Span, sym};
+use rustc_span::{ErrorGuaranteed, Span, sym};
+
+/// The device instance a call runs. Core's `BytewiseEq` specializations compare memory as bytes,
+/// which device pointers cannot reinterpret; their general implementations compare elements.
+pub(crate) fn resolve<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    environment: TypingEnv<'tcx>,
+    definition: DefId,
+    arguments: ty::GenericArgsRef<'tcx>,
+) -> Result<Option<Instance<'tcx>>, ErrorGuaranteed> {
+    let instance = Instance::try_resolve(tcx, environment, definition, arguments)?;
+    Ok(instance.map(|instance| general(tcx, instance).unwrap_or(instance)))
+}
+
+/// The method that a `BytewiseEq` specialization overrides, with the same generic arguments.
+fn general<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> Option<Instance<'tcx>> {
+    let method = instance.def_id();
+    let implementation = tcx.impl_of_assoc(method)?;
+    let bytewise = TypingEnv::non_body_analysis(tcx, implementation)
+        .param_env
+        .caller_bounds()
+        .filter_map(|clause| clause.as_trait_clause())
+        .any(|bound| {
+            let bound = bound.def_id();
+            tcx.crate_name(bound.krate) == sym::core
+                && tcx.item_name(bound).as_str() == "BytewiseEq"
+        });
+    if !bytewise {
+        return None;
+    }
+    let parent = tcx
+        .specialization_graph_of(tcx.impl_opt_trait_id(implementation)?)
+        .ok()?
+        .parent(implementation);
+    if !matches!(tcx.def_kind(parent), DefKind::Impl { .. }) {
+        return None;
+    }
+    let name = tcx.item_name(method);
+    let general = tcx
+        .associated_item_def_ids(parent)
+        .iter()
+        .copied()
+        .find(|item| tcx.item_name(*item) == name)?;
+    (tcx.generics_of(general).count() == instance.args.len()).then_some(Instance {
+        def: ty::InstanceKind::Item(general),
+        args: instance.args,
+    })
+}
 
 /// Reports recursion and calls the importer cannot lower in every instance the kernels reach.
 pub(crate) fn validate<'tcx>(tcx: TyCtxt<'tcx>, entries: &[Instance<'tcx>]) {
@@ -388,7 +438,7 @@ impl<'tcx> Collector<'tcx> {
         if crate::intrinsics::panic_entry(tcx, definition).is_some() {
             return;
         }
-        match Instance::try_resolve(tcx, environment, definition, arguments) {
+        match resolve(tcx, environment, definition, arguments) {
             Ok(Some(instance)) => self.visit(instance, span),
             Ok(None) => {
                 tcx.dcx().span_err(
