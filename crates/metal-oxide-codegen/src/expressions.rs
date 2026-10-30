@@ -73,7 +73,7 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
 }
 
 /// A struct value; padding members start zeroed.
-fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
+pub(crate) fn aggregate_value(module: &Module, id: usize, fields: Vec<String>) -> String {
     match module.types.get(id).unwrap() {
         Aggregate::Array { .. } => {
             format!("metal_oxide_aggregate_{id}{{{{{}}}}}", fields.join(", "))
@@ -215,7 +215,7 @@ pub(crate) fn expression(
         Expression::Select { condition, yes, no } => {
             format!("({} ? {} : {})", op(condition), op(yes), op(no))
         }
-        Expression::Bitcast(v, to) => format!("as_type<{}>({})", scalar_name(*to), op(v)),
+        Expression::Bitcast(v, to) => crate::arithmetic::bitcast(module, &op(v), ty(v)?, *to),
         Expression::UncheckedCast(v, to) => format!("{}({})", scalar_name(*to), op(v)),
         Expression::Math {
             op: operation,

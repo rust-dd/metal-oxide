@@ -327,7 +327,9 @@ pub enum Expression {
     Cast(Operand, Scalar),
     /// f32 to integer without saturation; the value must be representable after truncation.
     UncheckedCast(Operand, Scalar),
-    Bitcast(Operand, Scalar),
+    /// The bits of a value as a type of the same width: another scalar, or an integer and an
+    /// array of integer lanes, whose first lane holds the low bits.
+    Bitcast(Operand, Type),
     Math {
         op: MathOp,
         arguments: Vec<Operand>,

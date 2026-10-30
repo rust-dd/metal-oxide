@@ -342,6 +342,30 @@ impl TypeTable {
         self.pointers.iter().enumerate()
     }
 
+    /// Whether a bitcast reinterprets `from` as `to`: scalars of one width other than `bool`,
+    /// or an integer and an array of integer lanes as wide in total.
+    pub fn reinterprets(&self, from: Type, to: Type) -> bool {
+        let lanes = |ty: Type| match ty {
+            Type::Aggregate(id) => match self.get(id) {
+                Some(Aggregate::Array {
+                    element: Type::Scalar(lane),
+                    length,
+                }) if lane.is_integer() => Some(lane.bits() * length),
+                _ => None,
+            },
+            _ => None,
+        };
+        match (from, to) {
+            (Type::Scalar(from), Type::Scalar(to)) => {
+                from.bits() == to.bits() && from != Scalar::Bool && to != Scalar::Bool
+            }
+            (Type::Scalar(scalar), array) | (array, Type::Scalar(scalar)) => {
+                scalar.is_integer() && lanes(array) == Some(scalar.bits())
+            }
+            _ => false,
+        }
+    }
+
     /// Values that contain no pointer, so they can live in arrays, slices and buffers.
     pub fn is_owned(&self, ty: Type) -> bool {
         match ty {

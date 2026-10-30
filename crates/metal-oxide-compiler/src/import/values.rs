@@ -235,21 +235,21 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             mir::Rvalue::Cast(mir::CastKind::Transmute, value, _) => {
                 let from = self.operand_type(value, span)?;
-                match (from, destination) {
-                    // A restricted value, such as a `NonZero`, and the value it holds.
-                    (from, to) if from == to => Ok(ir::Expression::Use(self.operand(value, span)?)),
-                    (ir::Type::Scalar(from), ir::Type::Scalar(to))
-                        if from.bits() == to.bits()
-                            && from != ir::Scalar::Bool
-                            && to != ir::Scalar::Bool =>
-                    {
-                        Ok(ir::Expression::Bitcast(self.operand(value, span)?, to))
-                    }
-                    _ => Err((
+                // A restricted value, such as a `NonZero`, and the value it holds.
+                if from == destination {
+                    Ok(ir::Expression::Use(self.operand(value, span)?))
+                } else if self.module.types.table().reinterprets(from, destination) {
+                    Ok(ir::Expression::Bitcast(
+                        self.operand(value, span)?,
+                        destination,
+                    ))
+                } else {
+                    Err((
                         span,
-                        "transmutes are supported between same-width numbers and between pointers"
+                        "transmutes are supported between same-width numbers, between integers \
+                         and arrays of integers, and between pointers"
                             .into(),
-                    )),
+                    ))
                 }
             }
             other => Err((span, format!("unsupported MIR rvalue: {other:?}"))),

@@ -46,6 +46,8 @@ mod artifact;
 mod atomic_numeric;
 #[path = "gpu/atomics.rs"]
 mod atomics;
+#[path = "gpu/byte_conversions.rs"]
+mod byte_conversions;
 #[path = "gpu/cast_bounds.rs"]
 mod cast_bounds;
 #[path = "gpu/checks.rs"]
@@ -94,6 +96,8 @@ mod iterators;
 mod lengths;
 #[path = "gpu/lines.rs"]
 mod lines;
+#[path = "gpu/logarithms.rs"]
+mod logarithms;
 #[path = "gpu/matrices.rs"]
 mod matrices;
 #[path = "gpu/narrow.rs"]
@@ -110,6 +114,8 @@ mod ranges;
 mod read_write;
 #[path = "gpu/records.rs"]
 mod records;
+#[path = "gpu/slice_methods.rs"]
+mod slice_methods;
 mod support;
 #[path = "gpu/transcendentals.rs"]
 mod transcendentals;

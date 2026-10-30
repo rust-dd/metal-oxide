@@ -9,6 +9,7 @@ mod function;
 mod handles;
 mod iterators;
 mod literals;
+mod memory;
 mod messages;
 mod panics;
 mod places;

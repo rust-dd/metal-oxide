@@ -11,6 +11,10 @@
 - `Abi::minimum_macos` returns the oldest macOS that runs an artifact's kernels.
 - `i64` works in kernels, kernel parameters, buffers, records and `log!`, so core methods
   that widen through it, such as `i32::midpoint`, compile. It has no atomics.
+- Kernels call integer `ilog`, `ilog2`, `ilog10` and signed `isqrt`, which fail with Rust's
+  message on invalid arguments; `to_le_bytes`, `to_be_bytes`, `to_ne_bytes` and their
+  `from_*` counterparts; and `mem::swap`, `ptr::swap`, slice `swap` and `reverse`.
+  Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed
 

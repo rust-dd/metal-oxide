@@ -360,7 +360,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             Intrinsic::Bitcast(to) => {
                 let [value] = arguments(values, span)?;
-                ir::Expression::Bitcast(value, to)
+                ir::Expression::Bitcast(value, ir::Type::Scalar(to))
             }
             Intrinsic::FloatConvert { to, .. } => {
                 let [value] = arguments(values, span)?;
@@ -452,6 +452,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             Intrinsic::Atomic(_) => {
                 unreachable!("atomics are imported before their ordering arguments")
             }
+            Intrinsic::Swap => unreachable!("swaps are imported as statements"),
             Intrinsic::BufferLoad => {
                 let [buffer, index] = arguments(values, span)?;
                 ir::Expression::BufferLoad { buffer, index }

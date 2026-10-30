@@ -49,6 +49,8 @@ pub(crate) enum Intrinsic {
     Buffer(BufferQuery),
     /// `ptr_offset_from_unsigned`: the element count between two pointers.
     OffsetFrom,
+    /// `ptr::swap` and `typed_swap_nonoverlapping`, behind `mem::swap`: exchanges two pointees.
+    Swap,
 }
 
 /// The iterators whose `Iterator::next` the importer expands inline, so the prover sees the
@@ -127,6 +129,7 @@ impl Intrinsic {
             Self::Buffer(BufferQuery::Slice) => "buffer_slice",
             Self::Buffer(BufferQuery::Element) => "disjoint_element",
             Self::OffsetFrom => "offset_from",
+            Self::Swap => "swap",
         }
     }
 }
@@ -184,6 +187,22 @@ pub(crate) fn panic_entry(tcx: TyCtxt<'_>, definition: DefId) -> Option<PanicEnt
         "core::num::imp::overflow_panic::pow" => {
             return Some(PanicEntry::Fixed("attempt to exponentiate with overflow"));
         }
+        "core::num::imp::int_log10::panic_for_nonpositive_argument" => {
+            return Some(PanicEntry::Fixed(
+                "argument of integer logarithm must be positive",
+            ));
+        }
+        "core::num::imp::int_sqrt::panic_for_negative_argument" => {
+            return Some(PanicEntry::Fixed(
+                "argument of integer square root cannot be negative",
+            ));
+        }
+        // `const_panic!` formats the lengths only outside const evaluation; this is its const message.
+        "core::slice::copy_from_slice_impl::len_mismatch_fail" => {
+            return Some(PanicEntry::Fixed(
+                "copy_from_slice: source slice length does not match destination slice length",
+            ));
+        }
         _ => {}
     }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
@@ -230,6 +249,10 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     ) {
         return Some(Intrinsic::Identity);
     }
+    // `ptr::swap` copies through a `MaybeUninit`, which has no device representation.
+    if tcx.def_path_str(definition) == "core::ptr::swap" {
+        return Some(Intrinsic::Swap);
+    }
     if let Some(intrinsic) = tcx.intrinsic(definition) {
         if intrinsic.name.as_str().starts_with("simd_") {
             return Some(Intrinsic::Vector(VectorOp::Intrinsic(intrinsic.name)));
@@ -249,6 +272,7 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
             "ptr_offset_from_unsigned" => return Some(Intrinsic::OffsetFrom),
             "copysignf32" => return Some(Intrinsic::Math(MathOp::CopySign)),
             "is_val_statically_known" => return Some(Intrinsic::StaticallyKnown),
+            "typed_swap_nonoverlapping" => return Some(Intrinsic::Swap),
             _ => return None,
         }));
     }

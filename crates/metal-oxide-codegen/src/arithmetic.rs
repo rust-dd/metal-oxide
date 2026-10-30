@@ -5,16 +5,62 @@ use crate::expressions::scalar_name;
 pub(crate) fn integer_value(scalar: Scalar, value: &str) -> String {
     let name = scalar_name(scalar);
     if scalar.is_signed() {
-        let unsigned = match scalar.bits() {
-            8 => "uchar",
-            16 => "ushort",
-            32 => "uint",
-            64 => "ulong",
-            _ => unreachable!(),
-        };
-        format!("as_type<{name}>({unsigned}({value}))")
+        format!("as_type<{name}>({}({value}))", unsigned(scalar))
     } else {
         format!("{name}({value})")
+    }
+}
+
+/// The unsigned integer type as wide as `scalar`.
+fn unsigned(scalar: Scalar) -> &'static str {
+    match scalar.bits() {
+        8 => "uchar",
+        16 => "ushort",
+        32 => "uint",
+        64 => "ulong",
+        _ => unreachable!("integer width"),
+    }
+}
+
+/// `value`'s bits as `to`. An integer splits into array lanes from its low bits up, and an
+/// array of lanes joins in the same order.
+pub(crate) fn bitcast(module: &Module, value: &str, from: Type, to: Type) -> String {
+    let lanes = |id: usize| match module.types.get(id) {
+        Some(Aggregate::Array {
+            element: Type::Scalar(lane),
+            length,
+        }) => (*lane, *length),
+        _ => unreachable!("validated bitcast"),
+    };
+    match (from, to) {
+        (Type::Aggregate(id), Type::Scalar(scalar)) => {
+            let (lane, length) = lanes(id);
+            let wide = unsigned(scalar);
+            let parts = (0..length)
+                .map(|index| {
+                    let element = crate::expressions::aggregate_field(module, id, value, index);
+                    let shift = index * lane.bits();
+                    format!(
+                        "({wide}(as_type<{}>({element})) << {shift}u)",
+                        unsigned(lane)
+                    )
+                })
+                .collect::<Vec<_>>();
+            integer_value(scalar, &parts.join(" | "))
+        }
+        (Type::Scalar(scalar), Type::Aggregate(id)) => {
+            let (lane, length) = lanes(id);
+            let wide = unsigned(scalar);
+            let parts = (0..length)
+                .map(|index| {
+                    let shift = index * lane.bits();
+                    integer_value(lane, &format!("{wide}({value}) >> {shift}u"))
+                })
+                .collect::<Vec<_>>();
+            crate::expressions::aggregate_value(module, id, parts)
+        }
+        (_, Type::Scalar(scalar)) => format!("as_type<{}>({value})", scalar_name(scalar)),
+        _ => unreachable!("validated bitcast"),
     }
 }
 

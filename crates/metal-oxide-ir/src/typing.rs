@@ -128,14 +128,10 @@ pub fn expression_type(
             Ok(Type::Scalar(*to))
         }
         Expression::Bitcast(value, to) => {
-            if matches!(
-                ty(value)?,
-                Type::Scalar(from) if from.bits() == to.bits()
-                    && from != Scalar::Bool && *to != Scalar::Bool
-            ) {
-                Ok(Type::Scalar(*to))
+            if module.types.reinterprets(ty(value)?, *to) {
+                Ok(*to)
             } else {
-                Err(Error::new(source, "unsupported scalar bitcast"))
+                Err(Error::new(source, "unsupported bitcast"))
             }
         }
         Expression::Math { op, arguments } => {

@@ -9,7 +9,8 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 
 - Scalars: `bool`, `f32`, `F16`, `BF16`, 8/16/32-bit integers, `u64`, `i64`, `usize`
   and internal `isize`. Separate kernel crates can also use unstable primitive `f16`.
-- Integer powers, checked division/remainder, byte swaps, `cmp`/`partial_cmp`,
+- Integer powers, logarithms (`ilog`, `ilog2`, `ilog10`) and square roots, checked
+  division/remainder, byte swaps, `to_*_bytes`/`from_*_bytes`, `cmp`/`partial_cmp`,
   derived ordering and `signum`; integer and float `clamp`, plus `f32::copysign`,
   `signum` and `total_cmp`. Invalid clamp bounds remain checked, including NaN
   bounds on `f32`.
@@ -20,6 +21,8 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 - Concrete generic type/const instances, trait calls with a known implementation,
   closures and supported core iterators. Generic entrypoints declare their concrete
   `instances(...)`; lifetime parameters need no instance argument.
+- `mem::swap`, `ptr::swap`, slice `swap` and `reverse`, and transmutes between an integer
+  and an array of integers as wide, whose first element holds the low bits.
 - Checked slice indexing, assertions and literal panics. Checks that cannot be
   proved become GPU failure checks where participation permits them.
 - Math methods on `f32`, `F16` and `BF16` (see [Math](#math)), and exercised `libm` and

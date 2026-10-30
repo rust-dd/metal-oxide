@@ -314,6 +314,19 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             mir::TerminatorKind::Call {
                 func,
                 args,
+                target: Some(target),
+                ..
+            } if matches!(
+                self.callee(func, body, span)?.intrinsic,
+                Some(crate::intrinsics::Intrinsic::Swap)
+            ) =>
+            {
+                self.swap(&mut statements, args, span)?;
+                ir::Terminator::Goto(target.as_usize())
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
                 destination,
                 target: Some(target),
                 fn_span,
