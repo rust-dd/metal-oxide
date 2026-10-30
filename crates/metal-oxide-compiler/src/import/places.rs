@@ -104,9 +104,22 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     offset,
                     min_length,
                     from_end,
+                } if array.is_none() => ir::Projection::ConstantIndex {
+                    offset,
+                    min_length,
+                    from_end,
+                },
+                mir::ProjectionElem::Subslice {
+                    from,
+                    to,
+                    from_end: true,
+                } if array.is_none() => ir::Projection::Subslice { from, to },
+                mir::ProjectionElem::ConstantIndex {
+                    offset,
+                    min_length,
+                    from_end,
                 } => {
-                    let length =
-                        u64::from(array.ok_or((span, "slice patterns are unsupported".into()))?);
+                    let length = u64::from(array.expect("array pattern"));
                     if length < min_length {
                         return Err((span, "invalid constant array projection".into()));
                     }
@@ -135,8 +148,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                         _ => None,
                     }
                 }
-                (ir::Projection::Index(_), ir::Located::Elements(slice)) => {
-                    Some(ir::Located::Value(slice.target))
+                (
+                    ir::Projection::Index(_) | ir::Projection::ConstantIndex { .. },
+                    ir::Located::Elements(slice),
+                ) => Some(ir::Located::Value(slice.target)),
+                (ir::Projection::Subslice { .. }, located @ ir::Located::Elements(_)) => {
+                    Some(located)
                 }
                 (ir::Projection::Deref, ir::Located::Value(ty)) => {
                     table.pointer(ty).map(|pointer| {

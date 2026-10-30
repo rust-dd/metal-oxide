@@ -158,7 +158,7 @@
   {"message": "sin_cos requires an (f32, f32) result", "internal": "SinCos is built only for the __metal_sin_cos_f32 bridge, whose declaration signatures.rs checks to return (f32, f32), so its call destination lowers to and interns that tuple."},
   {"message": "slice elements are not one value", "internal": "MIR never copies or moves an unsized [T] place, element places reach only Ref (which accepts them) or index projections, and destinations go through typed_place, which rejects them itself (`a slice is not one value`)."},
   {"message": "slice index is not below a checked slice length", "fixture": "rejections/slice_index_through_reference.rs", "line": 9, "column": 37},
-  {"message": "slice patterns are unsupported", "fixture": "rejections/slice_pattern.rs", "line": 7, "column": 10},
+  {"message": "slice pattern length is not checked", "internal": "MIR projects a slice pattern's elements only in the arm that its length test selects, and that test bounds the slice length from below by the pattern's minimum length."},
   {"message": "slices are indexed by usize ranges", "fixture": "rejections/inclusive_subslice.rs", "line": 6, "column": 33},
   {"message": "slices require an array or buffer", "fixture": "rejections/empty_array_into_slice_field.rs", "line": 13, "column": 5},
   {"message": "subslice bounds are not checked", "internal": "Subslices come only from the importer's range-index expansion, which first asserts start <= end <= len on the same operands, and from the ChunksExact expansion guarded by size <= len."},

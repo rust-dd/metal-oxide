@@ -128,9 +128,12 @@ fn dynamic_operand(operand: &Operand) -> bool {
     matches!(operand, Operand::Place(place) if dynamic(place))
 }
 
+/// Whether `place` has an index or slice pattern projection, whose bounds need a proof.
 fn dynamic(place: &Place) -> bool {
-    place
-        .projection
-        .iter()
-        .any(|p| matches!(p, Projection::Index(_)))
+    place.projection.iter().any(|p| {
+        matches!(
+            p,
+            Projection::Index(_) | Projection::ConstantIndex { .. } | Projection::Subslice { .. }
+        )
+    })
 }

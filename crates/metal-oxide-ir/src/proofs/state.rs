@@ -121,6 +121,12 @@ impl<'a> State<'a> {
                 Projection::Index(index) => Projection::Field(
                     u32::try_from(self.range(&Place::local(index))?.singleton()?).ok()?,
                 ),
+                Projection::ConstantIndex {
+                    offset,
+                    from_end: false,
+                    ..
+                } => Projection::Field(u32::try_from(offset).ok()?),
+                Projection::ConstantIndex { .. } | Projection::Subslice { .. } => return None,
                 Projection::Deref
                     if position == 0
                         && (self.shared(place.local)
@@ -264,7 +270,9 @@ impl<'a> State<'a> {
                                     .map(|p| match p {
                                         Projection::Field(index) => *index,
                                         Projection::Deref => REFERENT,
-                                        Projection::Index(_) => unreachable!(),
+                                        Projection::Index(_)
+                                        | Projection::ConstantIndex { .. }
+                                        | Projection::Subslice { .. } => unreachable!(),
                                     })
                                     .collect(),
                                 range.clone(),
@@ -304,7 +312,14 @@ impl<'a> State<'a> {
             p.projection.truncate(
                 p.projection
                     .iter()
-                    .position(|v| matches!(v, Projection::Index(_)))
+                    .position(|v| {
+                        matches!(
+                            v,
+                            Projection::Index(_)
+                                | Projection::ConstantIndex { .. }
+                                | Projection::Subslice { .. }
+                        )
+                    })
                     .unwrap(),
             );
             p

@@ -48,6 +48,14 @@ pub(super) fn place(
                 }
                 Located::Value(slice.target)
             }
+            (Projection::ConstantIndex { min_length, .. }, Located::Elements(slice)) => {
+                pattern(state, place, position, min_length, source)?;
+                Located::Value(slice.target)
+            }
+            (Projection::Subslice { from, to }, Located::Elements(slice)) => {
+                pattern(state, place, position, from + to, source)?;
+                Located::Elements(slice)
+            }
             (Projection::Deref, Located::Value(ty)) => {
                 let pointer = types.pointer(ty).unwrap();
                 if pointer.slice {
@@ -60,6 +68,26 @@ pub(super) fn place(
         };
     }
     Ok(())
+}
+
+/// Requires the slice dereferenced before `position` to hold at least `length` elements, as the
+/// length test of its slice pattern establishes.
+fn pattern(
+    state: &State<'_>,
+    place: &Place,
+    position: usize,
+    length: u64,
+    source: &SourceLocation,
+) -> Result<(), Error> {
+    let slice = Place {
+        local: place.local,
+        projection: place.projection[..position - 1].to_vec(),
+    };
+    if state.bounded(&Atom::Integer(i128::from(length)), Comparison::Le, &slice) {
+        Ok(())
+    } else {
+        Err(Error::new(source, "slice pattern length is not checked"))
+    }
 }
 
 pub(super) fn division(

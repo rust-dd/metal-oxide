@@ -153,6 +153,31 @@ pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> Stri
                 format!("{result}.data[v{index}]"),
                 Located::Value(slice.target),
             ),
+            (
+                Projection::ConstantIndex {
+                    offset, from_end, ..
+                },
+                Located::Elements(slice),
+            ) => (
+                if from_end {
+                    format!("{result}.data[{result}.length - {offset}ul]")
+                } else {
+                    format!("{result}.data[{offset}ul]")
+                },
+                Located::Value(slice.target),
+            ),
+            (Projection::Subslice { from, to }, Located::Elements(slice)) => {
+                let Some(Type::Pointer(pointer)) = module.types.find_pointer(slice) else {
+                    unreachable!("validated slice")
+                };
+                (
+                    format!(
+                        "metal_oxide_pointer_{pointer}{{{result}.data + {from}ul, {result}.length - {}ul}}",
+                        from + to
+                    ),
+                    Located::Elements(slice),
+                )
+            }
             (Projection::Deref, Located::Value(ty)) => {
                 let pointer = module.types.pointer(ty).unwrap();
                 if pointer.slice {
@@ -450,19 +475,12 @@ fn reference(
     source: &SourceLocation,
 ) -> Result<String, Error> {
     let emitted = place(module, function, target);
-    if !matches!(
-        place_info(module, function, target, source)?.located,
-        Located::Elements(_)
-    ) {
+    let Located::Elements(elements) = place_info(module, function, target, source)?.located else {
         return Ok(format!("&{emitted}"));
-    }
-    let pointer = result_pointer(module, function, value, source)?;
-    let slice = Place {
-        local: target.local,
-        projection: target.projection[..target.projection.len() - 1].to_vec(),
     };
+    let pointer = result_pointer(module, function, value, source)?;
     Ok(
-        if place_type(module, function, &slice, source)? == Type::Pointer(pointer) {
+        if module.types.find_pointer(elements) == Some(Type::Pointer(pointer)) {
             emitted
         } else {
             format!("metal_oxide_pointer_{pointer}{{{emitted}.data, {emitted}.length}}")

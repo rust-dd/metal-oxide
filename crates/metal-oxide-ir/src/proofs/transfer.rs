@@ -74,6 +74,21 @@ impl Analysis<'_> {
             Expression::Ref {
                 place: Operand::Place(place),
                 ..
+            } if matches!(place.projection.last(), Some(Projection::Subslice { .. })) => {
+                let Some(&Projection::Subslice { from, to }) = place.projection.last() else {
+                    unreachable!()
+                };
+                let mut slice = place.clone();
+                slice.projection.truncate(slice.projection.len() - 2);
+                if let Some(length) = state.length_range(&slice) {
+                    let removed = i128::from(from + to);
+                    let length = Range::new((length.lo - removed).max(0), length.hi - removed);
+                    state.extent_range(&statement.destination, length);
+                }
+            }
+            Expression::Ref {
+                place: Operand::Place(place),
+                ..
             } if place.projection.last() == Some(&Projection::Deref) => {
                 let mut slice = place.clone();
                 slice.projection.pop();

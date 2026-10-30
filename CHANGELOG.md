@@ -16,6 +16,8 @@
   `from_*` counterparts; `mem::swap`, `ptr::swap`, `ptr::copy_nonoverlapping`, and slice
   `swap`, `reverse` and `copy_from_slice`. `==` and `starts_with` work on arrays and
   slices of integers: core's bytewise comparisons run element by element.
+- Slice patterns, rest bindings included, and `first`, `last`, `split_first` and
+  `split_last` on slices. The prover checks each pattern's length test.
   Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed

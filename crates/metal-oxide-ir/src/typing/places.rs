@@ -33,12 +33,16 @@ pub fn place_info(
         space: AddressSpace::Thread,
         writable: true,
     };
-    for projection in &place.projection {
+    for (position, projection) in place.projection.iter().enumerate() {
         let invalid = match projection {
             Projection::Field(_) => "invalid aggregate field projection",
             Projection::Index(_) => "invalid array or slice index projection",
             Projection::Deref => "dereference requires a pointer",
+            Projection::ConstantIndex { .. } | Projection::Subslice { .. } => {
+                "slice patterns apply to a dereferenced slice"
+            }
         };
+        let dereferenced = position > 0 && place.projection[position - 1] == Projection::Deref;
         info.located = match (*projection, info.located) {
             (Projection::Field(field), Located::Value(ty)) => {
                 module.types.field(ty, field).map(Located::Value)
@@ -55,6 +59,12 @@ pub fn place_info(
                     Located::Elements(slice) => Some(Located::Value(slice.target)),
                     Located::Value(_) => None,
                 }
+            }
+            (Projection::ConstantIndex { .. }, Located::Elements(slice)) if dereferenced => {
+                Some(Located::Value(slice.target))
+            }
+            (Projection::Subslice { .. }, Located::Elements(slice)) if dereferenced => {
+                Some(Located::Elements(slice))
             }
             (Projection::Deref, Located::Value(ty)) => module.types.pointer(ty).map(|pointer| {
                 info.space = pointer.space;

@@ -135,3 +135,58 @@ fn array_and_slice_equality_match_rust() -> metal_oxide::Result<()> {
     }
     Ok(())
 }
+
+fn patterns((values, n): ([u32; 6], u32)) -> [u32; 8] {
+    let n = n as usize % 7;
+    let slice = &values[..n];
+    let device = &values[n..];
+    let mut local = values;
+    if let Some(first) = local[..n].first_mut() {
+        *first += 100;
+    }
+    [
+        slice.first().map_or(99, |x| *x),
+        slice.last().map_or(99, |x| *x),
+        slice
+            .split_first()
+            .map_or(99, |(x, rest)| x * 10 + rest.len() as u32),
+        slice
+            .split_last()
+            .map_or(99, |(x, rest)| x * 10 + rest.len() as u32),
+        match slice {
+            [] => 1,
+            [x] => *x,
+            [x, y] => x + y,
+            [x, .., y] => x * y,
+        },
+        match device {
+            [a, b, rest @ ..] => a + b + rest.len() as u32,
+            [a] => *a,
+            [] => 0,
+        },
+        match device {
+            [.., x, y] => x ^ y,
+            _ => 0,
+        },
+        local[0],
+    ]
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn slice_patterns_and_their_core_methods_match_rust() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let cases = (0..21_u32)
+        .map(|case| {
+            (
+                core::array::from_fn::<u32, 6, _>(|k| case * 16 + k as u32 + 1),
+                case,
+            )
+        })
+        .collect::<Vec<_>>();
+    let output = run::<_, [u32; 8]>(&device, "patterns", &cases)?;
+    for (&case, actual) in cases.iter().zip(&output) {
+        assert_eq!(*actual, patterns(case), "{case:?}");
+    }
+    Ok(())
+}

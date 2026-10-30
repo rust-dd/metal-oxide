@@ -50,3 +50,40 @@ pub fn compared(input: ReadBuffer<([u32; 4], [u32; 4], u32)>, mut output: Disjoi
         ];
     }
 }
+
+#[kernel(requires(input.len() == output.len()))]
+pub fn patterns(input: ReadBuffer<([u32; 6], u32)>, mut output: DisjointBuffer<[u32; 8]>) {
+    let index = thread_index();
+    if let Some(output) = output.get_mut(&index) {
+        let (values, n) = input.as_slice()[index.get()];
+        let n = n as usize % 7;
+        let slice = &values[..n];
+        let device = &input.as_slice()[index.get()].0[n..];
+        let mut local = values;
+        if let Some(first) = local[..n].first_mut() {
+            *first += 100;
+        }
+        *output = [
+            slice.first().map_or(99, |x| *x),
+            slice.last().map_or(99, |x| *x),
+            slice.split_first().map_or(99, |(x, rest)| x * 10 + rest.len() as u32),
+            slice.split_last().map_or(99, |(x, rest)| x * 10 + rest.len() as u32),
+            match slice {
+                [] => 1,
+                [x] => *x,
+                [x, y] => x + y,
+                [x, .., y] => x * y,
+            },
+            match device {
+                [a, b, rest @ ..] => a + b + rest.len() as u32,
+                [a] => *a,
+                [] => 0,
+            },
+            match device {
+                [.., x, y] => x ^ y,
+                _ => 0,
+            },
+            local[0],
+        ];
+    }
+}

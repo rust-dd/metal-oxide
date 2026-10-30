@@ -120,6 +120,18 @@ pub enum Projection {
     Index(usize),
     /// The value a reference points to, or the elements of a slice.
     Deref,
+    /// A slice element that a slice pattern binds, `offset` from the start or, `from_end`, the
+    /// element `offset` before the end; the pattern applies to slices of `min_length` or more.
+    ConstantIndex {
+        offset: u64,
+        min_length: u64,
+        from_end: bool,
+    },
+    /// The elements of a slice without its first `from` and last `to`, a rest pattern's binding.
+    Subslice {
+        from: u64,
+        to: u64,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
