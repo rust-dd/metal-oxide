@@ -248,7 +248,7 @@ fn values(x: f32, y: f32) -> [f32; 8] {
     .map(|v| v as f32)
 }
 
-fn flush(value: f32) -> f32 {
+pub(super) fn flush(value: f32) -> f32 {
     if value.is_subnormal() {
         f32::from_bits(value.to_bits() & 0x80000000)
     } else {
@@ -256,11 +256,11 @@ fn flush(value: f32) -> f32 {
     }
 }
 
-fn same_bits_or_nan(actual: f32, expected: f32) -> bool {
+pub(super) fn same_bits_or_nan(actual: f32, expected: f32) -> bool {
     actual.to_bits() == expected.to_bits() || (actual.is_nan() && expected.is_nan())
 }
 
-fn matches(actual: f32, expected: f32, ulps: u32) -> bool {
+pub(super) fn matches(actual: f32, expected: f32, ulps: u32) -> bool {
     if same_bits_or_nan(actual, expected) || same_bits_or_nan(actual, flush(expected)) {
         return true;
     }

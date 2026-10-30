@@ -1,4 +1,4 @@
-use metal_oxide_device::{ReadBuffer, WriteBuffer, kernel, math};
+use metal_oxide_device::{Float, ReadBuffer, WriteBuffer, kernel};
 
 // Device control flow uses scalar comparisons; borrowed range methods are unsupported.
 #[allow(clippy::manual_range_contains)]
@@ -31,7 +31,7 @@ fn evaluate(program: ReadBuffer<f32>, len: u32, curve: f32, state: f32) -> f32 {
                 4 => a - b,
                 5 => a * b,
                 6 => a / b,
-                7 => math::powf(a, b),
+                7 => a.powf(b),
                 8 => {
                     if a > b {
                         a
@@ -52,9 +52,9 @@ fn evaluate(program: ReadBuffer<f32>, len: u32, curve: f32, state: f32) -> f32 {
             let value = stack[(depth - 1) as usize];
             stack[(depth - 1) as usize] = match code {
                 10 => -value,
-                11 => math::sqrt(value),
-                12 => math::exp(value),
-                13 => math::ln(value),
+                11 => value.sqrt(),
+                12 => value.exp(),
+                13 => value.ln(),
                 14 => {
                     if value < 0.0 {
                         -value
@@ -62,7 +62,7 @@ fn evaluate(program: ReadBuffer<f32>, len: u32, curve: f32, state: f32) -> f32 {
                         value
                     }
                 }
-                _ => math::tanh(value),
+                _ => value.tanh(),
             };
         } else {
             return f32::NAN;

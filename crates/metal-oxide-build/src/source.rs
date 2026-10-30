@@ -25,6 +25,9 @@ type Position = (usize, usize);
 /// module.
 const MACROS: &str = "\n#[macro_use]\nextern crate metal_oxide;\n";
 const PRELUDE: &str = "#[allow(unused_imports)]\nuse metal_oxide::device::*;\n";
+/// Inserted before a `#[kernels]` module's closing brace: the host resolves `f32` methods to
+/// std, where an import of the trait in the module would be unused.
+const MODULE_PRELUDE: &str = "use ::metal_oxide::device::Float as _; ";
 
 /// Kernels that a `#[kernel]` function or a `#[kernels]` module writes in a host crate.
 ///
@@ -43,7 +46,8 @@ pub struct SourceKernels {
     pub hole: Option<(Position, Position)>,
     /// The item's name, which keeps one device crate per item.
     pub item: String,
-    /// Appends `use metal_oxide::device::*;` for a kernel written outside a module.
+    /// Appends `use metal_oxide::device::*;` for a kernel written outside a module; a module
+    /// gets only the `Float` trait.
     pub prelude: bool,
     pub math_mode: MathMode,
     /// Crates besides the device API that the kernels use, as code names them, from the
@@ -68,6 +72,12 @@ impl SourceKernels {
         let original = std::fs::read_to_string(&path)?;
         let modules = modules::enclosing(&original, self.start);
         let mut text = blank(&original, (self.start, self.end), self.hole);
+        if !self.prelude {
+            let close = text
+                .rfind('}')
+                .ok_or("a `#[kernels]` module ends with its brace")?;
+            text.insert_str(close, MODULE_PRELUDE);
+        }
         text.push_str(MACROS);
         if self.prelude {
             text.push_str(PRELUDE);

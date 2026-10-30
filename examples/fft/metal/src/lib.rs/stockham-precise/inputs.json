@@ -1,8 +1,8 @@
 {
   "format": 4,
-  "artifact": "1c6d0e713864aa538400ed2654bf196dcfae9e041f2d72bdda39d9bb103dce97",
+  "artifact": "bce620400a321e15ae0093e1a701ebdedbdc44af3ec9329a6263dc728304e13e",
   "request": {
-    "source": "e10d94a721088ac5dd992c0a9919eb135920aded049bb57a4fff4e203a3f3422",
+    "source": "700c6ee2787e1f4778234a0f87f332135648f3b11e6193e255516479525734a6",
     "math_mode": "precise",
     "debug_info": false
   },
@@ -22,15 +22,15 @@
   "files": {
     "../../crates/metal-oxide-device/Cargo.toml": "7523f6e0aaef35d260c41412a987e850d0369be0cb2673c89ae1e6c632c6eac5",
     "../../crates/metal-oxide-device/src/atomic.rs": "32882001fe917362fe972135cef7c4fc2b861658fb54f50cea58a54472385d0a",
-    "../../crates/metal-oxide-device/src/bfloat.rs": "50564ed800dc9cd397b4815756a0072ccd25f23c36f82d3153a24d0b3cb6bcf6",
+    "../../crates/metal-oxide-device/src/bfloat.rs": "17070dadb084968b1775dc51a883322dd2575a3084c8d17c223bb079911d89f0",
     "../../crates/metal-oxide-device/src/bfloat/ops.rs": "910d3f1ee13279239527f275f1ace3ebc78c7ff7e172f1f6e8f8a375216e1d91",
     "../../crates/metal-oxide-device/src/buffer.rs": "fd91ef79f87db2e05fa8810576d6a866969e28982a3afc0cedda7f8272419656",
-    "../../crates/metal-oxide-device/src/half.rs": "5f91e839c2b54189f7f99c1039a229f1ad694c18d4b275ac1fe35f50105c05d3",
+    "../../crates/metal-oxide-device/src/half.rs": "0b7ad06c27a35a5f01bff05acf8a01b3c92f946861c275cfea44ff0c1aaba6bf",
     "../../crates/metal-oxide-device/src/half/ops.rs": "42b5a68831806c87bbe0fd39e74ad272060afbf07f8e89fd5d07d9f105a4d527",
-    "../../crates/metal-oxide-device/src/intrinsics.rs": "571aa2c7b2fa49721f199e5968cceafdc68d41f326d4b9ea9370d11166129852",
-    "../../crates/metal-oxide-device/src/lib.rs": "5b32b465f683a5b996081ad666e367a49518b73a07a4a1a95289697eb1909f83",
+    "../../crates/metal-oxide-device/src/intrinsics.rs": "698806bc67943dd28f08a5c52b05cff8968bdea34b0377d8090a62fbc944aa0b",
+    "../../crates/metal-oxide-device/src/lib.rs": "3cda03bdfbf03b0e1e4870fedf00715971241bc319919cab4e668ece9882dabc",
     "../../crates/metal-oxide-device/src/log.rs": "ff6fc43441069afc45ef4bde4d2e5f5e6a84cbbb3f5328bc7f921539b30b0a74",
-    "../../crates/metal-oxide-device/src/math.rs": "92bc300493787b9ea511bc2c890a5eef84e5a805272eb12f092f7dbcfb4aef4f",
+    "../../crates/metal-oxide-device/src/math.rs": "211c24aad625d2c35f60206fdb31fee06ab3849ca025e03233ca7355596be8c5",
     "../../crates/metal-oxide-device/src/matrix.rs": "9a2935ad42e0288f5e218963a2bd591f0f124a96f82539dc1df1ba7298d47740",
     "../../crates/metal-oxide-device/src/simdgroup.rs": "dcc0a12783cc75c0704422b00b5ae21044899dabd33d971b9d916d0bed0159c7",
     "../../crates/metal-oxide-device/src/thread.rs": "f5889baf70747a10160a623648c0d3e87a5d12032d840dd8b756aa465e8ad17a",

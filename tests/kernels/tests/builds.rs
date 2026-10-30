@@ -80,7 +80,7 @@ fn unchanged_kernels_reuse_their_artifact_and_edits_or_damage_rebuild() {
 fn math_modes_build_separate_artifacts() {
     let module = |mode: &str| {
         format!(
-            "mod {mode} {{\n    use metal_oxide::device::*;\n    #[kernel]\n    pub fn root(mut out: DisjointBuffer<f32>) {{\n        let index = thread_index();\n        if let Some(out) = out.get_mut(&index) {{\n            *out = math::sqrt(index.get() as f32);\n        }}\n    }}\n}}\n"
+            "mod {mode} {{\n    use metal_oxide::device::*;\n    #[kernel]\n    pub fn root(mut out: DisjointBuffer<f32>) {{\n        let index = thread_index();\n        if let Some(out) = out.get_mut(&index) {{\n            *out = (index.get() as f32).sqrt();\n        }}\n    }}\n}}\n"
         )
     };
     let main = format!(

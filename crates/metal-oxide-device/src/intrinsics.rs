@@ -64,6 +64,14 @@ intrinsics! {
     safe fn __metal_round_f32(value: f32) -> f32;
     safe fn __metal_ceil_f32(value: f32) -> f32;
     safe fn __metal_trunc_f32(value: f32) -> f32;
+    safe fn __metal_exp2_f32(value: f32) -> f32;
+    safe fn __metal_log2_f32(value: f32) -> f32;
+    safe fn __metal_log10_f32(value: f32) -> f32;
+    safe fn __metal_tan_f32(value: f32) -> f32;
+    safe fn __metal_asin_f32(value: f32) -> f32;
+    safe fn __metal_acos_f32(value: f32) -> f32;
+    safe fn __metal_atan2_f32(y: f32, x: f32) -> f32;
+    safe fn __metal_rsqrt_f32(value: f32) -> f32;
     safe fn __metal_f16_from_f32(value: f32) -> F16;
     safe fn __metal_f16_to_f32(value: F16) -> f32;
     safe fn __metal_f16_add(a: F16, b: F16) -> F16;

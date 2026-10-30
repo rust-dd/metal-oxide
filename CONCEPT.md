@@ -113,13 +113,20 @@ wrappers and calls. The importer checks the declaration's crate, module, and
 signature through its resolved `DefId`, then emits the corresponding IR
 operation. On the host, where kernels are only checked, these functions panic.
 
-The device `math` module provides f32 `sqrt`, `fma`, `ln`, `exp`, `sin`,
-`cos`, `sin_cos`, `powf`, `tanh`, `atan`, `floor`, `round`, `ceil`, and `trunc`.
-Angles are radians; `ln` is natural log and `powf` takes a floating exponent.
-`sin_cos` returns both values from one Metal `sincos` call. Transcendental results follow Metal's
-precise accuracy bounds by default. Subnormal arithmetic may flush to zero;
-arithmetic NaN payloads are unspecified. Default compilation keeps safe math
-and disables implicit contraction. `fma` requests fusion explicitly.
+The device `Float` trait gives `f32`, `F16` and `BF16` the math methods of Rust's `f32`
+that `core` lacks, with the same names and signatures: `x.sqrt()`, `a.mul_add(b, c)`,
+`x.sin_cos()`, `y.atan2(x)` and so on, plus `rsqrt`. Kernels in host crates have it in
+scope: standalone kernels through the device prelude, `#[kernels]` modules through an
+anonymous import that the device build inserts before the module's closing brace. The host
+build resolves those calls to std's own methods, where an import of the trait would be
+unused. Separate kernel crates import `Float`.
+
+Each method lowers to one Metal function, except `powi`, which repeats compiler-rt's
+squaring loop, and `hypot`, which scales by the larger leg. `F16` and `BF16` compute in f32
+and round once. `sin_cos` returns both values from one Metal `sincos` call.
+Transcendental results follow Metal's precise accuracy bounds by default. Subnormal
+arithmetic may flush to zero; arithmetic NaN payloads are unspecified. Default compilation
+keeps safe math and disables implicit contraction. `mul_add` requests fusion explicitly.
 
 Generic buffer and threadgroup methods adapt concrete Rust type/const arguments
 to the memory declarations. The importer lowers these device adapters directly

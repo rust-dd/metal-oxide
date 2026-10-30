@@ -6,7 +6,7 @@ mod buffer;
 mod half;
 mod intrinsics;
 pub mod log;
-pub mod math;
+mod math;
 mod matrix;
 pub mod simdgroup;
 mod thread;
@@ -18,6 +18,7 @@ pub use atomic::{AtomicBuffer, AtomicThreadgroupBuffer};
 pub use bfloat::BF16;
 pub use buffer::{DisjointBuffer, ReadBuffer, ReadWriteBuffer, WriteBuffer};
 pub use half::F16;
+pub use math::Float;
 pub use metal_oxide_macros::kernel;
 pub use thread::{
     Dim3, ThreadIndex, block_dim, block_idx, grid_dim, thread_idx, thread_index, uninit_array,

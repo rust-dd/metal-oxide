@@ -25,6 +25,21 @@ impl F16 {
     pub fn to_f32(self) -> f32 {
         crate::intrinsics::__metal_f16_to_f32(self)
     }
+
+    /// The absolute value, which clears the sign bit, also of NaN.
+    pub const fn abs(self) -> Self {
+        Self::from_bits(self.to_bits() & 0x7fff)
+    }
+
+    /// The smaller value; a NaN operand gives the other one, as `f32::min` does.
+    pub fn min(self, other: Self) -> Self {
+        Self::from_f32(self.to_f32().min(other.to_f32()))
+    }
+
+    /// The larger value; a NaN operand gives the other one, as `f32::max` does.
+    pub fn max(self, other: Self) -> Self {
+        Self::from_f32(self.to_f32().max(other.to_f32()))
+    }
 }
 
 mod ops;

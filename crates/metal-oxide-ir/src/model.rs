@@ -212,6 +212,15 @@ pub enum MathOp {
     Round,
     Ceil,
     Trunc,
+    Exp2,
+    Log2,
+    Log10,
+    Tan,
+    Asin,
+    Acos,
+    /// `atan2(y, x)` with the arguments in that order.
+    Atan2,
+    Rsqrt,
     /// Returns the `(sin, cos)` tuple of one argument.
     SinCos,
 }
@@ -231,8 +240,15 @@ impl MathOp {
             | Self::Floor
             | Self::Round
             | Self::Ceil
-            | Self::Trunc => 1,
-            Self::Min | Self::Max | Self::CopySign | Self::Powf => 2,
+            | Self::Trunc
+            | Self::Exp2
+            | Self::Log2
+            | Self::Log10
+            | Self::Tan
+            | Self::Asin
+            | Self::Acos
+            | Self::Rsqrt => 1,
+            Self::Min | Self::Max | Self::CopySign | Self::Powf | Self::Atan2 => 2,
             Self::Fma => 3,
         }
     }

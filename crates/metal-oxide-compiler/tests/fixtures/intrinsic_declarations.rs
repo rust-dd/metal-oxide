@@ -2,7 +2,7 @@
 use core::sync::atomic::Ordering::Relaxed;
 
 use metal_oxide_device::{
-    AtomicBuffer, F16, ReadBuffer, WriteBuffer, block_dim, block_idx, grid_dim, kernel, math,
+    AtomicBuffer, F16, Float, ReadBuffer, WriteBuffer, block_dim, block_idx, grid_dim, kernel,
     simdgroup, thread_idx, threadgroup, uninit_array,
 };
 
@@ -17,8 +17,8 @@ pub unsafe fn declarations(input: ReadBuffer<f32>, out: WriteBuffer<f32>, n: u32
         unsafe {
             let mut pair = uninit_array::<f32, 2>();
             pair[0] = input.load_unchecked(i);
-            let half = F16::from_f32(math::sqrt(pair[0]));
-            out.store_unchecked(i, math::fma(half.to_f32(), 2.0, groups as f32));
+            let half = F16::from_f32(pair[0].sqrt());
+            out.store_unchecked(i, half.to_f32().mul_add(2.0, groups as f32));
         }
     }
 }

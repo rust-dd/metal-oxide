@@ -1,12 +1,12 @@
 #![no_std]
 
 use metal_oxide_device::{
-    F16, WriteBuffer, block_dim, block_idx, grid_dim, kernel, math, simdgroup, thread_idx,
+    F16, Float, WriteBuffer, block_dim, block_idx, grid_dim, kernel, simdgroup, thread_idx,
     threadgroup,
 };
 
 fn root(value: f32) -> f32 {
-    math::sqrt(value)
+    value.sqrt()
 }
 
 #[kernel(block = (32, 1, 1))]
@@ -34,7 +34,7 @@ pub unsafe fn uniform_intrinsics(output: WriteBuffer<u32>, value: f32) {
         if root(value) == 2.0 {
             threadgroup::barrier();
         }
-        if math::fma(value, 1.0, 0.0) == 4.0 {
+        if value.mul_add(1.0, 0.0) == 4.0 {
             threadgroup::barrier();
         }
         if F16::from_f32(value).to_f32() == value {

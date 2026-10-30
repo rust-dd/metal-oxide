@@ -6,7 +6,7 @@
 #[metal_oxide::kernels(math = "precise")]
 pub mod stockham {
     use core::f32::consts::PI;
-    use metal_oxide::device::{ReadBuffer, WriteBuffer, block_idx, math, thread_idx};
+    use metal_oxide::device::{ReadBuffer, WriteBuffer, block_idx, thread_idx};
 
     /// Butterflies per block, one for each thread.
     pub const BLOCK: u32 = 256;
@@ -28,7 +28,7 @@ pub mod stockham {
         if butterfly < half {
             let row = block_idx().y * n;
             let j = butterfly & (half_span - 1);
-            let (sin, cos) = math::sin_cos(-2.0 * PI * j as f32 / (half_span << 1) as f32);
+            let (sin, cos) = (-2.0 * PI * j as f32 / (half_span << 1) as f32).sin_cos();
             let (input, output) = (row + butterfly, row + (butterfly << 1) - j);
             // SAFETY: with powers of two, the inputs and outputs lie in the butterfly's row; only
             // this butterfly writes these outputs, and nothing else accesses the buffers.

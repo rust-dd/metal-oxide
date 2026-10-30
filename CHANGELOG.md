@@ -4,10 +4,16 @@
 
 ### Added
 
+- Kernels call math with Rust's method syntax, such as `x.sqrt()`, `a.mul_add(b, c)` and
+  `y.atan2(x)`, through the device `Float` trait for `f32`, `F16` and `BF16`. New methods:
+  `exp2`, `log2`, `log10`, `tan`, `asin`, `acos`, `atan2`, `hypot`, `rsqrt` and `powi`.
+  `F16` and `BF16` also have `abs`, `min` and `max`.
 - `Abi::minimum_macos` returns the oldest macOS that runs an artifact's kernels.
 
 ### Changed
 
+- The device `math` module is removed; its functions are `Float` methods with std's names,
+  and `math::fma(a, b, c)` is `a.mul_add(b, c)`.
 - Saved artifacts change only with their kernels or recorded inputs. Another compiler
   build, machine or Metal toolchain that produces the same kernels leaves `metal/`
   unchanged. Manifests name the metal-oxide compiler version instead of a compiler
@@ -38,6 +44,9 @@
   regenerated `metal/` directories; locked and toolchain-less builds report format 3
   artifacts as unsupported until then.
 - `metal_oxide_build::KernelCrate` takes the module's `location` instead of its `file`.
+- Replace `math::sqrt(x)` with `x.sqrt()`, `math::fma(a, b, c)` with `a.mul_add(b, c)` and
+  the other functions likewise. Kernel crates import `metal_oxide_device::Float`; kernels in
+  host crates need no import.
 
 ## 0.1.0-alpha.1
 

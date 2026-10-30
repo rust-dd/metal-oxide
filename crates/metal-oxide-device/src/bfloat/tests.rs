@@ -54,3 +54,12 @@ fn compare(lhs: u16, rhs: u16) {
         "BF16 comparison {lhs:#06x} with {rhs:#06x}"
     );
 }
+
+#[test]
+fn abs_clears_only_the_sign_bit_of_every_value() {
+    const ABS: u16 = BF16::from_bits(0x8000).abs().to_bits();
+    assert_eq!(ABS, 0);
+    for bits in 0..=u16::MAX {
+        assert_eq!(BF16::from_bits(bits).abs().to_bits(), bits & 0x7fff);
+    }
+}

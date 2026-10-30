@@ -1,9 +1,9 @@
 #![no_std]
 
-use metal_oxide_device::{kernel, math, thread_idx, threadgroup};
+use metal_oxide_device::{Float, kernel, thread_idx, threadgroup};
 
 fn root(value: f32) -> f32 {
-    math::sqrt(value)
+    value.sqrt()
 }
 
 fn lane_value() -> f32 {

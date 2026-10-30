@@ -65,6 +65,14 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         MathOp::Round => "round",
         MathOp::Ceil => "ceil",
         MathOp::Trunc => "trunc",
+        MathOp::Exp2 => "exp2",
+        MathOp::Log2 => "log2",
+        MathOp::Log10 => "log10",
+        MathOp::Tan => "tan",
+        MathOp::Asin => "asin",
+        MathOp::Acos => "acos",
+        MathOp::Atan2 => "atan2",
+        MathOp::Rsqrt => "rsqrt",
         MathOp::Abs | MathOp::CopySign | MathOp::SinCos => unreachable!(),
     };
     let namespace = if matches!(
@@ -85,8 +93,10 @@ pub(crate) fn math(op: MathOp, values: Vec<String>, math_mode: MathMode) -> Stri
         }
     };
     let result = format!("{namespace}{name}({})", values.join(", "));
-    if matches!(op, MathOp::Atan | MathOp::Round) && math_mode == MathMode::Precise {
-        // Metal's precise atan and round can discard negative zero, including flushed inputs.
+    if matches!(op, MathOp::Atan | MathOp::Atan2 | MathOp::Round) && math_mode == MathMode::Precise
+    {
+        // Metal's precise atan, atan2 and round can discard negative zero, including flushed
+        // results; each result has its first argument's sign.
         format!("copysign({result}, {})", values[0])
     } else {
         result

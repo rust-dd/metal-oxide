@@ -16,6 +16,16 @@ pub fn twice(a: ReadBuffer<u32>, mut out: DisjointBuffer<u32>) {
     }
 }
 
+/// Math methods resolve to std on the host and to the device trait in the kernel build.
+#[metal_oxide::kernel(requires(sides.len() == out.len()))]
+pub fn hypotenuse(sides: ReadBuffer<f32>, mut out: DisjointBuffer<f32>) {
+    let index = thread_index();
+    if let Some(out) = out.get_mut(&index) {
+        let side = sides.as_slice()[index.get()];
+        *out = side.hypot(4.0) + side.mul_add(2.0, 1.0).sqrt();
+    }
+}
+
 #[metal_oxide::kernels]
 mod bodies {
     use metal_oxide::device::*;
@@ -52,6 +62,13 @@ fn main() -> metal_oxide::Result<()> {
     let short = device.buffer_zeroed::<u32>(2)?;
     let violated = twice(&device, LaunchConfig::<64>::for_elements(3)?, &short, &mut out).wait();
     assert!(matches!(violated, Err(metal_oxide::Error::Contract { .. })));
+
+    let sides = device.buffer_from_slice(&[3.0_f32, 0.0])?;
+    let mut lengths = device.buffer_zeroed::<f32>(2)?;
+    hypotenuse(&device, LaunchConfig::<64>::for_elements(2)?, &sides, &mut lengths).wait()?;
+    for (length, expected) in lengths.read().wait().iter().zip([5.0 + 7.0_f32.sqrt(), 5.0]) {
+        assert!((length - expected).abs() <= 1e-6, "{length} != {expected}");
+    }
 
     let body = bodies::Body { mass: 1.0, position: [0.0, 0.0] };
     let mut all = device.buffer_from_slice(&[body; 5])?;

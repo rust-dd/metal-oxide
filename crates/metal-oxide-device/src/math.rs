@@ -1,97 +1,234 @@
-//! f32 device math. These functions have no native CPU implementation.
-//!
-//! Subnormal inputs and outputs may be flushed to signed zero. Arithmetic NaN
-//! payloads and signaling behavior are unspecified. The documented edge cases
-//! apply to the default precise mode, with Metal's precise accuracy bounds.
-//!
-//! `#[kernels(math = "fast")]` selects Metal's fast
-//! math functions and permits reassociation, reciprocal approximations and
-//! contraction. Zero signs and the precise edge cases below are not guaranteed
-//! in that mode. Arithmetic still honors NaN and infinity, and float-to-integer
-//! casts still saturate, mapping NaN to zero.
-//!
-//! Fast math has narrower accuracy domains: sin/cos have an absolute error bound
-//! of 2^-13 within [-pi, pi]; ln requires a positive input; powf uses an exp2/log2
-//! approximation and has no precise-mode guarantee for negative bases or 0^0.
-//! See MSL sections 1.6.3 and 8.4 for the fast function contracts.
+use crate::{BF16, F16, intrinsics};
 
-/// Square root using the selected numerical mode.
-/// Subnormal inputs and outputs may be flushed to zero by the GPU.
-pub fn sqrt(value: f32) -> f32 {
-    crate::intrinsics::__metal_sqrt_f32(value)
+#[cfg(test)]
+mod tests;
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for f32 {}
+    impl Sealed for crate::F16 {}
+    impl Sealed for crate::BF16 {}
 }
 
-/// Computes `a * b + c` with one rounding, without rounding the product first.
-/// Subnormal inputs and outputs may be flushed to zero by the GPU.
-pub fn fma(a: f32, b: f32, c: f32) -> f32 {
-    crate::intrinsics::__metal_fma_f32(a, b, c)
+/// Math methods with the names and signatures of Rust's `f32` methods, which `core` lacks.
+/// Kernels in host crates have it in scope; separate kernel crates import it.
+pub trait Float: Copy + sealed::Sealed {
+    /// Square root; negative inputs return NaN.
+    fn sqrt(self) -> Self;
+    /// `self * a + b` with one rounding.
+    fn mul_add(self, a: Self, b: Self) -> Self;
+    /// Natural logarithm; zero returns negative infinity and negative inputs NaN.
+    fn ln(self) -> Self;
+    /// Base-2 logarithm; zero returns negative infinity and negative inputs NaN.
+    fn log2(self) -> Self;
+    /// Base-10 logarithm; zero returns negative infinity and negative inputs NaN.
+    fn log10(self) -> Self;
+    /// `e` raised to `self`.
+    fn exp(self) -> Self;
+    /// 2 raised to `self`.
+    fn exp2(self) -> Self;
+    /// Sine of an angle in radians.
+    fn sin(self) -> Self;
+    /// Cosine of an angle in radians.
+    fn cos(self) -> Self;
+    /// Tangent of an angle in radians.
+    fn tan(self) -> Self;
+    /// `(sin, cos)` from one Metal `sincos` call, which is faster than two in the precise mode.
+    fn sin_cos(self) -> (Self, Self);
+    /// Arcsine in radians; inputs outside `[-1, 1]` return NaN.
+    fn asin(self) -> Self;
+    /// Arccosine in radians; inputs outside `[-1, 1]` return NaN.
+    fn acos(self) -> Self;
+    /// Arctangent in radians.
+    fn atan(self) -> Self;
+    /// The angle of the point `(other, self)` in radians, in `[-pi, pi]`.
+    fn atan2(self, other: Self) -> Self;
+    /// Hyperbolic tangent.
+    fn tanh(self) -> Self;
+    /// `self` raised to the power `n`.
+    fn powf(self, n: Self) -> Self;
+    /// `self` raised to the integer power `n` by repeated squaring, as compiler-rt computes it.
+    fn powi(self, n: i32) -> Self;
+    /// The length of the hypotenuse with legs `self` and `other`, without intermediate
+    /// overflow; an infinite leg gives infinity even when the other one is NaN.
+    fn hypot(self, other: Self) -> Self;
+    /// `1 / sqrt(self)` from one Metal `rsqrt` call.
+    fn rsqrt(self) -> Self;
+    /// The largest integer no greater than `self`.
+    fn floor(self) -> Self;
+    /// The smallest integer no less than `self`.
+    fn ceil(self) -> Self;
+    /// The nearest integer, with halfway cases rounded away from zero.
+    fn round(self) -> Self;
+    /// The integer part of `self`, rounded toward zero.
+    fn trunc(self) -> Self;
 }
 
-/// Natural logarithm. Either signed zero returns negative infinity;
-/// negative inputs return NaN, and positive infinity returns positive infinity.
-pub fn ln(value: f32) -> f32 {
-    crate::intrinsics::__metal_ln_f32(value)
+impl Float for f32 {
+    fn sqrt(self) -> f32 {
+        intrinsics::__metal_sqrt_f32(self)
+    }
+
+    fn mul_add(self, a: f32, b: f32) -> f32 {
+        intrinsics::__metal_fma_f32(self, a, b)
+    }
+
+    fn ln(self) -> f32 {
+        intrinsics::__metal_ln_f32(self)
+    }
+
+    fn log2(self) -> f32 {
+        intrinsics::__metal_log2_f32(self)
+    }
+
+    fn log10(self) -> f32 {
+        intrinsics::__metal_log10_f32(self)
+    }
+
+    fn exp(self) -> f32 {
+        intrinsics::__metal_exp_f32(self)
+    }
+
+    fn exp2(self) -> f32 {
+        intrinsics::__metal_exp2_f32(self)
+    }
+
+    fn sin(self) -> f32 {
+        intrinsics::__metal_sin_f32(self)
+    }
+
+    fn cos(self) -> f32 {
+        intrinsics::__metal_cos_f32(self)
+    }
+
+    fn tan(self) -> f32 {
+        intrinsics::__metal_tan_f32(self)
+    }
+
+    fn sin_cos(self) -> (f32, f32) {
+        intrinsics::__metal_sin_cos_f32(self)
+    }
+
+    fn asin(self) -> f32 {
+        intrinsics::__metal_asin_f32(self)
+    }
+
+    fn acos(self) -> f32 {
+        intrinsics::__metal_acos_f32(self)
+    }
+
+    fn atan(self) -> f32 {
+        intrinsics::__metal_atan_f32(self)
+    }
+
+    fn atan2(self, other: f32) -> f32 {
+        intrinsics::__metal_atan2_f32(self, other)
+    }
+
+    fn tanh(self) -> f32 {
+        intrinsics::__metal_tanh_f32(self)
+    }
+
+    fn powf(self, n: f32) -> f32 {
+        intrinsics::__metal_powf_f32(self, n)
+    }
+
+    fn powi(self, n: i32) -> f32 {
+        let mut base = self;
+        let mut exponent = n.unsigned_abs();
+        let mut result = 1.0;
+        loop {
+            if exponent & 1 != 0 {
+                result *= base;
+            }
+            exponent >>= 1;
+            if exponent == 0 {
+                break;
+            }
+            base *= base;
+        }
+        if n < 0 { 1.0 / result } else { result }
+    }
+
+    fn hypot(self, other: f32) -> f32 {
+        let x = self.abs();
+        let y = other.abs();
+        if x == f32::INFINITY || y == f32::INFINITY {
+            return f32::INFINITY;
+        }
+        if x.is_nan() || y.is_nan() {
+            return f32::NAN;
+        }
+        let (big, small) = if x < y { (y, x) } else { (x, y) };
+        if big == 0.0 {
+            return 0.0;
+        }
+        let ratio = small / big;
+        big * (1.0 + ratio * ratio).sqrt()
+    }
+
+    fn rsqrt(self) -> f32 {
+        intrinsics::__metal_rsqrt_f32(self)
+    }
+
+    fn floor(self) -> f32 {
+        intrinsics::__metal_floor_f32(self)
+    }
+
+    fn ceil(self) -> f32 {
+        intrinsics::__metal_ceil_f32(self)
+    }
+
+    fn round(self) -> f32 {
+        intrinsics::__metal_round_f32(self)
+    }
+
+    fn trunc(self) -> f32 {
+        intrinsics::__metal_trunc_f32(self)
+    }
 }
 
-/// Exponential with base e. Negative infinity returns positive zero;
-/// positive infinity and overflow return positive infinity.
-pub fn exp(value: f32) -> f32 {
-    crate::intrinsics::__metal_exp_f32(value)
+/// Implements [`Float`] for a 16-bit type by computing in f32 and rounding the result once.
+macro_rules! through_f32 {
+    ($ty:ty, $($unary:ident),*) => {
+        impl Float for $ty {
+            $(fn $unary(self) -> Self {
+                Self::from_f32(self.to_f32().$unary())
+            })*
+
+            fn mul_add(self, a: Self, b: Self) -> Self {
+                Self::from_f32(self.to_f32().mul_add(a.to_f32(), b.to_f32()))
+            }
+
+            fn sin_cos(self) -> (Self, Self) {
+                let (sine, cosine) = self.to_f32().sin_cos();
+                (Self::from_f32(sine), Self::from_f32(cosine))
+            }
+
+            fn atan2(self, other: Self) -> Self {
+                Self::from_f32(self.to_f32().atan2(other.to_f32()))
+            }
+
+            fn powf(self, n: Self) -> Self {
+                Self::from_f32(self.to_f32().powf(n.to_f32()))
+            }
+
+            fn powi(self, n: i32) -> Self {
+                Self::from_f32(self.to_f32().powi(n))
+            }
+
+            fn hypot(self, other: Self) -> Self {
+                Self::from_f32(self.to_f32().hypot(other.to_f32()))
+            }
+        }
+    };
 }
 
-/// Sine of an angle in radians. Preserves signed zero; infinite inputs return NaN.
-pub fn sin(value: f32) -> f32 {
-    crate::intrinsics::__metal_sin_f32(value)
-}
-
-/// Cosine of an angle in radians. Infinite inputs return NaN.
-pub fn cos(value: f32) -> f32 {
-    crate::intrinsics::__metal_cos_f32(value)
-}
-
-/// Returns `(sin(value), cos(value))` from one Metal `sincos` call, with the same edge
-/// cases as the separate functions; it is faster in the precise mode.
-pub fn sin_cos(value: f32) -> (f32, f32) {
-    crate::intrinsics::__metal_sin_cos_f32(value)
-}
-
-/// Raises `base` to a floating-point exponent. Negative finite bases with a
-/// finite noninteger exponent return NaN. Any base to zero and one to any
-/// exponent return one, including when the other argument is NaN.
-pub fn powf(base: f32, exponent: f32) -> f32 {
-    crate::intrinsics::__metal_powf_f32(base, exponent)
-}
-
-/// Hyperbolic tangent. Preserves signed zero; infinities return their signed unit.
-pub fn tanh(value: f32) -> f32 {
-    crate::intrinsics::__metal_tanh_f32(value)
-}
-
-/// Inverse tangent in radians. Preserves signed zero; infinities approach ±pi/2.
-pub fn atan(value: f32) -> f32 {
-    crate::intrinsics::__metal_atan_f32(value)
-}
-
-/// Greatest integral value no larger than the input, returned as f32.
-/// Preserves signed zero and infinities; NaN returns NaN.
-pub fn floor(value: f32) -> f32 {
-    crate::intrinsics::__metal_floor_f32(value)
-}
-
-/// Nearest integral value, with halfway cases rounded away from zero, returned as f32.
-/// Preserves signed zero and infinities; NaN returns NaN.
-pub fn round(value: f32) -> f32 {
-    crate::intrinsics::__metal_round_f32(value)
-}
-
-/// Least integral value no smaller than the input, returned as f32.
-/// Preserves signed zero and infinities; NaN returns NaN.
-pub fn ceil(value: f32) -> f32 {
-    crate::intrinsics::__metal_ceil_f32(value)
-}
-
-/// Integral part of the input, rounded toward zero, returned as f32.
-/// Preserves signed zero and infinities; NaN returns NaN.
-pub fn trunc(value: f32) -> f32 {
-    crate::intrinsics::__metal_trunc_f32(value)
-}
+through_f32!(
+    F16, sqrt, ln, log2, log10, exp, exp2, sin, cos, tan, asin, acos, atan, tanh, rsqrt, floor,
+    ceil, round, trunc
+);
+through_f32!(
+    BF16, sqrt, ln, log2, log10, exp, exp2, sin, cos, tan, asin, acos, atan, tanh, rsqrt, floor,
+    ceil, round, trunc
+);

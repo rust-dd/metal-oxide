@@ -111,6 +111,16 @@ using std::cos;
 using std::pow;
 using std::tanh;
 using std::atan;
+using std::exp2;
+using std::log2;
+using std::log10;
+using std::tan;
+using std::asin;
+using std::acos;
+using std::atan2;
+inline float rsqrt(float value) {
+    return 1.0f / std::sqrt(value);
+}
 inline float sincos(float value, float& cosine) {
     cosine = std::cos(value);
     return std::sin(value);

@@ -150,3 +150,22 @@ fn rounding_matches_rust_including_halfway_cases_and_signed_zero() {
     );
     assert_eq!(result, "ok");
 }
+
+#[test]
+fn float_methods_call_their_metal_functions_in_each_math_mode() {
+    for mode in ["precise", "fast"] {
+        let (output, directory) = support::emit(
+            "crates/metal-oxide-compiler/tests/fixtures/float_methods.rs",
+            &["-C", "overflow-checks=off", "--metal-math-mode", mode],
+        );
+        support::checked(output);
+        let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
+        for function in [
+            "exp2", "log2", "log10", "tan", "asin", "acos", "atan2", "rsqrt", "sqrt",
+        ] {
+            let call = format!("{mode}::{function}(");
+            assert_eq!(msl.matches(&call).count(), 1, "{call}\n{msl}");
+        }
+        assert!(!msl.contains("pow("), "powi multiplies:\n{msl}");
+    }
+}

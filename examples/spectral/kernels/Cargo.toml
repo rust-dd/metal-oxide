@@ -8,6 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+# Its code runs only on the GPU, and test and bench builds link std, whose f32 methods would
+# leave the `Float` imports unused.
+[lib]
+bench = false
+test = false
+
 [dependencies]
 metal-oxide-device.workspace = true
 
