@@ -207,6 +207,7 @@ fn constant(scalar: ir::Scalar, value: u64) -> ir::Constant {
         ir::Scalar::Usize => ir::Constant::Usize(value),
         ir::Scalar::U64 => ir::Constant::U64(value),
         ir::Scalar::I32 => ir::Constant::I32(value as i32),
+        ir::Scalar::I64 => ir::Constant::I64(value as i64),
         ir::Scalar::U8 => ir::Constant::U8(value as u8),
         ir::Scalar::U16 => ir::Constant::U16(value as u16),
         ir::Scalar::I8 => ir::Constant::I8(value as i8),

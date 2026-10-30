@@ -82,6 +82,8 @@ mod generic_entries;
 mod half;
 #[path = "gpu/half_arithmetic.rs"]
 mod half_arithmetic;
+#[path = "gpu/i64.rs"]
+mod i64;
 #[path = "gpu/integer_bits.rs"]
 mod integer_bits;
 #[path = "gpu/ir_aggregates.rs"]

@@ -107,6 +107,10 @@ fn unsupported_kernel_signatures_are_reported() {
         ),
         ("invalid_entry", "#[kernel] requires a free function"),
         ("bool_parameter", "unsupported kernel parameter type: bool"),
+        (
+            "i64_atomic_parameter",
+            "unsupported kernel parameter type: metal_oxide_device::AtomicBuffer<i64>",
+        ),
         ("slice_parameter", "unsupported kernel parameter type"),
     ] {
         support::rejected(support::fixture(fixture), error);

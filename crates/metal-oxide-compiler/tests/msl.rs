@@ -11,6 +11,8 @@ mod control_flow;
 mod dynamic_shared;
 #[path = "msl/generic_entries.rs"]
 mod generic_entries;
+#[path = "msl/i64.rs"]
+mod i64;
 #[path = "msl/integer_bits.rs"]
 mod integer_bits;
 #[path = "msl/math_mode.rs"]

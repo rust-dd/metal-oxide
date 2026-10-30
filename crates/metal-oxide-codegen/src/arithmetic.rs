@@ -78,7 +78,7 @@ static inline float metal_oxide_i64_to_f32(long x) {
 pub(crate) fn wide_to_float(from: Type, to: Scalar) -> Option<&'static str> {
     match (from, to) {
         (Type::Scalar(Scalar::U64 | Scalar::Usize), Scalar::F32) => Some("metal_oxide_u64_to_f32"),
-        (Type::Scalar(Scalar::Isize), Scalar::F32) => Some("metal_oxide_i64_to_f32"),
+        (Type::Scalar(Scalar::I64 | Scalar::Isize), Scalar::F32) => Some("metal_oxide_i64_to_f32"),
         _ => None,
     }
 }
@@ -96,14 +96,14 @@ pub(crate) fn unary(op: UnaryOp, value: &str, ty: Type) -> String {
                 scalar_name(scalar)
             )
         }
-        (UnaryOp::Neg, Type::Scalar(Scalar::Isize)) => {
-            integer_value(Scalar::Isize, &format!("0ul - ulong({value})"))
+        (UnaryOp::Neg, Type::Scalar(scalar @ (Scalar::I64 | Scalar::Isize))) => {
+            integer_value(scalar, &format!("0ul - ulong({value})"))
         }
         (UnaryOp::Neg, Type::Scalar(scalar)) if scalar.is_signed() => {
             integer_value(scalar, &format!("0u - uint(int({value}))"))
         }
         (UnaryOp::Not, Type::Scalar(Scalar::Bool)) => format!("(!{value})"),
-        (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::Usize | Scalar::Isize)) => {
+        (UnaryOp::Not, Type::Scalar(Scalar::U64 | Scalar::I64 | Scalar::Usize | Scalar::Isize)) => {
             format!("(~{value})")
         }
         (UnaryOp::Not, Type::Scalar(scalar)) => integer_value(scalar, &format!("~uint({value})")),
@@ -185,7 +185,7 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
     let Type::Scalar(scalar) = ty else {
         unreachable!("validated binary type")
     };
-    if scalar == Scalar::Isize && matches!(op, Add | Sub | Mul) {
+    if matches!(scalar, Scalar::I64 | Scalar::Isize) && matches!(op, Add | Sub | Mul) {
         return integer_value(scalar, &format!("ulong({a}) {symbol} ulong({b})"));
     }
     if scalar.is_signed() && matches!(op, Add | Sub | Mul) {
@@ -203,7 +203,7 @@ pub(crate) fn binary(op: BinaryOp, a: &str, b: &str, ty: Type) -> String {
             };
             let high = format!("((0u - {OPAQUE_ZERO}) << {}u)", scalar.bits());
             format!("({extended} ^ {high}) >> {count}")
-        } else if scalar == Scalar::Isize && op == Shr {
+        } else if matches!(scalar, Scalar::I64 | Scalar::Isize) && op == Shr {
             format!(
                 "(ulong({a}) >> {count}) | (((0ul - ulong({a} < 0)) << ((64u - {count}) & 63u)) & (0ul - ulong({count} != 0u)))"
             )

@@ -68,7 +68,7 @@ pub(crate) fn scalar_name(scalar: Scalar) -> &'static str {
         Scalar::I8 => "char",
         Scalar::I16 => "short",
         Scalar::U64 | Scalar::Usize => "ulong",
-        Scalar::Isize => "long",
+        Scalar::I64 | Scalar::Isize => "long",
     }
 }
 
@@ -194,7 +194,9 @@ pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> 
             Constant::I8(v) => format!("as_type<char>(uchar({}u))", *v as u8),
             Constant::I16(v) => format!("as_type<short>(ushort({}u))", *v as u16),
             Constant::U64(v) | Constant::Usize(v) => format!("{v}ul"),
-            Constant::Isize(v) => format!("as_type<long>(0x{:016x}ul)", *v as u64),
+            Constant::I64(v) | Constant::Isize(v) => {
+                format!("as_type<long>(0x{:016x}ul)", *v as u64)
+            }
         },
     }
 }

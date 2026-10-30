@@ -31,6 +31,7 @@ fn three_way_comparison_returns_signed_byte_for_integer_and_boolean_operands() {
         Scalar::I32,
         Scalar::U32,
         Scalar::U64,
+        Scalar::I64,
         Scalar::Usize,
         Scalar::Isize,
     ] {

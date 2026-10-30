@@ -151,6 +151,7 @@ fn scalar_type(scalar: Scalar) -> TokenStream {
         Scalar::U32 => quote!(::core::primitive::u32),
         Scalar::U64 => quote!(::core::primitive::u64),
         Scalar::I32 => quote!(::core::primitive::i32),
+        Scalar::I64 => quote!(::core::primitive::i64),
         Scalar::U8 => quote!(::core::primitive::u8),
         Scalar::U16 => quote!(::core::primitive::u16),
         Scalar::I8 => quote!(::core::primitive::i8),

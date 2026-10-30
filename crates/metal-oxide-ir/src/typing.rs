@@ -72,6 +72,7 @@ pub fn expression_type(
                             | Scalar::I8
                             | Scalar::I16
                             | Scalar::I32
+                            | Scalar::I64
                             | Scalar::Isize
                     )
                 ) | (
@@ -85,6 +86,7 @@ pub fn expression_type(
                             | Scalar::I8
                             | Scalar::I16
                             | Scalar::U64
+                            | Scalar::I64
                             | Scalar::Usize
                             | Scalar::Isize
                     )

@@ -20,3 +20,11 @@ pub fn pairs(values: ReadBuffer<f32>, mut out: DisjointBuffer<f32>, n: u32) {
         *out = values[2 * i] + values[2 * i + 1];
     }
 }
+
+#[kernel(requires(values.len() == out.len(), floor <= 0))]
+pub fn clamp_below(values: ReadBuffer<i64>, mut out: DisjointBuffer<i64>, floor: i64) {
+    let index = thread_index();
+    if let Some(out) = out.get_mut(&index) {
+        *out = values.as_slice()[index.get()].max(floor);
+    }
+}

@@ -20,6 +20,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
         Scalar::I8,
         Scalar::I16,
         Scalar::U64,
+        Scalar::I64,
         Scalar::Usize,
         Scalar::Isize,
     ] {
@@ -91,7 +92,7 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 .unwrap();
                 continue;
             }
-            if scalar == Scalar::Isize {
+            if matches!(scalar, Scalar::I64 | Scalar::Isize) {
                 output.push_str(
                     "    ulong ua = as_type<ulong>(a);\n    ulong ub = as_type<ulong>(b);\n",
                 );

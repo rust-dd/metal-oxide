@@ -17,7 +17,7 @@ fn log_messages_lower_to_os_log_with_typed_specifiers() {
     assert!(msl.contains("#include <metal_logging>"), "{msl}");
     assert!(
         msl.contains(
-            r#"os_log_default.log("thread %u scale %.9g half %.5g wide %lu signed %d {braces} 100%%""#
+            r#"os_log_default.log("thread %u scale %.9g half %.5g wide %lu signed %d %ld {braces} 100%%""#
         ),
         "{msl}"
     );
@@ -27,8 +27,8 @@ fn log_messages_lower_to_os_log_with_typed_specifiers() {
     );
     assert_eq!(
         output,
-        "thread 0 scale 0.100000001 half 0.5 wide 1099511627776 signed -3 {braces} 100%\n\
-         thread 1 scale 0.100000001 half 0.5 wide 1099511627776 signed -3 {braces} 100%\n"
+        "thread 0 scale 0.100000001 half 0.5 wide 1099511627776 signed -3 -1099511627776 {braces} 100%\n\
+         thread 1 scale 0.100000001 half 0.5 wide 1099511627776 signed -3 -1099511627776 {braces} 100%\n"
     );
 }
 

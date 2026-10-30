@@ -17,7 +17,7 @@ fn case() -> Case {
 
 #[test]
 fn generated_wide_results_preserve_both_halves_in_the_oracle() {
-    let case = Case::generated(7);
+    let case = Case::generated(711);
     let expected = case.cpu().unwrap();
     assert_eq!(case.words.len(), 6);
     let mut words = output::initial(case.inputs.len(), case.words.len());
@@ -27,7 +27,7 @@ fn generated_wide_results_preserve_both_halves_in_the_oracle() {
         };
         assert_eq!(
             &result[..4],
-            &[0x9b77_8913, 0x40ea_e456, 0x9129_4f9c, 0x34af_72f8]
+            &[0xffff_ffff, 0x7fff_ffff, 0x0000_0001, 0x8000_0000]
         );
         let start = thread * case.words.len();
         words[start..start + case.words.len()].copy_from_slice(result);

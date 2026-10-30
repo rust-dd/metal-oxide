@@ -481,7 +481,7 @@ fn device_log_messages_reach_standard_error() {
     assert!(output.status.success(), "{stderr}");
     for thread in (0..3).filter(|_| logs) {
         let message = format!(
-            "thread {thread} scale 0.100000001 half 0.5 wide 1099511627776 signed -3 {{braces}} 100%"
+            "thread {thread} scale 0.100000001 half 0.5 wide 1099511627776 signed -3 -1099511627776 {{braces}} 100%"
         );
         assert!(stderr.contains(&message), "{stderr}");
     }

@@ -15,7 +15,7 @@ pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     let name = scalar_name(scalar);
     let minimum = if scalar == Scalar::I32 {
         "as_type<int>(0x80000000u)".into()
-    } else if scalar == Scalar::Isize {
+    } else if matches!(scalar, Scalar::I64 | Scalar::Isize) {
         "as_type<long>(0x8000000000000000ul)".into()
     } else {
         format!("{name}({minimum})")

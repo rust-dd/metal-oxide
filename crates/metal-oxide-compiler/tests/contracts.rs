@@ -28,6 +28,10 @@ fn required_relations_reach_the_abi_and_prove_the_unguarded_vec_add() {
         ["a.len() == out.len()", "b.len() == out.len()"]
     );
     assert_eq!(relations("pairs"), ["2 * n + 1 <= values.len()", "n > 0"]);
+    assert_eq!(
+        relations("clamp_below"),
+        ["values.len() == out.len()", "floor <= 0"]
+    );
     let checks = serde_json::from_str::<Vec<metal_oxide_artifact::Check>>(
         &std::fs::read_to_string(directory.join("checks.json")).unwrap(),
     )

@@ -463,6 +463,7 @@ pub(crate) fn scalar(ty: Ty<'_>) -> Option<ir::Scalar> {
         ty::Uint(ty::UintTy::Usize) => Some(ir::Scalar::Usize),
         ty::Int(ty::IntTy::Isize) => Some(ir::Scalar::Isize),
         ty::Int(ty::IntTy::I32) => Some(ir::Scalar::I32),
+        ty::Int(ty::IntTy::I64) => Some(ir::Scalar::I64),
         ty::Uint(ty::UintTy::U8) => Some(ir::Scalar::U8),
         ty::Uint(ty::UintTy::U16) => Some(ir::Scalar::U16),
         ty::Int(ty::IntTy::I8) => Some(ir::Scalar::I8),

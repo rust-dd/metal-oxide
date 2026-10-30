@@ -102,6 +102,7 @@ fn bit_reversal_preserves_scalar_width_and_signed_bit_patterns() {
         (Scalar::U32, "uint"),
         (Scalar::I32, "int"),
         (Scalar::U64, "ulong"),
+        (Scalar::I64, "long"),
         (Scalar::Usize, "ulong"),
         (Scalar::Isize, "long"),
     ] {

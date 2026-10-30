@@ -10,6 +10,7 @@ pub enum Scalar {
     U32,
     U64,
     I32,
+    I64,
     U8,
     U16,
     I8,
@@ -22,7 +23,7 @@ impl Scalar {
             Self::U8 | Self::I8 => 1,
             Self::U16 | Self::I16 | Self::F16 | Self::BF16 => 2,
             Self::F32 | Self::U32 | Self::I32 => 4,
-            Self::U64 => 8,
+            Self::U64 | Self::I64 => 8,
         }
     }
 

@@ -75,5 +75,31 @@ fn launches_check_kernel_requirements_before_encoding() -> metal_oxide::Result<(
         .map(|i| values[2 * (i % 4)] + values[2 * (i % 4) + 1])
         .collect::<Vec<_>>();
     assert_eq!(pairs(&values, 4)?, expected);
+
+    let pipeline = Pipeline::new(&device, &module, "clamp_below")?;
+    let values = device.buffer_from_slice(&[-9_i64, -5, 0, i64::MAX])?;
+    let clamp = |floor: i64| {
+        let mut out = device.buffer_zeroed::<i64>(4)?;
+        // SAFETY: the kernel's requirements are checked by the launch.
+        unsafe {
+            Launch::new(
+                Ok(&pipeline),
+                LaunchConfig::<64>::for_elements(4)?,
+                (&values, &mut out, floor),
+                |(values, out, floor)| {
+                    Ok([
+                        Argument::read(values),
+                        Argument::write(out),
+                        Argument::value(*floor)?,
+                    ])
+                },
+            )
+            .wait()?;
+        }
+        Ok::<_, metal_oxide::Error>(out.read().wait().to_vec())
+    };
+    // A negative floor satisfies the relation only when launches read it as signed.
+    assert_eq!(clamp(-5)?, [-5, -5, 0, i64::MAX]);
+    assert_eq!(violated(clamp(1)), "clamp_below: floor <= 0");
     Ok(())
 }

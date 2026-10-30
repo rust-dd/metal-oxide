@@ -1,6 +1,6 @@
 use super::random::Random;
 
-/// An integer type of the generated subset; 128-bit and `i64` values are outside it.
+/// An integer type of the generated subset; 128-bit values are outside it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Int {
     pub bits: u32,
@@ -11,7 +11,7 @@ pub const U32: Type = Type::Int(Int::U32);
 
 pub const I32: Type = Type::Int(Int::I32);
 
-pub const INTS: [Int; 7] = [
+pub const INTS: [Int; 8] = [
     Int::unsigned(8),
     Int::unsigned(16),
     Int::unsigned(32),
@@ -19,6 +19,7 @@ pub const INTS: [Int; 7] = [
     Int::signed(8),
     Int::signed(16),
     Int::signed(32),
+    Int::signed(64),
 ];
 
 impl Int {

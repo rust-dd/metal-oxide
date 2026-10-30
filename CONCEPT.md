@@ -104,8 +104,8 @@ accepts only one-dimensional launches.
 Primitive scalar buffers expose shared Metal storage directly through `read` and
 `write`, which wait for pending GPU work first: awaiting them polls completion,
 while `wait` blocks the calling thread. Owned records, arrays, and tuples retain explicit
-`GpuValue` codecs and a CPU mirror. Scalars include `u64`
-with eight-byte ABI alignment, wrapping arithmetic and saturating f32 casts.
+`GpuValue` codecs and a CPU mirror. Scalars include `u64` and
+`i64` with eight-byte ABI alignment, wrapping arithmetic and saturating f32 casts.
 
 Thread coordinates, math, and cooperative operations use bodyless
 `extern "Rust"` declarations behind the device API. Rustc type-checks the

@@ -9,6 +9,8 @@
   `exp2`, `log2`, `log10`, `tan`, `asin`, `acos`, `atan2`, `hypot`, `rsqrt` and `powi`.
   `F16` and `BF16` also have `abs`, `min` and `max`.
 - `Abi::minimum_macos` returns the oldest macOS that runs an artifact's kernels.
+- `i64` works in kernels, kernel parameters, buffers, records and `log!`, so core methods
+  that widen through it, such as `i32::midpoint`, compile. It has no atomics.
 
 ### Changed
 

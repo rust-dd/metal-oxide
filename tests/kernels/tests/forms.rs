@@ -35,17 +35,22 @@ mod bodies {
     pub struct Body {
         pub mass: f32,
         pub position: [f32; 2],
+        pub ticks: i64,
     }
 
-    pub fn moved(body: Body, by: f32) -> Body {
-        Body { position: [body.position[0] + by, body.position[1] - by], ..body }
+    pub fn moved(body: Body, by: f32, ticks: i64) -> Body {
+        Body {
+            position: [body.position[0] + by, body.position[1] - by],
+            ticks: body.ticks.wrapping_add(ticks),
+            ..body
+        }
     }
 
     #[kernel(block = (32, 1, 1))]
-    pub fn push(mut bodies: DisjointBuffer<Body>, by: f32) {
+    pub fn push(mut bodies: DisjointBuffer<Body>, by: f32, ticks: i64) {
         let index = thread_index();
         if let Some(body) = bodies.get_mut(&index) {
-            *body = moved(*body, by);
+            *body = moved(*body, by, ticks);
         }
     }
 }
@@ -70,10 +75,11 @@ fn main() -> metal_oxide::Result<()> {
         assert!((length - expected).abs() <= 1e-6, "{length} != {expected}");
     }
 
-    let body = bodies::Body { mass: 1.0, position: [0.0, 0.0] };
+    let body = bodies::Body { mass: 1.0, position: [0.0, 0.0], ticks: i64::MIN + 3 };
     let mut all = device.buffer_from_slice(&[body; 5])?;
-    bodies::push(&device, LaunchConfig::<32>::for_elements(5)?, &mut all, 0.5).wait()?;
-    assert_eq!(all.read().wait(), [bodies::moved(body, 0.5); 5]);
+    let ticks = -(1_i64 << 40);
+    bodies::push(&device, LaunchConfig::<32>::for_elements(5)?, &mut all, 0.5, ticks).wait()?;
+    assert_eq!(all.read().wait(), [bodies::moved(body, 0.5, ticks); 5]);
 
     let x = device.buffer_from_slice(&[1.0_f32, 2.0])?;
     let mut y = device.buffer_zeroed::<f32>(2)?;

@@ -87,7 +87,7 @@ The compiler works with a subset of Rust, checked by rustc before GPU lowering:
 - References, slices, records, tuples, arrays, enums, `Option`, `Result`, closures,
   core iterators and generic helpers. Generic entrypoints list their concrete
   type and const instances.
-- `f32`, `F16`, `BF16`, 8/16/32-bit integers and `u64`. Supported `libm` and
+- `f32`, `F16`, `BF16`, 8/16/32-bit integers, `u64` and `i64`. Supported `libm` and
   `num-traits` workloads are exercised by integration tests.
 - Static and dynamic threadgroup memory, barriers, SIMD-group reductions,
   shuffles and scans, plus 8×8 SIMD-group matrix operations.
@@ -191,7 +191,7 @@ performance and debugging.
   Apple GPU generation with Apple's offline compiler, which catches GPU compiler
   failures but not wrong results.
 - **Not all Rust is device code.** Heap allocation, host I/O, recursion, indirect
-  calls, destructors, coroutines, `f64`, `i64` and 128-bit integers are unsupported.
+  calls, destructors, coroutines, `f64` and 128-bit integers are unsupported.
   Device dependencies cannot use build scripts; `no_std` alone does not establish
   compatibility.
 - **Cooperation has restrictions.** Barriers and SIMD collectives require uniform

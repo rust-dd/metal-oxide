@@ -42,7 +42,7 @@ macro_rules! values {
     };
 }
 
-values!(u8, u16, u32, u64, usize, i8, i16, i32, f32, crate::F16);
+values!(u8, u16, u32, u64, usize, i8, i16, i32, i64, f32, crate::F16);
 
 macro_rules! arguments {
     ($($name:ident),*) => {

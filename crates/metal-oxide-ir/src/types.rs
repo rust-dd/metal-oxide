@@ -9,6 +9,7 @@ pub enum Scalar {
     U32,
     U64,
     I32,
+    I64,
     U8,
     U16,
     I8,
@@ -29,6 +30,7 @@ impl Scalar {
             Self::U32 => Abi::U32,
             Self::U64 => Abi::U64,
             Self::I32 => Abi::I32,
+            Self::I64 => Abi::I64,
             Self::U8 => Abi::U8,
             Self::U16 => Abi::U16,
             Self::I8 => Abi::I8,
@@ -47,7 +49,7 @@ impl Scalar {
             Self::U16 | Self::I16 | Self::F16 | Self::BF16 => 16,
             Self::Bool => 1,
             Self::F32 | Self::U32 | Self::I32 => 32,
-            Self::U64 | Self::Usize | Self::Isize => 64,
+            Self::U64 | Self::I64 | Self::Usize | Self::Isize => 64,
         }
     }
 
@@ -59,6 +61,7 @@ impl Scalar {
                 | Self::U32
                 | Self::U64
                 | Self::I32
+                | Self::I64
                 | Self::I8
                 | Self::I16
                 | Self::Usize
@@ -67,7 +70,10 @@ impl Scalar {
     }
 
     pub const fn is_signed(self) -> bool {
-        matches!(self, Self::I8 | Self::I16 | Self::I32 | Self::Isize)
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::Isize
+        )
     }
 
     pub const fn name(self) -> &'static str {
@@ -79,6 +85,7 @@ impl Scalar {
             Self::U32 => "u32",
             Self::U64 => "u64",
             Self::I32 => "i32",
+            Self::I64 => "i64",
             Self::U8 => "u8",
             Self::U16 => "u16",
             Self::I8 => "i8",

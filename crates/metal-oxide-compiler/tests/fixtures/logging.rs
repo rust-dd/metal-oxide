@@ -5,7 +5,7 @@ use metal_oxide_device::{F16, WriteBuffer, kernel, log, thread_idx};
 #[kernel]
 pub unsafe fn logging(out: WriteBuffer<u32>, scale: f32, half: F16) {
     let i = thread_idx().x;
-    log!("thread {} scale {} half {} wide {} signed {} {{braces}} 100%", i, scale, half, 1u64 << 40, -3i32);
+    log!("thread {} scale {} half {} wide {} signed {} {} {{braces}} 100%", i, scale, half, 1u64 << 40, -3i32, -(1i64 << 40));
     unsafe { out.store_unchecked(i, i) };
 }
 

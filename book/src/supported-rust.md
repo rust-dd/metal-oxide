@@ -7,8 +7,8 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 
 ## Accepted constructs
 
-- Scalars: `bool`, `f32`, `F16`, `BF16`, 8/16/32-bit integers, `u64`, `usize` and
-  internal `isize`. Separate kernel crates can also use unstable primitive `f16`.
+- Scalars: `bool`, `f32`, `F16`, `BF16`, 8/16/32-bit integers, `u64`, `i64`, `usize`
+  and internal `isize`. Separate kernel crates can also use unstable primitive `f16`.
 - Integer powers, checked division/remainder, byte swaps, `cmp`/`partial_cmp`,
   derived ordering and `signum`; integer and float `clamp`, plus `f32::copysign`,
   `signum` and `total_cmp`. Invalid clamp bounds remain checked, including NaN
@@ -82,7 +82,7 @@ separate kernel crates already use the pinned compiler toolchain.
 ## Rejected constructs
 
 Recursion, indirect calls through function pointers or trait objects, destructors,
-coroutines, `f64`, `i64` and 128-bit integers are rejected. Dynamic strings and trait
+coroutines, `f64` and 128-bit integers are rejected. Dynamic strings and trait
 objects have no device representation; literal panic/expect messages are
 specialized during compilation. Reinterpreting pointer casts, unsupported enum
 layouts, wider SIMD vectors, gather/scatter and masked vector loads are rejected.
