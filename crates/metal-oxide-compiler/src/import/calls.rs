@@ -452,7 +452,9 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             Intrinsic::Atomic(_) => {
                 unreachable!("atomics are imported before their ordering arguments")
             }
-            Intrinsic::Swap => unreachable!("swaps are imported as statements"),
+            Intrinsic::Swap | Intrinsic::CopyNonoverlapping => {
+                unreachable!("memory operations are imported as statements")
+            }
             Intrinsic::BufferLoad => {
                 let [buffer, index] = arguments(values, span)?;
                 ir::Expression::BufferLoad { buffer, index }

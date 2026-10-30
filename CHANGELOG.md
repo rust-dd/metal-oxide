@@ -13,7 +13,8 @@
   that widen through it, such as `i32::midpoint`, compile. It has no atomics.
 - Kernels call integer `ilog`, `ilog2`, `ilog10` and signed `isqrt`, which fail with Rust's
   message on invalid arguments; `to_le_bytes`, `to_be_bytes`, `to_ne_bytes` and their
-  `from_*` counterparts; and `mem::swap`, `ptr::swap`, slice `swap` and `reverse`.
+  `from_*` counterparts; `mem::swap`, `ptr::swap`, `ptr::copy_nonoverlapping`, and slice
+  `swap`, `reverse` and `copy_from_slice`.
   Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed

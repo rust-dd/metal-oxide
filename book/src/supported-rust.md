@@ -21,7 +21,8 @@ GPU requirements appear in the generated [capability table](capabilities.md).
 - Concrete generic type/const instances, trait calls with a known implementation,
   closures and supported core iterators. Generic entrypoints declare their concrete
   `instances(...)`; lifetime parameters need no instance argument.
-- `mem::swap`, `ptr::swap`, slice `swap` and `reverse`, and transmutes between an integer
+- `mem::swap`, `ptr::swap`, `ptr::copy_nonoverlapping`, slice `swap`, `reverse` and
+  `copy_from_slice`, and transmutes between an integer
   and an array of integers as wide, whose first element holds the low bits.
 - Checked slice indexing, assertions and literal panics. Checks that cannot be
   proved become GPU failure checks where participation permits them.

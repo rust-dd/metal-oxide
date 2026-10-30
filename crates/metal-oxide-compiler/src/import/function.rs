@@ -327,6 +327,18 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             mir::TerminatorKind::Call {
                 func,
                 args,
+                target: Some(target),
+                ..
+            } if matches!(
+                self.callee(func, body, span)?.intrinsic,
+                Some(crate::intrinsics::Intrinsic::CopyNonoverlapping)
+            ) =>
+            {
+                self.copy_nonoverlapping(&mut statements, args, target.as_usize(), body, span)?
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
                 destination,
                 target: Some(target),
                 fn_span,

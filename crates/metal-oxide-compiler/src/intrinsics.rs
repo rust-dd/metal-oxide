@@ -51,6 +51,8 @@ pub(crate) enum Intrinsic {
     OffsetFrom,
     /// `ptr::swap` and `typed_swap_nonoverlapping`, behind `mem::swap`: exchanges two pointees.
     Swap,
+    /// `ptr::copy_nonoverlapping`: copies `count` elements, which its caller keeps valid.
+    CopyNonoverlapping,
 }
 
 /// The iterators whose `Iterator::next` the importer expands inline, so the prover sees the
@@ -130,6 +132,7 @@ impl Intrinsic {
             Self::Buffer(BufferQuery::Element) => "disjoint_element",
             Self::OffsetFrom => "offset_from",
             Self::Swap => "swap",
+            Self::CopyNonoverlapping => "copy_nonoverlapping",
         }
     }
 }
@@ -249,9 +252,12 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     ) {
         return Some(Intrinsic::Identity);
     }
-    // `ptr::swap` copies through a `MaybeUninit`, which has no device representation.
-    if tcx.def_path_str(definition) == "core::ptr::swap" {
-        return Some(Intrinsic::Swap);
+    // Their bodies copy through a `MaybeUninit` or the `copy_nonoverlapping` statement, which
+    // the importer replaces with element copies.
+    match tcx.def_path_str(definition).as_str() {
+        "core::ptr::swap" => return Some(Intrinsic::Swap),
+        "core::ptr::copy_nonoverlapping" => return Some(Intrinsic::CopyNonoverlapping),
+        _ => {}
     }
     if let Some(intrinsic) = tcx.intrinsic(definition) {
         if intrinsic.name.as_str().starts_with("simd_") {

@@ -1,5 +1,5 @@
 use super::*;
-use metal_oxide::GpuValue;
+use metal_oxide::{Error, GpuValue};
 
 const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/slice_methods.rs";
 
@@ -53,5 +53,50 @@ fn swaps_and_reversals_match_rust_in_device_and_thread_memory() -> metal_oxide::
     for (&case, actual) in cases.iter().zip(&output) {
         assert_eq!(*actual, rearranged(case), "{case:?}");
     }
+    Ok(())
+}
+
+fn copied((values, a, b): ([u32; 8], u32, u32)) -> Option<[u32; 8]> {
+    let mut output = [7; 8];
+    output[..4].copy_from_slice(&values[4..]);
+    let (a, b) = (a as usize % 9, b as usize % 9);
+    (a == b).then(|| {
+        output[a..].copy_from_slice(&values[b..]);
+        output
+    })
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn copy_from_slice_matches_rust_and_fails_on_a_length_mismatch() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let cases = (0..18_u32)
+        .map(|case| {
+            let values = core::array::from_fn::<u32, 8, _>(|k| case * 16 + k as u32);
+            (values, case, case % 9)
+        })
+        .collect::<Vec<_>>();
+    let output = run::<_, [u32; 8]>(&device, "copied", &cases)?;
+    for (&case, actual) in cases.iter().zip(&output) {
+        assert_eq!(Some(*actual), copied(case), "{case:?}");
+    }
+    let mismatch = ([1; 8], 2, 3);
+    assert_eq!(copied(mismatch), None);
+    let Err(Error::KernelFailed(failure)) = run::<_, [u32; 8]>(&device, "copied", &[mismatch])
+    else {
+        panic!("expected a length mismatch failure");
+    };
+    assert_eq!(
+        (failure.message.as_str(), failure.line),
+        (
+            "copy_from_slice: source slice length does not match destination slice length",
+            32
+        ),
+        "{failure}"
+    );
+    assert!(
+        failure.file.ends_with("fixtures/slice_methods.rs"),
+        "{failure}"
+    );
     Ok(())
 }
