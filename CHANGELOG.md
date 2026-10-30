@@ -34,6 +34,8 @@
 
 ### Fixed
 
+- `Result::unwrap_unchecked` compiles: its `Err` arm, which runs `mem::forget` before the
+  unreachable hint, is pruned like `Option`'s `None` arm.
 - Repeated integer casts retain proven slice bounds, including before threadgroup
   barriers. Changed indices and different casts keep their runtime checks.
 - Without the Metal compiler, kernel builds use a current saved artifact instead of

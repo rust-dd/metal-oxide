@@ -93,6 +93,29 @@ fn float_signs_and_ordering_match_rust_bits() {
 }
 
 #[test]
+fn unchecked_unwraps_keep_no_checks_and_match_rust() {
+    let directory = emitted();
+    let checks = serde_json::from_slice::<Vec<serde_json::Value>>(
+        &std::fs::read(directory.join("checks.json")).unwrap(),
+    )
+    .unwrap();
+    // The kernel spans lines 165-177 of the fixture; its `None` and `Err` arms never run.
+    assert!(
+        checks
+            .iter()
+            .all(|check| !(165..=177).contains(&check["location"]["line"].as_u64().unwrap())),
+        "{checks:?}"
+    );
+    let mut source = String::new();
+    let mut expected = Vec::new();
+    for (a, b) in [(0_u32, 7_u32), (5, 100), (255, u32::MAX), (u32::MAX - 1, 3)] {
+        write!(source, "{{ uint out[3] = {{}}; unchecked_unwraps(out, {a}u, {b}u, {LAUNCH}); for (auto value : out) std::cout << value << ','; }}").unwrap();
+        expected.extend([a + 1, b / (a | 1), a & 0xff].map(u64::from));
+    }
+    compare(&directory, &source, &expected);
+}
+
+#[test]
 fn clamp_results_and_invalid_bounds_preserve_rust_behavior() {
     let directory = emitted();
     let checks = serde_json::from_slice::<Vec<serde_json::Value>>(

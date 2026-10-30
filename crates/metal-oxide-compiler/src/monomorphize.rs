@@ -102,7 +102,7 @@ pub(crate) fn body<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> &'tcx B
         }
     }
     let reachable = traversal::mono_reachable_as_bitset(&body, tcx, instance);
-    let dead = doomed(&body);
+    let dead = doomed(tcx, &body);
     let unreachable = body
         .basic_blocks
         .indices()
@@ -173,8 +173,9 @@ fn reads_uninhabited<'tcx>(
 }
 
 /// Blocks from which every path reaches `unreachable`; running them is undefined behavior, as
-/// in the `None` arm of `unwrap_unchecked`.
-fn doomed(body: &Body<'_>) -> Vec<bool> {
+/// in the `None` and `Err` arms of `unwrap_unchecked`. `mem::forget`, which `Result`'s arm calls
+/// first, returns without effects.
+fn doomed(tcx: TyCtxt<'_>, body: &Body<'_>) -> Vec<bool> {
     let mut doomed = vec![false; body.basic_blocks.len()];
     let mut changed = true;
     while changed {
@@ -183,6 +184,16 @@ fn doomed(body: &Body<'_>) -> Vec<bool> {
             let next = match &data.terminator().kind {
                 TerminatorKind::Unreachable => true,
                 TerminatorKind::Goto { target } => doomed[target.as_usize()],
+                TerminatorKind::Call {
+                    func,
+                    target: Some(target),
+                    ..
+                } if func.const_fn_def().is_some_and(|(definition, _)| {
+                    tcx.def_path_str(definition) == "core::mem::forget"
+                }) =>
+                {
+                    doomed[target.as_usize()]
+                }
                 TerminatorKind::SwitchInt { targets, .. } => targets
                     .all_targets()
                     .iter()

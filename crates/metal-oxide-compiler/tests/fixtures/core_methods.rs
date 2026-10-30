@@ -161,3 +161,17 @@ pub unsafe fn bit_methods(out: WriteBuffer<u64>, value: u64) {
         unsafe { out.store_unchecked(i as u32, values[i]) };
     }
 }
+
+#[kernel]
+pub unsafe fn unchecked_unwraps(out: WriteBuffer<u32>, a: u32, b: u32) {
+    let values = unsafe {
+        [
+            a.checked_add(1).unwrap_unchecked(),
+            b.checked_div(a | 1).unwrap_unchecked(),
+            u8::try_from(a & 0xff).unwrap_unchecked() as u32,
+        ]
+    };
+    for i in 0..3 {
+        unsafe { out.store_unchecked(i as u32, values[i]) };
+    }
+}
