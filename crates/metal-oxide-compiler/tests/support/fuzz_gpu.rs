@@ -52,7 +52,7 @@ pub fn check(case: &Case, expected: &Run, generated: &Path) -> Result<(), Failur
         .map_err(|error| Failure::Device(format!("GPU result: {error}")))?;
     let (failure, words, counters) = output.map_err(Failure::Device)?;
     let failure = failure.map(|(line, column)| Outcome::Panic { line, column });
-    match case.gpu_mismatch(expected, failure, &words, &counters) {
+    match case.gpu_difference(expected, failure, &words, &counters) {
         Some(mismatch) => Err(Failure::Gpu(mismatch)),
         None => Ok(()),
     }

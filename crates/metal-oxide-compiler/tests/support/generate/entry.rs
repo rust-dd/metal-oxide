@@ -38,6 +38,23 @@ impl Buffers<'_> {
     }
 }
 
+/// Switches the CPU program's floats to Metal's handling of subnormals, which flushes them to
+/// zero, when the oracle asks for it on an AArch64 host.
+const FLUSH: &str = r#"
+#[cfg(cpu_reference)]
+fn flush_subnormals() {
+    #[cfg(target_arch = "aarch64")]
+    if std::env::var_os("METAL_OXIDE_FLUSH_SUBNORMALS").is_some() {
+        let control: u64;
+        // SAFETY: FPCR.FZ only makes this thread's float operations flush subnormals to zero.
+        unsafe {
+            core::arch::asm!("mrs {}, fpcr", out(reg) control);
+            core::arch::asm!("msr fpcr, {}", in(reg) control | 1 << 24);
+        }
+    }
+}
+"#;
+
 /// The kernel that runs `run` for each thread with an input and, with `--cfg cpu_reference`, a
 /// program that prints what each thread of `inputs` computes, one thread at a time.
 pub fn independent(buffers: &Buffers, inputs: &str) -> String {
@@ -48,7 +65,7 @@ pub fn independent(buffers: &Buffers, inputs: &str) -> String {
     format!(
         r#"
 #[cfg(not(cpu_reference))]
-use metal_oxide_device::{{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
+use metal_oxide_device::{{Float, ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
 
 #[cfg(not(cpu_reference))]
 #[kernel(instances(generated({elements})))]
@@ -63,6 +80,7 @@ pub unsafe fn generated_body<const ELEMENTS: u32>(input: ReadBuffer<{input}>, ou
 
 #[cfg(cpu_reference)]
 fn main() {{
+    flush_subnormals();
     let location = std::sync::Arc::new(std::sync::Mutex::new((0, 0)));
     let recorded = std::sync::Arc::clone(&location);
     std::panic::set_hook(Box::new(move |info| {{
@@ -80,7 +98,7 @@ fn main() {{
         }}
     }}
 }}
-"#
+{FLUSH}"#
     )
 }
 
@@ -152,7 +170,7 @@ pub fn cooperative(
     format!(
         r#"
 #[cfg(not(cpu_reference))]
-use metal_oxide_device::{{AtomicBuffer, AtomicThreadgroupBuffer, ReadBuffer, ThreadgroupBuffer, WriteBuffer, block_idx, kernel, simdgroup, thread_idx, threadgroup}};
+use metal_oxide_device::{{AtomicBuffer, AtomicThreadgroupBuffer, Float, ReadBuffer, ThreadgroupBuffer, WriteBuffer, block_idx, kernel, simdgroup, thread_idx, threadgroup}};
 
 #[cfg(not(cpu_reference))]
 #[kernel(block = ({BLOCK}, 1, 1))]
@@ -179,6 +197,7 @@ fn main() {{
     let inputs = [{inputs}];
     let n = inputs.len() as u32;
 {create}    let outcomes = model::launch({BLOCK}, n, |i| {{
+        flush_subnormals();
         let value = if i < n {{ inputs[i as usize] as {input} }} else {{ {zero} }};
 {cpu}        let k = cooperate({arguments});
         (i < n).then(|| run(value, {values}))
@@ -191,7 +210,7 @@ fn main() {{
         }}
     }}
 {print}}}
-"#
+{FLUSH}"#
     )
 }
 

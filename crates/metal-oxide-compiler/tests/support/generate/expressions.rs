@@ -274,31 +274,9 @@ impl Builder {
         Expr::Binary(Box::new(mixed), comparison, Box::new(literal))
     }
 
-    fn any_int(&mut self, scope: &Scope, depth: u32) -> Expr {
+    pub fn any_int(&mut self, scope: &Scope, depth: u32) -> Expr {
         let int = *self.random.pick(&INTS);
         self.expr(scope, &Type::Int(int), depth)
-    }
-
-    fn float(&mut self, scope: &Scope, depth: u32) -> Expr {
-        let operand = |this: &mut Self| Box::new(this.expr(scope, &Type::Float, depth));
-        match self.random.below(6) {
-            0 | 1 => Expr::Binary(
-                operand(self),
-                self.random.pick(&["+", "-", "*"]),
-                operand(self),
-            ),
-            2 => Expr::Unary("-", operand(self)),
-            3 => match self.random.below(3) {
-                0 => Expr::Method(operand(self), "abs", vec![]),
-                1 => Expr::Extreme("min", operand(self), operand(self)),
-                _ => Expr::Extreme("max", operand(self), operand(self)),
-            },
-            4 => Expr::Cast(Box::new(self.any_int(scope, depth)), Type::Float),
-            _ => {
-                let condition = self.expr(scope, &Type::Bool, depth);
-                Expr::If(Box::new(condition), operand(self), operand(self))
-            }
-        }
     }
 
     fn boolean(&mut self, scope: &Scope, depth: u32) -> Expr {

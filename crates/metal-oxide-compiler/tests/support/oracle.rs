@@ -79,7 +79,7 @@ impl Case {
         generated: &std::path::Path,
     ) -> Result<(), Failure> {
         let gpu = self.gpu(device, generated).map_err(Failure::Device)?;
-        match self.gpu_mismatch(expected, gpu.failure, &gpu.words, &gpu.counters) {
+        match self.gpu_difference(expected, gpu.failure, &gpu.words, &gpu.counters) {
             Some(mismatch) => Err(Failure::Gpu(mismatch)),
             None => Ok(()),
         }

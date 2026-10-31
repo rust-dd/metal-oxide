@@ -152,6 +152,24 @@ fn bit_reversals_match_cpu_and_host_msl() {
     }
 }
 
+/// GPU results with subnormals flushed to zero agree with the CPU reference that flushes them.
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn the_cpu_reference_flushes_subnormals_when_asked() {
+    let case = support::differential::Case::saved(
+        &support::root()
+            .join("crates/metal-oxide-compiler/tests/fixtures/generated/flushed_subnormals.rs"),
+    );
+    let (ieee, flushed) = (case.cpu().unwrap(), case.cpu_flushed().unwrap());
+    for (ieee, flushed) in ieee.threads.iter().zip(&flushed.threads) {
+        let (Outcome::Words(ieee), Outcome::Words(flushed)) = (ieee, flushed) else {
+            panic!("the fixture completes");
+        };
+        assert_eq!(ieee[0], 1);
+        assert_eq!(flushed, &[0, 0]);
+    }
+}
+
 #[test]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[ignore = "requires a Metal GPU"]
@@ -411,6 +429,22 @@ fn generated_programs_cover_the_supported_constructs() {
         ".pow(",
         "_usize",
         "isize::MIN",
+        "_f32 / ",
+        "_f32 % ",
+        ".sqrt()",
+        ".floor()",
+        ".signum()",
+        ".mul_add(",
+        ".copysign(",
+        ".clamp(",
+        ".powi(",
+        ".exp2()",
+        ".ln()",
+        ".atan2(",
+        ".powf(",
+        ".hypot(",
+        ".sin_cos().",
+        " approx",
     ] {
         assert!(
             sources.contains(construct),

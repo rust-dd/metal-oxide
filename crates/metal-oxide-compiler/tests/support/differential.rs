@@ -44,7 +44,7 @@ pub enum Outcome {
 
 /// What a program computed: an outcome for each thread with an input, and the final words of its
 /// device counters.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Run {
     pub threads: Vec<Outcome>,
     pub counters: Vec<u32>,
@@ -114,7 +114,10 @@ impl Case {
             .map(|word| match word {
                 "exact" => Word::Exact,
                 "float" => Word::Float,
-                other => panic!("{}: unknown word {other}", path.display()),
+                other => match other.strip_prefix("approx").map(str::parse) {
+                    Some(Ok(ulps)) => Word::Approximate(ulps),
+                    _ => panic!("{}: unknown word {other}", path.display()),
+                },
             })
             .collect::<Vec<_>>();
         let inputs = field("    let inputs = [")
@@ -183,24 +186,14 @@ impl Case {
         let build = super::process::output(&mut rustc, Duration::from_secs(120))
             .map_err(|error| format!("rustc: {error}"))?;
         super::succeeded(build)?;
-        let run =
-            super::process::output(&mut Command::new(binary), super::process::EXECUTION_TIMEOUT)
-                .map_err(|error| format!("the CPU build: {error}"))?;
-        let mut computed = Run::default();
-        for line in super::succeeded(run)?.lines() {
-            if let Some(counters) = line.strip_prefix("counters ") {
-                computed.counters = words(counters);
-            } else if let Some(location) = line.strip_prefix("panic ") {
-                let (line, column) = location.split_once(':').unwrap();
-                computed.threads.push(Outcome::Panic {
-                    line: line.parse().unwrap(),
-                    column: column.parse().unwrap(),
-                });
-            } else {
-                computed.threads.push(Outcome::Words(words(line)));
-            }
-        }
-        Ok(computed)
+        outcomes(Command::new(binary))
+    }
+
+    /// What the CPU build computes with subnormal floats flushed to zero, as Metal may flush them.
+    pub fn cpu_flushed(&self) -> Result<Run, String> {
+        let mut command = Command::new(self.directory.join("cpu"));
+        command.env("METAL_OXIDE_FLUSH_SUBNORMALS", "1");
+        outcomes(command)
     }
 
     /// What every thread produces when the emitted MSL runs on the host, one thread at a time.
@@ -317,6 +310,25 @@ impl Case {
         self.mismatch(&expected.threads, &actual)
     }
 
+    /// [`Case::gpu_mismatch`], unless the CPU build that computed `expected` computes the GPU's
+    /// results with subnormal floats flushed to zero, which Metal may do.
+    pub fn gpu_difference(
+        &self,
+        expected: &Run,
+        failure: Option<Outcome>,
+        words: &[u32],
+        counters: &[u32],
+    ) -> Option<String> {
+        let mismatch = self.gpu_mismatch(expected, failure.clone(), words, counters)?;
+        let computed = outcomes(Command::new(self.directory.join("cpu")));
+        let explained = computed.is_ok_and(|computed| computed == *expected)
+            && self.cpu_flushed().is_ok_and(|flushed| {
+                self.gpu_mismatch(&flushed, failure, words, counters)
+                    .is_none()
+            });
+        (!explained).then_some(mismatch)
+    }
+
     fn words_agree(&self, expected: &[u32], actual: &[u32]) -> bool {
         expected.len() == actual.len()
             && expected
@@ -365,6 +377,27 @@ fn element_words(name: &str, value: &str) -> String {
     }
 }
 
+/// What the CPU build that `command` runs prints.
+fn outcomes(mut command: Command) -> Result<Run, String> {
+    let run = super::process::output(&mut command, super::process::EXECUTION_TIMEOUT)
+        .map_err(|error| format!("the CPU build: {error}"))?;
+    let mut computed = Run::default();
+    for line in super::succeeded(run)?.lines() {
+        if let Some(counters) = line.strip_prefix("counters ") {
+            computed.counters = words(counters);
+        } else if let Some(location) = line.strip_prefix("panic ") {
+            let (line, column) = location.split_once(':').unwrap();
+            computed.threads.push(Outcome::Panic {
+                line: line.parse().unwrap(),
+                column: column.parse().unwrap(),
+            });
+        } else {
+            computed.threads.push(Outcome::Words(words(line)));
+        }
+    }
+    Ok(computed)
+}
+
 /// The thread inputs of `seed`: edge values, then a linear congruential sequence.
 fn inputs(seed: u64) -> Vec<u32> {
     let mut state = seed as u32 ^ (seed >> 32) as u32;
@@ -394,8 +427,25 @@ fn agree(kind: Word, expected: u32, actual: u32) -> bool {
         return true;
     }
     let (expected, actual) = (f32::from_bits(expected), f32::from_bits(actual));
-    kind == Word::Float
-        && (expected.is_nan() && actual.is_nan() || expected.is_subnormal() && actual == 0.0)
+    let close = match kind {
+        Word::Exact => return false,
+        Word::Float => false,
+        Word::Approximate(ulps) => distance(expected, actual) <= u64::from(ulps),
+    };
+    close || expected.is_nan() && actual.is_nan() || expected.is_subnormal() && actual == 0.0
+}
+
+/// The number of `f32` steps between `a` and `b`, with both zeros at the same place.
+fn distance(a: f32, b: f32) -> u64 {
+    let ordered = |value: f32| {
+        let magnitude = i64::from(value.to_bits() & 0x7fff_ffff);
+        if value.is_sign_negative() {
+            -magnitude
+        } else {
+            magnitude
+        }
+    };
+    ordered(a).abs_diff(ordered(b))
 }
 
 fn words(line: &str) -> Vec<u32> {
@@ -467,5 +517,32 @@ mod tests {
         ));
         assert!(!agree(Word::Exact, nan, (-f32::NAN).to_bits()));
         assert!(agree(Word::Exact, 7, 7));
+    }
+
+    #[test]
+    fn approximate_floats_agree_within_their_units_in_the_last_place() {
+        let one = 1.0_f32.to_bits();
+        assert!(agree(Word::Approximate(2), one, one + 2));
+        assert!(agree(Word::Approximate(2), one, one - 2));
+        assert!(!agree(Word::Approximate(2), one, one + 3));
+        assert!(!agree(Word::Float, one, one + 1));
+        let tiny = f32::from_bits(1);
+        assert!(agree(
+            Word::Approximate(2),
+            tiny.to_bits(),
+            (-tiny).to_bits()
+        ));
+        assert!(agree(Word::Approximate(1), 0, (-0.0_f32).to_bits()));
+        assert!(agree(
+            Word::Approximate(1),
+            f32::MAX.to_bits(),
+            f32::INFINITY.to_bits()
+        ));
+        assert!(!agree(Word::Approximate(99), f32::NAN.to_bits(), one));
+        assert!(agree(
+            Word::Approximate(0),
+            f32::NAN.to_bits(),
+            (-f32::NAN).to_bits()
+        ));
     }
 }

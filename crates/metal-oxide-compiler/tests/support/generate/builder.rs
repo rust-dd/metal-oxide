@@ -1,4 +1,5 @@
 use super::{
+    Word,
     ast::{Expr, Function, Stmt},
     random::Random,
     scope::{Local, Scope},
@@ -311,8 +312,14 @@ impl Builder {
     }
 
     /// `run(input, k0, ..) -> [output; elements]`, the code that every thread executes, which
-    /// also takes the `values` that `cooperate` computed.
-    pub fn run(&mut self, input: &Type, output: &Type, elements: u32, values: u32) -> Function {
+    /// also takes the `values` that `cooperate` computed, and how the oracle compares its words.
+    pub fn run(
+        &mut self,
+        input: &Type,
+        output: &Type,
+        elements: u32,
+        values: u32,
+    ) -> (Function, Vec<Word>) {
         let parameters = std::iter::once(("input".to_owned(), input.clone()))
             .chain((0..values).map(|value| (format!("k{value}"), U32)))
             .collect::<Vec<_>>();
@@ -331,16 +338,33 @@ impl Builder {
         }
         let count = 3 + self.random.below(5);
         let body = self.block(&mut scope, count, 2);
-        let values = (0..elements)
-            .map(|_| self.expr(&scope, output, 3))
-            .collect::<Vec<_>>();
-        Function {
+        let mut results = Vec::new();
+        let mut words = Vec::new();
+        for _ in 0..elements {
+            let (value, word) = match output {
+                Type::Float if self.random.chance(1, 3) => {
+                    let (value, ulps) = self.approximation(&scope);
+                    (value, Word::Approximate(ulps))
+                }
+                Type::Float => (self.expr(&scope, output, 3), Word::Float),
+                Type::Int(int) => {
+                    let width = int.bits.div_ceil(32) as usize;
+                    words.extend(std::iter::repeat_n(Word::Exact, width - 1));
+                    (self.expr(&scope, output, 3), Word::Exact)
+                }
+                _ => unreachable!("buffers hold scalars"),
+            };
+            results.push(value);
+            words.push(word);
+        }
+        let run = Function {
             name: "run".into(),
             generic: None,
             parameters,
             result: result.clone(),
             body,
-            value: Expr::Aggregate(result, values),
-        }
+            value: Expr::Aggregate(result, results),
+        };
+        (run, words)
     }
 }

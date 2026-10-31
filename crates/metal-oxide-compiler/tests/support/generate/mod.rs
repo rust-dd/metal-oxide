@@ -9,6 +9,7 @@ mod closures;
 mod cooperation;
 mod entry;
 mod expressions;
+mod floats;
 mod iterators;
 mod loops;
 pub mod model;
@@ -25,10 +26,13 @@ use types::{ELEMENTS, Enum, Record, Type};
 /// How the oracle compares one output word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Word {
-    /// Integers and bools, bit for bit.
+    /// Integers, bit for bit.
     Exact,
-    /// The bits of an `f32` built from exact operations: equal bits, or NaN on both sides.
+    /// The bits of an `f32` from correctly rounded operations: equal bits, NaN on both sides, or
+    /// zero for a subnormal, which Metal may flush.
     Float,
+    /// An `f32` from a math function, within the given units in the last place of the CPU's.
+    Approximate(u32),
 }
 
 #[derive(Clone)]
@@ -76,8 +80,7 @@ impl Program {
             .then(|| 1 + builder.random.below(3) as u32);
         let cooperation = values.map(|values| builder.cooperation(&input, values));
         let elements = 1 + builder.random.below(4) as u32;
-        let run = builder.run(&input, &output, elements, values.unwrap_or(0));
-        let words = words(&output, elements);
+        let (run, words) = builder.run(&input, &output, elements, values.unwrap_or(0));
         Self {
             seed,
             overflow_checks,
@@ -172,8 +175,9 @@ impl Program {
             .words
             .iter()
             .map(|word| match word {
-                Word::Exact => "exact",
-                Word::Float => "float",
+                Word::Exact => "exact".to_owned(),
+                Word::Float => "float".to_owned(),
+                Word::Approximate(ulps) => format!("approx{ulps}"),
             })
             .collect::<Vec<_>>();
         let checks = if self.overflow_checks { "on" } else { "off" };
@@ -225,17 +229,6 @@ impl Program {
         printer.text.push_str(&entry);
         printer.text
     }
-}
-
-/// The words that each thread's `elements` values of `output` print as: two for 64-bit
-/// integers, low word first.
-fn words(output: &Type, elements: u32) -> Vec<Word> {
-    let (word, width) = match output {
-        Type::Float => (Word::Float, 1),
-        Type::Int(int) => (Word::Exact, int.bits.div_ceil(32)),
-        _ => unreachable!("buffers hold scalars"),
-    };
-    vec![word; (elements * width) as usize]
 }
 
 /// Whether `text` names `name` as a whole word.

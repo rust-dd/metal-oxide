@@ -118,7 +118,7 @@ impl Int {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     Int(Int),
-    /// `f32`, kept to integers and quarters so that results are exact and normal.
+    /// `f32`, from quarters and integers through correctly rounded operations.
     Float,
     Bool,
     Array(Box<Type>, u32),
