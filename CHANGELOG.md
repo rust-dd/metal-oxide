@@ -58,6 +58,9 @@
   deployment target, so libraries built with the macOS 26 SDK used AIR 2.8 and macOS 15
   refused to load them, saved artifacts included. The next build rewrites their
   `kernels.metallib`.
+- Values of 3, 5, 6 or 7 bytes, such as a `[bool; 3]` that a closure captures, are copied
+  member by member. LLVM copied a 3-byte value as a 24-bit integer, which Apple's GPU
+  compilers misread, so `any` over such a capture could return `false` on the GPU.
 
 ### Upgrading
 

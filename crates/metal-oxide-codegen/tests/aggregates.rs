@@ -251,6 +251,40 @@ fn array_update_source_size_is_bounded_independently_of_length() {
 }
 
 #[test]
+fn odd_sized_values_are_copied_member_by_member() {
+    for (length, copied) in [
+        (
+            3,
+            "metal_oxide_aggregate_0{{v1.elements[0], v1.elements[1], v1.elements[2]}}",
+        ),
+        (4, "v1"),
+    ] {
+        let mut types = TypeTable::default();
+        let array = types.intern(Aggregate::Array {
+            element: Type::Scalar(Scalar::Bool),
+            length,
+        });
+        let capture = types.intern(Aggregate::Tuple(vec![array, Type::Scalar(Scalar::U32)]));
+        let mut output = module(
+            1,
+            vec![capture, array],
+            vec![block(
+                vec![(0, construct(capture, vec![local(1), uint(7)]))],
+                Terminator::Return,
+            )],
+        );
+        output.types = types;
+        let msl = metal_oxide_codegen::Codegen::new(&output)
+            .and_then(|codegen| codegen.emit())
+            .unwrap();
+        assert!(
+            msl.contains(&format!("v0 = metal_oxide_aggregate_1{{{copied}, 7u}};")),
+            "{msl}"
+        );
+    }
+}
+
+#[test]
 fn constructed_records_carry_zeroed_padding() {
     let mut types = TypeTable::default();
     let record = types.intern(Aggregate::record(

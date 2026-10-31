@@ -54,6 +54,12 @@ pub(crate) fn shape(module: &Module, id: usize) -> Shape {
     }
 }
 
+/// Whether values of aggregate `id` are copied member by member: LLVM would copy them as 24- to
+/// 56-bit integers, and Apple's GPU compilers misread a 24-bit one loaded from thread memory.
+pub(crate) fn copied_by_member(module: &Module, id: usize) -> bool {
+    matches!(shape(module, id).size, 3 | 5..=7)
+}
+
 fn size_alignment(module: &Module, ty: Type) -> (u64, u64) {
     match ty {
         Type::Scalar(scalar) => {

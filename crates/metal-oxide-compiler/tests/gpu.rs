@@ -108,6 +108,8 @@ mod narrow;
 mod native;
 #[path = "gpu/numerics.rs"]
 mod numerics;
+#[path = "gpu/odd_sized_values.rs"]
+mod odd_sized_values;
 #[path = "gpu/proofs.rs"]
 mod proofs;
 #[path = "gpu/ranges.rs"]

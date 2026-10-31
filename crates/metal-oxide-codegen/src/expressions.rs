@@ -192,10 +192,31 @@ pub(crate) fn place(module: &Module, function: &Function, value: &Place) -> Stri
     result
 }
 
+/// `value` read from aggregate `id` whole, or member by member when [`layout::copied_by_member`].
+fn read(module: &Module, id: usize, value: String) -> String {
+    if !layout::copied_by_member(module, id) {
+        return value;
+    }
+    let aggregate = module.types.get(id).unwrap();
+    let fields = (0..aggregate.len() as u32)
+        .map(|field| {
+            let member = aggregate_field(module, id, &value, field);
+            match aggregate.field(field) {
+                Some(Type::Aggregate(inner)) => read(module, inner, member),
+                _ => member,
+            }
+        })
+        .collect();
+    aggregate_value(module, id, fields)
+}
+
 pub(crate) fn operand(module: &Module, function: &Function, value: &Operand) -> String {
     match value {
-        Operand::Place(value) if is_unit(module, function, value) => String::new(),
-        Operand::Place(value) => place(module, function, value),
+        Operand::Place(value) => match place_type(module, function, value, &function.source) {
+            Ok(Type::Unit) => String::new(),
+            Ok(Type::Aggregate(id)) => read(module, id, place(module, function, value)),
+            _ => place(module, function, value),
+        },
         Operand::AggregateConstant { ty, fields } => {
             let fields = fields
                 .iter()
@@ -334,7 +355,13 @@ pub(crate) fn expression(
             op(&values[1]),
             op(&values[2])
         ),
-        Expression::BufferLoad { buffer, index } => format!("{}[{}]", op(buffer), op(index)),
+        Expression::BufferLoad { buffer, index } => {
+            let element = format!("{}[{}]", op(buffer), op(index));
+            match expression_type(module, function, value, source)? {
+                Type::Aggregate(id) => read(module, id, element),
+                _ => element,
+            }
+        }
         Expression::BufferStore {
             buffer,
             index,
