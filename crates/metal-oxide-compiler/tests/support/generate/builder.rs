@@ -1,5 +1,4 @@
 use super::{
-    Word,
     ast::{Expr, Function, Stmt},
     random::Random,
     scope::{Local, Scope},
@@ -336,12 +335,11 @@ impl Builder {
         });
     }
 
-    /// `run(input, k0, ..) -> [u32; words]`, the code that every thread executes, which also
-    /// takes the `values` that `cooperate` computed.
-    pub fn run(&mut self, words: u32, values: u32) -> (Function, Vec<Word>) {
-        let parameters = std::iter::once("input".to_owned())
-            .chain((0..values).map(|value| format!("k{value}")))
-            .map(|name| (name, U32))
+    /// `run(input, k0, ..) -> [output; elements]`, the code that every thread executes, which
+    /// also takes the `values` that `cooperate` computed.
+    pub fn run(&mut self, input: &Type, output: &Type, elements: u32, values: u32) -> Function {
+        let parameters = std::iter::once(("input".to_owned(), input.clone()))
+            .chain((0..values).map(|value| (format!("k{value}"), U32)))
             .collect::<Vec<_>>();
         let mut scope = Scope {
             varying: parameters.iter().map(|(name, _)| name.clone()).collect(),
@@ -355,40 +353,18 @@ impl Builder {
             });
         }
         let count = 3 + self.random.below(5);
-        let mut body = self.block(&mut scope, count, 2);
-        let mut values = Vec::new();
-        let mut kinds = Vec::new();
-        for _ in 0..words {
-            let ty = self.ty(0);
-            let mut value = Box::new(self.expr(&scope, &ty, 3));
-            if matches!(ty, Type::Int(int) if int.bits == 64) {
-                let name = self.fresh("word");
-                body.push(Stmt::Let(name.clone(), ty.clone(), *value));
-                value = Box::new(Expr::Local(name));
-                values.push(Expr::Cast(value.clone(), U32));
-                kinds.push(Word::Exact);
-                value = Box::new(Expr::Binary(
-                    value,
-                    ">>",
-                    Box::new(Expr::Literal("32_u32".into())),
-                ));
-            }
-            let (word, kind) = match ty {
-                Type::Float => (Expr::Method(value, "to_bits", vec![]), Word::Float),
-                _ => (Expr::Cast(value, U32), Word::Exact),
-            };
-            values.push(word);
-            kinds.push(kind);
-        }
-        let result = Type::Array(Box::new(U32), values.len() as u32);
-        let run = Function {
+        let body = self.block(&mut scope, count, 2);
+        let values = (0..elements)
+            .map(|_| self.expr(&scope, output, 3))
+            .collect::<Vec<_>>();
+        let result = Type::Array(Box::new(output.clone()), elements);
+        Function {
             name: "run".into(),
             generic: None,
             parameters,
             result: result.clone(),
             body,
             value: Expr::Aggregate(result, values),
-        };
-        (run, kinds)
+        }
     }
 }

@@ -12,28 +12,36 @@ fn case() -> Case {
     let mut case = Case::generated(0);
     case.inputs = vec![0];
     case.words = vec![Word::Exact, Word::Exact];
+    case.output = "u32".into();
     case
 }
 
 #[test]
 fn generated_wide_results_preserve_both_halves_in_the_oracle() {
-    let case = Case::generated(711);
-    let expected = case.cpu().unwrap();
-    assert_eq!(case.words.len(), 6);
-    let mut words = output::initial(case.inputs.len(), case.words.len());
+    let (case, expected) = (0..)
+        .map(Case::generated)
+        .filter(|case| case.output.ends_with("64") && case.counters.is_none())
+        .map(|case| {
+            let expected = case.cpu().unwrap();
+            (case, expected)
+        })
+        .find(|(_, expected)| {
+            let words = |outcome: &Outcome| matches!(outcome, Outcome::Words(_));
+            expected.threads.iter().all(words)
+        })
+        .unwrap();
+    let layout = case.layout();
+    assert_eq!(layout.width, 2);
+    let mut words = layout.initial();
     for (thread, outcome) in expected.threads.iter().enumerate() {
         let Outcome::Words(result) = outcome else {
-            panic!("thread {thread} unexpectedly panicked");
+            unreachable!("every thread completes");
         };
-        assert_eq!(
-            &result[..4],
-            &[0xffff_ffff, 0x7fff_ffff, 0x0000_0001, 0x8000_0000]
-        );
         let start = thread * case.words.len();
         words[start..start + case.words.len()].copy_from_slice(result);
     }
     assert_eq!(case.gpu_mismatch(&expected, None, &words, &[]), None);
-    for high in [1, 3] {
+    for high in (1..case.words.len()).step_by(2) {
         words[high] ^= 1;
         assert!(case.gpu_mismatch(&expected, None, &words, &[]).is_some());
         words[high] ^= 1;
@@ -47,7 +55,7 @@ fn the_oracle_rejects_missing_zero_writes_and_overwritten_padding() {
         threads: vec![Outcome::Words(vec![0, 0])],
         counters: Vec::new(),
     };
-    let mut words = output::initial(1, 2);
+    let mut words = case.layout().initial();
     assert!(case.gpu_mismatch(&expected, None, &words, &[]).is_some());
     words[..2].fill(0);
     assert_eq!(case.gpu_mismatch(&expected, None, &words, &[]), None);

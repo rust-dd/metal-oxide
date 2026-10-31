@@ -1,5 +1,7 @@
 // Minimized from seed 0xd62a4d5c49a45006: a closure that captures a zero-sized enum lost its tag.
 // words: exact float exact exact
+// input: u32
+// output: u32
 // overflow checks: off
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]

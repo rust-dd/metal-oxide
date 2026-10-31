@@ -1,5 +1,7 @@
 // Minimized from seed 0x6063fd154c131d22: Metal misread a captured [bool; 3] that LLVM copied as an i24.
 // words: exact exact exact exact exact
+// input: u32
+// output: u32
 // overflow checks: off
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]

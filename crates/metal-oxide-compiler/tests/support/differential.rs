@@ -1,4 +1,7 @@
-use super::generate::{Program, Word};
+use super::{
+    generate::{Program, Word},
+    output::{self, Layout},
+};
 use metal_oxide_artifact::{ArtifactFile, Check};
 use std::{
     path::{Path, PathBuf},
@@ -60,6 +63,9 @@ pub struct Case {
     pub directory: PathBuf,
     pub source: PathBuf,
     pub words: Vec<Word>,
+    /// The element types of the input and output buffers.
+    pub input: String,
+    pub output: String,
     pub overflow_checks: bool,
     /// Whether the threads of a block first run `cooperate` together.
     pub cooperative: bool,
@@ -79,10 +85,13 @@ impl Case {
         let inputs = inputs(seed);
         let source = directory.join("case.rs");
         std::fs::write(&source, program.source(&inputs)).unwrap();
+        let (input, output) = program.buffers();
         Self {
             directory,
             source,
             words: program.words.clone(),
+            input,
+            output,
             overflow_checks: program.overflow_checks,
             cooperative: program.cooperative(),
             counters: program.counters(),
@@ -91,7 +100,7 @@ impl Case {
     }
 
     /// A program that [`Program::source`] wrote, such as a minimized fixture; its header and CPU
-    /// entry give the words, overflow checks, cooperation and inputs.
+    /// entry give the words, buffers, overflow checks, cooperation and inputs.
     pub fn saved(path: &Path) -> Self {
         let text = std::fs::read_to_string(path).unwrap();
         let field = |prefix: &str| {
@@ -117,6 +126,8 @@ impl Case {
             directory: scratch(path.file_stem().unwrap().to_str().unwrap()),
             source: path.to_path_buf(),
             words,
+            input: field("// input: "),
+            output: field("// output: "),
             overflow_checks: field("// overflow checks: ") == "on",
             cooperative: text.lines().any(|line| line == "// cooperative"),
             counters: text
@@ -124,6 +135,19 @@ impl Case {
                 .find_map(|line| line.strip_prefix("// counters: "))
                 .map(str::to_owned),
             inputs,
+        }
+    }
+
+    /// Where the threads' output words are.
+    pub fn layout(&self) -> Layout {
+        let bits = element_bits(&self.output);
+        let width = bits.div_ceil(32) as usize;
+        Layout {
+            threads: self.inputs.len(),
+            block: 64,
+            elements: self.words.len() / width,
+            width,
+            poison: output::poison(bits),
         }
     }
 
@@ -181,25 +205,28 @@ impl Case {
 
     /// What every thread produces when the emitted MSL runs on the host, one thread at a time.
     pub fn msl(&self, directory: &Path) -> Result<Vec<Outcome>, String> {
-        let words = self.words.len();
+        let elements = self.layout().elements;
         let msl = std::fs::read_to_string(directory.join("kernels.metal")).unwrap();
         let inputs = self
             .inputs
             .iter()
             .map(|v| format!("{v}u"))
             .collect::<Vec<_>>();
+        let (input, output) = (element_type(&self.input), element_type(&self.output));
+        let printed = element_words(&self.output, &format!("output[i * {elements} + k]"));
         let main = format!(
-            "uint input[] = {{{}}}; uint output[{}] = {{}}; uint n = {THREADS}; ulong lengths[] = {{{THREADS}, {}, 0}}; \
+            "uint inputs[] = {{{}}}; {input} input[{THREADS}]; for (uint k = 0; k < {THREADS}; ++k) input[k] = {input}(inputs[k]); \
+             {output} output[{}] = {{}}; uint n = {THREADS}; ulong lengths[] = {{{THREADS}, {}, 0}}; \
              for (uint i = 0; i < n; ++i) {{ \
                  generated({}); \
                  uint failure = atomic_load_explicit(metal_oxide_failure, memory_order_relaxed); \
                  atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); \
                  if (failure != 0u) {{ std::cout << \"check \" << failure - 2u << '\\n'; continue; }} \
-                 for (uint k = 0; k < {words}; ++k) {{ std::cout << output[i * {words} + k] << (k + 1 == {words} ? '\\n' : ' '); }} \
+                 for (uint k = 0; k < {elements}; ++k) {{ std::cout << {printed} << (k + 1 == {elements} ? '\\n' : ' '); }} \
              }}",
             inputs.join(","),
-            THREADS * words,
-            THREADS * words,
+            THREADS * elements,
+            THREADS * elements,
             invocation(&msl)
         );
         let checks = checks(directory);
@@ -247,7 +274,11 @@ impl Case {
         words: &[u32],
         counters: &[u32],
     ) -> Option<String> {
-        let words = match super::output::payload(words, expected.threads.len(), self.words.len()) {
+        let layout = Layout {
+            threads: expected.threads.len(),
+            ..self.layout()
+        };
+        let words = match layout.payload(words) {
             Ok(words) => words,
             Err(error) => return Some(error),
         };
@@ -293,6 +324,44 @@ impl Case {
                 .zip(actual)
                 .zip(&self.words)
                 .all(|((&expected, &actual), kind)| agree(*kind, expected, actual))
+    }
+}
+
+/// The width of a buffer element type.
+fn element_bits(name: &str) -> u32 {
+    match name {
+        "u8" | "i8" => 8,
+        "u16" | "i16" => 16,
+        "u32" | "i32" | "f32" => 32,
+        "u64" | "i64" => 64,
+        other => panic!("unknown buffer element type {other}"),
+    }
+}
+
+/// The MSL name of a buffer element type.
+fn element_type(name: &str) -> &'static str {
+    match name {
+        "u8" => "uchar",
+        "i8" => "char",
+        "u16" => "ushort",
+        "i16" => "short",
+        "u32" => "uint",
+        "i32" => "int",
+        "u64" => "ulong",
+        "i64" => "long",
+        "f32" => "float",
+        other => panic!("unknown buffer element type {other}"),
+    }
+}
+
+/// C++ that streams the words of the element `value` as the CPU prints them.
+fn element_words(name: &str, value: &str) -> String {
+    match element_bits(name) {
+        _ if name == "f32" => format!("metal::as_type<uint>({value})"),
+        8 => format!("uint(uchar({value}))"),
+        16 => format!("uint(ushort({value}))"),
+        32 => format!("uint({value})"),
+        _ => format!("uint({value}) << ' ' << uint(ulong({value}) >> 32)"),
     }
 }
 

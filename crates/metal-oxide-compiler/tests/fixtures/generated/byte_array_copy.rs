@@ -1,4 +1,6 @@
 // words: float exact exact exact
+// input: u32
+// output: u32
 // overflow checks: on
 // cooperative
 // counters: i32

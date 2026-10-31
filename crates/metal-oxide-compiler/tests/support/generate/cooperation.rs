@@ -191,7 +191,7 @@ impl Printer<'_> {
 impl Builder {
     /// `cooperate(input, lane, buffers..) -> [u32; values]`, which a block's threads run together.
     /// Checks before cooperative operations must be proved, so it calls nothing that may check.
-    pub fn cooperation(&mut self, values: u32) -> Function {
+    pub fn cooperation(&mut self, input: &Type, values: u32) -> Function {
         let fallible = std::mem::replace(&mut self.fallible, false);
         self.plain = true;
         let mut scope = Scope {
@@ -202,13 +202,13 @@ impl Builder {
             parameters: Vec::new(),
             counters: None,
         };
-        for name in ["input", "lane"] {
+        for (name, ty) in [("input", input.clone()), ("lane", U32)] {
             scope.locals.push(Local {
                 name: name.into(),
-                ty: U32,
+                ty: ty.clone(),
                 mutable: false,
             });
-            phase.parameters.push((name.to_owned(), U32));
+            phase.parameters.push((name.to_owned(), ty));
         }
         if self.random.chance(1, 2) {
             let int = *self.random.pick(&[Int::U32, Int::I32]);

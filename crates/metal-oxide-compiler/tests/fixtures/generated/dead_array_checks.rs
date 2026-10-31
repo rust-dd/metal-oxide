@@ -1,4 +1,6 @@
 // words: exact exact exact exact
+// input: u32
+// output: u32
 // overflow checks: on
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_assignments)]

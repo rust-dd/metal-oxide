@@ -4,18 +4,55 @@ use super::{
     types::{Type, render},
 };
 
+/// The buffers of a generated kernel: its input element type and the `elements` values of the
+/// output type that each thread stores.
+pub struct Buffers<'a> {
+    pub input: &'a Type,
+    pub output: &'a Type,
+    pub elements: u32,
+}
+
+impl Buffers<'_> {
+    /// The CPU's text for the words of the output element `word`: its bits, low word first.
+    fn printed(&self) -> &'static str {
+        match self.output {
+            Type::Float => "word.to_bits().to_string()",
+            Type::Int(int) => match (int.bits, int.signed) {
+                (64, false) => r#"format!("{} {}", word as u32, word >> 32)"#,
+                (64, true) => r#"format!("{} {}", word as u32, word as u64 >> 32)"#,
+                (8, true) => "(word as u8).to_string()",
+                (16, true) => "(word as u16).to_string()",
+                (_, true) => "(word as u32).to_string()",
+                (_, false) => "word.to_string()",
+            },
+            _ => unreachable!("buffers hold scalars"),
+        }
+    }
+
+    /// The input of threads past the end, which run `cooperate` without one.
+    fn zero(&self) -> String {
+        match self.input {
+            Type::Float => "0.0_f32".into(),
+            ty => format!("0_{}", render(ty, &[])),
+        }
+    }
+}
+
 /// The kernel that runs `run` for each thread with an input and, with `--cfg cpu_reference`, a
 /// program that prints what each thread of `inputs` computes, one thread at a time.
-pub fn independent(words: usize, inputs: &str) -> String {
-    let stores = stores(words, "WORDS", 2);
+pub fn independent(buffers: &Buffers, inputs: &str) -> String {
+    let elements = buffers.elements;
+    let stores = stores(elements, "ELEMENTS", 2);
+    let (input, output) = (render(buffers.input, &[]), render(buffers.output, &[]));
+    let printed = buffers.printed();
     format!(
         r#"
 #[cfg(not(cpu_reference))]
 use metal_oxide_device::{{ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
 
 #[cfg(not(cpu_reference))]
-#[kernel(instances(generated({words})))]
-pub unsafe fn generated_body<const WORDS: u32>(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32) {{
+#[kernel(instances(generated({elements})))]
+pub unsafe fn generated_body<const ELEMENTS: u32>(input: ReadBuffer<{input}>, output: WriteBuffer<{output}>, n: u32) {{
     let i = block_idx().x * block_dim().x + thread_idx().x;
     if i < n {{
         let words = run(unsafe {{ input.load_unchecked(i) }});
@@ -34,8 +71,8 @@ fn main() {{
     }}));
     let inputs = [{inputs}];
     for input in inputs {{
-        match std::panic::catch_unwind(|| run(input)) {{
-            Ok(words) => println!("{{}}", words.map(|word| word.to_string()).join(" ")),
+        match std::panic::catch_unwind(|| run(input as {input})) {{
+            Ok(words) => println!("{{}}", words.map(|word| {printed}).join(" ")),
             Err(_) => {{
                 let (line, column) = *location.lock().unwrap();
                 println!("panic {{line}}:{{column}}");
@@ -52,10 +89,13 @@ fn main() {{
 pub fn cooperative(
     cooperation: &Function,
     counters: Option<&str>,
-    words: usize,
+    buffers: &Buffers,
     inputs: &str,
 ) -> String {
-    let stores = stores(words, &words.to_string(), 2);
+    let elements = buffers.elements;
+    let stores = stores(elements, &elements.to_string(), 2);
+    let (input, output) = (render(buffers.input, &[]), render(buffers.output, &[]));
+    let (printed, zero) = (buffers.printed(), buffers.zero());
     let allocations = |indent: usize| {
         cooperation
             .parameters
@@ -116,9 +156,9 @@ use metal_oxide_device::{{AtomicBuffer, AtomicThreadgroupBuffer, ReadBuffer, Thr
 
 #[cfg(not(cpu_reference))]
 #[kernel(block = ({BLOCK}, 1, 1))]
-pub unsafe fn generated(input: ReadBuffer<u32>, output: WriteBuffer<u32>, n: u32{parameter}) {{
+pub unsafe fn generated(input: ReadBuffer<{input}>, output: WriteBuffer<{output}>, n: u32{parameter}) {{
     let i = block_idx().x * {BLOCK} + thread_idx().x;
-    let value = if i < n {{ unsafe {{ input.load_unchecked(i) }} }} else {{ 0 }};
+    let value = if i < n {{ unsafe {{ input.load_unchecked(i) }} }} else {{ {zero} }};
 {kernel}    let k = cooperate({arguments});
     if i < n {{
         let words = run(value, {values});
@@ -139,13 +179,13 @@ fn main() {{
     let inputs = [{inputs}];
     let n = inputs.len() as u32;
 {create}    let outcomes = model::launch({BLOCK}, n, |i| {{
-        let value = if i < n {{ inputs[i as usize] }} else {{ 0 }};
+        let value = if i < n {{ inputs[i as usize] as {input} }} else {{ {zero} }};
 {cpu}        let k = cooperate({arguments});
         (i < n).then(|| run(value, {values}))
     }});
     for outcome in outcomes {{
         match outcome {{
-            Ok(Some(words)) => println!("{{}}", words.map(|word| word.to_string()).join(" ")),
+            Ok(Some(words)) => println!("{{}}", words.map(|word| {printed}).join(" ")),
             Ok(None) => {{}}
             Err((line, column)) => println!("panic {{line}}:{{column}}"),
         }}
@@ -155,12 +195,12 @@ fn main() {{
     )
 }
 
-/// The stores of a thread's `words` into `output`, at `indent` levels.
-fn stores(words: usize, stride: &str, indent: usize) -> String {
-    (0..words)
-        .map(|word| {
+/// The stores of a thread's `elements` values into `output`, at `indent` levels.
+fn stores(elements: u32, stride: &str, indent: usize) -> String {
+    (0..elements)
+        .map(|element| {
             let indent = "    ".repeat(indent);
-            format!("{indent}output.store_unchecked(i * {stride} + {word}, words[{word}]);\n")
+            format!("{indent}output.store_unchecked(i * {stride} + {element}, words[{element}]);\n")
         })
         .collect()
 }

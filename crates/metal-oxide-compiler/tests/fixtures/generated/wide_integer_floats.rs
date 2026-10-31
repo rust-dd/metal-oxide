@@ -1,5 +1,7 @@
 // 64-bit integers converted to f32: the Apple Paravirtual device read the folded first one as about 2^71.
 // words: float float float float float float
+// input: u32
+// output: u32
 // overflow checks: off
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]

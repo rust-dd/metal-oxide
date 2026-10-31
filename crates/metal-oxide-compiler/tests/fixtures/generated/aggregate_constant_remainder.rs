@@ -1,5 +1,7 @@
 // Minimized from seed 0xab7c769cf8d35d5f: Metal folds a constant numerator out of an array.
 // words: float exact
+// input: u32
+// output: u32
 // overflow checks: on
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]

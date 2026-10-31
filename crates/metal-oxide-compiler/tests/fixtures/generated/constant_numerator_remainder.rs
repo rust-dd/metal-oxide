@@ -1,5 +1,7 @@
 // Minimized from seed 0xfc7e71687d7dc546: Metal divides a constant numerator near 2^32 wrongly.
 // words: exact exact
+// input: u32
+// output: u32
 // overflow checks: off
 #![cfg_attr(not(cpu_reference), no_std)]
 #![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]

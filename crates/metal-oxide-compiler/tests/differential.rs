@@ -59,6 +59,7 @@ fn a_kernel_that_writes_other_words_is_reported() {
         })
         .find(|(case, expected)| {
             !case.cooperative
+                && case.output != "f32"
                 && expected
                     .threads
                     .iter()
@@ -204,7 +205,8 @@ fn bit_reversals_match_cpu_on_gpu() {
 
 #[test]
 fn failures_are_compared_by_location_and_completed_threads_by_words() {
-    let case = support::differential::Case::generated(0);
+    let mut case = support::differential::Case::generated(0);
+    case.output = "u32".into();
     let words = case.words.len();
     let panic = Outcome::Panic { line: 9, column: 5 };
     let run = |threads: &[Outcome], counters: &[u32]| Run {
@@ -213,7 +215,11 @@ fn failures_are_compared_by_location_and_completed_threads_by_words() {
     };
     let threads = [Outcome::Words(vec![0; words]), panic.clone()];
     let expected = run(&threads, &[]);
-    let mut zeros = support::output::initial(2, words);
+    let layout = support::output::Layout {
+        threads: 2,
+        ..case.layout()
+    };
+    let mut zeros = layout.initial();
     zeros[..2 * words].fill(0);
     assert_eq!(
         case.gpu_mismatch(&expected, Some(panic.clone()), &zeros, &[]),
@@ -276,7 +282,6 @@ fn generated_programs_cover_the_supported_constructs() {
         ".min(",
         ".max(",
         ".abs()",
-        ".to_bits()",
         " ^ ",
         " & ",
         " | ",
@@ -375,6 +380,13 @@ fn generated_programs_cover_the_supported_constructs() {
         "counters.fetch_max(",
         "// counters: u32",
         "    'o",
+        "input: ReadBuffer<i8>",
+        "input: ReadBuffer<f32>",
+        "output: WriteBuffer<u16>",
+        "output: WriteBuffer<i64>",
+        "output: WriteBuffer<f32>",
+        "run(input as u64)",
+        "as f32 } else { 0.0_f32 }",
     ] {
         assert!(
             sources.contains(construct),

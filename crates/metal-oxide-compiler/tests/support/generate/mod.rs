@@ -18,7 +18,7 @@ mod variants;
 
 use ast::{Function, Printer};
 use builder::Builder;
-use types::{Enum, Record};
+use types::{ELEMENTS, Enum, Record, Type};
 
 /// How the oracle compares one output word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +34,10 @@ pub struct Program {
     pub seed: u64,
     /// Whether the program builds with `-C overflow-checks=on`.
     pub overflow_checks: bool,
+    /// The element type of the input buffer, which `run` takes.
+    input: Type,
+    /// The element type of the output buffer, which `run` returns an array of.
+    output: Type,
     records: Vec<Record>,
     enums: Vec<Enum>,
     helpers: Vec<Function>,
@@ -48,6 +52,12 @@ impl Program {
         let mut builder = Builder::new(seed);
         builder.fallible = builder.random.chance(1, 2);
         let overflow_checks = builder.random.chance(1, 2);
+        let input = builder.random.pick(&ELEMENTS).clone();
+        let output = if builder.random.chance(1, 4) {
+            Type::Float
+        } else {
+            builder.random.pick(&ELEMENTS[..8]).clone()
+        };
         for _ in 0..builder.random.below(5) {
             if builder.random.chance(1, 2) {
                 builder.record();
@@ -62,12 +72,15 @@ impl Program {
             .random
             .chance(1, 3)
             .then(|| 1 + builder.random.below(3) as u32);
-        let cooperation = values.map(|values| builder.cooperation(values));
-        let words = 1 + builder.random.below(4) as u32;
-        let (run, words) = builder.run(words, values.unwrap_or(0));
+        let cooperation = values.map(|values| builder.cooperation(&input, values));
+        let elements = 1 + builder.random.below(4) as u32;
+        let run = builder.run(&input, &output, elements, values.unwrap_or(0));
+        let words = words(&output, elements);
         Self {
             seed,
             overflow_checks,
+            input,
+            output,
             records: builder.records,
             enums: builder.enums,
             helpers: builder.helpers,
@@ -79,6 +92,12 @@ impl Program {
 
     pub fn cooperative(&self) -> bool {
         self.cooperation.is_some()
+    }
+
+    /// The names of the input and output element types.
+    pub fn buffers(&self) -> (String, String) {
+        let name = |ty| types::render(ty, &[]);
+        (name(&self.input), name(&self.output))
     }
 
     /// The element type of the device counters that `cooperate` counts in, if it does.
@@ -156,8 +175,9 @@ impl Program {
             })
             .collect::<Vec<_>>();
         let checks = if self.overflow_checks { "on" } else { "off" };
+        let (input, output) = self.buffers();
         printer.text.push_str(&format!(
-            "// words: {}\n// overflow checks: {checks}\n",
+            "// words: {}\n// input: {input}\n// output: {output}\n// overflow checks: {checks}\n",
             words.join(" ")
         ));
         if self.cooperative() {
@@ -185,16 +205,35 @@ impl Program {
             .map(|input| format!("{input}_u32"))
             .collect::<Vec<_>>()
             .join(", ");
+        let Type::Array(_, elements) = self.run.result else {
+            unreachable!("run returns an array")
+        };
+        let buffers = entry::Buffers {
+            input: &self.input,
+            output: &self.output,
+            elements,
+        };
         let entry = match &self.cooperation {
             Some(cooperation) => {
                 let counters = self.counters();
-                entry::cooperative(cooperation, counters.as_deref(), self.words.len(), &inputs)
+                entry::cooperative(cooperation, counters.as_deref(), &buffers, &inputs)
             }
-            None => entry::independent(self.words.len(), &inputs),
+            None => entry::independent(&buffers, &inputs),
         };
         printer.text.push_str(&entry);
         printer.text
     }
+}
+
+/// The words that each thread's `elements` values of `output` print as: two for 64-bit
+/// integers, low word first.
+fn words(output: &Type, elements: u32) -> Vec<Word> {
+    let (word, width) = match output {
+        Type::Float => (Word::Float, 1),
+        Type::Int(int) => (Word::Exact, int.bits.div_ceil(32)),
+        _ => unreachable!("buffers hold scalars"),
+    };
+    vec![word; (elements * width) as usize]
 }
 
 /// Whether `text` names `name` as a whole word.

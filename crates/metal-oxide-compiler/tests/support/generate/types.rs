@@ -22,6 +22,19 @@ pub const INTS: [Int; 8] = [
     Int::signed(64),
 ];
 
+/// The element types of kernel buffers.
+pub const ELEMENTS: [Type; 9] = [
+    Type::Int(INTS[0]),
+    Type::Int(INTS[1]),
+    Type::Int(INTS[2]),
+    Type::Int(INTS[3]),
+    Type::Int(INTS[4]),
+    Type::Int(INTS[5]),
+    Type::Int(INTS[6]),
+    Type::Int(INTS[7]),
+    Type::Float,
+];
+
 impl Int {
     pub const U32: Self = Self::unsigned(32);
     pub const I32: Self = Self::signed(32);
