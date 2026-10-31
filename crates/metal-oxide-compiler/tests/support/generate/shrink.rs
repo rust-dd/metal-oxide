@@ -119,6 +119,13 @@ fn removals(stmts: &[Stmt]) -> Vec<Vec<Stmt>> {
                     found.push(with(&[stmt]));
                 }
             }
+            Stmt::While(label, counter, bound, condition, body) => {
+                for body in removals(body) {
+                    let (label, counter) = (label.clone(), counter.clone());
+                    let stmt = Stmt::While(label, counter, bound.clone(), condition.clone(), body);
+                    found.push(with(&[stmt]));
+                }
+            }
             _ => {}
         }
     }
@@ -139,12 +146,16 @@ fn statements(stmts: &mut [Stmt], visit: &mut dyn FnMut(&mut Expr) -> bool) -> b
         | Stmt::Assign(_, value)
         | Stmt::Exit(value, _, _)
         | Stmt::Assert(value)
+        | Stmt::Return(value)
         | Stmt::Call(value)
         | Stmt::Closure(_, value) => expression(value, visit),
         Stmt::If(condition, then, otherwise) => {
             expression(condition, visit) && statements(then, visit) && statements(otherwise, visit)
         }
         Stmt::For(_, _, iterable, body) => expression(iterable, visit) && statements(body, visit),
+        Stmt::While(_, _, bound, condition, body) => {
+            expression(bound, visit) && expression(condition, visit) && statements(body, visit)
+        }
         Stmt::Cooperative(cooperative) => cooperative
             .operands_mut()
             .into_iter()

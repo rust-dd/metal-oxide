@@ -105,9 +105,13 @@ pub enum Stmt {
     If(Expr, Vec<Stmt>, Vec<Stmt>),
     /// `for binding in iterable`, under a label that nested exits may name.
     For(String, String, Expr, Vec<Stmt>),
+    /// `while counter < bound && condition`, under a label, whose body first increments the
+    /// counter; the counter outlives the loop.
+    While(String, String, Expr, Expr, Vec<Stmt>),
     /// `if condition { break|continue 'label; }`
     Exit(Expr, &'static str, String),
     Assert(Expr),
+    Return(Expr),
     /// A call whose result is unused, for the effects of its `&mut` arguments.
     Call(Expr),
     /// `let name = closure;`
@@ -307,6 +311,15 @@ impl Printer<'_> {
                     self.stmts(body, indent + 1);
                     self.line(indent, "}");
                 }
+                Stmt::While(label, counter, bound, condition, body) => {
+                    let (bound, condition) = (self.expr(bound), self.expr(condition));
+                    self.line(indent, &format!("let mut {counter} = 0_u32;"));
+                    let test = format!("{counter} < {bound} && {condition}");
+                    self.line(indent, &format!("'{label}: while {test} {{"));
+                    self.line(indent + 1, &format!("{counter} += 1;"));
+                    self.stmts(body, indent + 1);
+                    self.line(indent, "}");
+                }
                 Stmt::Exit(condition, kind, label) => {
                     let condition = self.expr(condition);
                     self.line(indent, &format!("if {condition} {{ {kind} '{label}; }}"));
@@ -325,6 +338,10 @@ impl Printer<'_> {
                         indent,
                         &format!("assert!({condition}, \"generated assertion\");"),
                     );
+                }
+                Stmt::Return(value) => {
+                    let value = self.expr(value);
+                    self.line(indent, &format!("return {value};"));
                 }
                 Stmt::Cooperative(cooperative) => self.cooperative(cooperative, indent),
             }

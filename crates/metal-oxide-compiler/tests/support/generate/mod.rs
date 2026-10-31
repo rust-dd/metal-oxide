@@ -9,6 +9,7 @@ mod cooperation;
 mod entry;
 mod expressions;
 mod iterators;
+mod loops;
 pub mod model;
 mod random;
 mod scope;

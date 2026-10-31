@@ -104,10 +104,12 @@ fn compiler_failures_match_by_their_first_diagnostic_wherever_it_points() {
 #[test]
 fn shrinking_keeps_what_fails_and_drops_the_rest() {
     let fails = |program: &Program| program.source(&[]).contains("\"generated assertion\"");
-    // Cooperative sources carry the CPU model, which no simplification removes.
+    // No simplification removes the entry, about 1.5 kB, or the CPU model of cooperative sources.
     let program = (0..)
         .map(Program::generate)
-        .find(|program| !program.cooperative() && fails(program))
+        .find(|program| {
+            !program.cooperative() && fails(program) && program.source(&[]).len() > 4000
+        })
         .unwrap();
     let size = program.source(&[]).len();
     let shrunk = program.shrink(fails);
@@ -387,6 +389,13 @@ fn generated_programs_cover_the_supported_constructs() {
         "output: WriteBuffer<f32>",
         "run(input as u64)",
         "as f32 } else { 0.0_f32 }",
+        ": while w",
+        " += 1;",
+        "return [",
+        "return Some(",
+        "(0_u32 .. ((",
+        "(0_u32 ..= ((",
+        "_u32) .. ((",
     ] {
         assert!(
             sources.contains(construct),

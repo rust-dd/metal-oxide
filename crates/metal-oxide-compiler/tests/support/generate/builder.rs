@@ -83,7 +83,7 @@ impl Builder {
     pub fn block(&mut self, scope: &mut Scope, count: u64, nesting: u32) -> Vec<Stmt> {
         let mut stmts = Vec::new();
         for _ in 0..count {
-            let stmt = match self.random.below(15) {
+            let stmt = match self.random.below(17) {
                 4..=6 => self.assign(scope),
                 7 if nesting > 0 => Some(self.branch(scope, nesting)),
                 8 if nesting > 0 => Some(self.repeat(scope, nesting)),
@@ -91,6 +91,8 @@ impl Builder {
                 10 if self.fallible => Some(self.assertion(scope)),
                 13 => Some(self.declare_closure(scope)),
                 14 if nesting > 0 => Some(self.iterate(scope, nesting)),
+                15 if nesting > 0 => Some(self.repeat_while(scope, nesting)),
+                16 => self.early_return(scope, nesting),
                 11 | 12 => {
                     let mutation = self.mutation(scope);
                     if !mutation.is_empty() {
@@ -199,34 +201,6 @@ impl Builder {
         Stmt::If(condition, then, otherwise)
     }
 
-    fn repeat(&mut self, scope: &Scope, nesting: u32) -> Stmt {
-        let label = self.fresh("o");
-        let counter = self.fresh("c");
-        let mut inner = scope.clone();
-        inner.locals.push(Local {
-            name: counter.clone(),
-            ty: U32,
-            mutable: false,
-        });
-        inner.labels.push(label.clone());
-        let bound = 1 + self.random.below(4);
-        let count = 1 + self.random.below(4);
-        let body = self.block(&mut inner, count, nesting - 1);
-        Stmt::For(
-            label,
-            counter,
-            Expr::Literal(format!("0..{bound}_u32")),
-            body,
-        )
-    }
-
-    fn exit(&mut self, scope: &Scope) -> Stmt {
-        let label = self.random.pick(&scope.labels).clone();
-        let kind = *self.random.pick(&["break", "continue"]);
-        let condition = self.expr(scope, &Type::Bool, 2);
-        Stmt::Exit(condition, kind, label)
-    }
-
     /// An assertion, mostly of a condition on a value of the thread, so that it fails for some
     /// threads only.
     fn assertion(&mut self, scope: &Scope) -> Stmt {
@@ -303,6 +277,7 @@ impl Builder {
         let mut scope = Scope {
             generic: generic.clone(),
             question: matches!(result, Type::Option(_) | Type::Result(..)).then(|| result.clone()),
+            returns: Some(result.clone()),
             varying: parameters
                 .iter()
                 .filter(|(_, ty)| matches!(ty, Type::Int(_)))
@@ -341,8 +316,10 @@ impl Builder {
         let parameters = std::iter::once(("input".to_owned(), input.clone()))
             .chain((0..values).map(|value| (format!("k{value}"), U32)))
             .collect::<Vec<_>>();
+        let result = Type::Array(Box::new(output.clone()), elements);
         let mut scope = Scope {
             varying: parameters.iter().map(|(name, _)| name.clone()).collect(),
+            returns: Some(result.clone()),
             ..Scope::default()
         };
         for (name, ty) in &parameters {
@@ -357,7 +334,6 @@ impl Builder {
         let values = (0..elements)
             .map(|_| self.expr(&scope, output, 3))
             .collect::<Vec<_>>();
-        let result = Type::Array(Box::new(output.clone()), elements);
         Function {
             name: "run".into(),
             generic: None,

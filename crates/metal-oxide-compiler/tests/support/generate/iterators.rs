@@ -74,7 +74,8 @@ impl Builder {
         Stmt::For(label, binding, iterable, body)
     }
 
-    /// An iterator over an array place or a short range, with adapters.
+    /// An iterator over an array place or a short range, which may differ between threads, with
+    /// adapters.
     fn iterator(&mut self, scope: &Scope, depth: u32) -> Iterator {
         let arrays = scope
             .every_place(&self.records)
@@ -94,9 +95,11 @@ impl Builder {
             } else {
                 (iterator, Type::Ref(element, false), root)
             }
-        } else {
+        } else if self.random.chance(1, 2) {
             let end = 1 + self.random.below(8);
             (Expr::Literal(format!("(0_u32..{end})")), U32, None)
+        } else {
+            (self.range(scope, 8), U32, None)
         };
         iterator = self.adapted(iterator);
         for _ in 0..self.random.below(2) {

@@ -26,6 +26,8 @@ pub struct Scope {
     pub varying: Vec<String>,
     /// The enclosing helper's `Option` or `Result` result, into which `?` propagates.
     pub question: Option<Type>,
+    /// The result type of the enclosing function, which `return` takes.
+    pub returns: Option<Type>,
     /// Locals that are not `Copy` though their types pass for it, which closures do not capture:
     /// the `impl Fn` parameters and the `&mut` references that a loop over them freezes.
     pub owned: Vec<String>,
@@ -70,6 +72,7 @@ impl Scope {
     pub fn closure(&self, parameters: &[(String, Type)]) -> Self {
         let mut scope = Self {
             question: None,
+            returns: None,
             labels: Vec::new(),
             ..self.clone()
         };
