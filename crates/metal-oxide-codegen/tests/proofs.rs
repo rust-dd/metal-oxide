@@ -141,3 +141,48 @@ fn bit_reversal_preserves_scalar_width_and_signed_bit_patterns() {
         );
     }
 }
+
+#[test]
+fn signed_narrow_saturating_subtractions_hide_their_minuend_from_metal() {
+    for (scalar, name, hidden) in [
+        (Scalar::I8, "char", false),
+        (Scalar::I16, "short", true),
+        (Scalar::I32, "int", true),
+        (Scalar::I64, "long", false),
+        (Scalar::U16, "ushort", false),
+        (Scalar::U32, "uint", false),
+    ] {
+        let module = module(
+            2,
+            vec![Type::Scalar(scalar); 3],
+            vec![block(
+                vec![(
+                    0,
+                    Expression::Integer {
+                        op: IntegerOp::SaturatingSub,
+                        arguments: vec![local(1), local(2)],
+                    },
+                )],
+                Terminator::Return,
+            )],
+        );
+        let msl = metal_oxide_codegen::Codegen::new(&module)
+            .and_then(|codegen| codegen.emit())
+            .unwrap();
+        let opaque = "metal_oxide_ctx.thread_idx.x >= metal_oxide_ctx.block_dim.x";
+        assert_eq!(msl.contains(opaque), hidden, "{scalar:?}: {msl}");
+        let expected = if scalar.is_signed() { "-2,0" } else { "0,0" };
+        assert_eq!(
+            support::execute(
+                &module,
+                &format!(
+                    "ctx.thread_idx.x = 7; ctx.block_dim.x = 8; \
+                     std::cout << long(metal_oxide_fn_0({name}(5), {name}(7), ctx)) << ',' \
+                     << long(metal_oxide_fn_0({name}(0), {name}(0), ctx));"
+                )
+            ),
+            expected,
+            "{scalar:?}"
+        );
+    }
+}

@@ -11,6 +11,15 @@ pub(crate) fn integer(op: IntegerOp, scalar: Scalar, values: Vec<String>) -> Str
         IntegerOp::Min => format!("min({}, {})", values[0], values[1]),
         IntegerOp::Max => format!("max({}, {})", values[0], values[1]),
         IntegerOp::SaturatingAdd => format!("addsat({}, {})", values[0], values[1]),
+        IntegerOp::SaturatingSub if scalar.is_signed() && matches!(scalar.bits(), 16 | 32) => {
+            // Metal's GPU compiler folds a signed 16- or 32-bit subsat of small constants to zero
+            // where the difference is negative.
+            let minuend = crate::arithmetic::integer_value(
+                scalar,
+                &format!("({} ^ {})", values[0], crate::arithmetic::OPAQUE_ZERO),
+            );
+            format!("subsat({minuend}, {})", values[1])
+        }
         IntegerOp::SaturatingSub => format!("subsat({}, {})", values[0], values[1]),
         IntegerOp::LeadingZeros => format!("uint(clz({}))", values[0]),
         IntegerOp::TrailingZeros if scalar.bits() < 32 => {

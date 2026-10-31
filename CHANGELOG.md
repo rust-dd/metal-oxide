@@ -65,6 +65,9 @@
   exhaust the numerical proof budget. Loops keep the facts of their first 8 iterations
   apart before merging them, instead of 64, so calls in loop bodies are analyzed fewer
   times.
+- Signed 16- and 32-bit `saturating_sub` and `saturating_neg` of constants, such as
+  `1_i16.saturating_neg()`, return their negative results. Apple's GPU compilers folded
+  them to zero where the difference was negative.
 
 ### Upgrading
 
