@@ -331,6 +331,26 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             mir::TerminatorKind::Call {
                 func,
                 args,
+                destination,
+                target: Some(target),
+                ..
+            } if matches!(
+                self.callee(func, body, span)?.intrinsic,
+                Some(crate::intrinsics::Intrinsic::ArrayFromClosure(_))
+            ) =>
+            {
+                let callee = self.callee(func, body, span)?;
+                let Some(crate::intrinsics::Intrinsic::ArrayFromClosure(mapped)) = callee.intrinsic
+                else {
+                    unreachable!()
+                };
+                let call = (callee.instance, mapped);
+                let result = (destination, target.as_usize());
+                self.array_from_closure(&mut statements, args, call, result, body, span)?
+            }
+            mir::TerminatorKind::Call {
+                func,
+                args,
                 target: Some(target),
                 ..
             } if matches!(

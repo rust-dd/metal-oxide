@@ -1,3 +1,4 @@
+mod arrays;
 mod atomics;
 mod buffers;
 mod calls;

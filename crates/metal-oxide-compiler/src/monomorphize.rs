@@ -351,6 +351,18 @@ impl<'tcx> Collector<'tcx> {
         if crate::intrinsics::array_iterator_method(tcx, instance.def_id()) {
             return;
         }
+        if let Some(crate::intrinsics::Intrinsic::ArrayFromClosure(mapped)) =
+            crate::intrinsics::builtin(tcx, instance.def_id())
+        {
+            match crate::intrinsics::array_closure(tcx, instance, mapped) {
+                Some((closure, _)) => self.visit(closure, span),
+                None => {
+                    tcx.dcx()
+                        .span_err(span, "array map and from_fn take a closure");
+                }
+            }
+            return;
+        }
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
             crate::trace(|| {
                 println!("instance: {instance}");

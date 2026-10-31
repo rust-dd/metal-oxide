@@ -23,7 +23,7 @@ GPU requirements appear in the generated [capability table](capabilities.md).
   `instances(...)`; lifetime parameters need no instance argument.
 - By-value array iteration: `for v in array`, and `into_iter` with `next` and the adapters
   that call it, such as `enumerate` and `zip`. The iterator's own `fold`, which `sum` and
-  `count` use, is unsupported.
+  `count` use, is unsupported. `<[T; N]>::map` and `array::from_fn` take closures.
 - Slice patterns, including rest bindings such as `[first, rest @ ..]`, and the slice
   methods built on them: `first`, `last`, `split_first`, `split_last` and their `_mut` forms.
 - Array and slice equality, `mem::swap`, `ptr::swap`, `ptr::copy_nonoverlapping`, slice

@@ -20,6 +20,7 @@
   `split_last` on slices. The prover checks each pattern's length test.
 - Arrays iterate by value: `for v in array`, and `into_iter` with `next` and adapters that
   call it. Folds of the array iterator, behind `sum` and `count`, are rejected.
+- `<[T; N]>::map` and `array::from_fn` build arrays from closures.
   Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed

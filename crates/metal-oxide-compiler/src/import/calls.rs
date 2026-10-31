@@ -471,7 +471,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     fields: vec![array, ir::Operand::Constant(ir::Constant::Usize(0))],
                 }
             }
-            Intrinsic::Swap | Intrinsic::CopyNonoverlapping => {
+            Intrinsic::Swap | Intrinsic::CopyNonoverlapping | Intrinsic::ArrayFromClosure(_) => {
                 unreachable!("memory operations are imported as statements")
             }
             Intrinsic::BufferLoad => {

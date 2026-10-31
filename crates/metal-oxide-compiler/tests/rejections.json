@@ -27,6 +27,8 @@
   {"message": "array indices require a usize local", "internal": "MIR Index locals are usize and lower to Scalar::Usize; the only usize local with another IR type is a #[repr(usize)] discriminant read through the internal discriminant_value intrinsic, and indexing with it fails first at the bounds-check comparison (`invalid binary operation types`)."},
   {"message": "array iterators support only `next`, which `for` loops and most adapters call", "fixture": "rejections/array_iterator_fold.rs"},
   {"message": "array length must be a nonzero concrete u32-sized constant", "fixture": "rejections/huge_array.rs", "line": 6, "column": 9},
+  {"message": "array map and from_fn build an array", "internal": "<[T; N]>::map returns [U; N] and array::from_fn returns [T; N], which lower to array aggregates."},
+  {"message": "array map and from_fn take a closure", "fixture": "rejections/array_map_function.rs", "line": 6, "column": 20},
   {"message": "arrays of zero-sized values are unsupported", "fixture": "rejections/zero_sized_array.rs", "line": 6, "column": 9},
   {"message": "atomic index requires u32", "internal": "Atomic operations come only from AtomicBuffer/AtomicThreadgroupBuffer methods, whose index parameter is typed u32."},
   {"message": "atomic operand type mismatch", "internal": "The atomic methods type their value operands as the handle's element type T."},

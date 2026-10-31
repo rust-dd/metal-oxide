@@ -30,18 +30,39 @@ fn iterated(values: [u32; 4]) -> [u32; 5] {
     [total, weighted, dot, nested, head.wrapping_mul(rest)]
 }
 
-#[test]
-#[ignore = "requires a Metal device on Apple Silicon"]
-fn by_value_array_iteration_matches_rust() -> metal_oxide::Result<()> {
-    let device = Device::system_default()?;
-    let pipeline = pipeline(&device, FIXTURE, "iterated")?;
-    let cases = (0..256_u32)
-        .map(|case| {
-            core::array::from_fn::<u32, 4, _>(|k| case.wrapping_mul(0x9e37_79b9) >> (k * 7))
-        })
-        .collect::<Vec<_>>();
-    let input = device.buffer_from_slice(&cases)?;
-    let mut output = device.buffer_zeroed::<[u32; 5]>(cases.len())?;
+fn built(values: [u32; 4]) -> [u32; 6] {
+    let tripled = values.map(|value| value.wrapping_mul(3));
+    let key = values[1];
+    let keyed = values.map(|value| value ^ key);
+    let mut count = 0_u32;
+    let counted = values.map(|value| {
+        count += 1;
+        value.wrapping_add(count)
+    });
+    let halves = values.map(|value| value as u8 as f32 * 0.5);
+    let mirrored = core::array::from_fn::<u32, 4, _>(|i| values[i].wrapping_add(values[3 - i]));
+    let grid = core::array::from_fn::<[u32; 3], 2, _>(|i| {
+        core::array::from_fn(|j| values[i + j].wrapping_mul(j as u32))
+    });
+    [
+        tripled[0] ^ tripled[3],
+        keyed[2],
+        counted[3].wrapping_add(count),
+        halves[1].to_bits() ^ halves[2].to_bits(),
+        mirrored[1] ^ mirrored[3],
+        grid[1][2] ^ grid[0][1],
+    ]
+}
+
+/// The outputs of one thread per case of four values.
+fn run<const OUTPUTS: usize>(
+    device: &Device,
+    entry: &str,
+    cases: &[[u32; 4]],
+) -> metal_oxide::Result<Vec<[u32; OUTPUTS]>> {
+    let pipeline = pipeline(device, FIXTURE, entry)?;
+    let input = device.buffer_from_slice(cases)?;
+    let mut output = device.buffer_zeroed::<[u32; OUTPUTS]>(cases.len())?;
     // SAFETY: the safe kernel bounds its writes and checks the input length.
     unsafe {
         Launch::new(
@@ -52,8 +73,35 @@ fn by_value_array_iteration_matches_rust() -> metal_oxide::Result<()> {
         )
     }
     .wait()?;
-    for (&case, actual) in cases.iter().zip(output.read().wait().iter()) {
-        assert_eq!(*actual, iterated(case), "{case:?}");
+    Ok(output.read().wait().to_vec())
+}
+
+fn cases() -> Vec<[u32; 4]> {
+    (0..256_u32)
+        .map(|case| {
+            core::array::from_fn::<u32, 4, _>(|k| case.wrapping_mul(0x9e37_79b9) >> (k * 7))
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn by_value_array_iteration_matches_rust() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let cases = cases();
+    for (&case, actual) in cases.iter().zip(run::<5>(&device, "iterated", &cases)?) {
+        assert_eq!(actual, iterated(case), "{case:?}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn array_map_and_from_fn_match_rust() -> metal_oxide::Result<()> {
+    let device = Device::system_default()?;
+    let cases = cases();
+    for (&case, actual) in cases.iter().zip(run::<6>(&device, "built", &cases)?) {
+        assert_eq!(actual, built(case), "{case:?}");
     }
     Ok(())
 }

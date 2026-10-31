@@ -56,6 +56,8 @@ pub(crate) enum Intrinsic {
     CopyNonoverlapping,
     /// `IntoIterator::into_iter` of an array: an iterator at its first element.
     ArrayIntoIter,
+    /// `<[T; N]>::map` (`true`) or `array::from_fn` (`false`): a loop that calls a closure.
+    ArrayFromClosure(bool),
 }
 
 /// The iterators whose `Iterator::next` the importer expands inline, so the prover sees the
@@ -144,6 +146,7 @@ impl Intrinsic {
             Self::Swap => "swap",
             Self::CopyNonoverlapping => "copy_nonoverlapping",
             Self::ArrayIntoIter => "array_into_iter",
+            Self::ArrayFromClosure(_) => "array_from_closure",
         }
     }
 }
@@ -266,6 +269,7 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     // Their bodies copy through a `MaybeUninit` or the `copy_nonoverlapping` statement, which
     // the importer replaces with element copies.
     match tcx.def_path_str(definition).as_str() {
+        "core::array::from_fn" => return Some(Intrinsic::ArrayFromClosure(false)),
         "core::ptr::swap" => return Some(Intrinsic::Swap),
         "core::ptr::copy_nonoverlapping" => return Some(Intrinsic::CopyNonoverlapping),
         _ => {}
@@ -309,6 +313,9 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     );
     if matches!(ty.kind(), ty::Slice(_)) && tcx.item_name(definition).as_str() == "len" {
         return Some(Intrinsic::SliceLen);
+    }
+    if matches!(ty.kind(), ty::Array(..)) && tcx.item_name(definition).as_str() == "map" {
+        return Some(Intrinsic::ArrayFromClosure(true));
     }
     if matches!(ty.kind(), ty::Float(ty::FloatTy::F32)) {
         match tcx.item_name(definition).as_str() {
@@ -387,6 +394,39 @@ pub(crate) fn needs_drop<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
             .any(|upvar| needs_drop(tcx, upvar)),
         _ => true,
     }
+}
+
+/// The closure that `<[T; N]>::map::<F, U>` (`mapped`) or `array::from_fn::<T, N, F>` calls
+/// through `FnMut`, and what it takes: an element or an index. Core fills the array through
+/// `MaybeUninit` and a drop guard.
+pub(crate) fn array_closure<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    instance: ty::Instance<'tcx>,
+    mapped: bool,
+) -> Option<(ty::Instance<'tcx>, Ty<'tcx>)> {
+    let input = if mapped {
+        instance.args.type_at(0)
+    } else {
+        tcx.types.usize
+    };
+    let call_mut = tcx
+        .associated_item_def_ids(tcx.lang_items().fn_mut_trait()?)
+        .iter()
+        .copied()
+        .find(|item| tcx.item_name(*item).as_str() == "call_mut")?;
+    let arguments = tcx.mk_args(&[
+        instance.args.type_at(2).into(),
+        Ty::new_tup(tcx, &[input]).into(),
+    ]);
+    let closure = crate::monomorphize::resolve(
+        tcx,
+        ty::TypingEnv::fully_monomorphized(),
+        call_mut,
+        arguments,
+    )
+    .ok()??;
+    tcx.is_closure_like(closure.def_id())
+        .then_some((closure, input))
 }
 
 /// `<[T; N] as IntoIterator>::into_iter`; core's iterator holds `MaybeUninit` elements.
