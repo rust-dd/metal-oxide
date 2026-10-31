@@ -1,6 +1,7 @@
 //! Seeded programs of the supported subset whose words the CPU, the host MSL and the GPU must
 //! agree on; in cooperative programs, a block's threads run `cooperate` together first.
 
+mod arithmetic;
 mod ast;
 mod borrows;
 mod builder;

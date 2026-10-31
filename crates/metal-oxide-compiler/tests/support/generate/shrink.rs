@@ -246,7 +246,9 @@ fn zero(text: &str) -> Option<String> {
     };
     match ty {
         "f32" => Some("0.0_f32".into()),
-        "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" => Some(format!("0_{ty}")),
+        "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize" => {
+            Some(format!("0_{ty}"))
+        }
         _ => None,
     }
 }

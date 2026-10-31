@@ -5,13 +5,15 @@ use super::random::Random;
 pub struct Int {
     pub bits: u32,
     pub signed: bool,
+    /// `usize` or `isize`, 64 bits wide on the device and the host.
+    pub size: bool,
 }
 
 pub const U32: Type = Type::Int(Int::U32);
 
 pub const I32: Type = Type::Int(Int::I32);
 
-pub const INTS: [Int; 8] = [
+pub const INTS: [Int; 10] = [
     Int::unsigned(8),
     Int::unsigned(16),
     Int::unsigned(32),
@@ -20,6 +22,8 @@ pub const INTS: [Int; 8] = [
     Int::signed(16),
     Int::signed(32),
     Int::signed(64),
+    Int::pointer_sized(false),
+    Int::pointer_sized(true),
 ];
 
 /// The element types of kernel buffers.
@@ -36,6 +40,7 @@ pub const ELEMENTS: [Type; 9] = [
 ];
 
 impl Int {
+    pub const U8: Self = Self::unsigned(8);
     pub const U32: Self = Self::unsigned(32);
     pub const I32: Self = Self::signed(32);
 
@@ -43,15 +48,33 @@ impl Int {
         Self {
             bits,
             signed: false,
+            size: false,
         }
     }
 
     const fn signed(bits: u32) -> Self {
-        Self { bits, signed: true }
+        Self {
+            bits,
+            signed: true,
+            size: false,
+        }
+    }
+
+    const fn pointer_sized(signed: bool) -> Self {
+        Self {
+            bits: 64,
+            signed,
+            size: true,
+        }
     }
 
     pub fn name(self) -> String {
-        format!("{}{}", if self.signed { 'i' } else { 'u' }, self.bits)
+        let sign = if self.signed { 'i' } else { 'u' };
+        if self.size {
+            format!("{sign}size")
+        } else {
+            format!("{sign}{}", self.bits)
+        }
     }
 
     /// A literal that favors the edges of the range.

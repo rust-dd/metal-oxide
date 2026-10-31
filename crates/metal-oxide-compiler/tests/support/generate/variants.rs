@@ -12,16 +12,17 @@ impl Builder {
     /// A constructed value of the enum, `Option` or `Result` type `ty`.
     pub fn variant(&mut self, scope: &Scope, ty: &Type, depth: u32) -> Expr {
         match ty {
-            Type::Option(value) => match self.random.below(4) {
-                0 => {
+            Type::Option(value) => match (self.random.below(5), &**value) {
+                (0, _) => {
                     let value = render(value, &self.records);
                     Expr::Variant(format!("None::<{value}>"), Vec::new())
                 }
-                1 => {
+                (1, _) => {
                     let condition = self.expr(scope, &Type::Bool, depth);
                     let value = self.expr(scope, value, depth);
                     Expr::Method(Box::new(condition), "then_some", vec![value])
                 }
+                (2, Type::Int(int)) => self.checked(scope, *int, depth),
                 _ => Expr::Variant("Some".into(), vec![self.expr(scope, value, depth)]),
             },
             Type::Result(value, error) => {

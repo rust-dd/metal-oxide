@@ -48,11 +48,7 @@ impl Builder {
     /// A literal, a local or a projection of one, or for `u32` the helper's const parameter.
     fn leaf(&mut self, scope: &Scope, ty: &Type) -> Expr {
         let mut found = scope.places(&self.records, ty);
-        if *ty
-            == Type::Int(Int {
-                bits: 32,
-                signed: false,
-            })
+        if *ty == Type::Int(Int::U32)
             && let Some(generic) = &scope.generic
         {
             found.push(Expr::Local(generic.clone()));
@@ -175,7 +171,7 @@ impl Builder {
                 Expr::Binary(operand(self), operator, varying)
             };
         }
-        match self.random.below(11) {
+        match self.random.below(14) {
             0 => {
                 let method = *self
                     .random
@@ -195,13 +191,7 @@ impl Builder {
                     "rotate_right",
                 ]);
                 let amount = self.any_int(scope, depth);
-                let amount = Expr::Cast(
-                    Box::new(amount),
-                    Type::Int(Int {
-                        bits: 32,
-                        signed: false,
-                    }),
-                );
+                let amount = Expr::Cast(Box::new(amount), Type::Int(Int::U32));
                 Expr::Method(operand(self), method, vec![amount])
             }
             3 => {
@@ -226,12 +216,7 @@ impl Builder {
                 1 => Expr::Method(operand(self), "reverse_bits", vec![]),
                 _ => Expr::Method(operand(self), "wrapping_neg", vec![]),
             },
-            6 if int
-                == (Int {
-                    bits: 32,
-                    signed: false,
-                }) =>
-            {
+            6 if int == Int::U32 => {
                 let method = *self
                     .random
                     .pick(&["count_ones", "leading_zeros", "trailing_zeros"]);
@@ -241,10 +226,7 @@ impl Builder {
                 let source = match self.random.below(4) {
                     0 => Expr::Cast(
                         Box::new(self.expr(scope, &Type::Bool, depth)),
-                        Type::Int(Int {
-                            bits: 8,
-                            signed: false,
-                        }),
+                        Type::Int(Int::U8),
                     ),
                     1 => self.expr(scope, &Type::Float, depth),
                     _ => self.any_int(scope, depth),
@@ -265,6 +247,9 @@ impl Builder {
                 ];
                 Expr::Match(Box::new(scrutinee), Box::new(arms))
             }
+            11 => self.checked_value(scope, int, depth),
+            12 => Expr::Field(Box::new(self.overflowing(scope, int, depth)), "0".into()),
+            13 => self.saturating(scope, int, depth),
             _ => Expr::Method(operand(self), "wrapping_add", vec![*operand(self)]),
         }
     }
@@ -317,7 +302,7 @@ impl Builder {
     }
 
     fn boolean(&mut self, scope: &Scope, depth: u32) -> Expr {
-        match self.random.below(6) {
+        match self.random.below(7) {
             0 | 1 => {
                 let ty = if self.random.chance(1, 4) {
                     Type::Float
@@ -334,6 +319,7 @@ impl Builder {
             }
             2 => Expr::Unary("!", Box::new(self.expr(scope, &Type::Bool, depth))),
             5 => self.tested(scope, depth),
+            6 => self.overflowed(scope, depth),
             3 => {
                 let left = self.expr(scope, &Type::Bool, depth);
                 let right = self.expr(scope, &Type::Bool, depth);
