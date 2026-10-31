@@ -44,7 +44,9 @@ impl Builder {
                 let methods = ["sqrt", "floor", "ceil", "round", "trunc", "signum"];
                 Expr::Method(operand(self), self.random.pick(&methods), vec![])
             }
-            6 => match self.random.below(3) {
+            // `clamp` asserts its bounds, a check that code before cooperative operations cannot
+            // take.
+            6 => match self.random.below(if self.plain { 2 } else { 3 }) {
                 0 => Expr::Method(
                     operand(self),
                     "mul_add",
