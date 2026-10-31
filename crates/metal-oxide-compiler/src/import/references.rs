@@ -370,7 +370,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
         fn_span: Span,
     ) -> Result<Option<ir::Type>> {
         let callee = self.callee(func, body, span)?;
-        if self.expanded_next(&callee, args) == Some(Expanded::Chunks) {
+        if matches!(
+            self.expanded_next(&callee, args),
+            Some((Expanded::Chunks, _))
+        ) {
             return self.chunk_type(&args[0].node, pending, span);
         }
         if let Some(Intrinsic::Buffer(query @ (BufferQuery::Slice | BufferQuery::Element))) =

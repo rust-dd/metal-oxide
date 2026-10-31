@@ -50,6 +50,16 @@ impl<'tcx> TypeLowering<'tcx> {
         if let Some(base) = restricted(self.tcx, ty) {
             return self.lower(base, span);
         }
+        if crate::intrinsics::Expanded::of(self.tcx, ty) == Some(crate::intrinsics::Expanded::Array)
+        {
+            let ty::Adt(_, arguments) = ty.kind() else {
+                unreachable!()
+            };
+            let array =
+                Ty::new_array_with_const_len(self.tcx, arguments.type_at(0), arguments.const_at(1));
+            let array = self.owned(array, span)?;
+            return Ok(self.array_iterator(array));
+        }
         if let ty::Tuple(types) = ty.kind()
             && types.len() == 2
             && types[1].is_bool()
@@ -119,7 +129,7 @@ impl<'tcx> TypeLowering<'tcx> {
             }
             vector::validate(self.tcx, ty, span)?;
             if definition.is_struct() {
-                if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
+                if crate::intrinsics::needs_drop(self.tcx, ty) {
                     return Err((span, "destructors cannot be imported".into()));
                 }
                 let fields = definition
@@ -184,6 +194,14 @@ impl<'tcx> TypeLowering<'tcx> {
     }
 
     /// `Option<T>`: the core enum, whose `None` comes first.
+    /// An array iterator: the array and the index of its next element.
+    pub(crate) fn array_iterator(&mut self, array: ir::Type) -> ir::Type {
+        self.types.intern(ir::Aggregate::Tuple(vec![
+            array,
+            ir::Type::Scalar(ir::Scalar::Usize),
+        ]))
+    }
+
     pub(crate) fn option(&mut self, value: ir::Type) -> ir::Type {
         self.types.intern(ir::Aggregate::enumeration(
             "Option",
@@ -211,7 +229,7 @@ impl<'tcx> TypeLowering<'tcx> {
                 format!("explicit enum discriminants are unsupported: {ty}"),
             ));
         }
-        if ty.needs_drop(self.tcx, TypingEnv::fully_monomorphized()) {
+        if crate::intrinsics::needs_drop(self.tcx, ty) {
             return Err((span, "destructors cannot be imported".into()));
         }
         let mut variants = Vec::with_capacity(definition.variants().len());

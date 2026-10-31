@@ -243,14 +243,18 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 target: Some(target),
                 ..
             } if self.expanded_call(func, args, body, span)?.is_some() => {
-                let (expanded, local) = self.expanded_call(func, args, body, span)?.unwrap();
+                let (expanded, place) = self.expanded_call(func, args, body, span)?.unwrap();
                 let target = target.as_usize();
+                let local = place.local;
                 match expanded {
                     Expanded::Range => {
                         self.range_next(&mut statements, local, destination, target, body, span)?
                     }
                     Expanded::Chunks => {
                         self.next_chunk(&mut statements, local, destination, target, body, span)?
+                    }
+                    Expanded::Array => {
+                        self.array_next(&mut statements, place, destination, target, body, span)?
                     }
                 }
             }
@@ -354,10 +358,7 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
             }
             mir::TerminatorKind::Drop { place, target, .. } => {
                 let ty = self.normalize_type(place.ty(&body.local_decls, self.module.tcx).ty);
-                if ty.needs_drop(
-                    self.module.tcx,
-                    rustc_middle::ty::TypingEnv::fully_monomorphized(),
-                ) {
+                if crate::intrinsics::needs_drop(self.module.tcx, ty) {
                     return Err((span, "destructors cannot be imported".into()));
                 }
                 ir::Terminator::Goto(target.as_usize())
@@ -394,16 +395,16 @@ fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
 }
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
-    /// The iterator and its local when a call is a `next` that the importer expands.
+    /// The iterator and its place when a call is a `next` that the importer expands.
     fn expanded_call(
         &self,
         func: &mir::Operand<'tcx>,
         args: &[rustc_span::Spanned<mir::Operand<'tcx>>],
         body: &mir::Body<'tcx>,
         span: Span,
-    ) -> Result<Option<(Expanded, usize)>> {
+    ) -> Result<Option<(Expanded, ir::Place)>> {
         let callee = self.callee(func, body, span)?;
-        Ok(self.expanded_next(&callee, args).zip(self.receiver(args)))
+        Ok(self.expanded_next(&callee, args))
     }
 
     pub(super) fn parameter_count(&self) -> usize {

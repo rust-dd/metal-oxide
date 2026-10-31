@@ -347,6 +347,10 @@ impl<'tcx> Collector<'tcx> {
         if matches!(tcx.def_kind(instance.def_id()), DefKind::Ctor(..)) {
             return;
         }
+        // The importer expands an array iterator's `next` and rejects its other methods.
+        if crate::intrinsics::array_iterator_method(tcx, instance.def_id()) {
+            return;
+        }
         if let Some(builtin) = crate::intrinsics::builtin(tcx, instance.def_id()) {
             crate::trace(|| {
                 println!("instance: {instance}");
@@ -413,7 +417,7 @@ impl<'tcx> Collector<'tcx> {
                         environment,
                         EarlyBinder::bind(tcx, place.ty(&body.local_decls, tcx).ty),
                     );
-                    if ty.needs_drop(tcx, environment) {
+                    if crate::intrinsics::needs_drop(tcx, ty) {
                         tcx.dcx().span_err(
                             terminator.source_info.span,
                             "destructors are not supported in Metal kernels",

@@ -8,6 +8,7 @@ pub(crate) use vector::VectorOp;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::{self, Ty, TyCtxt};
+use rustc_span::sym;
 
 pub(crate) use device::{DeviceType, device_type};
 
@@ -53,6 +54,8 @@ pub(crate) enum Intrinsic {
     Swap,
     /// `ptr::copy_nonoverlapping`: copies `count` elements, which its caller keeps valid.
     CopyNonoverlapping,
+    /// `IntoIterator::into_iter` of an array: an iterator at its first element.
+    ArrayIntoIter,
 }
 
 /// The iterators whose `Iterator::next` the importer expands inline, so the prover sees the
@@ -63,6 +66,8 @@ pub(crate) enum Expanded {
     Range,
     /// `core::slice::ChunksExact`.
     Chunks,
+    /// `core::array::IntoIter`, held as its array and the index of the next element.
+    Array,
 }
 
 impl Expanded {
@@ -74,10 +79,15 @@ impl Expanded {
         if tcx.lang_items().range_struct() == Some(did) {
             return arguments.type_at(0).is_integral().then_some(Self::Range);
         }
-        (tcx.crate_name(did.krate).as_str() == "core"
-            && tcx.def_path_str(did).starts_with("core::slice::")
-            && tcx.item_name(did).as_str() == "ChunksExact")
-            .then_some(Self::Chunks)
+        if tcx.crate_name(did.krate).as_str() != "core" {
+            return None;
+        }
+        let path = tcx.def_path_str(did);
+        match tcx.item_name(did).as_str() {
+            "ChunksExact" if path.starts_with("core::slice::") => Some(Self::Chunks),
+            "IntoIter" if path.starts_with("core::array::") => Some(Self::Array),
+            _ => None,
+        }
     }
 }
 
@@ -133,6 +143,7 @@ impl Intrinsic {
             Self::OffsetFrom => "offset_from",
             Self::Swap => "swap",
             Self::CopyNonoverlapping => "copy_nonoverlapping",
+            Self::ArrayIntoIter => "array_into_iter",
         }
     }
 }
@@ -288,6 +299,9 @@ pub(crate) fn builtin(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
     if iterator_identity(tcx, definition) {
         return Some(Intrinsic::Identity);
     }
+    if array_into_iter(tcx, definition) {
+        return Some(Intrinsic::ArrayIntoIter);
+    }
     let implementation = tcx.inherent_impl_of_assoc(definition)?;
     let ty = tcx.normalize_erasing_regions(
         ty::TypingEnv::non_body_analysis(tcx, implementation),
@@ -330,6 +344,63 @@ fn slice_index(tcx: TyCtxt<'_>, definition: DefId) -> Option<Intrinsic> {
         tcx.type_of(implementation).instantiate_identity(),
     );
     matches!(ty.kind(), ty::Slice(_) | ty::Array(..)).then_some(Intrinsic::Subslice)
+}
+
+/// Whether `definition` is a method of `core::array::IntoIter`, whose `MaybeUninit` elements have
+/// no device representation; the importer expands its `next` instead.
+pub(crate) fn array_iterator_method(tcx: TyCtxt<'_>, definition: DefId) -> bool {
+    tcx.impl_of_assoc(definition).is_some_and(|implementation| {
+        let ty = tcx.normalize_erasing_regions(
+            ty::TypingEnv::non_body_analysis(tcx, implementation),
+            tcx.type_of(implementation).instantiate_identity(),
+        );
+        Expanded::of(tcx, ty) == Some(Expanded::Array)
+    })
+}
+
+/// Whether dropping `ty` runs code. An array iterator drops only the elements it has not
+/// yielded, so it, and a value that holds it, need no drop when those elements need none.
+pub(crate) fn needs_drop<'tcx>(tcx: TyCtxt<'tcx>, ty: Ty<'tcx>) -> bool {
+    let environment = ty::TypingEnv::fully_monomorphized();
+    if !ty.needs_drop(tcx, environment) {
+        return false;
+    }
+    match ty.kind() {
+        ty::Adt(_, arguments) if Expanded::of(tcx, ty) == Some(Expanded::Array) => {
+            needs_drop(tcx, arguments.type_at(0))
+        }
+        ty::Adt(definition, arguments) => {
+            definition.has_dtor(tcx)
+                || definition.all_fields().any(|field| {
+                    needs_drop(
+                        tcx,
+                        tcx.normalize_erasing_regions(environment, field.ty(tcx, arguments)),
+                    )
+                })
+        }
+        ty::Tuple(fields) => fields.iter().any(|field| needs_drop(tcx, field)),
+        ty::Array(element, _) => needs_drop(tcx, *element),
+        ty::Closure(_, arguments) => arguments
+            .as_closure()
+            .upvar_tys()
+            .iter()
+            .any(|upvar| needs_drop(tcx, upvar)),
+        _ => true,
+    }
+}
+
+/// `<[T; N] as IntoIterator>::into_iter`; core's iterator holds `MaybeUninit` elements.
+fn array_into_iter(tcx: TyCtxt<'_>, definition: DefId) -> bool {
+    tcx.opt_item_name(definition)
+        .is_some_and(|name| name.as_str() == "into_iter")
+        && tcx.impl_of_assoc(definition).is_some_and(|implementation| {
+            let ty = tcx.normalize_erasing_regions(
+                ty::TypingEnv::non_body_analysis(tcx, implementation),
+                tcx.type_of(implementation).instantiate_identity(),
+            );
+            tcx.impl_opt_trait_id(implementation) == tcx.get_diagnostic_item(sym::IntoIterator)
+                && matches!(ty.kind(), ty::Array(..))
+        })
 }
 
 /// The blanket `impl<I: Iterator> IntoIterator for I`, whose `into_iter` returns `self`.

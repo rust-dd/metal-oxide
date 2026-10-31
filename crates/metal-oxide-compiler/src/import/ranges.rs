@@ -125,7 +125,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ir::Operand::Place(end),
             ),
         ));
-        let mut some = vec![
+        let some = vec![
             yielded(vec![ir::Operand::Place(current.clone())]),
             statement(
                 &start,
@@ -136,27 +136,48 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 ),
             ),
         ];
-        let mut none = vec![yielded(Vec::new())];
-        // A `for` or `while let` then switches on the discriminant; branching to its arms
-        // directly keeps the loop as lean as a counted `while`.
+        let none = vec![yielded(Vec::new())];
+        Ok(self.yield_arms(
+            body,
+            (destination, target),
+            ir::Operand::Place(condition),
+            (some, none),
+            &source,
+        ))
+    }
+
+    /// Branches on `condition` to the arms that yield `Some` and `None` into `destination`. A
+    /// `for` or `while let` then switches on the discriminant; the arms set it and continue at
+    /// its arms directly, which keeps the loop as lean as a counted `while`.
+    pub(super) fn yield_arms(
+        &mut self,
+        body: &mir::Body<'tcx>,
+        (destination, target): (&mir::Place<'tcx>, usize),
+        condition: ir::Operand,
+        (mut some, mut none): (Vec<ir::Statement>, Vec<ir::Statement>),
+        source: &ir::SourceLocation,
+    ) -> ir::Terminator {
         let (some_target, none_target) = match matched(body, target, destination) {
             Some((discriminant, some_target, none_target)) => {
                 let flag = ir::Place::local(discriminant.as_usize());
                 for (statements, variant) in [(&mut some, 1), (&mut none, 0)] {
-                    statements.push(statement(
-                        &flag,
-                        ir::Expression::Use(ir::Operand::Constant(ir::Constant::U8(variant))),
-                    ));
+                    statements.push(ir::Statement {
+                        destination: flag.clone(),
+                        value: ir::Expression::Use(ir::Operand::Constant(ir::Constant::U8(
+                            variant,
+                        ))),
+                        source: source.clone(),
+                    });
                 }
                 (some_target.as_usize(), none_target.as_usize())
             }
             None => (target, target),
         };
-        Ok(ir::Terminator::Branch {
-            condition: ir::Operand::Place(condition),
-            then_block: self.append_block(body, some, some_target, &source),
-            else_block: self.append_block(body, none, none_target, &source),
-        })
+        ir::Terminator::Branch {
+            condition,
+            then_block: self.append_block(body, some, some_target, source),
+            else_block: self.append_block(body, none, none_target, source),
+        }
     }
 
     fn append_block(

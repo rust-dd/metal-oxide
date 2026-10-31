@@ -2,7 +2,7 @@ use metal_oxide_ir as ir;
 use rustc_middle::mir;
 use rustc_span::{Span, Spanned};
 
-use super::{Result, calls::Callee, function::FunctionImporter, ranges::matched};
+use super::{Result, calls::Callee, function::FunctionImporter};
 use crate::intrinsics::Expanded;
 
 /// The fields of `core::slice::ChunksExact` that `next` uses: the slice of chunks not yet
@@ -11,15 +11,25 @@ const CHUNKS: u32 = 0;
 const CHUNK_SIZE: u32 = 2;
 
 impl<'tcx> FunctionImporter<'_, 'tcx> {
-    /// The iterator whose `next` a call advances, when its receiver borrows a local that the
-    /// call can expand on.
+    /// The iterator whose `next` a call advances, and where it is: a local its receiver borrows,
+    /// or for an array iterator any place its receiver points to.
     pub(super) fn expanded_next(
         &self,
         callee: &Callee<'tcx>,
         args: &[Spanned<mir::Operand<'tcx>>],
-    ) -> Option<Expanded> {
-        crate::intrinsics::expanded_next(self.module.tcx, callee.definition, callee.arguments)
-            .filter(|_| self.receiver(args).is_some())
+    ) -> Option<(Expanded, ir::Place)> {
+        let expanded =
+            crate::intrinsics::expanded_next(self.module.tcx, callee.definition, callee.arguments)?;
+        if let Some(local) = self.receiver(args) {
+            return Some((expanded, ir::Place::local(local)));
+        }
+        let pointer = args.first()?.node.place()?.as_local()?.as_usize();
+        (expanded == Expanded::Array)
+            .then(|| ir::Place {
+                local: pointer,
+                projection: vec![ir::Projection::Deref],
+            })
+            .map(|place| (expanded, place))
     }
 
     /// The local that a call's borrowed receiver stands for.
@@ -109,7 +119,7 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 },
             )
         };
-        let mut some = vec![
+        let some = vec![
             statement(
                 ir::Place::local(value),
                 ir::Expression::Subslice {
@@ -128,36 +138,101 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             ),
             yielded(vec![ir::Operand::local(value)]),
         ];
-        let mut none = vec![yielded(Vec::new())];
-        // As for ranges, branching to the arms of a following `match` skips the flag test.
-        let (some_target, none_target) = match matched(body, target, destination) {
-            Some((discriminant, some_target, none_target)) => {
-                let flag = ir::Place::local(discriminant.as_usize());
-                for (statements, variant) in [(&mut some, 1), (&mut none, 0)] {
-                    statements.push(statement(
-                        flag.clone(),
-                        ir::Expression::Use(ir::Operand::Constant(ir::Constant::U8(variant))),
-                    ));
-                }
-                (some_target.as_usize(), none_target.as_usize())
-            }
-            None => (target, target),
+        let none = vec![yielded(Vec::new())];
+        Ok(self.yield_arms(
+            body,
+            (destination, target),
+            ir::Operand::local(available),
+            (some, none),
+            &source,
+        ))
+    }
+
+    /// Expands `array::IntoIter::next`: below the array's length it yields the element at the
+    /// iterator's index and advances the index, otherwise `None`.
+    pub(super) fn array_next(
+        &mut self,
+        statements: &mut Vec<ir::Statement>,
+        iterator: ir::Place,
+        destination: &mir::Place<'tcx>,
+        target: usize,
+        body: &mir::Body<'tcx>,
+        span: Span,
+    ) -> Result<ir::Terminator> {
+        let (option, option_type) = self.typed_place(destination, span)?;
+        let table = self.module.types.table();
+        let iterator_type = match iterator.projection.as_slice() {
+            [] => Some(self.locals[iterator.local]),
+            _ => table
+                .pointer(self.locals[iterator.local])
+                .map(|pointer| pointer.target),
         };
-        let mut arm = |statements, target| {
-            self.append(
-                body,
-                ir::Block {
-                    statements,
-                    terminator: ir::Terminator::Goto(target),
-                    source: source.clone(),
+        let length = match iterator_type.and_then(|ty| table.field(ty, 0)) {
+            Some(ir::Type::Aggregate(id)) => match table.get(id) {
+                Some(ir::Aggregate::Array { length, .. }) => u64::from(*length),
+                _ => return Err((span, "invalid array iterator".into())),
+            },
+            _ => return Err((span, "invalid array iterator".into())),
+        };
+        let ir::Type::Aggregate(option_id) = option_type else {
+            return Err((span, "invalid array iterator result".into()));
+        };
+        let index = self.temporary(ir::Type::Scalar(ir::Scalar::Usize));
+        let available = self.temporary(ir::Type::Scalar(ir::Scalar::Bool));
+        let source = self.check_location(span);
+        let statement = |destination: ir::Place, value| ir::Statement {
+            destination,
+            value,
+            source: source.clone(),
+        };
+        let field = |fields: &[ir::Projection]| {
+            let mut place = iterator.clone();
+            place.projection.extend_from_slice(fields);
+            place
+        };
+        let next = field(&[ir::Projection::Field(1)]);
+        // The bound check reads a copy of the index, so the prover bounds the element access.
+        statements.push(statement(
+            ir::Place::local(index),
+            ir::Expression::Use(ir::Operand::Place(next.clone())),
+        ));
+        statements.push(statement(
+            ir::Place::local(available),
+            ir::Expression::Binary(
+                ir::BinaryOp::Lt,
+                ir::Operand::local(index),
+                ir::Operand::Constant(ir::Constant::Usize(length)),
+            ),
+        ));
+        let yielded = |fields: Vec<ir::Operand>| {
+            statement(
+                option.clone(),
+                ir::Expression::Variant {
+                    ty: option_id,
+                    variant: fields.len() as u32,
+                    fields,
                 },
             )
         };
-        let (then_block, else_block) = (arm(some, some_target), arm(none, none_target));
-        Ok(ir::Terminator::Branch {
-            condition: ir::Operand::local(available),
-            then_block,
-            else_block,
-        })
+        let element = field(&[ir::Projection::Field(0), ir::Projection::Index(index)]);
+        let some = vec![
+            yielded(vec![ir::Operand::Place(element)]),
+            statement(
+                next,
+                ir::Expression::Binary(
+                    ir::BinaryOp::Add,
+                    ir::Operand::local(index),
+                    ir::Operand::Constant(ir::Constant::Usize(1)),
+                ),
+            ),
+        ];
+        let none = vec![yielded(Vec::new())];
+        Ok(self.yield_arms(
+            body,
+            (destination, target),
+            ir::Operand::local(available),
+            (some, none),
+            &source,
+        ))
     }
 }

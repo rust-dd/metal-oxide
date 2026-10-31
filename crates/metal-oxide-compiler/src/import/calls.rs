@@ -122,6 +122,13 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 .collect::<Result<Vec<_>>>()?;
             return self.intrinsic(intrinsic, callee.arguments, arguments, span);
         }
+        if crate::intrinsics::array_iterator_method(self.module.tcx, callee.instance.def_id()) {
+            return Err((
+                span,
+                "array iterators support only `next`, which `for` loops and most adapters call"
+                    .into(),
+            ));
+        }
         // A call would import the kernel as a helper before its entry does.
         if self.module.entries.contains(&callee.instance) {
             return Err((span, "calling a kernel entrypoint is unsupported".into()));
@@ -451,6 +458,18 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             }
             Intrinsic::Atomic(_) => {
                 unreachable!("atomics are imported before their ordering arguments")
+            }
+            Intrinsic::ArrayIntoIter => {
+                let [array] = arguments(values, span)?;
+                let array_type = self.lower_type(types.type_at(0), span)?;
+                let ir::Type::Aggregate(iterator) = self.module.types.array_iterator(array_type)
+                else {
+                    unreachable!("array iterators are tuples")
+                };
+                ir::Expression::Aggregate {
+                    ty: iterator,
+                    fields: vec![array, ir::Operand::Constant(ir::Constant::Usize(0))],
+                }
             }
             Intrinsic::Swap | Intrinsic::CopyNonoverlapping => {
                 unreachable!("memory operations are imported as statements")

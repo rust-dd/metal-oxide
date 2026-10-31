@@ -18,6 +18,8 @@
   slices of integers: core's bytewise comparisons run element by element.
 - Slice patterns, rest bindings included, and `first`, `last`, `split_first` and
   `split_last` on slices. The prover checks each pattern's length test.
+- Arrays iterate by value: `for v in array`, and `into_iter` with `next` and adapters that
+  call it. Folds of the array iterator, behind `sum` and `count`, are rejected.
   Transmutes between an integer and an array of integers as wide are supported.
 
 ### Changed
