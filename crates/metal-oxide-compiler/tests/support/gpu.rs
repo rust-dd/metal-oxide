@@ -3,7 +3,9 @@ use super::{
     generate::model::{Bits, COUNTERS},
     output::POISON,
 };
-use metal_oxide::{Argument, Buffer, Device, GpuAtomic, GpuValue, Launch, LaunchConfig, Operation};
+use metal_oxide::{
+    Argument, Buffer, Device, Dim3, DynamicLaunchConfig, GpuAtomic, GpuValue, Launch, Operation,
+};
 use std::path::Path;
 
 /// A buffer element type of generated kernels.
@@ -115,7 +117,8 @@ impl Case {
             .buffer_from_slice(&initial)
             .map_err(|e| e.to_string())?;
         let n = self.inputs.len() as u32;
-        let config = LaunchConfig::<64>::for_elements(n).map_err(|e| e.to_string())?;
+        let [x, y, z] = self.block;
+        let config = DynamicLaunchConfig::new(Dim3::x(n.div_ceil(x * y * z)), Dim3::new(x, y, z));
         let launch = Launched {
             device,
             pipeline: &pipeline,
@@ -165,7 +168,7 @@ impl Case {
 struct Launched<'a, I: GpuValue, O: GpuValue> {
     device: &'a Device,
     pipeline: &'a metal_oxide::Pipeline,
-    config: LaunchConfig<64>,
+    config: DynamicLaunchConfig,
     input: &'a Buffer<I>,
     output: &'a mut Buffer<O>,
     n: u32,

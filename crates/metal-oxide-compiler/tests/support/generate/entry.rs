@@ -1,18 +1,63 @@
 use super::{
     ast::Function,
-    cooperation::BLOCK,
     types::{Type, render},
 };
 
-/// The buffers of a generated kernel: its input element type and the `elements` values of the
-/// output type that each thread stores.
-pub struct Buffers<'a> {
+/// A generated kernel's entry: its input element type, the `elements` values of the output
+/// type that each thread stores, and its block, which the kernel requires when set.
+pub struct Entry<'a> {
     pub input: &'a Type,
     pub output: &'a Type,
     pub elements: u32,
+    pub block: [u32; 3],
+    pub required: bool,
 }
 
-impl Buffers<'_> {
+impl Entry<'_> {
+    fn threads(&self) -> u32 {
+        self.block.iter().product()
+    }
+
+    /// The `block = (x, y, z), ` attribute of a kernel that requires its block.
+    fn attribute(&self) -> String {
+        let [x, y, z] = self.block;
+        if self.required {
+            format!("block = ({x}, {y}, {z}), ")
+        } else {
+            String::new()
+        }
+    }
+
+    /// The statements that number the thread `i` in the grid, a row of blocks; threads are
+    /// numbered within a block x first, as Metal assigns SIMD lanes.
+    fn index(&self) -> String {
+        let [x, y, z] = self.block;
+        let threads = self.threads();
+        match (y * z, self.required) {
+            (1, true) => format!("let i = block_idx().x * {x} + thread_idx().x;"),
+            (1, false) => "let i = block_idx().x * block_dim().x + thread_idx().x;".into(),
+            (_, true) => format!(
+                "let i = block_idx().x * {threads} + (thread_idx().z * {y} + thread_idx().y) * {x} + thread_idx().x;"
+            ),
+            (_, false) => "let (block, thread) = (block_dim(), thread_idx());\n    let i = block_idx().x * (block.x * block.y * block.z) + (thread.z * block.y + thread.y) * block.x + thread.x;".into(),
+        }
+    }
+
+    /// The statements of a cooperative kernel that number its thread `i` and its `lane` in the
+    /// block. Before barriers, checks must be proved, and only the lane's are.
+    fn lanes(&self) -> (String, &'static str) {
+        let [x, y, _] = self.block;
+        if self.block[1] * self.block[2] == 1 {
+            let index = format!("let i = block_idx().x * {x} + thread_idx().x;");
+            return (index, "thread_idx().x");
+        }
+        let threads = self.threads();
+        let index = format!(
+            "let lane = (thread_idx().z * {y} + thread_idx().y) * {x} + thread_idx().x;\n    let i = block_idx().x.wrapping_mul({threads}).wrapping_add(lane);"
+        );
+        (index, "lane")
+    }
+
     /// The CPU's text for the words of the output element `word`: its bits, low word first.
     fn printed(&self) -> &'static str {
         match self.output {
@@ -57,20 +102,20 @@ fn flush_subnormals() {
 
 /// The kernel that runs `run` for each thread with an input and, with `--cfg cpu_reference`, a
 /// program that prints what each thread of `inputs` computes, one thread at a time.
-pub fn independent(buffers: &Buffers, inputs: &str) -> String {
-    let elements = buffers.elements;
+pub fn independent(entry: &Entry, inputs: &str) -> String {
+    let elements = entry.elements;
     let stores = stores(elements, "ELEMENTS", 2);
-    let (input, output) = (render(buffers.input, &[]), render(buffers.output, &[]));
-    let printed = buffers.printed();
+    let (input, output) = (render(entry.input, &[]), render(entry.output, &[]));
+    let (printed, attribute, index) = (entry.printed(), entry.attribute(), entry.index());
     format!(
         r#"
 #[cfg(not(cpu_reference))]
 use metal_oxide_device::{{Float, ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx}};
 
 #[cfg(not(cpu_reference))]
-#[kernel(instances(generated({elements})))]
+#[kernel({attribute}instances(generated({elements})))]
 pub unsafe fn generated_body<const ELEMENTS: u32>(input: ReadBuffer<{input}>, output: WriteBuffer<{output}>, n: u32) {{
-    let i = block_idx().x * block_dim().x + thread_idx().x;
+    {index}
     if i < n {{
         let words = run(unsafe {{ input.load_unchecked(i) }});
         unsafe {{
@@ -107,13 +152,15 @@ fn main() {{
 pub fn cooperative(
     cooperation: &Function,
     counters: Option<&str>,
-    buffers: &Buffers,
+    entry: &Entry,
     inputs: &str,
 ) -> String {
-    let elements = buffers.elements;
+    let elements = entry.elements;
     let stores = stores(elements, &elements.to_string(), 2);
-    let (input, output) = (render(buffers.input, &[]), render(buffers.output, &[]));
-    let (printed, zero) = (buffers.printed(), buffers.zero());
+    let (input, output) = (render(entry.input, &[]), render(entry.output, &[]));
+    let (printed, zero) = (entry.printed(), entry.zero());
+    let ([x, y, z], threads) = (entry.block, entry.threads());
+    let (index, lane) = entry.lanes();
     let allocations = |indent: usize| {
         cooperation
             .parameters
@@ -137,16 +184,18 @@ pub fn cooperative(
             .collect::<String>()
     };
     let (kernel, cpu) = (allocations(1), allocations(2));
-    let arguments = cooperation
-        .parameters
-        .iter()
-        .map(|(name, _)| match name.as_str() {
-            "input" => "value",
-            "lane" => "thread_idx().x",
-            buffer => buffer,
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+    let arguments = |lane: &str| {
+        let arguments = cooperation
+            .parameters
+            .iter()
+            .map(|(name, _)| match name.as_str() {
+                "input" => "value".to_owned(),
+                "lane" => lane.to_owned(),
+                buffer => buffer.to_owned(),
+            });
+        arguments.collect::<Vec<_>>().join(", ")
+    };
+    let (kernel_arguments, cpu_arguments) = (arguments(lane), arguments("thread_idx().x"));
     let Type::Array(_, values) = cooperation.result else {
         unreachable!("cooperate returns an array of words")
     };
@@ -173,11 +222,11 @@ pub fn cooperative(
 use metal_oxide_device::{{AtomicBuffer, AtomicThreadgroupBuffer, Float, ReadBuffer, ThreadgroupBuffer, WriteBuffer, block_idx, kernel, simdgroup, thread_idx, threadgroup}};
 
 #[cfg(not(cpu_reference))]
-#[kernel(block = ({BLOCK}, 1, 1))]
+#[kernel(block = ({x}, {y}, {z}))]
 pub unsafe fn generated(input: ReadBuffer<{input}>, output: WriteBuffer<{output}>, n: u32{parameter}) {{
-    let i = block_idx().x * {BLOCK} + thread_idx().x;
+    {index}
     let value = if i < n {{ unsafe {{ input.load_unchecked(i) }} }} else {{ {zero} }};
-{kernel}    let k = cooperate({arguments});
+{kernel}    let k = cooperate({kernel_arguments});
     if i < n {{
         let words = run(value, {values});
         unsafe {{
@@ -196,10 +245,10 @@ mod model {{
 fn main() {{
     let inputs = [{inputs}];
     let n = inputs.len() as u32;
-{create}    let outcomes = model::launch({BLOCK}, n, |i| {{
+{create}    let outcomes = model::launch({threads}, n, |i| {{
         flush_subnormals();
         let value = if i < n {{ inputs[i as usize] as {input} }} else {{ {zero} }};
-{cpu}        let k = cooperate({arguments});
+{cpu}        let k = cooperate({cpu_arguments});
         (i < n).then(|| run(value, {values}))
     }});
     for outcome in outcomes {{

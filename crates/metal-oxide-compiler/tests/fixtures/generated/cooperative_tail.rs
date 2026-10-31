@@ -1,6 +1,7 @@
 // words: exact exact
 // input: u32
 // output: u32
+// block: 64 1 1
 // overflow checks: on
 // cooperative
 #![cfg_attr(not(cpu_reference), no_std)]

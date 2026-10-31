@@ -6,9 +6,6 @@ use super::{
     types::{I32, Int, Type, U32, render as render_type},
 };
 
-/// Threads per block of cooperative programs: two SIMD groups.
-pub const BLOCK: u32 = 64;
-
 const REDUCTIONS: [&str; 8] = [
     "sum",
     "min",
@@ -43,12 +40,13 @@ pub enum Cooperative {
         value: Expr,
         control: Expr,
     },
-    /// Each thread stores `value` at `lane ^ mask` of `buffer`; after a barrier, the binding reads
-    /// the element at `index`.
+    /// Each thread stores `value` at `lane ^ mask` of `buffer`, which holds an element per thread
+    /// of the block; after a barrier, the binding reads the element at `index`.
     Exchange {
         buffer: String,
         binding: String,
         ty: Type,
+        threads: u32,
         mask: u32,
         value: Expr,
         index: Expr,
@@ -76,8 +74,9 @@ pub enum Cooperative {
 }
 
 /// What the statements of `cooperate` share: its parameters, which gain the buffers they use,
-/// and the element type and operation of its device counters.
+/// the threads per block, and the element type and operation of its device counters.
 struct Phase {
+    threads: u32,
     parameters: Vec<(String, Type)>,
     counters: Option<(Int, &'static str)>,
 }
@@ -130,6 +129,7 @@ impl Printer<'_> {
                 buffer,
                 binding,
                 ty,
+                threads,
                 mask,
                 value,
                 index,
@@ -140,7 +140,7 @@ impl Printer<'_> {
                     format!("unsafe {{ {buffer}.store_unchecked(lane ^ {mask}, {value}) }};");
                 self.line(indent, &store);
                 self.line(indent, barrier);
-                let last = BLOCK - 1;
+                let last = threads - 1;
                 let load = format!(
                     "let mut {binding}: {ty} = unsafe {{ {buffer}.load_unchecked({index} & {last}) }};"
                 );
@@ -189,9 +189,10 @@ impl Printer<'_> {
 }
 
 impl Builder {
-    /// `cooperate(input, lane, buffers..) -> [u32; values]`, which a block's threads run together.
-    /// Checks before cooperative operations must be proved, so it calls nothing that may check.
-    pub fn cooperation(&mut self, input: &Type, values: u32) -> Function {
+    /// `cooperate(input, lane, buffers..) -> [u32; values]`, which the `threads` of a block run
+    /// together. Checks before cooperative operations must be proved, so it calls nothing that
+    /// may check.
+    pub fn cooperation(&mut self, input: &Type, values: u32, threads: u32) -> Function {
         let fallible = std::mem::replace(&mut self.fallible, false);
         self.plain = true;
         let mut scope = Scope {
@@ -199,6 +200,7 @@ impl Builder {
             ..Scope::default()
         };
         let mut phase = Phase {
+            threads,
             parameters: Vec::new(),
             counters: None,
         };
@@ -325,15 +327,16 @@ impl Builder {
             3 => {
                 let ty = self.random.pick(&elements).clone();
                 let buffer = self.fresh("s");
-                let buffer_type = Type::Threadgroup(Box::new(ty.clone()), BLOCK);
+                let buffer_type = Type::Threadgroup(Box::new(ty.clone()), phase.threads);
                 phase.parameters.push((buffer.clone(), buffer_type));
-                let mask = self.random.below(u64::from(BLOCK)) as u32;
+                let mask = self.random.below(u64::from(phase.threads)) as u32;
                 let value = self.expr(scope, &ty, 3);
                 let index = self.expr(scope, &U32, 2);
                 let exchange = Cooperative::Exchange {
                     buffer,
                     binding: binding.clone(),
                     ty: ty.clone(),
+                    threads: phase.threads,
                     mask,
                     value,
                     index,

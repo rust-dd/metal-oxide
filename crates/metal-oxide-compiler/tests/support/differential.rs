@@ -66,6 +66,8 @@ pub struct Case {
     /// The element types of the input and output buffers.
     pub input: String,
     pub output: String,
+    /// Threads per block in x, y and z.
+    pub block: [u32; 3],
     pub overflow_checks: bool,
     /// Whether the threads of a block first run `cooperate` together.
     pub cooperative: bool,
@@ -92,6 +94,7 @@ impl Case {
             words: program.words.clone(),
             input,
             output,
+            block: program.block(),
             overflow_checks: program.overflow_checks,
             cooperative: program.cooperative(),
             counters: program.counters(),
@@ -131,6 +134,12 @@ impl Case {
             words,
             input: field("// input: "),
             output: field("// output: "),
+            block: field("// block: ")
+                .split(' ')
+                .map(|threads| threads.parse().unwrap())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
             overflow_checks: field("// overflow checks: ") == "on",
             cooperative: text.lines().any(|line| line == "// cooperative"),
             counters: text
@@ -147,7 +156,7 @@ impl Case {
         let width = bits.div_ceil(32) as usize;
         Layout {
             threads: self.inputs.len(),
-            block: 64,
+            block: self.block.iter().product::<u32>() as usize,
             elements: self.words.len() / width,
             width,
             poison: output::poison(bits),
@@ -220,7 +229,7 @@ impl Case {
             inputs.join(","),
             THREADS * elements,
             THREADS * elements,
-            invocation(&msl)
+            invocation(&msl, self.block)
         );
         let checks = checks(directory);
         Ok(super::run_msl(directory, &main)?
@@ -452,8 +461,12 @@ fn words(line: &str) -> Vec<u32> {
     line.split(' ').map(|word| word.parse().unwrap()).collect()
 }
 
-/// The arguments of the emitted `generated` entry, by the names of its parameters.
-fn invocation(msl: &str) -> String {
+/// The arguments of the emitted `generated` entry for thread `i` in blocks of `block`, by the
+/// names of its parameters.
+fn invocation(msl: &str, [x, y, z]: [u32; 3]) -> String {
+    let threads = x * y * z;
+    let lane = format!("i % {threads}");
+    let thread = format!("{lane} % {x}, {lane} / {x} % {y}, {lane} / {}", x * y);
     let signature = msl
         .lines()
         .find(|line| line.starts_with("kernel void generated("))
@@ -462,17 +475,19 @@ fn invocation(msl: &str) -> String {
     let arguments = parameters.split(", ").map(|parameter| {
         let declaration = parameter.split(" [[").next().unwrap();
         match declaration.rsplit(' ').next().unwrap() {
-            "metal_oxide_arg_1" => "input",
-            "metal_oxide_arg_2" => "output",
-            "metal_oxide_arg_3" => "n",
-            "metal_oxide_thread_idx" => "{i % 64, 0, 0}",
-            "metal_oxide_block_idx" => "{i / 64, 0, 0}",
-            "metal_oxide_block_dim" => "{64, 1, 1}",
-            "metal_oxide_grid_dim" => "{(n + 63) / 64, 1, 1}",
-            "metal_oxide_thread_position" => "{i, 0, 0}",
-            "metal_oxide_gate" => "metal_oxide_gate",
-            "metal_oxide_failure" => "metal_oxide_failure",
-            "metal_oxide_lengths" => "lengths",
+            "metal_oxide_arg_1" => "input".into(),
+            "metal_oxide_arg_2" => "output".into(),
+            "metal_oxide_arg_3" => "n".into(),
+            "metal_oxide_thread_idx" => format!("{{{thread}}}"),
+            "metal_oxide_block_idx" => format!("{{i / {threads}, 0, 0}}"),
+            "metal_oxide_block_dim" => format!("{{{x}, {y}, {z}}}"),
+            "metal_oxide_grid_dim" => format!("{{(n + {}) / {threads}, 1, 1}}", threads - 1),
+            "metal_oxide_thread_position" => {
+                format!("{{i / {threads} * {x} + {thread}}}")
+            }
+            "metal_oxide_gate" => "metal_oxide_gate".into(),
+            "metal_oxide_failure" => "metal_oxide_failure".into(),
+            "metal_oxide_lengths" => "lengths".into(),
             other => panic!("unexpected kernel parameter {other} in {signature}"),
         }
     });

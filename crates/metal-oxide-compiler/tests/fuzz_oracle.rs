@@ -13,6 +13,7 @@ fn case() -> Case {
     case.inputs = vec![0];
     case.words = vec![Word::Exact, Word::Exact];
     case.output = "u32".into();
+    case.block = [64, 1, 1];
     case
 }
 

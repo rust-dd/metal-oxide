@@ -445,6 +445,11 @@ fn generated_programs_cover_the_supported_constructs() {
         ".hypot(",
         ".sin_cos().",
         " approx",
+        "// block: 3 5 7",
+        "#[kernel(block = (4, 4, 4))]",
+        "), instances(generated(",
+        "(block.x * block.y * block.z)",
+        ".wrapping_add(lane)",
     ] {
         assert!(
             sources.contains(construct),

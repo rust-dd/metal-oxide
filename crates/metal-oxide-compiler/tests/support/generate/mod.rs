@@ -23,6 +23,29 @@ use ast::{Function, Printer};
 use builder::Builder;
 use types::{ELEMENTS, Enum, Record, Type};
 
+/// Block shapes of independent kernels, which any block suits.
+const SHAPES: [[u32; 3]; 8] = [
+    [64, 1, 1],
+    [32, 1, 1],
+    [128, 1, 1],
+    [1, 1, 1],
+    [7, 3, 1],
+    [8, 8, 1],
+    [16, 2, 2],
+    [3, 5, 7],
+];
+
+/// Block shapes of cooperative kernels: a power of two of whole SIMD groups, as lane masks and
+/// threadgroup exchanges need.
+const COOPERATIVE_SHAPES: [[u32; 3]; 6] = [
+    [64, 1, 1],
+    [32, 1, 1],
+    [128, 1, 1],
+    [8, 8, 1],
+    [16, 2, 2],
+    [4, 4, 4],
+];
+
 /// How the oracle compares one output word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Word {
@@ -44,6 +67,9 @@ pub struct Program {
     input: Type,
     /// The element type of the output buffer, which `run` returns an array of.
     output: Type,
+    /// Threads per block in x, y and z; the kernel requires the shape when set.
+    block: [u32; 3],
+    required: bool,
     records: Vec<Record>,
     enums: Vec<Enum>,
     helpers: Vec<Function>,
@@ -78,7 +104,14 @@ impl Program {
             .random
             .chance(1, 3)
             .then(|| 1 + builder.random.below(3) as u32);
-        let cooperation = values.map(|values| builder.cooperation(&input, values));
+        let shapes = match values {
+            Some(_) => &COOPERATIVE_SHAPES[..],
+            None => &SHAPES[..],
+        };
+        let block = *builder.random.pick(shapes);
+        let required = values.is_some() || builder.random.chance(1, 2);
+        let threads = block.iter().product();
+        let cooperation = values.map(|values| builder.cooperation(&input, values, threads));
         let elements = 1 + builder.random.below(4) as u32;
         let (run, words) = builder.run(&input, &output, elements, values.unwrap_or(0));
         Self {
@@ -86,6 +119,8 @@ impl Program {
             overflow_checks,
             input,
             output,
+            block,
+            required,
             records: builder.records,
             enums: builder.enums,
             helpers: builder.helpers,
@@ -97,6 +132,11 @@ impl Program {
 
     pub fn cooperative(&self) -> bool {
         self.cooperation.is_some()
+    }
+
+    /// Threads per block in x, y and z.
+    pub fn block(&self) -> [u32; 3] {
+        self.block
     }
 
     /// The names of the input and output element types.
@@ -182,8 +222,9 @@ impl Program {
             .collect::<Vec<_>>();
         let checks = if self.overflow_checks { "on" } else { "off" };
         let (input, output) = self.buffers();
+        let [x, y, z] = self.block;
         printer.text.push_str(&format!(
-            "// words: {}\n// input: {input}\n// output: {output}\n// overflow checks: {checks}\n",
+            "// words: {}\n// input: {input}\n// output: {output}\n// block: {x} {y} {z}\n// overflow checks: {checks}\n",
             words.join(" ")
         ));
         if self.cooperative() {
@@ -214,17 +255,19 @@ impl Program {
         let Type::Array(_, elements) = self.run.result else {
             unreachable!("run returns an array")
         };
-        let buffers = entry::Buffers {
+        let entry = entry::Entry {
             input: &self.input,
             output: &self.output,
             elements,
+            block: self.block,
+            required: self.required,
         };
         let entry = match &self.cooperation {
             Some(cooperation) => {
                 let counters = self.counters();
-                entry::cooperative(cooperation, counters.as_deref(), &buffers, &inputs)
+                entry::cooperative(cooperation, counters.as_deref(), &entry, &inputs)
             }
-            None => entry::independent(&buffers, &inputs),
+            None => entry::independent(&entry, &inputs),
         };
         printer.text.push_str(&entry);
         printer.text
