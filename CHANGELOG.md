@@ -25,6 +25,12 @@
 
 ### Changed
 
+- Kernel build errors point at the kernel's own code. A rejection inside core or another
+  crate reports at the kernel call that reached it, with a note naming the code it
+  reached, which kernels in host crates show too; proof failures in called functions do
+  likewise. `log!` errors point at the `log!` call. Unsupported operations are described
+  instead of printed as MIR, such as calls that never return, tail calls and
+  pointer-integer casts.
 - The device `math` module is removed; its functions are `Float` methods with std's names,
   and `math::fma(a, b, c)` is `a.mul_add(b, c)`.
 - Saved artifacts change only with their kernels or recorded inputs. Another compiler

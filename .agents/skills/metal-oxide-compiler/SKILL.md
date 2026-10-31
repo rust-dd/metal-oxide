@@ -39,8 +39,13 @@ Implement the next acceptance criterion; create crates when their code is needed
 - Precede emitted statements with `#line` directives for their Rust source (short form within
   one file) and reset to `kernels.metal` after each body; directives never change AIR.
 - Emit MSL through a tested structured control-flow subset. Unsupported MIR,
-  recursion, layouts, and conversions must produce diagnostics. Never remove a
-  bounds/overflow check without a sound proof or silently change semantics.
+  recursion, layouts, and conversions must produce diagnostics that describe the
+  construct, never print MIR. Never remove a bounds/overflow check without a sound proof
+  or silently change semantics.
+- Report rejections in the kernel crate's source: the collector and importer move a
+  rejection in another crate's code to the kernel call that reached it with a
+  `REACHED` note; IR errors carry the calls the prover walked, and the driver maps their
+  locations back to spans. Another crate's macro expansion locates at its kernel call.
 - Unproved assertions and literal panics become runtime checks: the failing thread
   stores `check + 2` in its dispatch's failure word and returns; callers of
   fallible helpers return after them. A check before a barrier or SIMD collective

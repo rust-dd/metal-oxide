@@ -156,8 +156,12 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 && returns_no_references(self.module.tcx, callee.instance))
             .then_some(destination),
         };
+        let function = self
+            .module
+            .function(key, false)
+            .map_err(|error| self.reached(error, span))?;
         Ok(ir::Expression::Call {
-            function: self.module.function(key, false)?,
+            function,
             arguments,
         })
     }
@@ -238,6 +242,20 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
             });
         }
         Ok(spread)
+    }
+
+    /// A rejection in another crate's code that this kernel crate function's call at `call`
+    /// reached, reported at the call; kernel authors change their own code.
+    fn reached(&mut self, (inner, message): (Span, String), call: Span) -> (Span, String) {
+        let tcx = self.module.tcx;
+        if self.instance.def_id().is_local()
+            && !super::local(tcx, inner)
+            && self.module.reached.is_none()
+        {
+            self.module.reached = Some(inner);
+            return (call, message);
+        }
+        (inner, message)
     }
 
     /// The location a `#[track_caller]` callee's checks report: this function's own caller

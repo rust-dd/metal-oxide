@@ -34,11 +34,17 @@ fn log_messages_lower_to_os_log_with_typed_specifiers() {
 
 #[test]
 fn log_formats_need_matching_plain_placeholders() {
-    for (configuration, message) in [
-        ("mismatch", "log format takes 2 arguments, got 1"),
-        ("debug_format", "only `{}` placeholders"),
+    // The error names the `log!` call, not the device crate's macro that expands it.
+    for (configuration, message, line) in [
+        ("mismatch", "log format takes 2 arguments, got 1", 15),
+        ("debug_format", "only `{}` placeholders", 21),
     ] {
         let (output, _) = support::emit(FIXTURE, &["--cfg", configuration]);
+        let error = String::from_utf8_lossy(&output.stderr).into_owned();
         support::rejected(output, message);
+        assert!(
+            error.contains(&format!("fixtures/logging.rs:{line}:5")),
+            "{error}"
+        );
     }
 }

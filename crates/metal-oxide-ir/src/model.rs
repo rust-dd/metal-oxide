@@ -13,6 +13,8 @@ pub struct SourceLocation {
 pub struct Error {
     pub source: SourceLocation,
     pub message: String,
+    /// The calls through which an analysis reached `source`, innermost first.
+    pub calls: Vec<SourceLocation>,
 }
 
 impl Error {
@@ -20,7 +22,14 @@ impl Error {
         Self {
             source: source.clone(),
             message: message.into(),
+            calls: Vec::new(),
         }
+    }
+
+    /// The error as the call at `call` sees it.
+    pub fn called_from(mut self, call: &SourceLocation) -> Self {
+        self.calls.push(call.clone());
+        self
     }
 }
 

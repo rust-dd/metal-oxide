@@ -181,7 +181,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 }
                 return self.aggregate_type(kind, components, span);
             }
-            _ => return Err((span, "unsupported reference value".into())),
+            other => {
+                return Err(super::values::unsupported_rvalue(other, span)
+                    .unwrap_or_else(|| (span, "unsupported reference value".into())));
+            }
         };
         if !self.known(place, pending) {
             return Ok(None);

@@ -202,6 +202,37 @@ fn main() {}
 
 #[test]
 #[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
+fn errors_in_core_point_at_the_kernel_call_that_reached_them() {
+    let main = r#"
+use metal_oxide::device::{DisjointBuffer, ReadBuffer, thread_index};
+
+#[metal_oxide::kernel(requires(input.len() == out.len()))]
+pub fn total(input: ReadBuffer<[u32; 2]>, mut out: DisjointBuffer<u32>) {
+    let index = thread_index();
+    if let Some(out) = out.get_mut(&index) {
+        *out = input.as_slice()[index.get()].into_iter().sum::<u32>();
+    }
+}
+
+fn main() {}
+"#;
+    let project = Project::new(main);
+    let output = project.cargo(&["build"]).output().unwrap();
+    assert!(!output.status.success());
+    let errors = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        errors.contains("error: GPU build: array iterators support only `next`"),
+        "{errors}"
+    );
+    assert!(errors.contains("src/main.rs:8:16"), "{errors}");
+    assert!(
+        errors.contains("note: in code from another crate ("),
+        "{errors}"
+    );
+}
+
+#[test]
+#[ignore = "requires the compiler nightly, rust-src and the Metal toolchain"]
 fn installed_compiler_executables_build_kernels_after_an_identity_check() {
     let project = Project::new(&source(5));
     checked(project.cargo(&["build", "--quiet"]).output().unwrap());

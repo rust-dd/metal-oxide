@@ -281,7 +281,9 @@ impl Analysis<'_> {
             Expression::Call {
                 function,
                 arguments,
-            } => self.function(*function, &arguments.iter().map(value).collect::<Vec<_>>())?,
+            } => self
+                .function(*function, &arguments.iter().map(value).collect::<Vec<_>>())
+                .map_err(|error| error.called_from(source))?,
             Expression::Len(Operand::Place(slice)) => state
                 .length_range(slice)
                 .map_or_else(Value::default, Value::scalar),

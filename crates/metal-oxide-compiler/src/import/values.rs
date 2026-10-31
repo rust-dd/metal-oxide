@@ -252,9 +252,24 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                     ))
                 }
             }
-            other => Err((span, format!("unsupported MIR rvalue: {other:?}"))),
+            other => Err(unsupported_rvalue(other, span)
+                .unwrap_or_else(|| (span, "unsupported MIR rvalue".into()))),
         }
     }
+}
+
+/// The rejection of a value at `span` that the importer cannot lower, when it has a reason.
+pub(super) fn unsupported_rvalue(rvalue: &mir::Rvalue<'_>, span: Span) -> Option<(Span, String)> {
+    Some(match rvalue {
+        mir::Rvalue::Cast(mir::CastKind::PointerExposeProvenance, ..) => {
+            (span, "pointer-to-integer casts are unsupported".into())
+        }
+        mir::Rvalue::Cast(mir::CastKind::PointerWithExposedProvenance, ..) => {
+            (span, "integer-to-pointer casts are unsupported".into())
+        }
+        mir::Rvalue::ThreadLocalRef(_) => (span, "thread-local statics are unsupported".into()),
+        _ => return None,
+    })
 }
 
 /// MIR's operation; an unchecked one, whose overflow is undefined behavior, wraps.

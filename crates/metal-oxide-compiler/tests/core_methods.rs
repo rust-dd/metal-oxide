@@ -20,7 +20,10 @@ fn arbitrary_diverging_helpers_are_not_treated_as_unreachable_hints() {
         "crates/metal-oxide-compiler/tests/fixtures/rejections/diverging_call.rs",
         &[],
     );
-    support::rejected(output, "unsupported MIR terminator");
+    support::rejected(
+        output,
+        "calls to functions that never return are supported only for panics",
+    );
 }
 
 fn compare(directory: &std::path::Path, source: &str, expected: &[u64]) {

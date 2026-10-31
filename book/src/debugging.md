@@ -11,6 +11,9 @@ are gated; a batch depending on an unfinished failed writer returns
 The compiler must prove a check before a barrier or collective, or show that its
 failure is uniform for the participating threads. Unsupported operations fail
 compilation with Rust source diagnostics rather than silently changing semantics.
+A rejection inside core or another crate's code reports at the kernel's call that
+reached it, with a note naming the code it reached; `log!` errors report at the `log!`
+call.
 
 ## Validation and capture
 

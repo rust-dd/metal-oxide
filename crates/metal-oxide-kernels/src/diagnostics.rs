@@ -1,6 +1,9 @@
 use proc_macro2::Span;
 use std::path::Path;
 
+#[cfg(test)]
+mod tests;
+
 type Position = (usize, usize);
 
 /// The start position of every token of the macro input, to place device errors on them.
@@ -50,16 +53,20 @@ pub(crate) fn errors(
         .collect::<Vec<_>>();
     let mut errors = Vec::new();
     for (index, line) in lines.iter().enumerate() {
-        // rustc: `error[E0277]: message` followed by `--> file:line:column`.
+        // rustc: `error[E0277]: message` followed by `--> file:line:column` and its notes.
+        let details = &lines[index + 1..];
+        let details = &details[..details
+            .iter()
+            .position(|next| next.starts_with("error"))
+            .unwrap_or(details.len())];
         if let Some(header) = line.strip_prefix("error")
             && let Some((_, text)) = header.split_once(": ")
-            && let Some(location) = lines[index + 1..]
+            && let Some(location) = details
                 .iter()
-                .take_while(|next| !next.starts_with("error"))
                 .find_map(|next| next.trim_start().strip_prefix("--> "))
             && let Some(position) = position(location, &file)
         {
-            errors.push((position, text.to_owned()));
+            errors.push((position, format!("{text}{}", notes(details))));
         }
         // Apple's compiler through `#line`: `file:line:column: error: message`.
         if let Some(rest) = line.strip_prefix(&format!("{file}:"))
@@ -101,6 +108,32 @@ pub(crate) fn errors(
             .join("\n");
         syn::Error::new(fallback, format!("GPU build failed:\n{text}"))
     })
+}
+
+/// The notes of one rustc diagnostic, each on its own line with the location it names, such as
+/// the code in another crate that a kernel's call reached.
+fn notes(details: &[&str]) -> String {
+    let mut notes = String::new();
+    for (index, line) in details.iter().enumerate() {
+        let line = line.trim_start();
+        let Some(note) = line
+            .strip_prefix("note: ")
+            .or_else(|| line.strip_prefix("= note: "))
+        else {
+            continue;
+        };
+        let location = details[index + 1..]
+            .iter()
+            .map(|next| next.trim_start())
+            .take_while(|next| !next.starts_with("note: ") && !next.starts_with("= note: "))
+            .find_map(|next| next.strip_prefix("--> "));
+        notes.push_str("\nnote: ");
+        notes.push_str(note);
+        if let Some(location) = location {
+            notes.push_str(&format!(" ({location})"));
+        }
+    }
+    notes
 }
 
 /// The line and column of `file:line:column` when it names `file`.

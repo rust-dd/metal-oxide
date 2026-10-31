@@ -63,6 +63,7 @@ pub(crate) fn validate<'tcx>(tcx: TyCtxt<'tcx>, entries: &[Instance<'tcx>]) {
         tcx,
         seen: HashSet::new(),
         active: HashSet::new(),
+        reached: None,
     };
     for &entry in entries {
         collector.visit(entry, tcx.def_span(entry.def_id()));
@@ -292,18 +293,48 @@ struct Collector<'tcx> {
     tcx: TyCtxt<'tcx>,
     seen: HashSet<Instance<'tcx>>,
     active: HashSet<Instance<'tcx>>,
+    /// The kernel crate call through which the walk reached another crate's code.
+    reached: Option<Span>,
 }
 
 impl<'tcx> Collector<'tcx> {
+    /// Reports at `span`, or in another crate's code at the kernel crate call that reached it.
+    fn error(&self, span: Span, message: impl Into<String>) {
+        let tcx = self.tcx;
+        match self.reached {
+            Some(call) if !crate::import::local(tcx, span) => {
+                tcx.dcx()
+                    .struct_span_err(call, message.into())
+                    .with_span_note(span, crate::import::REACHED)
+                    .emit();
+            }
+            _ => {
+                tcx.dcx().span_err(span, message.into());
+            }
+        }
+    }
+
+    /// Walks `instance`, called at `span`; its errors in another crate's code report at the
+    /// kernel crate call that entered that code.
     fn visit(&mut self, instance: Instance<'tcx>, span: Span) {
+        let outer = self.reached;
+        self.reached = if instance.def_id().is_local() {
+            None
+        } else {
+            outer.or(Some(span))
+        };
+        self.walk(instance, span);
+        self.reached = outer;
+    }
+
+    fn walk(&mut self, instance: Instance<'tcx>, span: Span) {
         let tcx = self.tcx;
         if self.active.contains(&instance) {
-            tcx.dcx()
-                .span_err(span, "recursion is not supported in Metal kernels");
+            self.error(span, "recursion is not supported in Metal kernels");
             return;
         }
         if !tcx.recursion_limit().value_within_limit(self.active.len()) {
-            tcx.dcx().span_err(
+            self.error(
                 span,
                 "device instance depth exceeds the rustc recursion limit",
             );
@@ -324,8 +355,7 @@ impl<'tcx> Collector<'tcx> {
             && !(matches!(instance.def, ty::InstanceKind::Intrinsic(_))
                 && crate::intrinsics::builtin(tcx, instance.def_id()).is_some())
         {
-            tcx.dcx()
-                .span_err(span, format!("unsupported function instance: {instance}"));
+            self.error(span, format!("unsupported function instance: {instance}"));
             return;
         }
         // Constructors such as `Err` called as functions build their value. Coroutines and async
@@ -338,7 +368,7 @@ impl<'tcx> Collector<'tcx> {
             _ => false,
         };
         if !callable {
-            tcx.dcx().span_err(
+            self.error(
                 span,
                 "coroutines and other callable shims are not supported in Metal kernels",
             );
@@ -356,10 +386,7 @@ impl<'tcx> Collector<'tcx> {
         {
             match crate::intrinsics::array_closure(tcx, instance, mapped) {
                 Some((closure, _)) => self.visit(closure, span),
-                None => {
-                    tcx.dcx()
-                        .span_err(span, "array map and from_fn take a closure");
-                }
+                None => self.error(span, "array map and from_fn take a closure"),
             }
             return;
         }
@@ -382,15 +409,13 @@ impl<'tcx> Collector<'tcx> {
         let ty = instance.ty(tcx, TypingEnv::fully_monomorphized());
         let rustic = ty.is_closure() || ty.fn_sig(tcx).skip_binder().abi().is_rustic_abi();
         if !rustic || tcx.is_foreign_item(instance.def_id()) {
-            tcx.dcx()
-                .span_err(span, "foreign ABI calls are not supported in Metal kernels");
+            self.error(span, "foreign ABI calls are not supported in Metal kernels");
             return;
         }
         if matches!(instance.def, ty::InstanceKind::Item(_))
             && !tcx.is_mir_available(instance.def_id())
         {
-            tcx.dcx()
-                .span_err(span, format!("device MIR is unavailable for {instance}"));
+            self.error(span, format!("device MIR is unavailable for {instance}"));
             return;
         }
         let body = body(tcx, instance);
@@ -430,7 +455,7 @@ impl<'tcx> Collector<'tcx> {
                         EarlyBinder::bind(tcx, place.ty(&body.local_decls, tcx).ty),
                     );
                     if crate::intrinsics::needs_drop(tcx, ty) {
-                        tcx.dcx().span_err(
+                        self.error(
                             terminator.source_info.span,
                             "destructors are not supported in Metal kernels",
                         );
@@ -457,8 +482,7 @@ impl<'tcx> Collector<'tcx> {
             EarlyBinder::bind(tcx, operand.ty(&body.local_decls, tcx)),
         );
         let ty::FnDef(definition, arguments) = *callee.kind() else {
-            tcx.dcx()
-                .span_err(span, "indirect calls are not supported in Metal kernels");
+            self.error(span, "indirect calls are not supported in Metal kernels");
             return;
         };
         let arguments = tcx.instantiate_bound_regions_with_erased(arguments);
@@ -468,7 +492,7 @@ impl<'tcx> Collector<'tcx> {
         match resolve(tcx, environment, definition, arguments) {
             Ok(Some(instance)) => self.visit(instance, span),
             Ok(None) => {
-                tcx.dcx().span_err(
+                self.error(
                     span,
                     format!("cannot resolve a concrete device instance for {callee}"),
                 );

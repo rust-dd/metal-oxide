@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 
 use metal_oxide_ir as ir;
 use rustc_middle::ty::{EarlyBinder, Instance, TyCtxt, TypingEnv};
-use rustc_span::Span;
+use rustc_span::{Span, def_id::LOCAL_CRATE};
 
 use crate::types::TypeLowering;
 use function::FunctionImporter;
@@ -46,8 +46,18 @@ struct FunctionKey<'tcx> {
     returns: Option<ir::Type>,
 }
 
+/// Kernel code the importer rejects. A rejection in another crate's code, such as core's,
+/// reports at the kernel crate's call that reached it, with the code it reached.
+pub(crate) struct Rejection {
+    pub(crate) span: Span,
+    pub(crate) message: String,
+    pub(crate) reached: Option<Span>,
+}
+
 pub(crate) struct ModuleImporter<'tcx> {
     tcx: TyCtxt<'tcx>,
+    /// Where a rejection that a call reported at itself arose.
+    reached: Option<Span>,
     /// The kernel entrypoints, which no function may call.
     entries: HashSet<Instance<'tcx>>,
     ids: HashMap<FunctionKey<'tcx>, usize>,
@@ -60,6 +70,7 @@ impl<'tcx> ModuleImporter<'tcx> {
     pub(crate) fn new(tcx: TyCtxt<'tcx>) -> Self {
         Self {
             tcx,
+            reached: None,
             entries: HashSet::new(),
             ids: HashMap::new(),
             functions: Vec::new(),
@@ -67,7 +78,24 @@ impl<'tcx> ModuleImporter<'tcx> {
         }
     }
 
-    pub(crate) fn import(mut self, entries: &[crate::collect::Entry<'tcx>]) -> Result<ir::Module> {
+    pub(crate) fn import(
+        mut self,
+        entries: &[crate::collect::Entry<'tcx>],
+    ) -> std::result::Result<ir::Module, Rejection> {
+        self.functions_of(entries)
+            .map_err(|(span, message)| Rejection {
+                span,
+                message,
+                reached: self.reached,
+            })?;
+        Ok(ir::Module {
+            functions: called(self.functions.into_iter().map(Option::unwrap).collect()),
+            types: self.types.into_types(),
+        })
+    }
+
+    /// Imports the entries and every function they call.
+    fn functions_of(&mut self, entries: &[crate::collect::Entry<'tcx>]) -> Result<()> {
         if entries.is_empty() {
             return Err((
                 rustc_span::DUMMY_SP,
@@ -101,10 +129,7 @@ impl<'tcx> ModuleImporter<'tcx> {
             };
             self.function(key, true)?;
         }
-        Ok(ir::Module {
-            functions: called(self.functions.into_iter().map(Option::unwrap).collect()),
-            types: self.types.into_types(),
-        })
+        Ok(())
     }
 
     /// The function for `key`, imported on first use.
@@ -201,7 +226,21 @@ fn reachable_blocks(function: &ir::Function) -> Vec<bool> {
     reachable
 }
 
+/// The note on a rejection that a kernel crate call reached in another crate's code.
+pub(crate) const REACHED: &str = "in code from another crate";
+
+/// Whether `span` lies in the kernel crate's own source files.
+pub(crate) fn local(tcx: TyCtxt<'_>, span: Span) -> bool {
+    tcx.sess.source_map().lookup_source_file(span.lo()).cnum == LOCAL_CRATE
+}
+
+/// Where `span` is. Code that another crate's macro expands in this crate, such as a kernel's
+/// `log!`, is at the macro call.
 fn location(tcx: TyCtxt<'_>, span: Span) -> ir::SourceLocation {
+    let span = match span.ctxt().outer_expn().expansion_cause() {
+        Some(call) if !local(tcx, span) && local(tcx, call) => call,
+        _ => span,
+    };
     let position = tcx.sess.source_map().lookup_char_pos(span.lo());
     ir::SourceLocation {
         file: position

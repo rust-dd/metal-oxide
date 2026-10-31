@@ -196,7 +196,15 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 | mir::StatementKind::Nop => {}
                 mir::StatementKind::Intrinsic(intrinsic)
                     if matches!(**intrinsic, mir::NonDivergingIntrinsic::Assume(_)) => {}
-                other => return Err((span, format!("unsupported MIR statement: {other:?}"))),
+                mir::StatementKind::Intrinsic(_) => {
+                    return Err((
+                        span,
+                        "the `copy_nonoverlapping` intrinsic is unsupported; call \
+                         `core::ptr::copy_nonoverlapping`"
+                            .into(),
+                    ));
+                }
+                _ => return Err((span, "unsupported MIR statement".into())),
             }
         }
         let term = block.terminator();
@@ -383,7 +391,22 @@ impl<'a, 'tcx> FunctionImporter<'a, 'tcx> {
                 }
                 ir::Terminator::Goto(target.as_usize())
             }
-            other => return Err((span, format!("unsupported MIR terminator: {other:?}"))),
+            mir::TerminatorKind::Call { target: None, .. } => {
+                return Err((
+                    span,
+                    "calls to functions that never return are supported only for panics".into(),
+                ));
+            }
+            mir::TerminatorKind::TailCall { .. } => {
+                return Err((span, "tail calls are unsupported".into()));
+            }
+            mir::TerminatorKind::InlineAsm { .. } => {
+                return Err((span, "inline assembly is unsupported".into()));
+            }
+            mir::TerminatorKind::Yield { .. } | mir::TerminatorKind::CoroutineDrop => {
+                return Err((span, "coroutines are unsupported".into()));
+            }
+            _ => return Err((span, "unsupported MIR terminator".into())),
         };
         Ok(ir::Block {
             statements,
@@ -405,12 +428,12 @@ fn check(message: &mir::AssertMessage<'_>, span: Span) -> Result<ir::Check> {
             BinOp::Rem => ir::OverflowOp::Rem,
             BinOp::Shl => ir::OverflowOp::Shl,
             BinOp::Shr => ir::OverflowOp::Shr,
-            other => return Err((span, format!("unsupported overflow assertion: {other:?}"))),
+            _ => return Err((span, "unsupported overflow assertion".into())),
         }),
         AssertKind::OverflowNeg(_) => ir::Check::Overflow(ir::OverflowOp::Neg),
         AssertKind::DivisionByZero(_) => ir::Check::DivisionByZero,
         AssertKind::RemainderByZero(_) => ir::Check::RemainderByZero,
-        other => return Err((span, format!("unsupported MIR assertion: {other:?}"))),
+        _ => return Err((span, "unsupported MIR assertion".into())),
     })
 }
 

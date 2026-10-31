@@ -2,6 +2,7 @@ use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::{Compiler, Config};
 use rustc_middle::ty::TyCtxt;
 use rustc_session::config::PrintKind;
+use rustc_span::{BytePos, Span};
 
 pub(crate) struct Frontend {
     pub(crate) output: Option<std::path::PathBuf>,
@@ -63,15 +64,91 @@ impl Callbacks for Frontend {
                         &self.arguments,
                         self.math_mode,
                     ) {
-                        tcx.dcx().err(error.to_string());
+                        match error.downcast_ref::<metal_oxide_ir::Error>() {
+                            Some(error) => report(tcx, error),
+                            None => {
+                                tcx.dcx().err(error.to_string());
+                            }
+                        }
                     }
                 }
-                Err((span, error)) => {
-                    tcx.dcx().span_err(span, error);
+                Err(rejection) => {
+                    let error = tcx.dcx().struct_span_err(rejection.span, rejection.message);
+                    match rejection.reached {
+                        Some(inner) => error.with_span_note(inner, crate::import::REACHED),
+                        None => error,
+                    }
+                    .emit();
                 }
             }
             tcx.dcx().abort_if_errors();
         }
         Compilation::Continue
     }
+}
+
+/// Reports an IR error in the kernel crate: at its own location there, or at the innermost
+/// kernel crate call that reached it in another crate's code.
+fn report(tcx: TyCtxt<'_>, error: &metal_oxide_ir::Error) {
+    let local = |span: &Span| crate::import::local(tcx, *span);
+    let source = span(tcx, &error.source);
+    let call = error
+        .calls
+        .iter()
+        .filter_map(|call| span(tcx, call))
+        .find(local);
+    let message = error.message.clone();
+    match (source, call) {
+        (Some(source), _) if local(&source) => {
+            tcx.dcx().span_err(source, message);
+        }
+        (Some(source), Some(call)) => {
+            tcx.dcx()
+                .struct_span_err(call, message)
+                .with_span_note(source, crate::import::REACHED)
+                .emit();
+        }
+        (None, Some(call)) => {
+            let source = &error.source;
+            let note = format!(
+                "{} at {}:{}:{}",
+                crate::import::REACHED,
+                source.file,
+                source.line,
+                source.column
+            );
+            tcx.dcx()
+                .struct_span_err(call, message)
+                .with_note(note)
+                .emit();
+        }
+        (Some(source), None) => {
+            tcx.dcx().span_err(source, message);
+        }
+        (None, None) => {
+            tcx.dcx().err(error.to_string());
+        }
+    }
+}
+
+/// The position an IR source location names in a file of this session.
+fn span(tcx: TyCtxt<'_>, location: &metal_oxide_ir::SourceLocation) -> Option<Span> {
+    let source_map = tcx.sess.source_map();
+    let file = source_map
+        .files()
+        .iter()
+        .find(|file| file.name.prefer_remapped_unconditionally().to_string() == location.file)
+        .cloned()?;
+    let line = (location.line as usize)
+        .checked_sub(1)
+        .filter(|line| *line < file.lines().len())?;
+    source_map.ensure_source_file_source_present(&file);
+    let column = file.get_line(line).map_or(0, |text| {
+        text.chars()
+            .take(location.column.saturating_sub(1) as usize)
+            .map(char::len_utf8)
+            .sum::<usize>()
+    });
+    let start = file.line_bounds(line).start + BytePos(column as u32);
+    Some(Span::with_root_ctxt(start, start))
 }
