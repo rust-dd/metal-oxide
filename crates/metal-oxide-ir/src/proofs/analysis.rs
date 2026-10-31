@@ -79,7 +79,7 @@ impl<'a> Analysis<'a> {
                     continue;
                 }
                 state = inputs[id][0].clone();
-            } else if inputs[id].len() >= 64 && self.joins[index][id] {
+            } else if inputs[id].len() >= self.kept_states(index, id) {
                 for input in &inputs[id] {
                     state.merge(input, None);
                 }
@@ -171,6 +171,16 @@ impl<'a> Analysis<'a> {
         let result = result.unwrap_or_default();
         self.results.insert(key, result.clone());
         Ok(result)
+    }
+
+    /// The distinct states block `id` keeps before merging them. A loop header keeps few
+    /// iterations: each iteration's facts analyze the calls in its body again.
+    fn kept_states(&self, index: usize, id: usize) -> usize {
+        match (self.loop_headers[index][id], self.joins[index][id]) {
+            (true, _) => 8,
+            (false, true) => 64,
+            (false, false) => usize::MAX,
+        }
     }
 }
 

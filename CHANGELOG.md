@@ -61,6 +61,10 @@
 - Values of 3, 5, 6 or 7 bytes, such as a `[bool; 3]` that a closure captures, are copied
   member by member. LLVM copied a 3-byte value as a 24-bit integer, which Apple's GPU
   compilers misread, so `any` over such a capture could return `false` on the GPU.
+- Folds nested in closures, such as `take(..).fold(..)` inside another fold, no longer
+  exhaust the numerical proof budget. Loops keep the facts of their first 8 iterations
+  apart before merging them, instead of 64, so calls in loop bodies are analyzed fewer
+  times.
 
 ### Upgrading
 

@@ -149,7 +149,7 @@
   {"message": "memory operations require element pointers", "internal": "ptr::swap, typed_swap_nonoverlapping and ptr::copy_nonoverlapping take *const T or *mut T of a sized T, and MIR passes them as locals, so every pointer argument is a thin pointer place."},
   {"message": "never parameters, unit kernel parameters and diverging functions are unsupported", "internal": "collect::validate and IR validation reject kernel parameters that are not ABI values and kernels that do not return unit, IR validation rejects every call statement that writes or passes a never-typed local (place_info: \"never-typed values cannot be read\"), and import drops functions that no statement calls."},
   {"message": "never-typed values cannot be read", "fixture": "rejections/privately_uninhabited_result.rs", "line": 15, "column": 19},
-  {"message": "numerical proof analysis budget exceeded", "fixture": "rejections/proof_budget.rs", "line": 6, "column": 5},
+  {"message": "numerical proof analysis budget exceeded", "fixture": "rejections/proof_budget.rs", "line": 11, "column": 11},
   {"message": "pointer casts keep the pointee type and address space", "internal": "conversions.rs pointer_cast builds PointerCast only after the same same_values, address space and slice checks, and otherwise reports `pointer casts must keep the pointee type and address space` itself."},
   {"message": "pointer casts must keep the pointee type and address space", "fixture": "rejections/byte_pointer_cast.rs", "line": 6, "column": 19},
   {"message": "pointer casts require pointers", "internal": "conversions.rs pointer_cast builds PointerCast only when both the operand type and the destination type are interned pointers."},

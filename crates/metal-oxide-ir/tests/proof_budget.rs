@@ -1,6 +1,6 @@
 use metal_oxide_ir::*;
 
-const KERNELS: usize = 600;
+const KERNELS: usize = 4_000;
 
 fn source() -> SourceLocation {
     SourceLocation {
@@ -110,7 +110,7 @@ fn caller(name: &str, functions: impl IntoIterator<Item = (usize, Vec<Operand>)>
 
 #[test]
 fn independent_kernels_do_not_spend_each_others_proof_budget() {
-    // Each bounded loop needs fewer than 300 block visits. Together these
+    // Each bounded loop needs fewer than 50 block visits. Together these
     // exports exceed 100,000 visits, without any entrypoint approaching it.
     let module = Module {
         types: TypeTable::default(),

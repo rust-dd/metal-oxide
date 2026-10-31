@@ -11,9 +11,19 @@ fn middle(seed: u32) -> u32 {
     while step < 64 { total ^= inner(seed * 64 + step); step += 1; }
     total
 }
+fn outer(seed: u32) -> u32 {
+    let (mut total, mut step) = (0, 0);
+    while step < 64 { total ^= middle(seed * 64 + step); step += 1; }
+    total
+}
+fn outermost(seed: u32) -> u32 {
+    let (mut total, mut step) = (0, 0);
+    while step < 64 { total ^= outer(seed * 64 + step); step += 1; }
+    total
+}
 #[kernel]
 pub unsafe fn proof_budget(out: WriteBuffer<u32>) {
     let (mut total, mut step) = (0, 0);
-    while step < 64 { total ^= middle(step); step += 1; }
+    while step < 64 { total ^= outermost(step); step += 1; }
     unsafe { out.store_unchecked(0, total); }
 }
