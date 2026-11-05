@@ -222,3 +222,57 @@ fn checked_i8_sums_and_differences_overflow_outside_the_i8_range() {
         "0"
     );
 }
+
+#[test]
+fn float_to_integer_casts_follow_rust_saturation_at_every_width() {
+    let inputs = [
+        0x7fc00000, 0xffc00000, 0x7f800000, 0xff800000, 0x80000000, 0x3f000000, 0xbf000000,
+        0x42ff0000, 0xc3010000, 0x437fe666, 0x43800000, 0x46ffff00, 0x477fffe6, 0x4effffff,
+        0x4f000000, 0xcf000000, 0xcf000001, 0x4f7fffff, 0x4f800000, 0x5effffff, 0x5f000000,
+        0xdf000000, 0xdf000001, 0x5f7fffff, 0x5f800000, 0x7149f2ca,
+    ];
+    for scalar in [
+        Scalar::I8,
+        Scalar::U8,
+        Scalar::I16,
+        Scalar::U16,
+        Scalar::I32,
+        Scalar::U32,
+        Scalar::I64,
+        Scalar::U64,
+    ] {
+        let module = module(
+            1,
+            vec![Type::Scalar(scalar), Type::Scalar(Scalar::F32)],
+            vec![block(
+                vec![(0, Expression::Cast(local(1), scalar))],
+                Terminator::Return,
+            )],
+        );
+        let cast = |value: f32| match scalar {
+            Scalar::I8 => i128::from(value as i8),
+            Scalar::U8 => i128::from(value as u8),
+            Scalar::I16 => i128::from(value as i16),
+            Scalar::U16 => i128::from(value as u16),
+            Scalar::I32 => i128::from(value as i32),
+            Scalar::U32 => i128::from(value as u32),
+            Scalar::I64 => i128::from(value as i64),
+            _ => i128::from(value as u64),
+        };
+        let expected = inputs
+            .map(|bits| format!("{},", cast(f32::from_bits(bits))))
+            .concat();
+        let bits = inputs.map(|bits| format!("{bits}u")).join(", ");
+        assert_eq!(
+            support::execute(
+                &module,
+                &format!(
+                    "for (uint bits : {{{bits}}}) \
+                     std::cout << +metal_oxide_fn_0(as_type<float>(bits), ctx) << ',';"
+                )
+            ),
+            expected,
+            "{scalar:?}"
+        );
+    }
+}

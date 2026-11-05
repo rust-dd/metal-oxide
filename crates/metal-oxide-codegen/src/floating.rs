@@ -12,26 +12,19 @@ pub(crate) fn saturating_cast(value: &str, scalar: Scalar) -> String {
     };
     let lower = (minimum as f32).to_bits();
     let upper = (maximum as f32).to_bits();
+    let below_upper = upper - 1;
     let name = scalar_name(scalar);
-    let minimum = if scalar == Scalar::I32 {
-        "as_type<int>(0x80000000u)".into()
-    } else if matches!(scalar, Scalar::I64 | Scalar::Isize) {
-        "as_type<long>(0x8000000000000000ul)".into()
+    let suffix = if scalar.bits() == 64 {
+        "ul"
+    } else if scalar.is_signed() {
+        ""
     } else {
-        format!("{name}({minimum})")
+        "u"
     };
-    let maximum = format!(
-        "{name}({maximum}{})",
-        if scalar.bits() == 64 {
-            "ul"
-        } else if scalar.is_signed() {
-            ""
-        } else {
-            "u"
-        }
-    );
+    // An unconditional conversion lets Metal merge conversions of one value; M1 and M2 GPU
+    // compilers crashed on repeated conversions behind branches.
     format!(
-        "(isnan({value}) ? {name}(0) : ({value} <= as_type<float>(0x{lower:08x}u) ? {minimum} : ({value} >= as_type<float>(0x{upper:08x}u) ? {maximum} : {name}({value}))))"
+        "select(select({name}(clamp({value}, as_type<float>(0x{lower:08x}u), as_type<float>(0x{below_upper:08x}u))), {name}({maximum}{suffix}), {value} >= as_type<float>(0x{upper:08x}u)), {name}(0), isnan({value}))"
     )
 }
 

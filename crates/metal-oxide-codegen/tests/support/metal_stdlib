@@ -92,6 +92,12 @@ template<class T> T rotate(T value, T shift) {
     U bits = U(value);
     return n == 0 ? value : T(U((bits << n) | (bits >> (width - n))));
 }
+template<class T> T select(T a, T b, bool c) {
+    return c ? b : a;
+}
+inline float clamp(float x, float minval, float maxval) {
+    return std::fmin(std::fmax(x, minval), maxval);
+}
 template<class T> T addsat(T a, T b) {
     T result;
     if (!__builtin_add_overflow(a, b, &result)) return result;

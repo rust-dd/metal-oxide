@@ -75,6 +75,9 @@
   compile for every Apple GPU. LLVM could turn their overflow test into
   `llvm.sadd.with.overflow.i8` or `llvm.ssub.with.overflow.i8`, which Apple's GPU compilers
   cannot lower, so creating the pipeline failed.
+- Float-to-integer `as` casts convert without branches and keep Rust's saturation and NaN
+  rules. M1 and M2 GPU compilers crashed on kernels that converted one `f32` to `u64` twice,
+  such as `x as u64` next to `1 + x as u64`.
 
 ### Upgrading
 
