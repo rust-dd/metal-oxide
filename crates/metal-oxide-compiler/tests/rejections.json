@@ -53,7 +53,7 @@
   {"message": "chunk iterators advance through a borrowed local", "internal": "chunk_type runs only for the ChunksExact::next calls that expanded_next accepts, and expanded_next requires the receiver to be a handle local, which is what chunk_type looks up."},
   {"message": "closure arguments must be a tuple", "internal": "rustc requires the last argument of every rust-call signature to implement the built-in Tuple trait. spread inspects that same argument type after monomorphization; non-tuples cannot reach typed MIR."},
   {"message": "closure arguments must be in a local", "fixture": "rejections/closure_arguments.rs", "line": 11, "column": 31},
-  {"message": "control flow requires excessive or cooperative block duplication", "fixture": "rejections/duplicated_barrier.rs", "line": 21, "column": 18},
+  {"message": "control flow requires excessive or cooperative block duplication", "fixture": "rejections/duplicated_barrier.rs", "line": 12, "column": 18},
   {"message": "cooperative operation requires uniform participation; divergent control flow is unsupported", "fixture": "divergent_barrier.rs", "line": 7, "column": 18},
   {"message": "coroutines and other callable shims are not supported in Metal kernels", "fixture": "rejections/async_block.rs", "line": 10, "column": 34},
   {"message": "coroutines are unsupported", "internal": "The collector rejects coroutine instances before import, so their Yield and CoroutineDrop terminators never reach the importer."},
