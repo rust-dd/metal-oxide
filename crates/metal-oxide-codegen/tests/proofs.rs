@@ -186,3 +186,39 @@ fn signed_narrow_saturating_subtractions_hide_their_minuend_from_metal() {
         );
     }
 }
+
+#[test]
+fn checked_i8_sums_and_differences_overflow_outside_the_i8_range() {
+    let checked = |op| {
+        module(
+            2,
+            vec![
+                Type::Checked(Scalar::I8),
+                Type::Scalar(Scalar::I8),
+                Type::Scalar(Scalar::I8),
+            ],
+            vec![block(
+                vec![(0, Expression::Binary(op, local(1), local(2)))],
+                Terminator::Return,
+            )],
+        )
+    };
+    let mut module = checked(BinaryOp::AddWithOverflow);
+    module
+        .functions
+        .extend(checked(BinaryOp::SubWithOverflow).functions);
+    assert_eq!(
+        support::execute(
+            &module,
+            "uint wrong = 0; \
+             for (int a = -128; a < 128; ++a) for (int b = -128; b < 128; ++b) { \
+             auto sum = metal_oxide_fn_0(char(a), char(b), ctx); \
+             auto difference = metal_oxide_fn_1(char(a), char(b), ctx); \
+             wrong += sum.value != char(a + b) || sum.overflow != (a + b < -128 || a + b > 127); \
+             wrong += difference.value != char(a - b) \
+             || difference.overflow != (a - b < -128 || a - b > 127); } \
+             std::cout << wrong;"
+        ),
+        "0"
+    );
+}

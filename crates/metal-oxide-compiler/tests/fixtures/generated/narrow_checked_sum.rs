@@ -1,0 +1,69 @@
+// Minimized from seed 0x57941b5911753b3e: LLVM turned an i8 checked sum into
+// llvm.sadd.with.overflow.i8, which no Apple GPU compiler could lower.
+// words: exact exact exact
+// input: i8
+// output: u32
+// block: 16 2 2
+// overflow checks: off
+#![cfg_attr(not(cpu_reference), no_std)]
+#![allow(unused_mut, unused_variables, unused_assignments, unused_parens, unused_labels, unused_braces, unused_comparisons, unused_imports, dead_code, unreachable_code, arithmetic_overflow, unconditional_panic)]
+
+#[derive(Clone, Copy)]
+struct R0 { f0: usize, f1: i8, f2: f32 }
+
+fn run(input: i8) -> [u32; 3] {
+    let mut l16: R0 = R0 { f0: 0_usize, f1: input.wrapping_add(input).checked_add(input).unwrap(), f2: 0.0_f32 };
+    let mut l19: (u32, f32,) = (0_u32, 0.0_f32,);
+    [0_u32, 0_u32, l19.0.overflowing_mul(1048097518_u32).0.wrapping_add(l19.0.wrapping_neg()).overflowing_pow(((-1_i32).checked_sub((-1_i32)).unwrap_or((-667115082_i32)).saturating_add(((0_u32..8).filter((move |a27: &u32| -> bool { false })).count() as i32)) as u32)).0]
+}
+
+#[cfg(not(cpu_reference))]
+use metal_oxide_device::{Float, ReadBuffer, WriteBuffer, block_dim, block_idx, kernel, thread_idx};
+
+#[cfg(not(cpu_reference))]
+#[kernel(block = (16, 2, 2), instances(generated(3)))]
+pub unsafe fn generated_body<const ELEMENTS: u32>(input: ReadBuffer<i8>, output: WriteBuffer<u32>, n: u32) {
+    let i = block_idx().x * 64 + (thread_idx().z * 2 + thread_idx().y) * 16 + thread_idx().x;
+    if i < n {
+        let words = run(unsafe { input.load_unchecked(i) });
+        unsafe {
+        output.store_unchecked(i * ELEMENTS + 0, words[0]);
+        output.store_unchecked(i * ELEMENTS + 1, words[1]);
+        output.store_unchecked(i * ELEMENTS + 2, words[2]);
+        }
+    }
+}
+
+#[cfg(cpu_reference)]
+fn main() {
+    flush_subnormals();
+    let location = std::sync::Arc::new(std::sync::Mutex::new((0, 0)));
+    let recorded = std::sync::Arc::clone(&location);
+    std::panic::set_hook(Box::new(move |info| {
+        let panicked = info.location().unwrap();
+        *recorded.lock().unwrap() = (panicked.line(), panicked.column());
+    }));
+    let inputs = [0_u32, 1_u32, 4294967295_u32, 2147483647_u32, 2147483648_u32, 65535_u32, 65536_u32, 3000345242_u32, 1360761137_u32, 2222446812_u32, 3832061579_u32, 8217198_u32, 3569534709_u32, 327527376_u32, 1140690159_u32, 2043499906_u32, 2510296825_u32, 3708310532_u32, 4223192979_u32, 3974172630_u32, 2081555773_u32, 979666296_u32, 1232046711_u32, 3991102826_u32, 3535623617_u32, 3222287404_u32, 2320966043_u32, 1113745982_u32, 835783813_u32, 1208390688_u32, 4209588479_u32, 2011394642_u32, 478834057_u32, 2306611540_u32, 587707555_u32, 3115782566_u32, 1425603789_u32, 1909618632_u32, 2455812231_u32, 973937722_u32, 704806481_u32, 2999755644_u32, 3507660971_u32, 3259541006_u32, 1135015445_u32, 973262960_u32, 2828019983_u32, 1049887522_u32, 2978261017_u32, 2241229476_u32, 683941299_u32, 1488242550_u32, 1067194461_u32, 170278424_u32, 225815191_u32, 1981794058_u32, 1431571169_u32, 503457484_u32, 1743532987_u32, 2907510238_u32, 3804070821_u32, 496984256_u32, 2966641951_u32, 2253129714_u32, 538429097_u32, 3175899124_u32, 2791246531_u32, 2593599814_u32, 596924397_u32, 3156531304_u32, 2595184807_u32, 1747477978_u32, 2438658929_u32, 1816509980_u32, 376750795_u32, 3956062638_u32, 3922572597_u32, 3292611856_u32, 4090746159_u32, 3602415810_u32, 973916473_u32, 3990020420_u32, 1435073491_u32, 1935363862_u32, 851098493_u32, 2245215928_u32, 508484279_u32, 2373187754_u32, 3909111809_u32, 23882092_u32, 3430766043_u32, 4049899902_u32, 3318778565_u32, 3968695648_u32, 3723661631_u32, 1455844754_u32, 1735176137_u32, 4120835732_u32, 540307683_u32, 3393069286_u32, 2032681741_u32, 4202072328_u32, 2429884615_u32, 3935272826_u32, 3312257169_u32, 2324375740_u32, 2987846891_u32, 2364644686_u32, 100598869_u32, 2456357296_u32, 2010157391_u32, 2627915362_u32, 914389593_u32, 610639844_u32, 814803443_u32, 1237100214_u32, 1832251037_u32, 2459148120_u32, 251861719_u32, 3678927434_u32, 2114594081_u32, 1308032012_u32, 932349947_u32, 3096501534_u32, 3956416997_u32, 1056500224_u32, 1984877919_u32, 2109383474_u32, 3956353257_u32, 2333859124_u32, 17819395_u32, 798220422_u32, 2138881581_u32, 4226779560_u32, 3923370215_u32, 3802818842_u32, 3900745137_u32, 2068112220_u32, 629221131_u32, 1772048622_u32, 4211270517_u32, 1487019600_u32, 1250844015_u32, 3736792066_u32, 304593785_u32, 1274457732_u32, 1818388499_u32, 482397782_u32, 2866131389_u32, 1770997752_u32, 3063573239_u32, 2063846378_u32, 3904473665_u32, 2068438700_u32, 2897463835_u32, 1622800574_u32, 2307541253_u32, 1930012320_u32, 837822847_u32, 2207295698_u32, 177025545_u32, 3932885972_u32, 3178851619_u32, 3850399782_u32, 72993101_u32, 3820477000_u32, 1590016263_u32, 3856736954_u32, 14537425_u32, 1075506684_u32, 1983607083_u32, 4189967502_u32, 1335972501_u32, 2668921584_u32, 1175796111_u32, 3748190626_u32, 2622131353_u32, 2603486500_u32, 3213227571_u32, 1632617974_u32, 1264714973_u32, 2548973720_u32, 807193367_u32, 4228869514_u32, 3780542305_u32, 2500661580_u32, 3010010171_u32, 4224181342_u32, 4156620837_u32, 3135746880_u32, 2363395487_u32, 3836771954_u32, 2229848873_u32, 2486475380_u32, 3455648579_u32, 988532678_u32, 2038916205_u32, 687307496_u32, 3969949991_u32, 4254837850_u32, 4174155761_u32, 1857374364_u32, 768461643_u32, 1765091374_u32, 2929873333_u32, 3253221264_u32, 141370799_u32, 3574896450_u32, 137424313_u32, 1555282884_u32, 3833828435_u32, 3226570134_u32, 1386407933_u32, 4275603768_u32, 3667016503_u32, 1641209642_u32, 69796993_u32, 988320748_u32, 1463451227_u32, 1336057854_u32, 3007203141_u32, 482021344_u32, 3340894655_u32, 293741586_u32, 2150364233_u32, 488665364_u32, 2937497955_u32, 2998796134_u32, 4107112333_u32, 2530634632_u32, 3564280135_u32, 2806121978_u32, 2660556049_u32, 817623868_u32, 1505768811_u32, 2548911054_u32, 3872252117_u32, 4047846448_u32, 4087226831_u32, 3928368354_u32, 3978485465_u32, 4012882532_u32, 2581807731_u32, 380511542_u32, 1751145245_u32, 3547734488_u32, 1493351255_u32, 599138506_u32, 3514374561_u32, 2693031564_u32, 665841787_u32, 3593612190_u32, 1556749925_u32, 1923857536_u32, 3837953503_u32, 1852676530_u32, 2241768809_u32];
+    for input in inputs {
+        match std::panic::catch_unwind(|| run(input as i8)) {
+            Ok(words) => println!("{}", words.map(|word| word.to_string()).join(" ")),
+            Err(_) => {
+                let (line, column) = *location.lock().unwrap();
+                println!("panic {line}:{column}");
+            }
+        }
+    }
+}
+
+#[cfg(cpu_reference)]
+fn flush_subnormals() {
+    #[cfg(target_arch = "aarch64")]
+    if std::env::var_os("METAL_OXIDE_FLUSH_SUBNORMALS").is_some() {
+        let control: u64;
+        // SAFETY: FPCR.FZ only makes this thread's float operations flush subnormals to zero.
+        unsafe {
+            core::arch::asm!("mrs {}, fpcr", out(reg) control);
+            core::arch::asm!("msr fpcr, {}", in(reg) control | 1 << 24);
+        }
+    }
+}

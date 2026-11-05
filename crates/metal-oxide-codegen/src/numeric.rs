@@ -62,6 +62,17 @@ pub(crate) fn helpers(module: &Module) -> Result<String, Error> {
                 continue;
             }
             writeln!(output, "static inline metal_oxide_checked_{name} metal_oxide_{label}_checked_{name}({ty} a, {ty} b) {{").unwrap();
+            if scalar == Scalar::I8 && operation != BinaryOp::MulWithOverflow {
+                // LLVM turns a range test of the wide result into llvm.sadd or ssub.with.overflow.i8,
+                // which no Apple GPU compiler can lower.
+                let signs = if operation == BinaryOp::AddWithOverflow {
+                    "(a ^ value) & (b ^ value)"
+                } else {
+                    "(a ^ b) & (a ^ value)"
+                };
+                writeln!(output, "    char value = as_type<char>(uchar(uint(as_type<uchar>(a)) {symbol} uint(as_type<uchar>(b))));\n    return {{value, char({signs}) < 0}};\n}}\n").unwrap();
+                continue;
+            }
             if matches!(scalar, Scalar::I8 | Scalar::I16) {
                 let minimum = -(1_i32 << (scalar.bits() - 1));
                 let maximum = -minimum - 1;

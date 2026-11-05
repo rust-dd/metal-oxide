@@ -71,6 +71,10 @@
 - Loops with an early `return` and several exits that continue at the same code compile.
   That code was emitted once per exit, so programs with a few such loops were rejected with
   "control flow requires excessive or cooperative block duplication".
+- Checked `i8` additions and subtractions, including `+` and `-` with overflow checks,
+  compile for every Apple GPU. LLVM could turn their overflow test into
+  `llvm.sadd.with.overflow.i8` or `llvm.ssub.with.overflow.i8`, which Apple's GPU compilers
+  cannot lower, so creating the pipeline failed.
 
 ### Upgrading
 
