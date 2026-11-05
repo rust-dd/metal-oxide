@@ -421,7 +421,7 @@ impl<'a> Emitter<'a> {
         let join = if let Some(&parent) = contexts.last() {
             self.graph.loop_join(&exits, parent, stop)
         } else {
-            self.graph.postdominators.closest_common(&exits)
+            self.graph.branch_join(&exits, stop)
         };
         let branches = exits[..exits.len() - 1]
             .iter()

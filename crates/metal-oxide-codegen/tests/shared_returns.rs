@@ -226,3 +226,80 @@ fn nested_terminal_joins_preserve_the_enclosing_barrier_continuation() {
         "101,101,100,100,101,200,101,200,",
     );
 }
+
+#[test]
+fn loop_exits_join_before_the_code_they_share() {
+    let condition = |op, a, b| (4, Expression::Binary(op, a, b));
+    let branch = |then_block, else_block| Terminator::Branch {
+        condition: local(4),
+        then_block,
+        else_block,
+    };
+    // Exit 5 returns early; exits 6 and 7 continue at 8, which holds a barrier.
+    let mut module = module(
+        2,
+        vec![
+            Type::Unit,
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::U32),
+            Type::Scalar(Scalar::Bool),
+            Type::Unit,
+        ],
+        vec![
+            block(vec![(3, Expression::Use(uint(0)))], Terminator::Goto(1)),
+            block(
+                vec![condition(BinaryOp::Lt, local(3), local(1))],
+                branch(2, 6),
+            ),
+            block(
+                vec![condition(BinaryOp::Eq, local(3), local(2))],
+                branch(5, 3),
+            ),
+            block(
+                vec![condition(BinaryOp::Eq, local(3), uint(5))],
+                branch(7, 4),
+            ),
+            block(
+                vec![(3, Expression::Binary(BinaryOp::Add, local(3), uint(1)))],
+                Terminator::Goto(1),
+            ),
+            block(vec![], Terminator::Return),
+            block(vec![], Terminator::Goto(8)),
+            block(vec![], Terminator::Goto(8)),
+            block(
+                vec![(5, Expression::ThreadgroupBarrier)],
+                Terminator::Goto(9),
+            ),
+            block(vec![], Terminator::Return),
+        ],
+    );
+    module.functions[0].kernel = true;
+    let msl = metal_oxide_codegen::Codegen::new(&module)
+        .unwrap()
+        .emit()
+        .unwrap();
+    assert_eq!(msl.matches("threadgroup_barrier(").count(), 1, "{msl}");
+
+    let function = &mut module.functions[0];
+    function.kernel = false;
+    function.locals[0] = Type::Scalar(Scalar::U32);
+    function.blocks[5] = block(vec![(0, Expression::Use(uint(7)))], Terminator::Return);
+    function.blocks[8] = block(
+        vec![(0, Expression::Binary(BinaryOp::Add, local(3), uint(100)))],
+        Terminator::Goto(9),
+    );
+    let msl = metal_oxide_codegen::Codegen::new(&module)
+        .unwrap()
+        .emit()
+        .unwrap();
+    assert_eq!(msl.matches("100u").count(), 1, "{msl}");
+    assert_eq!(
+        support::execute(
+            &module,
+            "for (auto [n, a] : {std::pair{3u, 9u}, {9u, 2u}, {9u, 7u}, {0u, 0u}}) \
+             std::cout << metal_oxide_fn_0(n, a, ctx) << ',';",
+        ),
+        "103,7,105,100,",
+    );
+}
