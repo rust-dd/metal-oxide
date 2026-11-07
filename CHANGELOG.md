@@ -78,6 +78,9 @@
 - Float-to-integer `as` casts convert without branches and keep Rust's saturation and NaN
   rules. M1 and M2 GPU compilers crashed on kernels that converted one `f32` to `u64` twice,
   such as `x as u64` next to `1 + x as u64`.
+- Shader `log!` messages no longer abort the process when stderr is closed, such as a pipe
+  whose reader exited. Metal's logging thread printed them with `eprintln!`, which panics when
+  writing fails.
 
 ### Upgrading
 

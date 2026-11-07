@@ -20,7 +20,7 @@ use objc2_metal::{
 use super::{
     argument::Binding,
     batch::{Word, metal_size},
-    completion::{Completion, gpu_time},
+    completion::{Completion, Keepalive, gpu_time, native_callback},
     constants::Constants,
     failure::CommandFailure,
     failures::Failures,
@@ -318,7 +318,7 @@ impl Metal4Batch {
             tables: self.tables.clone(),
         };
         let stored = Arc::clone(&completion);
-        let keepalive = (
+        let keepalive = Keepalive((
             self.command.clone(),
             self.allocator.clone(),
             self.queue.clone(),
@@ -326,8 +326,8 @@ impl Metal4Batch {
             std::mem::take(&mut self.tables),
             std::mem::take(&mut self.bindings),
             pipelines,
-        );
-        let handler = RcBlock::new(
+        ));
+        let handler = RcBlock::new(native_callback(
             move |feedback: NonNull<ProtocolObject<dyn MTL4CommitFeedback>>| {
                 let _keepalive = &keepalive;
                 let result = autoreleasepool(|_| {
@@ -343,20 +343,21 @@ impl Metal4Batch {
                     }
                 });
                 // The cache becomes reusable only after residency releases this batch's resources.
-                keepalive.3.removeAllAllocations();
-                keepalive.3.commit();
+                let residency = &keepalive.0.3;
+                residency.removeAllAllocations();
+                residency.commit();
                 finish.run();
                 completion.finish(result);
             },
-        );
+        ));
         let options = MTL4CommitOptions::new();
         let mut command = NonNull::from(&*self.command);
         for (event, value) in waits {
             self.queue
                 .waitForEvent_value(ProtocolObject::from_ref(*event), *value);
         }
-        // SAFETY: Metal copies the callback; the one-element command array is valid for this call.
-        // The callback retains all immutable native state until completion, independently of the future.
+        // SAFETY: Metal copies the callback, whose captures `native_callback` checked; it retains the
+        // immutable native state until completion. The one-element command array outlives the call.
         unsafe {
             options.addFeedbackHandler(RcBlock::as_ptr(&handler));
             self.queue
