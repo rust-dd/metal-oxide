@@ -1,0 +1,43 @@
+name: Hardware report
+description: A kernel fails to build, load or run, or computes wrong results, on a Mac.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened
+      description: The error or the wrong result, and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Output of `cargo metal setup --check`
+      description: It names the macOS, Rust, Xcode and Metal compiler versions and the GPU.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Native API
+      description: Whether the failure persists with `METAL_OXIDE_BACKEND=classic`.
+      options:
+        - It also fails with classic Metal
+        - Only Metal 4 fails; classic Metal works
+        - The device has no Metal 4; classic Metal fails
+        - Not checked
+    validations:
+      required: true
+  - type: textarea
+    id: msl
+    attributes:
+      label: Output of `cargo metal inspect --emit msl -p PACKAGE --kernel KERNEL`
+      description: The generated MSL of the failing kernel.
+      render: text
+  - type: textarea
+    id: source
+    attributes:
+      label: Kernel and launch
+      description: The smallest Rust kernel and host code that reproduce the problem.
+      render: rust

@@ -6,6 +6,9 @@ This is the complete vec-add executable:
 {{#include ../../examples/vec-add/src/main.rs}}
 ```
 
+When you copy it into an application, leave out the final `mod tests;`, which declares
+the example's own test file.
+
 The `#[kernel]` macro marks a Rust entrypoint for the compiler and produces a host
 launch function of the same name. Its arguments begin with the device and launch
 configuration, followed by the kernel's arguments. `requires` relations are

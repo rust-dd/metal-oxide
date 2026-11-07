@@ -43,10 +43,11 @@ interactivity limit.
 
 GEMM comparisons include MPS on classic and MPP `matmul2d` when available. MPP is a
 benchmark reference, with implementation selected by the OS; it is not a Rust
-tensor API. The M4 Max measurements did not meet a 1.20 Rust/MPP GPU-time threshold
-for both input types on both backends in every repeated run. No parity claim
-extends to other GPU generations. `--mlx` adds a separately installed reference;
-its host timings and result precision require care when comparing.
+tensor API. On M4 Max, the Rust GEMM took 1.16 to 1.20 times MPP's GPU time. A tensor API
+needs MPP to lead by at least 20 % for both input types on both backends in every
+repeated run, which these runs did not show. The ratios do not extend to other GPU
+generations. `--mlx` adds a separately installed reference; its host timings and result
+precision require care when comparing.
 
 For the measurement protocol and recorded limitations, see the repository's
 [benchmark guide](https://github.com/rust-dd/metal-oxide/blob/main/CONTRIBUTING.md#benchmarks).
