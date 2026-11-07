@@ -24,6 +24,18 @@ running `(N/total)` counter. GPU tests run serially. Scheduled fuzzing uses the 
 profile and its own time budget. Doctests still need `cargo test --doc`; Miri,
 plain Cargo installation checks and `cargo metal test --validate` run separately.
 
+CI also checks that unit tests live in `tests.rs` modules, checks dependency licenses,
+advisories and sources with [cargo-deny](https://github.com/EmbarkStudios/cargo-deny)
+and `deny.toml`, and runs host code under Miri:
+
+```sh
+! grep -rnE '^[[:space:]]*(#\[test\]|mod tests \{)' crates benchmarks examples --include='*.rs' | grep -vE '/tests/|/(tests|loom)\.rs:'
+cargo deny check
+rustup toolchain install nightly-2026-10-04 --profile minimal --component miri --component rust-src
+cargo +nightly-2026-10-04 miri test --locked -p metal-oxide-artifact
+cargo +nightly-2026-10-04 miri test --locked -p metal-oxide --lib --test values --test half
+```
+
 Ordinary tests leave hardware checks ignored. The examples keep their saved artifacts
 in `metal/` beside their sources, and the stable CI job builds from them with
 `METAL_OXIDE_ARTIFACTS=locked`. A change to a kernel or to `metal-oxide-device` makes
@@ -51,6 +63,14 @@ is pinned:
 ```sh
 cargo nextest run --features rustc-private --profile ci --locked --target-dir ../../target/compiler
 cargo clippy --features rustc-private --all-targets --locked --target-dir ../../target/compiler -- -D warnings
+```
+
+On macOS, CI also prints the MSL of a few examples through Cargo, from the repository root:
+
+```sh
+for package in vec-add saxpy reduction matmul pipeline; do
+    cargo run -p cargo-metal --locked -- inspect --emit msl -p "$package" --locked
+done
 ```
 
 The scheduled generated-program fuzzer also runs locally from that directory:
@@ -113,7 +133,7 @@ cargo install mdbook --version 0.5.4 --locked
 cargo run -p metal-oxide-artifact --example capabilities --locked -- --check
 mdbook build book
 python3 scripts/check-book.py
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-device -p metal-oxide-macros -p metal-oxide-kernels -p metal-oxide-build
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-artifact -p metal-oxide-build -p metal-oxide-codegen -p metal-oxide-device -p metal-oxide-ir -p metal-oxide-kernels -p metal-oxide-macros
 ```
 
 ## Release checks
@@ -133,6 +153,11 @@ release yanks afterwards, such as `0.1.0-alpha0` for `0.1.0-alpha.1`. Prerelease
 use dotted identifiers (`0.1.0-alpha.2`); push each release tag on its own, never
 with `--tags`.
 
+A release publishes each crate with `cargo publish -p CRATE` in the publication order that
+`check-release.py` prints, each once the previous one is in the index. It then pushes the
+release tag alone (`git push origin v0.1.0-alpha.2`) and publishes the GitHub prerelease
+for that tag, which deploys the book and runs the registry job.
+
 The smoke test uses a local source mirror of the exact archives and their locked
 dependencies. It neither publishes packages nor verifies crates.io availability.
 The `Packaged installation` workflow runs the rehearsal on hosted classic Metal.
@@ -144,9 +169,7 @@ separate release checks.
 
 The documentation workflow uploads the checked book on every run and deploys the
 release's book to GitHub Pages when a GitHub release is published, including an
-alpha prerelease. GitHub Actions is the repository's Pages source, and the
-`github-pages` environment accepts branch `main` and tags matching `v*`. Pull
-requests and ordinary pushes build and upload without deploying.
+alpha prerelease. Pull requests and ordinary pushes build and upload without deploying.
 
 ## API design
 
