@@ -70,6 +70,8 @@ impl Drop for Context {
 }
 
 impl Device {
+    /// Opens a new context on the default GPU, with its own queues, libraries and pipelines.
+    /// Launches reject buffers of another context with `Error::DeviceMismatch`; clone to share one.
     pub fn system_default() -> Result<Self> {
         let raw = MTLCreateSystemDefaultDevice().ok_or(Error::DeviceUnavailable)?;
         Self::from_native(raw)
