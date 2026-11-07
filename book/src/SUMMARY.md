@@ -3,6 +3,7 @@
 - [Introduction](index.md)
 - [Installation](installation.md)
 - [Your first kernel](first-kernel.md)
+- [Organizing kernels](organizing-kernels.md)
 - [Launch geometry](geometry.md)
 - [Memory and safety](memory.md)
 - [Async operations](async.md)

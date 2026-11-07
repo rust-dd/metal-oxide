@@ -31,4 +31,4 @@ For an in-place update, the tested SAXPY example uses the same ownership rules:
 Run it from the checkout with `cargo run -p saxpy --locked`. For larger programs,
 `#[metal_oxide::kernels]` shares types and helpers in an inline module;
 `#[metal_oxide::kernels(path = "../kernels")]` imports a separate `no_std` kernel
-crate. See [compiler internals](compiler.md) for their build boundary.
+crate. See [organizing kernels](organizing-kernels.md).

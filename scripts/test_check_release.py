@@ -60,6 +60,7 @@ class Pins(unittest.TestCase):
             (root / "book/src").mkdir(parents=True)
             (root / "README.md").write_text(readme)
             (root / "book/src/installation.md").write_text(installation)
+            (root / "book/src/organizing-kernels.md").write_text(f"metal-oxide-device@={version}\n")
             release.check_pins(version, root)
 
     def test_accepts_install_commands_and_tags_of_the_version(self):

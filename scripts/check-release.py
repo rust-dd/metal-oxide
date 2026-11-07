@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
-PINNED = ("README.md", "book/src/installation.md")
+PINNED = ("README.md", "book/src/installation.md", "book/src/organizing-kernels.md")
 PIN = re.compile(r"--version '=([^']+)'|@=([0-9][0-9A-Za-z.+-]*)"
                  r"|--branch v([0-9][0-9A-Za-z.+-]*)|`v([0-9][0-9A-Za-z.+-]*)`")
 
@@ -107,7 +107,7 @@ def check_version(version, names, supersedes):
 
 
 def check_pins(version, root=ROOT):
-    """The README and the installation chapter must install and check out `version`."""
+    """The README and the installation and kernel chapters must install and check out `version`."""
     for relative in PINNED:
         lines = (root / relative).read_text().splitlines()
         pins = [(number, next(group for group in match.groups() if group))
