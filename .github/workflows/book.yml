@@ -38,7 +38,7 @@ jobs:
       - name: Check internal links
         run: python3 scripts/check-book.py
       - name: Build API documentation without warnings
-        run: cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-device -p metal-oxide-macros -p metal-oxide-kernels -p metal-oxide-build
+        run: cargo doc --locked --no-deps -p metal-oxide -p metal-oxide-artifact -p metal-oxide-build -p metal-oxide-codegen -p metal-oxide-device -p metal-oxide-ir -p metal-oxide-kernels -p metal-oxide-macros
       - name: Upload book for GitHub Pages
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
