@@ -4,6 +4,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
+    task::{Wake, Waker},
     thread::JoinHandle,
 };
 
@@ -82,6 +83,22 @@ impl Gate {
         );
         assert_eq!(self.event.signaledValue(), 2);
     }
+
+    /// Checks that reading `buffer` waits for the gated work, then releases `value` and reads.
+    fn read_after_release(&self, buffer: &Buffer<u32>, value: u64) -> Vec<u32> {
+        let mut read = buffer.read();
+        let poll = Pin::new(&mut read).poll(&mut Context::from_waker(Waker::noop()));
+        assert!(
+            poll.is_pending(),
+            "the read did not wait for the gated work"
+        );
+        assert!(
+            !self.timed_out.load(Ordering::SeqCst),
+            "dropping waited for the GPU"
+        );
+        self.event.setSignaledValue(value);
+        read.wait().to_vec()
+    }
 }
 
 impl Drop for Gate {
@@ -120,6 +137,30 @@ fn increment<'a>(
             buffer,
             |buffer| Ok([Argument::read_write(buffer)]),
         )
+    }
+}
+
+struct Unpark(std::thread::Thread);
+
+impl Wake for Unpark {
+    fn wake(self: Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
+/// Polls `future` on this thread until `stop` holds after a pending poll.
+fn poll_until<F: Future>(mut future: Pin<&mut F>, stop: impl Fn() -> bool) {
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    loop {
+        let poll = future.as_mut().poll(&mut Context::from_waker(&waker));
+        assert!(
+            poll.is_pending(),
+            "the operation completed before it was dropped"
+        );
+        if stop() {
+            return;
+        }
+        std::thread::park();
     }
 }
 
@@ -209,7 +250,7 @@ fn formatting_a_buffer_does_not_wait_for_gpu_completion() -> Result<()> {
     let mut pending = increment(&pipeline, &mut buffer).into_future();
     assert!(
         Pin::new(&mut pending)
-            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .poll(&mut Context::from_waker(Waker::noop()))
             .is_pending()
     );
     assert!(matches!(pending.0, Run::Running { .. }));
@@ -221,5 +262,63 @@ fn formatting_a_buffer_does_not_wait_for_gpu_completion() -> Result<()> {
     );
     gate.event.setSignaledValue(1);
     assert_eq!(buffer.read().wait(), [1]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn dropped_chains_start_no_later_stage_and_keep_cpu_access_synchronized() -> Result<()> {
+    let (device, pipeline, mut buffer) = setup()?;
+    let mut next = device.buffer_from_slice(&[0_u32])?;
+    let later = AtomicUsize::new(0);
+    let chain = increment(&pipeline, &mut buffer).then(|_| {
+        later.fetch_add(1, Ordering::SeqCst);
+        increment(&pipeline, &mut next)
+    });
+    drop(chain);
+    assert_eq!(buffer.read().wait(), [0]);
+
+    let gate = Gate::new(&device);
+    gate.block(&device, 1);
+    let mut chain = Box::pin(increment(&pipeline, &mut buffer).then(|_| {
+        later.fetch_add(1, Ordering::SeqCst);
+        increment(&pipeline, &mut next)
+    }));
+    poll_until(chain.as_mut(), || true);
+    drop(chain);
+    assert_eq!(gate.read_after_release(&buffer, 1), [1]);
+
+    let started = AtomicUsize::new(0);
+    let mut chain = Box::pin(
+        increment(&pipeline, &mut buffer)
+            .then(|buffer| {
+                gate.block(&device, 2);
+                started.fetch_add(1, Ordering::SeqCst);
+                increment(&pipeline, buffer)
+            })
+            .map(|_| later.fetch_add(1, Ordering::SeqCst)),
+    );
+    poll_until(chain.as_mut(), || started.load(Ordering::SeqCst) == 1);
+    drop(chain);
+    assert_eq!(gate.read_after_release(&buffer, 2), [3]);
+    assert_eq!(later.load(Ordering::SeqCst), 0);
+    assert_eq!(next.read().wait(), [0]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires a Metal device on Apple Silicon"]
+fn dropping_every_clone_of_a_running_shared_launch_keeps_cpu_access_synchronized() -> Result<()> {
+    let (device, pipeline, mut buffer) = setup()?;
+    let gate = Gate::new(&device);
+    gate.block(&device, 1);
+    let later = AtomicUsize::new(0);
+    let shared = increment(&pipeline, &mut buffer).shared();
+    let mut consumer = Box::pin(shared.clone().map(|_| later.fetch_add(1, Ordering::SeqCst)));
+    poll_until(consumer.as_mut(), || true);
+    drop(shared);
+    drop(consumer);
+    assert_eq!(gate.read_after_release(&buffer, 1), [1]);
+    assert_eq!(later.load(Ordering::SeqCst), 0);
     Ok(())
 }
