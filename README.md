@@ -124,9 +124,10 @@ portable GPU APIs and native bindings.
 ## Try it
 
 GPU execution requires **macOS 15+ on Apple Silicon**. The host runtime supports
-**Rust 1.89+**; development uses Rust 1.99. Building kernels also requires Xcode
-with its Metal Toolchain and the pinned nightly Rust compiler. Install Xcode and
-select its developer directory. In an existing Rust application, run:
+**Rust 1.89+**; development uses Rust 1.99. Building kernels also requires rustup and
+Xcode 16+ with its Metal Toolchain; setup installs the pinned nightly Rust compiler and
+builds the metal-oxide compiler from source. Install Xcode and select its developer
+directory. In an existing Rust application, run:
 
 ```sh
 cargo install cargo-metal --version '=0.1.0-alpha.1' --locked

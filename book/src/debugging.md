@@ -42,7 +42,9 @@ cargo metal inspect --emit msl -p vec-add --locked
 cargo metal inspect --emit air -p vec-add --locked
 ```
 
-Inspection builds the selected package and prints its kernel libraries. Add
+Inspection builds the selected package and prints the kernel libraries that the build
+compiled. A saved artifact that a build uses in place, as for fetched packages, locked
+builds and machines without the Metal compiler, has no IR, MSL or AIR to print. Add
 `--kernel NAME` to select a kernel. IR shows the typed representation, MSL shows
 lowered control flow and checks, and AIR shows Apple's compiled representation.
 `cargo metal setup --check` reports tool versions, installation problems and device

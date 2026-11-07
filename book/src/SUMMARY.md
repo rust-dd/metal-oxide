@@ -7,6 +7,7 @@
 - [Memory and safety](memory.md)
 - [Async operations](async.md)
 - [Debugging](debugging.md)
+- [Troubleshooting](troubleshooting.md)
 - [Performance](performance.md)
 - [Supported Rust](supported-rust.md)
   - [Capability requirements](capabilities.md)

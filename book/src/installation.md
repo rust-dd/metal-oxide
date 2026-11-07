@@ -2,9 +2,8 @@
 
 GPU execution requires macOS 15 or later on Apple Silicon. The host runtime supports
 Rust 1.89 or later; this checkout pins Rust 1.99 for development. Editing kernels
-also requires Xcode with its Metal Toolchain and the compiler's pinned nightly,
-including `rustc-dev`, `rust-src` and `llvm-tools`. Install Xcode and select its
-developer directory before setup.
+also requires rustup and Xcode 16 or later with its Metal Toolchain: kernels are MSL 3.2,
+which Xcode 16 introduced. Install Xcode and select its developer directory before setup.
 
 ## Install the alpha
 
@@ -21,8 +20,11 @@ skips alpha versions. Keep the runtime and Cargo command at the same version.
 Copy the tested source from [your first kernel](first-kernel.md) into
 `src/main.rs`, then run `cargo run`. No application build script is required.
 
-Setup installs the pinned compiler toolchain and downloads Apple's Metal Toolchain
-if missing, then checks the tools and reports the Metal device.
+Setup uses rustup to install the compiler's pinned nightly with `rustc-dev`, `rust-src`
+and `llvm-tools`, downloads Apple's Metal Toolchain if it is missing, and builds the
+metal-oxide compiler from source, which takes a few minutes. It then checks the tools
+and reports the Metal device; [troubleshooting](troubleshooting.md) covers what it
+reports as missing.
 
 ## Run a development checkout
 
