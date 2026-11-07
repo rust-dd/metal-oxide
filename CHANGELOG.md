@@ -91,6 +91,11 @@
 - Replace `math::sqrt(x)` with `x.sqrt()`, `math::fma(a, b, c)` with `a.mul_add(b, c)` and
   the other functions likewise. Kernel crates import `metal_oxide_device::Float`; kernels in
   host crates need no import.
+- `cargo semver-checks` against `0.1.0-alpha.1` finds no breaking change in `metal-oxide`
+  and `metal-oxide-codegen`. Besides the two changes above, `Scalar` of `metal-oxide-artifact`
+  and `metal-oxide-ir` gains `I64`; `metal-oxide-ir` also gains `Constant::I64`, math
+  operations and slice-pattern projections, and its `Error` a `calls` field. Exhaustive matches
+  on these enums and `Error` literals need the new cases.
 
 ## 0.1.0-alpha.1
 
