@@ -1,4 +1,7 @@
+//! The API of kernels: buffers, thread coordinates, threadgroup memory, SIMD-group collectives
+//! and matrices, atomics, math and logging. Host crates name it `metal_oxide::device`.
 #![no_std]
+#![warn(missing_docs)]
 
 mod atomic;
 mod bfloat;

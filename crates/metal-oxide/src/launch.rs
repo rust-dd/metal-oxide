@@ -6,24 +6,31 @@ mod tests;
 /// Dimensions along the x, y, and z axes, following CUDA's dim3 convention.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dim3 {
+    /// The extent along x.
     pub x: u32,
+    /// The extent along y.
     pub y: u32,
+    /// The extent along z.
     pub z: u32,
 }
 
 impl Dim3 {
+    /// `x` by `y` by `z`.
     pub const fn new(x: u32, y: u32, z: u32) -> Self {
         Self { x, y, z }
     }
 
+    /// `x` by 1 by 1.
     pub const fn x(x: u32) -> Self {
         Self::new(x, 1, 1)
     }
 
+    /// `x` by `y` by 1.
     pub const fn xy(x: u32, y: u32) -> Self {
         Self::new(x, y, 1)
     }
 
+    /// Whether an axis is zero, so that the volume is zero.
     pub const fn is_empty(self) -> bool {
         self.x == 0 || self.y == 0 || self.z == 0
     }
@@ -61,6 +68,7 @@ impl Dim3 {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LaunchConfig<const BLOCK_X: u32, const BLOCK_Y: u32 = 1, const BLOCK_Z: u32 = 1> {
+    /// Blocks along each axis.
     pub grid: Dim3,
 }
 
@@ -70,10 +78,12 @@ impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
     /// Threads per block on each axis, available to generic launch code.
     pub const BLOCK: Dim3 = Dim3::new(BLOCK_X, BLOCK_Y, BLOCK_Z);
 
+    /// `grid` blocks of the type's block shape.
     pub const fn new(grid: Dim3) -> Self {
         Self { grid }
     }
 
+    /// Whether the grid has no blocks.
     pub const fn is_empty(self) -> bool {
         self.grid.is_empty()
     }
@@ -114,16 +124,18 @@ impl<const BLOCK_X: u32, const BLOCK_Y: u32, const BLOCK_Z: u32>
     }
 }
 
-/// Launch geometry with runtime-selected block dimensions.
-///
-/// `Device::launch` accepts this or a const-generic `LaunchConfig`.
+/// Launch geometry with runtime-selected block dimensions. Launch functions and `Launch::new`
+/// take it or a `LaunchConfig`, except that a kernel with a required block takes its `LaunchConfig`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DynamicLaunchConfig {
+    /// Blocks along each axis.
     pub grid: Dim3,
+    /// Threads per block along each axis.
     pub block: Dim3,
 }
 
 impl DynamicLaunchConfig {
+    /// `grid` blocks of `block` threads.
     pub const fn new(grid: Dim3, block: Dim3) -> Self {
         Self { grid, block }
     }
@@ -144,6 +156,7 @@ impl DynamicLaunchConfig {
         Ok(config)
     }
 
+    /// Whether the grid has no blocks.
     pub const fn is_empty(self) -> bool {
         self.grid.is_empty()
     }

@@ -14,6 +14,7 @@ impl<T: Copy> ReadBuffer<T> {
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast()) }
     }
 
+    /// Whether the buffer has no elements.
     pub fn is_empty(&self) -> bool {
         // SAFETY: the launch binds the length of every kernel buffer parameter.
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast()) == 0 }
@@ -65,6 +66,7 @@ impl<T: Copy> WriteBuffer<T> {
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
     }
 
+    /// Whether the buffer has no elements.
     pub fn is_empty(&self) -> bool {
         // SAFETY: the launch binds the length of every kernel buffer parameter.
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }
@@ -106,6 +108,7 @@ impl<T: Copy> ReadWriteBuffer<T> {
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
     }
 
+    /// Whether the buffer has no elements.
     pub fn is_empty(&self) -> bool {
         // SAFETY: the launch binds the length of every kernel buffer parameter.
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }
@@ -179,6 +182,7 @@ impl<T: Copy> DisjointBuffer<T> {
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) }
     }
 
+    /// Whether the buffer has no elements.
     pub fn is_empty(&self) -> bool {
         // SAFETY: the launch binds the length of every kernel buffer parameter.
         unsafe { crate::intrinsics::__metal_buffer_length(self.ptr.cast_const().cast()) == 0 }

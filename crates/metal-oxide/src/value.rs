@@ -16,11 +16,17 @@ use crate::{Error, Result};
 /// element::<bool>();
 /// ```
 pub trait GpuValue: Copy + Send + Sync + 'static {
+    /// The size of the GPU layout in bytes.
     const SIZE: usize;
+    /// The alignment of the GPU layout in bytes.
     const ALIGNMENT: usize;
+    /// The GPU layout, which kernels and their artifacts must agree on.
     fn layout() -> Result<Layout>;
+    /// The value whose encoding is all zero bytes.
     fn zeroed() -> Self;
+    /// Writes the value into `bytes`, padding included.
     fn encode(self, bytes: &mut [u8]);
+    /// Reads a value from `bytes`, ignoring padding.
     fn decode(bytes: &[u8]) -> Self;
 }
 

@@ -103,9 +103,12 @@ impl<T: GpuValue> Buffer<T> {
         })
     }
 
+    /// The number of elements.
     pub fn len(&self) -> usize {
         self.len
     }
+
+    /// Whether the buffer has no elements.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

@@ -2,8 +2,11 @@
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dim3 {
+    /// The x coordinate or extent.
     pub x: u32,
+    /// The y coordinate or extent.
     pub y: u32,
+    /// The z coordinate or extent.
     pub z: u32,
 }
 
