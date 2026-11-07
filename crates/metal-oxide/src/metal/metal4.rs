@@ -1,6 +1,6 @@
 use std::{
     ptr::NonNull,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::Arc,
     task::{Context, Poll, ready},
 };
 
@@ -25,6 +25,7 @@ use super::{
     failure::CommandFailure,
     failures::Failures,
     queue::Finish,
+    sync::{Mutex, lock},
 };
 use crate::{DynamicLaunchConfig, Error, Result};
 
@@ -95,7 +96,7 @@ impl BatchCache {
     /// Reuses finished storage, allocates below capacity, or wakes when storage is available.
     fn poll_take(&self, cx: &mut Context<'_>) -> Poll<Option<CommandStorage>> {
         loop {
-            let mut entries = self.entries();
+            let mut entries = lock(&self.0);
             if let Some(index) = entries
                 .iter()
                 .position(|(_, completion)| completion.is_finished())
@@ -120,11 +121,7 @@ impl BatchCache {
 
     /// Keeps the storage of a committed batch.
     fn put(&self, storage: CommandStorage, completion: Arc<Completion>) {
-        self.entries().push((storage, completion));
-    }
-
-    fn entries(&self) -> MutexGuard<'_, Vec<(CommandStorage, Arc<Completion>)>> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        lock(&self.0).push((storage, completion));
     }
 }
 

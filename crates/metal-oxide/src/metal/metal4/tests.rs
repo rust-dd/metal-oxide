@@ -120,7 +120,7 @@ fn value_cache_bounds_retention_across_large_and_small_dispatches() -> Result<()
             _ => run(&pipeline, &mut output, 7_u32, count)?,
         }
         assert_eq!(output.read().wait(), [14 + (1_u64 << 40)]);
-        let entries = cache.entries();
+        let entries = lock(&cache.0);
         assert_eq!(entries.len(), 1);
         let (storage, _) = &entries[0];
         assert_eq!(storage.constants.len(), retained);
@@ -246,7 +246,7 @@ fn a_full_command_storage_pool_yields_and_wakes_on_completion() {
     let waker = std::task::Waker::from(Arc::clone(&wake));
     let mut cx = Context::from_waker(&waker);
     assert!(cache.poll_take(&mut cx).is_pending());
-    assert_eq!(cache.entries().len(), MAX_BATCHES);
+    assert_eq!(lock(&cache.0).len(), MAX_BATCHES);
     assert_eq!(wake.0.load(std::sync::atomic::Ordering::Relaxed), 0);
     // A later batch can finish first on another queue.
     pending[1].1.finish(Ok(None));
@@ -255,7 +255,7 @@ fn a_full_command_storage_pool_yields_and_wakes_on_completion() {
         panic!("completed storage was not reusable");
     };
     assert!(std::ptr::eq(&*pending[1].0.allocator, &*reused.allocator));
-    assert_eq!(cache.entries().len(), MAX_BATCHES - 1);
+    assert_eq!(lock(&cache.0).len(), MAX_BATCHES - 1);
 }
 
 #[test]
