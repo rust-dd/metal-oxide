@@ -23,6 +23,10 @@ if [ -z "$backends" ]; then
         backends="classic metal4"
     fi
 fi
+case " $backends " in
+    *" metal4 "*) ;;
+    *) printf 'Metal 4 is not tested on this machine.\n' ;;
+esac
 for backend in $backends; do
     export METAL_OXIDE_BACKEND="$backend"
     printf 'Testing %s on %s\n' "$backend" "$(uname -m)"
