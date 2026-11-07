@@ -121,6 +121,7 @@ impl Device {
         })
     }
 
+    /// The GPU's name, such as `Apple M4 Max`.
     pub fn name(&self) -> String {
         autoreleasepool(|_| self.raw().name().to_string())
     }
@@ -136,14 +137,17 @@ impl Device {
         self.raw().recommendedMaxWorkingSetSize()
     }
 
+    /// A buffer that holds a copy of `values`.
     pub fn buffer_from_slice<T: GpuValue>(&self, values: &[T]) -> Result<Buffer<T>> {
         Buffer::from_slice(self, values)
     }
 
+    /// A buffer of `len` values whose encoding is all zero bytes.
     pub fn buffer_zeroed<T: GpuValue>(&self, len: usize) -> Result<Buffer<T>> {
         Buffer::zeroed(self, len)
     }
 
+    /// The most threads per block along each axis; a pipeline may allow fewer in total.
     pub fn max_block_dimensions(&self) -> Dim3 {
         let limits = self.raw().maxThreadsPerThreadgroup();
         let axis = |value: usize| value.min(u32::MAX as usize) as u32;

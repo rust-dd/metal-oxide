@@ -1,3 +1,5 @@
+//! Memory that the threads of one block share, and the barrier that orders their accesses.
+
 /// A handle to one statically allocated threadgroup buffer.
 #[repr(transparent)]
 #[derive(Clone, Copy)]

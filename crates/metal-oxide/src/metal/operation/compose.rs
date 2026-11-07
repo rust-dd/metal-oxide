@@ -13,7 +13,9 @@ use crate::metal::sync::{Mutex, lock};
 /// Lazy fallible work: every `IntoFuture` of a `Result`. Callbacks run on the polling thread;
 /// with `futures::FutureExt` also in scope, call the methods as `Operation::map(work, f)`.
 pub trait Operation: IntoFuture<Output = Result<Self::Value, Self::Error>> + Sized {
+    /// What the work produces when it succeeds.
     type Value;
+    /// Why the work failed.
     type Error;
 
     /// Processes the value once it is ready; an error skips `process`.

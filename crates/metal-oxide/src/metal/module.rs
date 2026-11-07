@@ -57,6 +57,7 @@ impl Module {
         })
     }
 
+    /// Loads a compiled Metal library from a file.
     pub fn from_metallib(device: &Device, path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().canonicalize()?;
         let path = path.to_str().ok_or(Error::InvalidPath)?;

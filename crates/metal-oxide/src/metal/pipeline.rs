@@ -52,6 +52,7 @@ pub(super) struct Compiled {
 }
 
 impl Pipeline {
+    /// Compiles the kernel `entrypoint` of `module` for the device's GPU.
     pub fn new(device: &Device, module: &Module, entrypoint: &str) -> Result<Self> {
         let compiled = Compiled::new(device, module, entrypoint)?;
         Ok(Self::from_compiled(device.clone(), Arc::new(compiled)))
@@ -61,10 +62,12 @@ impl Pipeline {
         Self { device, compiled }
     }
 
+    /// The SIMD-group width: how many threads execute together, 32 on Apple GPUs.
     pub fn thread_execution_width(&self) -> usize {
         self.compiled.raw.threadExecutionWidth()
     }
 
+    /// The most threads in one block of this pipeline, which its register use can lower.
     pub fn max_threads_per_block(&self) -> usize {
         self.compiled.raw.maxTotalThreadsPerThreadgroup()
     }

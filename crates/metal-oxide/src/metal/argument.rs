@@ -58,7 +58,7 @@ pub(super) struct ArgumentInfo {
 }
 
 impl<'a> Argument<'a> {
-    /// Borrows an integer buffer exclusively for atomic shader accesses.
+    /// Borrows a buffer of `u32`, `i32`, `f32` or `u64` exclusively for atomic kernel accesses.
     pub fn atomic<T: GpuAtomic>(buffer: &'a mut Buffer<T>) -> Self {
         Self::buffer(buffer, Access::Atomic)
     }
@@ -112,6 +112,7 @@ impl<'a> Argument<'a> {
         }
     }
 
+    /// Passes a copy of `value` as a constant kernel parameter.
     pub fn value<T: GpuValue>(value: T) -> Result<Self> {
         checked_codec::<T>()?;
         let value = if T::SIZE <= 16 {
@@ -268,6 +269,7 @@ impl<T: GpuValue> sealed::Sealed for Arc<Buffer<T>> {}
 
 /// A buffer a kernel only reads: borrowed, owned, or shared through an `Arc`.
 pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
+    /// The buffer to bind.
     fn buffer(&self) -> &Buffer<T>;
 }
 
@@ -282,6 +284,7 @@ pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
 /// }
 /// ```
 pub trait WriteArgument<T: GpuValue>: sealed::Sealed {
+    /// The buffer to bind.
     fn buffer_mut(&mut self) -> &mut Buffer<T>;
 }
 
