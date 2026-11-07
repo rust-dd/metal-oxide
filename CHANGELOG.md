@@ -22,6 +22,9 @@
   call it. Folds of the array iterator, behind `sum` and `count`, are rejected.
 - `<[T; N]>::map` and `array::from_fn` build arrays from closures.
   Transmutes between an integer and an array of integers as wide are supported.
+- The book gains troubleshooting and organizing-kernels chapters, the API reference
+  documents every public item of `metal-oxide` and `metal-oxide-device`, and a hardware
+  report form asks for `cargo metal setup --check` and the generated MSL.
 
 ### Changed
 
