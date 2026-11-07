@@ -1,10 +1,11 @@
-use std::ptr::NonNull;
+use std::{io::Write, ptr::NonNull};
 
 use block2::RcBlock;
 use objc2::{rc::Retained, runtime::ProtocolObject};
 use objc2_foundation::NSString;
 use objc2_metal::{MTLDevice, MTLLogLevel, MTLLogState, MTLLogStateDescriptor};
 
+use super::completion::native_callback;
 use crate::{Error, Result};
 
 const BUFFER_BYTES: isize = 1 << 20;
@@ -27,13 +28,15 @@ pub(super) fn log_state(
                 error.localizedDescription()
             ))
         })?;
-    let handler = RcBlock::new(
+    let handler = RcBlock::new(native_callback(
         |_: *mut NSString, _: *mut NSString, _: MTLLogLevel, message: NonNull<NSString>| {
             // SAFETY: Metal passes a live message string.
-            eprintln!("{}", unsafe { message.as_ref() });
+            let message = unsafe { message.as_ref() };
+            // Unlike `eprintln!`, a closed stderr cannot panic on Metal's thread.
+            let _ = writeln!(std::io::stderr(), "{message}");
         },
-    );
-    // SAFETY: the handler captures nothing, so any thread may run it.
+    ));
+    // SAFETY: `native_callback` checked that any thread may run the handler.
     unsafe { state.addLogHandler(&handler) };
     Ok(state)
 }

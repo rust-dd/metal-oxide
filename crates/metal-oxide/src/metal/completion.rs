@@ -100,6 +100,19 @@ fn register(wakers: &mut Vec<Waker>, waker: &Waker) {
     }
 }
 
+/// Native objects that a completion handler keeps alive until the GPU no longer uses them. The
+/// handler only drops them or empties a residency set.
+pub(super) struct Keepalive<T>(pub(super) T);
+
+// SAFETY: after commit only the handler, which Metal runs once, uses the objects; anything that
+// reuses them on another thread first waits for the `Completion` the handler finishes.
+unsafe impl<T> Send for Keepalive<T> {}
+
+/// Metal runs native callbacks on its own threads, so everything they capture must be `Send`.
+pub(super) fn native_callback<F: Send + 'static>(callback: F) -> F {
+    callback
+}
+
 /// Converts native GPU timestamps in seconds into a duration, rejecting missing or invalid ones.
 pub(super) fn gpu_time(start: f64, end: f64) -> GpuTime {
     (start.is_finite() && start > 0.0 && end.is_finite() && end >= start)

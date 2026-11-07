@@ -19,7 +19,7 @@ use objc2_metal::{
 use super::{
     argument::Binding,
     batch::{Word, metal_size},
-    completion::{Completion, gpu_time},
+    completion::{Completion, Keepalive, gpu_time, native_callback},
     failure::CommandFailure,
     failures::Failures,
     queue::{Finish, Signal},
@@ -192,12 +192,15 @@ impl ClassicBatch {
         self.encoder.take().unwrap().endEncoding();
         self.command
             .encodeSignalEvent_value(ProtocolObject::from_ref(&*signal.event), signal.value);
-        let queue = self.queue.clone();
-        let bindings = std::mem::take(&mut self.bindings);
+        let keepalive = Keepalive((
+            pipelines,
+            self.queue.clone(),
+            std::mem::take(&mut self.bindings),
+        ));
         let permit = Mutex::new(self.permit.take());
-        let handler = RcBlock::new(
+        let handler = RcBlock::new(native_callback(
             move |command: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
-                let _keepalive = (&pipelines, &queue, &bindings);
+                let _keepalive = &keepalive;
                 let result = autoreleasepool(|_| {
                     // SAFETY: Metal passes a live command buffer to its completion handler.
                     let command = unsafe { command.as_ref() };
@@ -233,9 +236,9 @@ impl ClassicBatch {
                 });
                 completion.finish(result);
             },
-        );
-        // SAFETY: Metal copies the block. Captured native resources are immutable after commit,
-        // remain retained until GPU completion, and no host-thread Rc state crosses the callback.
+        ));
+        // SAFETY: Metal copies the block, whose captures `native_callback` checked; it retains the
+        // native resources, immutable after commit, until GPU completion.
         unsafe { self.command.addCompletedHandler(RcBlock::as_ptr(&handler)) };
         self.command.commit();
     }

@@ -1,6 +1,5 @@
 use super::*;
 use metal_oxide::{Error, KernelFailure};
-use objc2_metal::{MTLDevice, MTLGPUFamily};
 
 const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/runtime_checks.rs";
 
@@ -422,67 +421,4 @@ fn failure_words_span_chunks_and_are_reused_without_leaking_state() -> metal_oxi
         assert_eq!(out.read().wait(), [40]);
     }
     Ok(())
-}
-
-#[test]
-#[ignore = "requires a Metal device on Apple Silicon"]
-fn device_log_messages_reach_standard_error() {
-    const CHILD: &str = "METAL_OXIDE_LOG_CHILD";
-    let device = Device::system_default().unwrap();
-    // Apple GPUs log; the Mac2-only paravirtual device of hosted macOS VMs cannot.
-    let logs = device.as_native().supportsFamily(MTLGPUFamily::Apple7);
-    if std::env::var_os(CHILD).is_some() {
-        let (output, directory) =
-            support::emit("crates/metal-oxide-compiler/tests/fixtures/logging.rs", &[]);
-        support::checked(output);
-        let module = support::artifact::module(&device, &directory);
-        if !logs {
-            let Err(Error::UnsupportedDevice(reason)) = &module else {
-                panic!("expected no shader logging, got {:?}", module.err());
-            };
-            assert!(reason.contains("shader logging"), "{reason}");
-            return;
-        }
-        let module = module.unwrap();
-        let pipeline = Pipeline::new(&device, &module, "logging").unwrap();
-        let mut out = device.buffer_zeroed::<u32>(3).unwrap();
-        // SAFETY: three threads write their own elements.
-        unsafe {
-            Launch::new(
-                Ok(&pipeline),
-                LaunchConfig::<3>::new(Dim3::x(1)),
-                (&mut out, 0.1_f32, metal_oxide::F16::from_f32(0.5)),
-                |(out, scale, half)| {
-                    Ok([
-                        Argument::write(out),
-                        Argument::value(*scale)?,
-                        Argument::value(*half)?,
-                    ])
-                },
-            )
-            .wait()
-            .unwrap();
-        }
-        // Metal delivers shader logs asynchronously around completion.
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        return;
-    }
-    let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--ignored",
-            "--exact",
-            "checks::device_log_messages_reach_standard_error",
-            "--nocapture",
-        ])
-        .env(CHILD, "1")
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(output.status.success(), "{stderr}");
-    for thread in (0..3).filter(|_| logs) {
-        let message = format!(
-            "thread {thread} scale 0.100000001 half 0.5 wide 1099511627776 signed -3 -1099511627776 {{braces}} 100%"
-        );
-        assert!(stderr.contains(&message), "{stderr}");
-    }
 }

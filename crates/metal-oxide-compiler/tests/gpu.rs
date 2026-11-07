@@ -100,6 +100,8 @@ mod lengths;
 mod lines;
 #[path = "gpu/logarithms.rs"]
 mod logarithms;
+#[path = "gpu/logging.rs"]
+mod logging;
 #[path = "gpu/matrices.rs"]
 mod matrices;
 #[path = "gpu/narrow.rs"]
