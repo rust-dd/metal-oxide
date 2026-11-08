@@ -13,7 +13,7 @@ use objc2_metal::{
     MTLComputePipelineState, MTLDevice, MTLLibrary,
 };
 
-use crate::{Error, Result};
+use crate::{Error, Result, launch::shape};
 
 use super::{Device, Module, argument::Signature, backend::Backend, failures::KernelChecks};
 
@@ -91,13 +91,12 @@ impl Pipeline {
     ) -> Result<()> {
         if let Some(kernel) = &self.compiled.abi {
             if arguments.len() != kernel.parameters.len() {
-                return Err(metal_oxide_artifact::Error(format!(
-                    "kernel {} requires {} arguments, got {}",
+                return Err(crate::Error::InvalidLaunch(format!(
+                    "kernel {} takes {} arguments, got {}",
                     kernel.name,
                     kernel.parameters.len(),
                     arguments.len()
-                ))
-                .into());
+                )));
             }
             for ((argument, parameter), checked) in arguments
                 .iter()
@@ -109,11 +108,10 @@ impl Pipeline {
                 }
                 let ty = argument.ty()?;
                 if ty != parameter.ty {
-                    return Err(metal_oxide_artifact::Error(format!(
-                        "kernel {} argument {} must be {:?}, got {:?}",
-                        kernel.name, parameter.name, parameter.ty, ty
-                    ))
-                    .into());
+                    return Err(crate::Error::InvalidLaunch(format!(
+                        "argument {} of kernel {} takes a {}, got a {ty}",
+                        parameter.name, kernel.name, parameter.ty
+                    )));
                 }
                 let _ = checked.set(argument.signature());
             }
@@ -138,18 +136,24 @@ impl Pipeline {
                 }
             }
             let (grid, block) = (config.grid, config.block);
-            if kernel
-                .required_block
-                .is_some_and(|expected| expected != [block.x, block.y, block.z])
+            if let Some([x, y, z]) = kernel.required_block
+                && [x, y, z] != [block.x, block.y, block.z]
             {
-                return Err(crate::Error::InvalidLaunch(
-                    "block does not match the kernel specialization",
-                ));
+                return Err(crate::Error::InvalidLaunch(format!(
+                    "kernel {} requires blocks of {} threads, got {}",
+                    kernel.name,
+                    shape(crate::Dim3::new(x, y, z)),
+                    shape(block)
+                )));
             }
             if kernel.one_dimensional && [grid.y, grid.z, block.y, block.z] != [1; 4] {
-                return Err(crate::Error::InvalidLaunch(
-                    "a kernel that reads its thread index requires a one-dimensional launch",
-                ));
+                return Err(crate::Error::InvalidLaunch(format!(
+                    "kernel {} reads its thread index, so it needs a one-dimensional launch, got a \
+                     grid of {} blocks of {} threads",
+                    kernel.name,
+                    shape(grid),
+                    shape(block)
+                )));
             }
         }
         Ok(())
@@ -180,10 +184,14 @@ impl Compiled {
                 .map_or(&[][..], |abi| &abi.required_features),
             raw.threadExecutionWidth(),
         )?;
-        if raw.staticThreadgroupMemoryLength() > device.raw().maxThreadgroupMemoryLength() {
-            return Err(Error::InvalidLaunch(
-                "kernel exceeds threadgroup memory capacity",
-            ));
+        let (bytes, capacity) = (
+            raw.staticThreadgroupMemoryLength(),
+            device.raw().maxThreadgroupMemoryLength(),
+        );
+        if bytes > capacity {
+            return Err(Error::InvalidLaunch(format!(
+                "kernel {entrypoint} uses {bytes} B of threadgroup memory; the device has {capacity} B"
+            )));
         }
         if abi.is_some() {
             device.snapshot()?;

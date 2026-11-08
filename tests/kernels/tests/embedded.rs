@@ -91,7 +91,7 @@ fn main() -> metal_oxide::Result<()> {
                 ])
             },
         );
-        assert!(matches!(scratch.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(scratch.wait(), Err(Error::InvalidLaunch(_))));
         let count = Launch::new(
             Ok(&dynamic),
             empty,
@@ -107,9 +107,9 @@ fn main() -> metal_oxide::Result<()> {
                 ])
             },
         );
-        assert!(matches!(count.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(count.wait(), Err(Error::InvalidLaunch(_))));
         let none = Launch::new(Ok(&dynamic), empty, (), |()| Ok([]));
-        assert!(matches!(none.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(none.wait(), Err(Error::InvalidLaunch(_))));
     }
     let pipeline = Pipeline::new(&device, &module, "in_place")?;
     // SAFETY: empty grids cannot access memory; invalid access, scalar layout and
@@ -122,7 +122,7 @@ fn main() -> metal_oxide::Result<()> {
                 Argument::value(17_u32)?,
             ])
         });
-        assert!(matches!(read.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(read.wait(), Err(Error::InvalidLaunch(_))));
         let write = Launch::new(Ok(&pipeline), empty, (&mut values,), |(values,)| {
             Ok([
                 Argument::write(values),
@@ -130,7 +130,7 @@ fn main() -> metal_oxide::Result<()> {
                 Argument::value(17_u32)?,
             ])
         });
-        assert!(matches!(write.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(write.wait(), Err(Error::InvalidLaunch(_))));
         let layout = Launch::new(Ok(&pipeline), empty, (&mut values,), |(values,)| {
             Ok([
                 Argument::read_write(values),
@@ -138,7 +138,7 @@ fn main() -> metal_oxide::Result<()> {
                 Argument::value(17_u32)?,
             ])
         });
-        assert!(matches!(layout.wait(), Err(Error::Artifact(_))));
+        assert!(matches!(layout.wait(), Err(Error::InvalidLaunch(_))));
         let block = LaunchConfig::<32>::new(Dim3::x(0));
         let shape = Launch::new(Ok(&pipeline), block, (&mut values,), |(values,)| {
             Ok([
@@ -289,7 +289,7 @@ fn verify_argument_types(device: &Device, pipeline: &Pipeline) -> metal_oxide::R
             ])
         })
     };
-    assert!(matches!(scalar.wait(), Err(Error::Artifact(_))));
+    assert!(matches!(scalar.wait(), Err(Error::InvalidLaunch(_))));
     // SAFETY: as above.
     let element = unsafe {
         Launch::new(Ok(pipeline), config, (&mut narrow,), |(narrow,)| {
@@ -300,7 +300,7 @@ fn verify_argument_types(device: &Device, pipeline: &Pipeline) -> metal_oxide::R
             ])
         })
     };
-    assert!(matches!(element.wait(), Err(Error::Artifact(_))));
+    assert!(matches!(element.wait(), Err(Error::InvalidLaunch(_))));
     assert_eq!(values.read().wait(), [11, 12, 13]);
     Ok(())
 }

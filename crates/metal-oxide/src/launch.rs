@@ -39,8 +39,15 @@ impl Dim3 {
         u64::from(self.x)
             .checked_mul(u64::from(self.y))
             .and_then(|xy| xy.checked_mul(u64::from(self.z)))
-            .ok_or(Error::InvalidLaunch("dimension volume overflows u64"))
+            .ok_or_else(|| {
+                Error::InvalidLaunch(format!("the volume of {} overflows u64", shape(self)))
+            })
     }
+}
+
+/// `x×y×z`, for launch errors.
+pub(crate) fn shape(dimensions: Dim3) -> String {
+    format!("{}×{}×{}", dimensions.x, dimensions.y, dimensions.z)
 }
 
 /// A runtime grid with block dimensions encoded in its type.
@@ -146,7 +153,9 @@ impl DynamicLaunchConfig {
     /// pipeline limits are checked separately when the kernel is launched.
     pub fn for_elements(elements: u32, threads_per_block: u32) -> Result<Self> {
         if threads_per_block == 0 {
-            return Err(Error::InvalidLaunch("block dimensions must be positive"));
+            return Err(Error::InvalidLaunch(
+                "a block needs at least one thread".into(),
+            ));
         }
         let config = Self::new(
             Dim3::x(elements.div_ceil(threads_per_block)),
@@ -177,24 +186,28 @@ impl DynamicLaunchConfig {
     ) -> Result<()> {
         if maximum_threads_per_block == 0 {
             return Err(Error::InvalidLaunch(
-                "pipeline block limit must be positive",
+                "the pipeline allows no threads per block".into(),
             ));
         }
+        let block = shape(self.block);
         if self.block.is_empty() {
-            return Err(Error::InvalidLaunch("block dimensions must be positive"));
+            return Err(Error::InvalidLaunch(format!(
+                "block {block} has no threads"
+            )));
         }
         if self.block.x > maximum_block_dimensions.x
             || self.block.y > maximum_block_dimensions.y
             || self.block.z > maximum_block_dimensions.z
         {
-            return Err(Error::InvalidLaunch(
-                "block dimensions exceed device limits",
-            ));
+            let limit = shape(maximum_block_dimensions);
+            return Err(Error::InvalidLaunch(format!(
+                "block {block} exceeds the device's {limit} threads per axis"
+            )));
         }
         if self.block.volume()? > maximum_threads_per_block as u64 {
-            return Err(Error::InvalidLaunch(
-                "threads per block exceed pipeline limit",
-            ));
+            return Err(Error::InvalidLaunch(format!(
+                "block {block} has more than the pipeline's {maximum_threads_per_block} threads"
+            )));
         }
         self.total_threads()?;
         Ok(())
@@ -202,9 +215,13 @@ impl DynamicLaunchConfig {
 
     fn global_size(self) -> Result<Dim3> {
         let axis = |blocks: u32, threads: u32| {
-            blocks
-                .checked_mul(threads)
-                .ok_or(Error::InvalidLaunch("global thread dimensions exceed u32"))
+            blocks.checked_mul(threads).ok_or_else(|| {
+                Error::InvalidLaunch(format!(
+                    "a grid of {} blocks of {} threads exceeds u32 threads per axis",
+                    shape(self.grid),
+                    shape(self.block)
+                ))
+            })
         };
         Ok(Dim3::new(
             axis(self.grid.x, self.block.x)?,

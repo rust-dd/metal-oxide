@@ -27,7 +27,7 @@ impl Backend {
         let requested = match std::env::var("METAL_OXIDE_BACKEND") {
             Ok(value) => value,
             Err(std::env::VarError::NotPresent) => String::new(),
-            Err(error) => return Err(Error::Command(error.to_string())),
+            Err(error) => return Err(Error::Environment(format!("METAL_OXIDE_BACKEND {error}"))),
         };
         let metal4 = match requested.as_str() {
             "" => Self::supports_metal4(device),
@@ -40,10 +40,10 @@ impl Backend {
                 }
                 true
             }
-            _ => {
-                return Err(Error::Command(
-                    "METAL_OXIDE_BACKEND must be classic or metal4".into(),
-                ));
+            other => {
+                return Err(Error::Environment(format!(
+                    "METAL_OXIDE_BACKEND must be classic or metal4, got {other:?}"
+                )));
             }
         };
         if metal4 {

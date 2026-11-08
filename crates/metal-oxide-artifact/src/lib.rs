@@ -5,6 +5,7 @@ mod capabilities;
 mod checks;
 mod compiler;
 mod contract;
+mod display;
 mod files;
 mod layout;
 mod math;

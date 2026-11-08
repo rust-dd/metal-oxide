@@ -40,25 +40,28 @@ impl<T: GpuValue> Buffer<T> {
         }
         if raw.storageMode() != MTLStorageMode::Shared {
             return Err(Error::InvalidBuffer(
-                "native import requires shared storage",
+                "native import requires shared storage".into(),
             ));
         }
         if raw.hazardTrackingMode() == MTLHazardTrackingMode::Untracked {
             return Err(Error::InvalidBuffer(
-                "native import requires hazard tracking",
+                "native import requires hazard tracking".into(),
             ));
         }
-        if raw.length() < bytes.max(T::SIZE) {
-            return Err(Error::InvalidBuffer(
-                "native storage is shorter than the requested extent",
-            ));
+        let needed = bytes.max(T::SIZE);
+        if raw.length() < needed {
+            return Err(Error::InvalidBuffer(format!(
+                "native storage has {} B, the buffer needs {needed} B",
+                raw.length()
+            )));
         }
         if !(raw.contents().as_ptr() as usize).is_multiple_of(T::ALIGNMENT)
             || (native_layout::<T>() && !raw.contents().cast::<T>().as_ptr().is_aligned())
         {
-            return Err(Error::InvalidBuffer(
-                "native storage does not satisfy element alignment",
-            ));
+            return Err(Error::InvalidBuffer(format!(
+                "native storage is not aligned to {} B elements",
+                T::ALIGNMENT
+            )));
         }
         Ok(Self {
             mirror: Self::mirror(len, bytes, Location::Gpu)?,

@@ -57,9 +57,9 @@ pub enum Error {
     LengthOverflow,
     /// A buffer cannot be used as requested, such as for CPU access while a conflicting
     /// recording is uncommitted.
-    InvalidBuffer(&'static str),
-    /// A launch configuration does not fit its pipeline or device.
-    InvalidLaunch(&'static str),
+    InvalidBuffer(String),
+    /// A launch's arguments or configuration do not fit its kernel, pipeline or device.
+    InvalidLaunch(String),
     /// A launch binds more buffers than Metal's 31 slots.
     TooManyArguments(usize),
     /// The arguments of a launch violate a relation in its kernel's `requires`; nothing was
@@ -90,6 +90,8 @@ pub enum Error {
     DependencyFailed(Box<KernelFailure>),
     /// A library path is not valid UTF-8.
     InvalidPath,
+    /// An environment variable that steers the runtime, such as `METAL_OXIDE_BACKEND`, is invalid.
+    Environment(String),
     /// A kernel artifact failed validation, such as of its ABI version or library digest.
     Artifact(metal_oxide_artifact::Error),
     /// Reading a kernel artifact or library file failed.
@@ -131,6 +133,7 @@ impl fmt::Display for Error {
                 write!(f, "an operation this one reads from failed: {failure}")
             }
             Self::InvalidPath => write!(f, "Metal library path is not valid UTF-8"),
+            Self::Environment(reason) => write!(f, "invalid environment: {reason}"),
             Self::Artifact(error) => write!(f, "kernel artifact error: {error}"),
             Self::Io(error) => error.fmt(f),
         }

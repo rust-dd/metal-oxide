@@ -59,7 +59,8 @@ impl Module {
 
     /// Loads a compiled Metal library from a file.
     pub fn from_metallib(device: &Device, path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref().canonicalize()?;
+        let path = path.as_ref();
+        let path = path.canonicalize().map_err(|error| located(path, error))?;
         let path = path.to_str().ok_or(Error::InvalidPath)?;
         let raw = autoreleasepool(|_| {
             let url = NSURL::fileURLWithPath(&NSString::from_str(path));
@@ -78,12 +79,14 @@ impl Module {
 
     /// Loads a precompiled library after checking its manifest and content hash.
     pub fn from_artifact(device: &Device, directory: impl AsRef<Path>) -> Result<Self> {
-        let directory = directory.as_ref();
-        let manifest = Manifest::from_json(&std::fs::read_to_string(
-            directory.join(ArtifactFile::Manifest.name()),
-        )?)?;
-        let bytes = std::fs::read(directory.join(ArtifactFile::Metallib.name()))?;
-        Self::load_artifact(device, manifest, &bytes)
+        let read = |file: ArtifactFile| {
+            let path = directory.as_ref().join(file.name());
+            std::fs::read(&path).map_err(|error| located(&path, error))
+        };
+        let manifest = String::from_utf8(read(ArtifactFile::Manifest)?)
+            .map_err(|error| metal_oxide_artifact::Error(error.to_string()))?;
+        let bytes = read(ArtifactFile::Metallib)?;
+        Self::load_artifact(device, Manifest::from_json(&manifest)?, &bytes)
     }
 
     /// Loads embedded manifest JSON and metallib bytes after validating their ABI,
@@ -157,6 +160,14 @@ pub(super) fn require_simd_width(features: &[String], width: usize) -> Result<()
         ));
     }
     Ok(())
+}
+
+/// An I/O error that names the file it concerns.
+fn located(path: &Path, error: std::io::Error) -> Error {
+    Error::Io(std::io::Error::new(
+        error.kind(),
+        format!("{}: {error}", path.display()),
+    ))
 }
 
 #[cfg(test)]

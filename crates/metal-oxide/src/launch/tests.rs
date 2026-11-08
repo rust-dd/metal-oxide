@@ -170,3 +170,31 @@ fn dynamic_block_axes_use_the_same_device_limits() {
     assert_eq!(config.total_threads().unwrap(), 120);
     config.validate(20, AXIS_LIMITS).unwrap();
 }
+
+#[test]
+fn launch_errors_name_the_shapes_and_limits() {
+    let message =
+        |config: DynamicLaunchConfig, threads, limits| match config.validate(threads, limits) {
+            Err(Error::InvalidLaunch(message)) => message,
+            other => panic!("expected an invalid launch, got {other:?}"),
+        };
+    let config = DynamicLaunchConfig::new(Dim3::x(1), Dim3::new(16, 8, 8));
+    assert_eq!(
+        message(config, 512, AXIS_LIMITS),
+        "block 16×8×8 has more than the pipeline's 512 threads"
+    );
+    assert_eq!(
+        message(config, 1024, Dim3::new(8, 8, 8)),
+        "block 16×8×8 exceeds the device's 8×8×8 threads per axis"
+    );
+    let empty = DynamicLaunchConfig::new(Dim3::x(1), Dim3::new(4, 0, 1));
+    assert_eq!(
+        message(empty, 1024, AXIS_LIMITS),
+        "block 4×0×1 has no threads"
+    );
+    let wide = DynamicLaunchConfig::new(Dim3::x(u32::MAX), Dim3::x(2));
+    assert_eq!(
+        message(wide, 1024, AXIS_LIMITS),
+        "a grid of 4294967295×1×1 blocks of 2×1×1 threads exceeds u32 threads per axis"
+    );
+}

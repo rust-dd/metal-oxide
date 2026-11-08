@@ -70,7 +70,7 @@ impl AccessState {
             .any(|recorded| write || recorded.write)
         {
             return Err(Error::InvalidBuffer(
-                "buffer has a conflicting uncommitted recording",
+                "buffer has a conflicting uncommitted recording".into(),
             ));
         }
         let identity = Arc::new(());
@@ -200,7 +200,7 @@ impl Reservation {
                 .any(|recorded| !Arc::ptr_eq(&recorded.identity, &self.identity))
         {
             return Err(Error::InvalidBuffer(
-                "buffer has a conflicting uncommitted recording",
+                "buffer has a conflicting uncommitted recording".into(),
             ));
         }
         let recorded = state

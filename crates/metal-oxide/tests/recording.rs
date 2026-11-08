@@ -134,12 +134,12 @@ fn aborted_and_unwound_recordings_release_their_reservations() -> metal_oxide::R
     let mut buffer = device.buffer_from_slice(&[Value(7)])?;
     let rejected = sequence(|batch| {
         batch.push(set(&pipeline, &mut buffer))?;
-        Err::<(), _>(Error::InvalidLaunch("abort recording"))
+        Err::<(), _>(Error::InvalidLaunch("abort recording".into()))
     })
     .wait();
     assert!(matches!(
         rejected,
-        Err(Error::InvalidLaunch("abort recording"))
+        Err(Error::InvalidLaunch(reason)) if reason == "abort recording"
     ));
     assert_eq!(buffer.read().wait(), [Value(7)]);
     assert!(

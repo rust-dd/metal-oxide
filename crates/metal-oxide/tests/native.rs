@@ -196,10 +196,10 @@ fn native_storage_survives_discarded_batches_and_owned_resource_drop() -> metal_
     let error = sequence(|batch| {
         // SAFETY: the dispatch is in bounds; returning an error discards it.
         batch.push(unsafe { add(&pipeline, &mut values, 32) })?;
-        Err::<(), _>(Error::InvalidLaunch("discard batch"))
+        Err::<(), _>(Error::InvalidLaunch("discard batch".into()))
     })
     .wait();
-    assert!(matches!(error, Err(Error::InvalidLaunch("discard batch"))));
+    assert!(matches!(error, Err(Error::InvalidLaunch(reason)) if reason == "discard batch"));
     assert_eq!(values.read().wait(), &[3; 32]);
     // SAFETY: the command retains the imported buffer the dropped future owned.
     drop(started(unsafe { add(&pipeline, values, 32) }));

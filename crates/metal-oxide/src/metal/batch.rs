@@ -163,16 +163,21 @@ fn validate(
         return Err(Error::TooManyArguments(buffer_count));
     }
     if shared_count > 31 {
-        return Err(Error::InvalidLaunch("more than 31 threadgroup arguments"));
+        return Err(Error::InvalidLaunch(format!(
+            "{shared_count} threadgroup arguments exceed Metal's 31 slots"
+        )));
     }
     let shared_bytes = shared.try_fold(
         pipeline.raw().staticThreadgroupMemoryLength(),
         |total, bytes| total.checked_add(bytes),
     );
-    if shared_bytes.is_none_or(|bytes| bytes > device.max_threadgroup_memory_per_block()) {
-        return Err(Error::InvalidLaunch(
-            "kernel exceeds threadgroup memory capacity",
-        ));
+    let capacity = device.max_threadgroup_memory_per_block();
+    if shared_bytes.is_none_or(|bytes| bytes > capacity) {
+        let bytes =
+            shared_bytes.map_or_else(|| "more than usize".into(), |bytes| bytes.to_string());
+        return Err(Error::InvalidLaunch(format!(
+            "the launch needs {bytes} B of threadgroup memory; the device has {capacity} B"
+        )));
     }
     pipeline.validate_launch(config, arguments)?;
     config.validate(
