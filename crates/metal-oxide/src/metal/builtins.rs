@@ -3,8 +3,8 @@ use std::sync::{Arc, OnceLock};
 use super::{Device, Module, pipeline::Compiled};
 use crate::Result;
 
-/// The runtime's own kernels. Sizes are a `uint4` of whole 16-byte vectors, the bytes after
-/// them and, for patterns, the vectors after which the pattern repeats.
+/// The runtime's kernels; sizes are a `uint4` of whole 16-byte vectors, the bytes after them and
+/// the pattern's period in vectors. Byte pointers let API validation accept buffers under 16 B.
 const SOURCE: &str = "#include <metal_stdlib>
 using namespace metal;
 
@@ -14,19 +14,18 @@ kernel void metal_oxide_snapshot(const device uint* words [[buffer(0)]], device 
     }
 }
 
-kernel void metal_oxide_copy(const device uint4* source [[buffer(0)]], device uint4* destination [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
+kernel void metal_oxide_copy(const device uchar* source [[buffer(0)]], device uchar* destination [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
     if (i < size.x) {
-        destination[i] = source[i];
+        ((device uint4*)destination)[i] = ((const device uint4*)source)[i];
     } else if (i == size.x) {
-        const device uchar* from = (const device uchar*)(source + size.x);
-        device uchar* to = (device uchar*)(destination + size.x);
-        for (uint b = 0; b < size.y; ++b) {
-            to[b] = from[b];
+        for (uint b = size.x * 16; b < size.x * 16 + size.y; ++b) {
+            destination[b] = source[b];
         }
     }
 }
 
-kernel void metal_oxide_fill(device uint4* destination [[buffer(0)]], constant uint4& pattern [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
+kernel void metal_oxide_fill(device uchar* bytes [[buffer(0)]], constant uint4& pattern [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
+    device uint4* destination = (device uint4*)bytes;
     uint first = i * 4;
     if (first + 4 <= size.x) {
         destination[first] = pattern;
@@ -37,22 +36,20 @@ kernel void metal_oxide_fill(device uint4* destination [[buffer(0)]], constant u
         for (uint v = first; v < size.x; ++v) {
             destination[v] = pattern;
         }
-        constant uchar* bytes = (constant uchar*)&pattern;
-        device uchar* tail = (device uchar*)(destination + size.x);
+        constant uchar* tail = (constant uchar*)&pattern;
         for (uint b = 0; b < size.y; ++b) {
-            tail[b] = bytes[b];
+            bytes[size.x * 16 + b] = tail[b];
         }
     }
 }
 
-kernel void metal_oxide_fill_period(device uint4* destination [[buffer(0)]], constant uint4* pattern [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
+kernel void metal_oxide_fill_period(device uchar* bytes [[buffer(0)]], constant uint4* pattern [[buffer(1)]], constant uint4& size [[buffer(2)]], uint i [[thread_position_in_grid]]) {
     if (i < size.x) {
-        destination[i] = pattern[i % size.z];
+        ((device uint4*)bytes)[i] = pattern[i % size.z];
     } else if (i == size.x) {
-        constant uchar* bytes = (constant uchar*)(pattern + i % size.z);
-        device uchar* tail = (device uchar*)(destination + size.x);
+        constant uchar* tail = (constant uchar*)(pattern + i % size.z);
         for (uint b = 0; b < size.y; ++b) {
-            tail[b] = bytes[b];
+            bytes[size.x * 16 + b] = tail[b];
         }
     }
 }
