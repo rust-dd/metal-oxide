@@ -11,7 +11,6 @@ use crate::{
 };
 
 pub fn run(device: &Device, mode: MathMode) -> Result<()> {
-    let generated = kernels::module(device)?;
     let source = format!(
         "{}\n{}",
         include_str!("../common.metal"),
@@ -46,8 +45,10 @@ pub fn run(device: &Device, mode: MathMode) -> Result<()> {
             .collect::<Vec<_>>();
         let first_cell = u32::MAX as u64 + 17;
         let want = reference(&lam, cols, sheets, first_cell, config);
+        let generated = |name: &str| kernels::pipeline(device, name);
+        let reference = |name: &str| Pipeline::new(device, &native, name);
         let rust = execute(device, &generated, true, &lam, sheets, first_cell, config)?;
-        let metal = execute(device, &native, false, &lam, sheets, first_cell, config)?;
+        let metal = execute(device, &reference, false, &lam, sheets, first_cell, config)?;
         compare(&rust, &want, 1.0, "sheet CPU");
         compare(&rust, &metal, 1.0, "sheet native");
         let mut chunked = Vec::new();
@@ -73,7 +74,7 @@ pub fn run(device: &Device, mode: MathMode) -> Result<()> {
 
 fn execute(
     device: &Device,
-    module: &Module,
+    pipeline: &dyn Fn(&str) -> metal_oxide::Result<Pipeline>,
     generated: bool,
     lam: &[f32],
     sheets: u32,
@@ -88,7 +89,7 @@ fn execute(
         "sheet_extract",
     ]
     .into_iter()
-    .map(|name| Pipeline::new(device, module, name))
+    .map(pipeline)
     .collect::<metal_oxide::Result<Vec<_>>>()?;
     let total = config.cells * sheets;
     let mut real = device.buffer_zeroed::<f32>(total as usize)?;

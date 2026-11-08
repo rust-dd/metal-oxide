@@ -95,7 +95,6 @@ pub fn run(path: &Path, samples: usize, warmup: usize, max_rows: u32) -> Result<
         "samples": samples, "warmup": warmup, "pair_order": "alternating",
         "native_backend": "classic MTL, setBytes, one encoder per pass",
         "working_set_budget_bytes": budget,
-        "generated_load_ns": generated.load_ns, "native_load_ns": reference.load_ns,
         "generated_pipeline_ns": generated.pipeline_ns, "native_pipeline_ns": reference.pipeline_ns,
         "cases": cases,
     });

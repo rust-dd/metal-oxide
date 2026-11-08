@@ -231,12 +231,8 @@ impl Device {
             .map(|compiled| Pipeline::from_compiled(self.clone(), compiled))
     }
 
-    /// Loads and compiles an embedded kernel on a preparation worker.
-    pub(super) fn kernel(
-        &self,
-        library: &'static Library,
-        entry: &'static str,
-    ) -> Result<Pipeline> {
+    /// An embedded kernel's pipeline from the context's cache, loaded and compiled on first use.
+    pub(super) fn kernel(&self, library: &'static Library, entry: &str) -> Result<Pipeline> {
         let compiled = self.0.libraries.pipeline(self, library, entry)?;
         Ok(Pipeline::from_compiled(self.clone(), compiled))
     }

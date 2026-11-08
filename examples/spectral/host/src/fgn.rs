@@ -133,22 +133,19 @@ pub struct Context {
     radix4: Pipeline,
     extract: Pipeline,
     single: Pipeline,
-    pub load_ns: u64,
+    /// Loading the library and creating the pipelines.
     pub pipeline_ns: u64,
 }
 
 impl Context {
     pub fn new(device: &Device) -> Result<Self> {
         let start = Instant::now();
-        let module = crate::kernels::module(device)?;
-        let load_ns = elapsed(start);
-        let start = Instant::now();
+        let pipeline = |name| crate::kernels::pipeline(device, name);
         Ok(Self {
-            tile: Pipeline::new(device, &module, "gen_tile_fft")?,
-            radix4: Pipeline::new(device, &module, "fft_radix4")?,
-            extract: Pipeline::new(device, &module, "fft_radix4_extract")?,
-            single: Pipeline::new(device, &module, "fft_butterfly_extract")?,
-            load_ns,
+            tile: pipeline("gen_tile_fft")?,
+            radix4: pipeline("fft_radix4")?,
+            extract: pipeline("fft_radix4_extract")?,
+            single: pipeline("fft_butterfly_extract")?,
             pipeline_ns: elapsed(start),
         })
     }

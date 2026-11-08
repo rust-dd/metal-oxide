@@ -5,7 +5,7 @@ use std::{
 
 use crate::{Error, Result};
 
-use super::{Device, Module, pipeline::Compiled};
+use super::{Device, Module, Pipeline, pipeline::Compiled};
 
 /// The compiled kernels that a `#[kernel]` function or a `#[kernels]` module embeds.
 #[doc(hidden)]
@@ -26,8 +26,12 @@ impl Library {
         }
     }
 
-    /// The library as a module of `device`, for pipelines that code encodes itself.
-    pub fn module(&self, device: &Device) -> Result<Module> {
+    /// The pipeline of the kernel `entry` on `device`, from the cache that launch functions share.
+    pub fn pipeline(&'static self, device: &Device, entry: &str) -> Result<Pipeline> {
+        device.kernel(self, entry)
+    }
+
+    fn module(&self, device: &Device) -> Result<Module> {
         if self.metallib.is_empty() {
             return Err(Error::Library(
                 "the kernels were not built for this target".into(),
@@ -46,15 +50,11 @@ pub(super) struct Libraries(Mutex<HashMap<usize, Loaded>>);
 
 struct Loaded {
     module: Arc<Module>,
-    pipelines: HashMap<&'static str, Arc<Compiled>>,
+    pipelines: HashMap<Box<str>, Arc<Compiled>>,
 }
 
 impl Libraries {
-    pub(super) fn cached(
-        &self,
-        library: &'static Library,
-        entry: &'static str,
-    ) -> Option<Arc<Compiled>> {
+    pub(super) fn cached(&self, library: &'static Library, entry: &str) -> Option<Arc<Compiled>> {
         let loaded = match self.0.try_lock() {
             Ok(loaded) => loaded,
             Err(TryLockError::Poisoned(error)) => error.into_inner(),
@@ -68,7 +68,7 @@ impl Libraries {
         &self,
         device: &Device,
         library: &'static Library,
-        entry: &'static str,
+        entry: &str,
     ) -> Result<Arc<Compiled>> {
         let key = std::ptr::from_ref(library).addr();
         let cached = self.lock().get(&key).map(|loaded| {
@@ -93,7 +93,9 @@ impl Libraries {
         let compiled = Arc::new(Compiled::new(device, &module, entry)?);
         let mut loaded = self.lock();
         let pipelines = &mut loaded.get_mut(&key).expect("loaded above").pipelines;
-        Ok(Arc::clone(pipelines.entry(entry).or_insert(compiled)))
+        Ok(Arc::clone(
+            pipelines.entry(entry.into()).or_insert(compiled),
+        ))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<usize, Loaded>> {

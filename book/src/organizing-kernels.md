@@ -76,6 +76,13 @@ The kernel crate's dependencies build for the GPU with it. Build scripts and pro
 other than `#[kernel]` are unsupported there. The cooperation, matmul, gemm and spectral
 examples use kernel crates.
 
+## Pipelines for your own dispatches
+
+Each kernel module, inline or with a `path`, also gets `KERNELS`, the names of its kernels,
+and `pipeline(&device, name)`, which returns the pipeline that its launch functions use from
+the device's cache. Code that encodes its own dispatches with `Launch::new`, such as a kernel
+chosen by name at run time, uses it instead of compiling the library again.
+
 ## Publishing
 
 Commit each `metal/` directory and include it in published packages. A package fetched from

@@ -17,12 +17,18 @@ mod kernels {}
 
 fn main() -> metal_oxide::Result<()> {
     use metal_oxide::{
-        Argument, Device, Dim3, Error, Launch, LaunchConfig, Operation, Pipeline, sequence,
+        Argument, Device, Dim3, Error, Launch, LaunchConfig, Operation, sequence,
     };
     let device = Device::system_default()?;
+    assert_eq!(kernels::KERNELS.len(), 484);
+    assert!(kernels::KERNELS.contains(&"in_place"));
+    assert!(matches!(
+        kernels::pipeline(&device, "missing"),
+        Err(Error::KernelNotFound(name)) if name == "missing"
+    ));
     let start = std::time::Instant::now();
-    let module = kernels::module(&device)?;
-    println!("embedded load: {:?}", start.elapsed());
+    let dynamic = kernels::pipeline(&device, "dynamic_reduce")?;
+    println!("embedded load and first pipeline: {:?}", start.elapsed());
     let mut values = device.buffer_from_slice(&[0xffff_ffff_0000_0000_u64; 25])?;
     let config = LaunchConfig::<8>::for_elements(17)?;
     let start = std::time::Instant::now();
@@ -47,7 +53,6 @@ fn main() -> metal_oxide::Result<()> {
     assert_eq!(&values.read().wait()[..17], &[0xffff_ffff_0000_001b; 17]);
     assert_eq!(&values.read().wait()[17..], &[0xffff_ffff_0000_0000; 8]);
 
-    assert!(module.verify_abi(&"0".repeat(64)).is_err());
     let input = device.buffer_from_slice(&[1.0_f32; 17])?;
     let mut reductions = device.buffer_zeroed::<f32>(3)?;
     let blocks = LaunchConfig::<8>::for_elements(17)?;
@@ -71,7 +76,6 @@ fn main() -> metal_oxide::Result<()> {
     })
     .wait()?;
     assert_eq!(reductions.read().wait(), [75.0, 203.0, 40.5]);
-    let dynamic = Pipeline::new(&device, &module, "dynamic_reduce")?;
     let empty = LaunchConfig::<8>::new(Dim3::x(0));
     // SAFETY: the empty grid accesses no memory; mismatched scratch types and
     // counts must still be rejected through the artifact contract.
@@ -111,7 +115,7 @@ fn main() -> metal_oxide::Result<()> {
         let none = Launch::new(Ok(&dynamic), empty, (), |()| Ok([]));
         assert!(matches!(none.wait(), Err(Error::InvalidLaunch(_))));
     }
-    let pipeline = Pipeline::new(&device, &module, "in_place")?;
+    let pipeline = kernels::pipeline(&device, "in_place")?;
     // SAFETY: empty grids cannot access memory; invalid access, scalar layout and
     // specialization must still be rejected before the empty-launch fast path.
     unsafe {
@@ -195,6 +199,7 @@ fn kernel_libraries_load_lazily_in_a_relocated_host_built_on_stable_rust() -> me
     let device = Device::system_default()?;
     let module = Module::from_bytes(&device, &manifest_text, &library)?;
     module.verify_abi(&sha256(manifest.abi.to_json()?.as_bytes()))?;
+    assert!(module.verify_abi(&"0".repeat(64)).is_err());
     let pipeline = Pipeline::new(&device, &module, "in_place")?;
     verify_argument_types(&device, &pipeline)?;
     verify_rejections(&device, &manifest_text, &library);

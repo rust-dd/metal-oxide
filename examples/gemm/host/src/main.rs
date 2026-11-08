@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn verify(device: &metal_oxide::Device) -> metal_oxide::Result<bool> {
     use metal_oxide::{Dim3, Error, F16, LaunchConfig, Operation};
-    match kernels::module(device) {
+    match kernels::pipeline(device, "gemm_f32") {
         Ok(_) => {}
         Err(Error::UnsupportedDevice(reason)) if reason.contains("simdgroup_matrix") => {
             println!("gemm: {} is unsupported: {reason}", device.name());

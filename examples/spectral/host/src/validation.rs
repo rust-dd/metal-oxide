@@ -26,11 +26,9 @@ pub fn run() -> Result<()> {
         .min(reference.max_threads())
         .min(device.max_threadgroup_memory_per_block() / 16);
     println!(
-        "{}: {:?}; load {} / {} ns, pipelines {} / {} ns",
+        "{}: {:?}; libraries and pipelines {} / {} ns",
         device.name(),
         crate::MATH_MODE,
-        generated.load_ns,
-        reference.load_ns,
         generated.pipeline_ns,
         reference.pipeline_ns
     );

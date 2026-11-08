@@ -85,7 +85,8 @@ fn main() -> metal_oxide::Result<()> {
     let mut y = device.buffer_zeroed::<f32>(2)?;
     added::vec_add(&device, LaunchConfig::<64>::for_elements(2)?, &x, &x, &mut y).wait()?;
     assert_eq!(y.read().wait(), [2.0, 4.0]);
-    metal_oxide::Pipeline::new(&device, &added::module(&device)?, "vec_add")?;
+    assert_eq!(added::KERNELS, ["vec_add"]);
+    added::pipeline(&device, "vec_add")?;
     println!("forms passed");
     Ok(())
 }

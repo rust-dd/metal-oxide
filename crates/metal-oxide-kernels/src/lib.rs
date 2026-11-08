@@ -35,13 +35,8 @@ pub fn kernel(attributes: TokenStream, item: TokenStream) -> TokenStream {
     expand(standalone(attributes.into(), item.into(), source))
 }
 
-/// Compiles the `#[kernel]` functions of an inline module as one Metal library. The module's
-/// other items stay on the host too, and its `#[repr(C)]` records that kernels take become
-/// `GpuValue`s. `math = "fast"` relaxes floating-point math; `dependencies(...)` names the
-/// `no_std` crates the kernels use.
-///
-/// With `path = "../kernels"` the module stays empty and launches the kernels of that kernel
-/// crate instead, with a host struct for each record they take.
+/// Compiles an inline module's `#[kernel]` functions, or a kernel crate's at `path`, as one library
+/// with `KERNELS` and `pipeline(&device, name)`; the book's "Organizing kernels" lists the options.
 #[proc_macro_attribute]
 pub fn kernels(attributes: TokenStream, item: TokenStream) -> TokenStream {
     let source = Source::new(&item, true);
@@ -144,13 +139,22 @@ fn standalone(attributes: Tokens, item: Tokens, source: Source) -> syn::Result<T
 
 /// A function that loads the module's library on a device, for pipelines that code encodes
 /// itself.
-fn module_function(library: &syn::Ident) -> Tokens {
+/// The module's kernel names and the cached pipeline of a kernel by name, for code that
+/// encodes its own dispatches.
+fn library_access(library: &syn::Ident, names: &[String]) -> Tokens {
     quote! {
-        /// This module's kernel library on `device`, for pipelines that code encodes itself.
+        /// The names of this module's kernels.
+        #[allow(dead_code)]
+        pub const KERNELS: &[&str] = &[#(#names),*];
+
+        /// The pipeline of the kernel `name` on `device`, from the cache its launch functions share.
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         #[allow(dead_code)]
-        pub fn module(device: &::metal_oxide::Device) -> ::metal_oxide::Result<::metal_oxide::Module> {
-            #library.module(device)
+        pub fn pipeline(
+            device: &::metal_oxide::Device,
+            name: &str,
+        ) -> ::metal_oxide::Result<::metal_oxide::Pipeline> {
+            #library.pipeline(device, name)
         }
     }
 }
@@ -235,7 +239,11 @@ fn written(
     let request = source.request(ident.unraw().to_string(), false, options);
     let library_static = source_library(&library, request, &kernels);
     let launchers = kernels.iter().map(|kernel| kernel.launcher(&library));
-    let module = module_function(&library);
+    let names = kernels
+        .iter()
+        .map(|kernel| kernel.name.unraw().to_string())
+        .collect::<Vec<_>>();
+    let module = library_access(&library, &names);
     Ok(quote! {
         #(#others)*
         #[doc(hidden)]
@@ -272,7 +280,13 @@ fn kernel_crate(
         .iter()
         .map(|kernel| Ok(mirrors.kernel(kernel)?.launcher(&library)))
         .collect::<syn::Result<Vec<_>>>()?;
-    let module = module_function(&library);
+    let names = built
+        .abi
+        .kernels
+        .iter()
+        .map(|kernel| kernel.name.clone())
+        .collect::<Vec<_>>();
+    let module = library_access(&library, &names);
     Ok(quote! {
         #records
         #library_static

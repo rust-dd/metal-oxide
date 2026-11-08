@@ -64,7 +64,7 @@ pub struct Context {
     radix4: MetalPipeline,
     extract: MetalPipeline,
     single: MetalPipeline,
-    pub load_ns: u64,
+    /// Compiling the library and creating the pipelines.
     pub pipeline_ns: u64,
 }
 
@@ -96,8 +96,6 @@ impl Context {
         let library = native
             .newLibraryWithSource_options_error(&NSString::from_str(&source), Some(&options))
             .map_err(|e| e.localizedDescription().to_string())?;
-        let load_ns = elapsed(start);
-        let start = Instant::now();
         let pipeline = |name| -> Result<MetalPipeline> {
             let function = library
                 .newFunctionWithName(&NSString::from_str(name))
@@ -114,7 +112,6 @@ impl Context {
             radix4: pipeline("fft_radix4")?,
             extract: pipeline("fft_radix4_extract")?,
             single: pipeline("fft_butterfly_extract")?,
-            load_ns,
             pipeline_ns: elapsed(start),
         })
     }
