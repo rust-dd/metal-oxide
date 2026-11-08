@@ -91,9 +91,10 @@ impl<'tcx> FunctionImporter<'_, 'tcx> {
                 mir::ProjectionElem::Deref => ir::Projection::Deref,
                 mir::ProjectionElem::Index(index) => {
                     match (array, self.constants[index.as_usize()]) {
-                        // Slice indices stay in their local, which the bounds check reads too.
-                        (Some(_), Some(ir::Constant::Usize(value)))
-                            if u32::try_from(value).is_ok() =>
+                        // Slice indices and constants past the array's end, whose bounds check
+                        // always fails first, stay in their local.
+                        (Some(length), Some(ir::Constant::Usize(value)))
+                            if value < u64::from(length) =>
                         {
                             ir::Projection::Field(value as u32)
                         }

@@ -106,6 +106,9 @@
 - Shader `log!` messages no longer abort the process when stderr is closed, such as a pipe
   whose reader exited. Metal's logging thread printed them with `eprintln!`, which panics when
   writing fails.
+- An array indexed past its end by a constant compiles to the bounds check that fails at run
+  time, as in Rust. It was rejected as "invalid aggregate field, index or dereference" even
+  where the index never runs.
 
 ### Upgrading
 
