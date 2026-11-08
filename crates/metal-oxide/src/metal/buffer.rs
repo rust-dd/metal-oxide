@@ -9,12 +9,14 @@ use crate::{Error, GpuValue, Result};
 
 mod mirror;
 mod native;
+mod slice;
 #[cfg(test)]
 mod tests;
 mod transfer;
 mod views;
 
 pub(super) use mirror::{Location, Mirror};
+pub use slice::{BufferSlice, BufferSliceMut};
 pub use views::{Read, Write};
 
 /// A buffer argument's access state and how the kernel uses it.
@@ -42,7 +44,6 @@ impl Storage {
 
 pub(super) trait BufferBinding: Sync {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>>;
-    fn len(&self) -> usize;
     fn access(&self) -> &Arc<AccessState>;
     fn device_id(&self) -> u64;
     fn prepare(&self, access: Access);
@@ -208,9 +209,6 @@ impl<T: GpuValue> Buffer<T> {
 impl<T: GpuValue> BufferBinding for Buffer<T> {
     fn raw(&self) -> &Retained<ProtocolObject<dyn MTLBuffer>> {
         &self.storage.0
-    }
-    fn len(&self) -> usize {
-        self.len
     }
     fn device_id(&self) -> u64 {
         self.device.id()

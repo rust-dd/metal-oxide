@@ -148,10 +148,12 @@ impl ClassicBatch {
                     unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer), 0, buffer_slot) };
                     self.bindings.push(buffer);
                 }
-                Binding::Buffer(buffer) => {
+                Binding::Buffer { storage, offset } => {
                     // SAFETY: Batch validated bindings; buffers stay retained through completion.
-                    unsafe { encoder.setBuffer_offset_atIndex(Some(&buffer.0), 0, buffer_slot) };
-                    self.bindings.push(buffer.0.clone());
+                    unsafe {
+                        encoder.setBuffer_offset_atIndex(Some(&storage.0), *offset, buffer_slot)
+                    };
+                    self.bindings.push(storage.0.clone());
                 }
             }
             buffer_slot += 1;

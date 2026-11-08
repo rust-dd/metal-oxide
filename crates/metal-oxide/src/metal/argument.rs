@@ -1,14 +1,18 @@
 use std::{any::TypeId, cell::RefCell, collections::HashSet, ops::Range, sync::Arc};
 
 use super::{
-    Buffer,
+    Buffer, BufferSlice, BufferSliceMut,
     buffer::{BufferBinding, Resource, Storage},
 };
 use crate::{Error, GpuAtomic, GpuValue, Result};
 use metal_oxide_artifact::{Access, Layout, ParameterType};
 
 enum Value<'a> {
-    Buffer(&'a dyn BufferBinding),
+    Buffer {
+        buffer: &'a dyn BufferBinding,
+        start: usize,
+        len: usize,
+    },
     Inline([u8; 16]),
     Encoded(Vec<u8>),
     Threadgroup(usize),
@@ -30,7 +34,11 @@ enum Kind {
 
 /// A kernel parameter in the form a batch records and the native encoders bind.
 pub(super) enum Binding {
-    Buffer(Storage),
+    Buffer {
+        storage: Storage,
+        /// Bytes from the start of the storage to the first bound element.
+        offset: usize,
+    },
     /// Canonical value bytes in the batch's byte store.
     Value {
         bytes: Range<usize>,
@@ -58,14 +66,15 @@ pub(super) struct ArgumentInfo {
 }
 
 impl<'a> Argument<'a> {
-    /// Borrows a buffer of `u32`, `i32`, `f32` or `u64` exclusively for atomic kernel accesses.
-    pub fn atomic<T: GpuAtomic>(buffer: &'a mut Buffer<T>) -> Self {
-        Self::buffer(buffer, Access::Atomic)
+    /// Borrows a buffer or slice of `u32`, `i32`, `f32` or `u64` exclusively for atomic accesses.
+    pub fn atomic<T: GpuAtomic>(buffer: &'a mut impl WriteArgument<T>) -> Self {
+        Self::exclusive(buffer.view_mut(), Access::Atomic)
     }
 
-    /// The kernel must treat this buffer as read-only.
-    pub fn read<T: GpuValue>(buffer: &'a Buffer<T>) -> Self {
-        Self::buffer(buffer, Access::Read)
+    /// The kernel must treat this buffer or slice as read-only.
+    pub fn read<T: GpuValue>(buffer: &'a impl ReadArgument<T>) -> Self {
+        let slice = buffer.view();
+        Self::buffer(slice.buffer, slice.start, slice.len, Access::Read)
     }
 
     /// Holds the exclusive borrow until this argument is dropped.
@@ -78,8 +87,8 @@ impl<'a> Argument<'a> {
     /// let values = output.read().wait();
     /// println!("{} {}", arguments.len(), values.len());
     /// ```
-    pub fn write<T: GpuValue>(buffer: &'a mut Buffer<T>) -> Self {
-        Self::buffer(buffer, Access::Write)
+    pub fn write<T: GpuValue>(buffer: &'a mut impl WriteArgument<T>) -> Self {
+        Self::exclusive(buffer.view_mut(), Access::Write)
     }
 
     /// Borrows a buffer exclusively for both reads and writes by the kernel.
@@ -91,12 +100,22 @@ impl<'a> Argument<'a> {
     /// let arguments = [Argument::read(&buffer), Argument::read_write(&mut buffer)];
     /// println!("{}", arguments.len());
     /// ```
-    pub fn read_write<T: GpuValue>(buffer: &'a mut Buffer<T>) -> Self {
-        Self::buffer(buffer, Access::ReadWrite)
+    pub fn read_write<T: GpuValue>(buffer: &'a mut impl WriteArgument<T>) -> Self {
+        Self::exclusive(buffer.view_mut(), Access::ReadWrite)
     }
 
-    fn buffer<T: GpuValue>(buffer: &'a Buffer<T>, access: Access) -> Self {
-        Self::new::<T>(Value::Buffer(buffer), Kind::Buffer(access))
+    fn exclusive<T: GpuValue>(slice: BufferSliceMut<'a, T>, access: Access) -> Self {
+        Self::buffer(slice.buffer, slice.start, slice.len, access)
+    }
+
+    fn buffer<T: GpuValue>(
+        buffer: &'a Buffer<T>,
+        start: usize,
+        len: usize,
+        access: Access,
+    ) -> Self {
+        let value = Value::Buffer { buffer, start, len };
+        Self::new::<T>(value, Kind::Buffer(access))
     }
 
     fn new<T: GpuValue>(value: Value<'a>, kind: Kind) -> Self {
@@ -182,7 +201,12 @@ impl<'a> Argument<'a> {
     /// The parameter as the native encoders bind it; value bytes are appended to `store`.
     pub(super) fn binding(&self, store: &mut Vec<u8>) -> Binding {
         let bytes = match &self.value {
-            Value::Buffer(buffer) => return Binding::Buffer(Storage(buffer.raw().clone())),
+            Value::Buffer { buffer, start, .. } => {
+                return Binding::Buffer {
+                    storage: Storage(buffer.raw().clone()),
+                    offset: start * self.size,
+                };
+            }
             Value::Threadgroup(bytes) => return Binding::Threadgroup(*bytes),
             Value::Inline(bytes) => &bytes[..self.size],
             Value::Encoded(bytes) => bytes,
@@ -198,21 +222,21 @@ impl<'a> Argument<'a> {
     /// The element count of a buffer argument.
     pub(super) fn length(&self) -> Option<usize> {
         match &self.value {
-            Value::Buffer(buffer) => Some(buffer.len()),
+            Value::Buffer { len, .. } => Some(*len),
             _ => None,
         }
     }
 
     pub(super) fn device_id(&self) -> Option<u64> {
         match &self.value {
-            Value::Buffer(buffer) => Some(buffer.device_id()),
+            Value::Buffer { buffer, .. } => Some(buffer.device_id()),
             _ => None,
         }
     }
 
     pub(super) fn resource(&self) -> Option<Resource> {
         match (&self.value, self.signature.kind) {
-            (Value::Buffer(buffer), Kind::Buffer(access)) => Some(Resource {
+            (Value::Buffer { buffer, .. }, Kind::Buffer(access)) => Some(Resource {
                 access: Arc::clone(buffer.access()),
                 read: access != Access::Write,
                 written: access != Access::Read,
@@ -222,7 +246,9 @@ impl<'a> Argument<'a> {
     }
 
     pub(super) fn prepare(&self) {
-        if let (Value::Buffer(buffer), Kind::Buffer(access)) = (&self.value, self.signature.kind) {
+        if let (Value::Buffer { buffer, .. }, Kind::Buffer(access)) =
+            (&self.value, self.signature.kind)
+        {
             buffer.prepare(access);
         }
     }
@@ -280,11 +306,13 @@ impl<T: GpuValue> sealed::Sealed for &Buffer<T> {}
 impl<T: GpuValue> sealed::Sealed for &mut Buffer<T> {}
 impl<T: GpuValue> sealed::Sealed for Buffer<T> {}
 impl<T: GpuValue> sealed::Sealed for Arc<Buffer<T>> {}
+impl<T: GpuValue> sealed::Sealed for BufferSlice<'_, T> {}
+impl<T: GpuValue> sealed::Sealed for BufferSliceMut<'_, T> {}
 
-/// A buffer a kernel only reads: borrowed, owned, or shared through an `Arc`.
+/// A buffer or slice a kernel only reads: borrowed, owned, or shared through an `Arc`.
 pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
-    /// The buffer to bind.
-    fn buffer(&self) -> &Buffer<T>;
+    /// The elements to bind.
+    fn view(&self) -> BufferSlice<'_, T>;
 }
 
 /// A buffer a kernel writes: exclusively borrowed or owned. An `Arc` buffer is read-only
@@ -298,43 +326,69 @@ pub trait ReadArgument<T: GpuValue>: sealed::Sealed {
 /// }
 /// ```
 pub trait WriteArgument<T: GpuValue>: sealed::Sealed {
-    /// The buffer to bind.
-    fn buffer_mut(&mut self) -> &mut Buffer<T>;
+    /// The elements to bind.
+    fn view_mut(&mut self) -> BufferSliceMut<'_, T>;
 }
 
 impl<T: GpuValue> ReadArgument<T> for &Buffer<T> {
-    fn buffer(&self) -> &Buffer<T> {
-        self
+    fn view(&self) -> BufferSlice<'_, T> {
+        self.slice(..)
     }
 }
 
 impl<T: GpuValue> ReadArgument<T> for &mut Buffer<T> {
-    fn buffer(&self) -> &Buffer<T> {
-        self
+    fn view(&self) -> BufferSlice<'_, T> {
+        self.slice(..)
     }
 }
 
 impl<T: GpuValue> ReadArgument<T> for Buffer<T> {
-    fn buffer(&self) -> &Buffer<T> {
-        self
+    fn view(&self) -> BufferSlice<'_, T> {
+        self.slice(..)
     }
 }
 
 impl<T: GpuValue> ReadArgument<T> for Arc<Buffer<T>> {
-    fn buffer(&self) -> &Buffer<T> {
-        self
+    fn view(&self) -> BufferSlice<'_, T> {
+        self.slice(..)
+    }
+}
+
+impl<T: GpuValue> ReadArgument<T> for BufferSlice<'_, T> {
+    fn view(&self) -> BufferSlice<'_, T> {
+        *self
+    }
+}
+
+impl<T: GpuValue> ReadArgument<T> for BufferSliceMut<'_, T> {
+    fn view(&self) -> BufferSlice<'_, T> {
+        BufferSlice {
+            buffer: &*self.buffer,
+            start: self.start,
+            len: self.len,
+        }
     }
 }
 
 impl<T: GpuValue> WriteArgument<T> for &mut Buffer<T> {
-    fn buffer_mut(&mut self) -> &mut Buffer<T> {
-        self
+    fn view_mut(&mut self) -> BufferSliceMut<'_, T> {
+        self.slice_mut(..)
     }
 }
 
 impl<T: GpuValue> WriteArgument<T> for Buffer<T> {
-    fn buffer_mut(&mut self) -> &mut Buffer<T> {
-        self
+    fn view_mut(&mut self) -> BufferSliceMut<'_, T> {
+        self.slice_mut(..)
+    }
+}
+
+impl<T: GpuValue> WriteArgument<T> for BufferSliceMut<'_, T> {
+    fn view_mut(&mut self) -> BufferSliceMut<'_, T> {
+        BufferSliceMut {
+            buffer: &mut *self.buffer,
+            start: self.start,
+            len: self.len,
+        }
     }
 }
 

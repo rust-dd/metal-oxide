@@ -37,7 +37,7 @@ fn scale_add<I: ReadArgument<f32>, O: WriteArgument<f32>>(
     scale: f32,
     offset: f32,
 ) -> Launch<(I, O, f32, f32, u32), 5> {
-    let n = input.buffer().len() as u32;
+    let n = input.view().len() as u32;
     let config = LaunchConfig::<256>::for_elements(n).unwrap();
     // SAFETY: callers pass equally long buffers in distinct allocations; the kernel guards n.
     unsafe {
@@ -47,8 +47,8 @@ fn scale_add<I: ReadArgument<f32>, O: WriteArgument<f32>>(
             (input, output, scale, offset, n),
             |(input, output, scale, offset, n)| {
                 Ok([
-                    Argument::read(input.buffer()),
-                    Argument::write(output.buffer_mut()),
+                    Argument::read(input),
+                    Argument::write(output),
                     Argument::value(*scale)?,
                     Argument::value(*offset)?,
                     Argument::value(*n)?,

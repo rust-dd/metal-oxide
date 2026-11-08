@@ -38,7 +38,7 @@ impl<T: GpuValue> Buffer<T> {
                 |(source, destination)| {
                     let size = vector_size(destination.len() * T::SIZE)?;
                     Ok([
-                        Argument::read(*source),
+                        Argument::read(source),
                         Argument::write(destination),
                         Argument::vectors(bytes(size)),
                     ])

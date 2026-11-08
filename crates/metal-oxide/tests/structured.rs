@@ -113,8 +113,8 @@ where
             (input, output, n),
             |(input, output, n)| {
                 Ok([
-                    Argument::read(input.buffer()),
-                    Argument::write(output.buffer_mut()),
+                    Argument::read(input),
+                    Argument::write(output),
                     Argument::value(config())?,
                     Argument::value(*n)?,
                 ])

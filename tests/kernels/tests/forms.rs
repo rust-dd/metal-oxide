@@ -87,6 +87,12 @@ fn main() -> metal_oxide::Result<()> {
     assert_eq!(y.read().wait(), [2.0, 4.0]);
     assert_eq!(added::KERNELS, ["vec_add"]);
     added::pipeline(&device, "vec_add")?;
+    let mut z = device.buffer_from_slice(&[-1.0_f32; 4])?;
+    let config = LaunchConfig::<64>::for_elements(2)?;
+    added::vec_add(&device, config, x.slice(..), y.slice(..), z.slice_mut(1..3)).wait()?;
+    assert_eq!(z.read().wait(), [-1.0, 3.0, 6.0, -1.0]);
+    let short = added::vec_add(&device, config, x.slice(..1), &y, z.slice_mut(..2)).wait();
+    assert!(matches!(short, Err(metal_oxide::Error::Contract { .. })), "{short:?}");
     println!("forms passed");
     Ok(())
 }

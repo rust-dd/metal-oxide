@@ -32,10 +32,7 @@ unsafe fn add<V: WriteArgument<u32>>(
     // SAFETY: forwarded from the caller; each active lane updates its own element.
     unsafe {
         Launch::new(Ok(pipeline), config, (values, n), |(values, n)| {
-            Ok([
-                Argument::read_write(values.buffer_mut()),
-                Argument::value(*n)?,
-            ])
+            Ok([Argument::read_write(values), Argument::value(*n)?])
         })
     }
 }

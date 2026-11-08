@@ -25,7 +25,7 @@ mod sync;
 
 pub use argument::{Argument, ReadArgument, WriteArgument};
 pub use batch::Batch;
-pub use buffer::{Buffer, Read, Write};
+pub use buffer::{Buffer, BufferSlice, BufferSliceMut, Read, Write};
 pub use device::{Device, NativeApi};
 pub use library::Library;
 pub use module::Module;

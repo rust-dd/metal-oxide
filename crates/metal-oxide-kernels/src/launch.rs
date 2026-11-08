@@ -120,23 +120,17 @@ impl Kernel {
                 ),
                 Kind::Buffer(access, element) => {
                     let generic = format_ident!("MetalOxideBuffer{index}");
-                    let (form, view, method) = match access {
-                        Access::Read => (quote!(ReadArgument), quote!(buffer), quote!(read)),
-                        Access::Write => (quote!(WriteArgument), quote!(buffer_mut), quote!(write)),
-                        Access::ReadWrite => (
-                            quote!(WriteArgument),
-                            quote!(buffer_mut),
-                            quote!(read_write),
-                        ),
-                        Access::Atomic => {
-                            (quote!(WriteArgument), quote!(buffer_mut), quote!(atomic))
-                        }
+                    let (form, method) = match access {
+                        Access::Read => (quote!(ReadArgument), quote!(read)),
+                        Access::Write => (quote!(WriteArgument), quote!(write)),
+                        Access::ReadWrite => (quote!(WriteArgument), quote!(read_write)),
+                        Access::Atomic => (quote!(WriteArgument), quote!(atomic)),
                     };
                     bounds.push(quote!(#generic: ::metal_oxide::#form<#element>));
                     generics.push(generic.clone());
                     (
                         quote!(#generic),
-                        quote!(::metal_oxide::Argument::#method(::metal_oxide::#form::#view(#name))),
+                        quote!(::metal_oxide::Argument::#method(#name)),
                     )
                 }
             };

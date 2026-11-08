@@ -23,7 +23,7 @@ fn launch_functions_follow_the_kernel_signature() {
         "argument_3:f32",
         "shared:::core::primitive::usize",
         "MetalOxideBuffer1:::metal_oxide::WriteArgument<f32>",
-        "::metal_oxide::Argument::atomic(::metal_oxide::WriteArgument::buffer_mut(totals))",
+        "::metal_oxide::Argument::atomic(totals)",
         "::metal_oxide::Argument::threadgroup::<f32>(*shared)?",
         "::metal_oxide::Launch<(MetalOxideBuffer0,MetalOxideBuffer1,MetalOxideBuffer2,f32,::core::primitive::usize,),5usize>",
     ] {

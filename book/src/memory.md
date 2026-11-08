@@ -28,6 +28,11 @@ thread traits also depend on its arguments and closures.
 launch: they follow earlier work on their buffers, can be pushed into a sequence, and
 do not block the CPU as `write().wait()` does.
 
+`buffer.slice(range)` and `buffer.slice_mut(range)` pass part of a buffer to a launch,
+such as the first `n` elements of a pooled allocation. The kernel sees only those
+elements, `requires` and `len()` included, while dependency tracking covers the whole
+buffer, so launches that use views of one buffer run one after another.
+
 Within a sequence, a CPU read panics while a write is recorded. CPU writes, upload
 and native export panic while any access is recorded. Conflicting nested batches
 return `InvalidBuffer`. These recording reservations also protect the interval

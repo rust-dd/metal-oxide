@@ -60,8 +60,8 @@ unsafe fn scale_add<I: ReadArgument<f32>, O: WriteArgument<f32>>(
             (input, output, scale_offset, n),
             |(input, output, [scale, offset], n)| {
                 Ok([
-                    Argument::read(input.buffer()),
-                    Argument::write(output.buffer_mut()),
+                    Argument::read(input),
+                    Argument::write(output),
                     Argument::value(*scale)?,
                     Argument::value(*offset)?,
                     Argument::value(*n)?,

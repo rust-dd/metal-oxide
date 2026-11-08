@@ -241,11 +241,11 @@ impl Metal4Batch {
                     continue;
                 }
                 Binding::Value { .. } => constants.as_ref().unwrap().address(buffer_slot),
-                Binding::Buffer(buffer) => {
+                Binding::Buffer { storage, offset } => {
                     self.residency
-                        .addAllocation(ProtocolObject::from_ref(&*buffer.0));
-                    self.bindings.push(buffer.0.clone());
-                    buffer.0.gpuAddress()
+                        .addAllocation(ProtocolObject::from_ref(&*storage.0));
+                    self.bindings.push(storage.0.clone());
+                    storage.0.gpuAddress() + *offset as u64
                 }
             };
             // SAFETY: the table has this slot; the aligned, immutable bytes stay
