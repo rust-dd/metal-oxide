@@ -109,6 +109,9 @@
 - An array indexed past its end by a constant compiles to the bounds check that fails at run
   time, as in Rust. It was rejected as "invalid aggregate field, index or dereference" even
   where the index never runs.
+- Checked `i16` additions and subtractions report overflow only when the result leaves the
+  `i16` range. LLVM could turn their overflow test into `llvm.sadd.with.overflow.i16`, which
+  Apple GPUs evaluated wrongly, so `checked_add(..).expect(..)` failed for sums that fit.
 
 ### Upgrading
 

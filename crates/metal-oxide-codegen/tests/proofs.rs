@@ -189,27 +189,9 @@ fn signed_narrow_saturating_subtractions_hide_their_minuend_from_metal() {
 
 #[test]
 fn checked_i8_sums_and_differences_overflow_outside_the_i8_range() {
-    let checked = |op| {
-        module(
-            2,
-            vec![
-                Type::Checked(Scalar::I8),
-                Type::Scalar(Scalar::I8),
-                Type::Scalar(Scalar::I8),
-            ],
-            vec![block(
-                vec![(0, Expression::Binary(op, local(1), local(2)))],
-                Terminator::Return,
-            )],
-        )
-    };
-    let mut module = checked(BinaryOp::AddWithOverflow);
-    module
-        .functions
-        .extend(checked(BinaryOp::SubWithOverflow).functions);
     assert_eq!(
         support::execute(
-            &module,
+            &checked_sum_and_difference(Scalar::I8),
             "uint wrong = 0; \
              for (int a = -128; a < 128; ++a) for (int b = -128; b < 128; ++b) { \
              auto sum = metal_oxide_fn_0(char(a), char(b), ctx); \
@@ -221,6 +203,49 @@ fn checked_i8_sums_and_differences_overflow_outside_the_i8_range() {
         ),
         "0"
     );
+}
+
+#[test]
+fn checked_i16_sums_and_differences_overflow_outside_the_i16_range() {
+    assert_eq!(
+        support::execute(
+            &checked_sum_and_difference(Scalar::I16),
+            "uint wrong = 0; \
+             int edges[] = {-32768, -32767, -16385, -16384, -2, -1, 0, 1, 2, 16383, 16384, 32766, 32767}; \
+             for (int a = -32768; a < 32768; ++a) for (int e = 0; e < 13 + 256; ++e) { \
+             int b = e < 13 ? edges[e] : (e - 13) * 257 - 32768; \
+             auto sum = metal_oxide_fn_0(short(a), short(b), ctx); \
+             auto difference = metal_oxide_fn_1(short(a), short(b), ctx); \
+             wrong += sum.value != short(a + b) || sum.overflow != (a + b < -32768 || a + b > 32767); \
+             wrong += difference.value != short(a - b) \
+             || difference.overflow != (a - b < -32768 || a - b > 32767); } \
+             std::cout << wrong;"
+        ),
+        "0"
+    );
+}
+
+/// Functions 0 and 1 return the checked sum and difference of their two `scalar` arguments.
+fn checked_sum_and_difference(scalar: Scalar) -> Module {
+    let checked = |op| {
+        module(
+            2,
+            vec![
+                Type::Checked(scalar),
+                Type::Scalar(scalar),
+                Type::Scalar(scalar),
+            ],
+            vec![block(
+                vec![(0, Expression::Binary(op, local(1), local(2)))],
+                Terminator::Return,
+            )],
+        )
+    };
+    let mut module = checked(BinaryOp::AddWithOverflow);
+    module
+        .functions
+        .extend(checked(BinaryOp::SubWithOverflow).functions);
+    module
 }
 
 #[test]
