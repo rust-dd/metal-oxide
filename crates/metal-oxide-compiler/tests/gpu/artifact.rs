@@ -28,7 +28,7 @@ fn artifacts_check_arguments_before_an_empty_launch() -> metal_oxide::Result<()>
     unsafe {
         assert!(matches!(
             Launch::new(Ok(&pipeline), config, (), |()| Ok([])).wait(),
-            Err(Error::Artifact(_))
+            Err(Error::InvalidLaunch(_))
         ));
         assert!(matches!(
             Launch::new(
@@ -42,7 +42,7 @@ fn artifacts_check_arguments_before_an_empty_launch() -> metal_oxide::Result<()>
                 ])
             )
             .wait(),
-            Err(Error::Artifact(_))
+            Err(Error::InvalidLaunch(_))
         ));
         assert!(matches!(
             Launch::new(Ok(&pipeline), config, (&a, &b, &out), |(a, b, out)| Ok([
@@ -51,7 +51,7 @@ fn artifacts_check_arguments_before_an_empty_launch() -> metal_oxide::Result<()>
                 Argument::read(out)
             ]))
             .wait(),
-            Err(Error::Artifact(_))
+            Err(Error::InvalidLaunch(_))
         ));
         assert!(matches!(
             Launch::new(
@@ -66,7 +66,7 @@ fn artifacts_check_arguments_before_an_empty_launch() -> metal_oxide::Result<()>
                 ])
             )
             .wait(),
-            Err(Error::Artifact(_))
+            Err(Error::InvalidLaunch(_))
         ));
         Launch::new(Ok(&pipeline), config, (&a, &b, &mut out), |(a, b, out)| {
             Ok([Argument::read(a), Argument::read(b), Argument::write(out)])
