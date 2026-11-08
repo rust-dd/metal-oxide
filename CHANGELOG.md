@@ -112,6 +112,8 @@
 - Checked `i16` additions and subtractions report overflow only when the result leaves the
   `i16` range. LLVM could turn their overflow test into `llvm.sadd.with.overflow.i16`, which
   Apple GPUs evaluated wrongly, so `checked_add(..).expect(..)` failed for sums that fit.
+- Loops and branches with many early `return`s compile. Each of them repeated the empty
+  shared return block, which counted toward the duplication limit.
 
 ### Upgrading
 

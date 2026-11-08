@@ -144,8 +144,18 @@ impl<'a> Emitter<'a> {
     fn statements(&mut self, current: usize) -> Result<(), Error> {
         let function = self.function;
         let block = &function.blocks[current];
+        // Repeating a tail that emits nothing, such as a shared return, adds no code.
+        let free = self.graph.cfg.successors(current).is_empty()
+            && block
+                .statements
+                .iter()
+                .enumerate()
+                .all(|(index, statement)| {
+                    matches!(statement.value, Expression::Uninit(_))
+                        || !self.used.statement(current, index)
+                });
         let visits = self.visits.entry(current).or_default();
-        *visits += 1;
+        *visits += usize::from(!free);
         if *visits > 8
             || (*visits > 1
                 && block
