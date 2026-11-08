@@ -11,6 +11,7 @@ mod mirror;
 mod native;
 #[cfg(test)]
 mod tests;
+mod transfer;
 mod views;
 
 pub(super) use mirror::{Location, Mirror};
@@ -51,7 +52,7 @@ pub(super) trait BufferBinding: Sync {
 /// mirror. CPU access waits for pending GPU work, and GPU writes need exclusive access.
 pub struct Buffer<T: GpuValue> {
     storage: Storage,
-    device_id: u64,
+    device: Device,
     access: Arc<AccessState>,
     mirror: Option<Mirror<T>>,
     len: usize,
@@ -62,7 +63,7 @@ impl<T: GpuValue> fmt::Debug for Buffer<T> {
         f.debug_struct("Buffer")
             .field("element", &std::any::type_name::<T>())
             .field("len", &self.len)
-            .field("device_id", &self.device_id)
+            .field("device_id", &self.device.id())
             .finish_non_exhaustive()
     }
 }
@@ -96,7 +97,7 @@ impl<T: GpuValue> Buffer<T> {
         };
         Ok(Self {
             storage: Storage(raw),
-            device_id: device.id(),
+            device: device.clone(),
             access: Arc::default(),
             mirror,
             len,
@@ -212,7 +213,7 @@ impl<T: GpuValue> BufferBinding for Buffer<T> {
         self.len
     }
     fn device_id(&self) -> u64 {
-        self.device_id
+        self.device.id()
     }
     fn access(&self) -> &Arc<AccessState> {
         &self.access

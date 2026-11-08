@@ -17,19 +17,6 @@ const ZERO: usize = 0;
 /// The most words one snapshot dispatch reads, one per thread of its single block.
 const SNAPSHOT_WIDTH: usize = 256;
 
-pub(super) const SNAPSHOT_KERNEL: &str = "metal_oxide_snapshot";
-
-/// Sets a fresh gate when any word it reads is set.
-pub(super) const SNAPSHOT_SOURCE: &str = "#include <metal_stdlib>
-using namespace metal;
-
-kernel void metal_oxide_snapshot(const device uint* words [[buffer(0)]], device atomic_uint* gate [[buffer(1)]], uint i [[thread_position_in_grid]]) {
-    if (words[i] != 0u) {
-        atomic_store_explicit(gate, 1u, memory_order_relaxed);
-    }
-}
-";
-
 /// Shared storage for gate, failure and length words.
 struct Chunk(Retained<ProtocolObject<dyn MTLBuffer>>);
 

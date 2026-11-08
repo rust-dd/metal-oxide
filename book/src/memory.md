@@ -23,6 +23,11 @@ require exclusive borrows or ownership. Operations retain their arguments throug
 execution. Devices, pipelines and buffers can cross threads; each operation's
 thread traits also depend on its arguments and closures.
 
+`destination.copy_from(&source)` copies a buffer of the same length and
+`buffer.fill(value)` sets every element on the GPU. Both are lazy operations like a
+launch: they follow earlier work on their buffers, can be pushed into a sequence, and
+do not block the CPU as `write().wait()` does.
+
 Within a sequence, a CPU read panics while a write is recorded. CPU writes, upload
 and native export panic while any access is recorded. Conflicting nested batches
 return `InvalidBuffer`. These recording reservations also protect the interval

@@ -66,7 +66,7 @@ impl<T: GpuValue> Buffer<T> {
         Ok(Self {
             mirror: Self::mirror(len, bytes, Location::Gpu)?,
             storage: Storage(raw),
-            device_id: device.id(),
+            device: device.clone(),
             access: Arc::default(),
             len,
         })

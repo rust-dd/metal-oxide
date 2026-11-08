@@ -18,9 +18,10 @@ use objc2_metal::{
 use crate::{Dim3, Error, GpuValue, Result};
 
 use super::{
-    Buffer, Library, Module, Pipeline,
+    Buffer, Library, Pipeline,
     backend::Backend,
-    failures::{FailurePool, SNAPSHOT_KERNEL, SNAPSHOT_SOURCE},
+    builtins::{Builtin, Builtins},
+    failures::FailurePool,
     library::Libraries,
 };
 
@@ -73,7 +74,7 @@ struct Context {
     backend: Backend,
     id: u64,
     failures: Arc<FailurePool>,
-    snapshot: OnceLock<Retained<ProtocolObject<dyn MTLComputePipelineState>>>,
+    builtins: Builtins,
     log: OnceLock<Retained<ProtocolObject<dyn MTLLogState>>>,
     libraries: Libraries,
     capture: bool,
@@ -137,7 +138,7 @@ impl Device {
                 backend,
                 id,
                 failures: Arc::default(),
-                snapshot: OnceLock::new(),
+                builtins: Builtins::default(),
                 log: OnceLock::new(),
                 libraries: Libraries::default(),
                 capture,
@@ -211,12 +212,19 @@ impl Device {
     pub(super) fn snapshot(
         &self,
     ) -> Result<&Retained<ProtocolObject<dyn MTLComputePipelineState>>> {
-        if let Some(pipeline) = self.0.snapshot.get() {
-            return Ok(pipeline);
-        }
-        let module = Module::from_source(self, SNAPSHOT_SOURCE)?;
-        let pipeline = super::pipeline::compile(self, &module, SNAPSHOT_KERNEL)?;
-        Ok(self.0.snapshot.get_or_init(|| pipeline))
+        Ok(self.0.builtins.compile(self, Builtin::Snapshot)?.raw())
+    }
+
+    /// A built-in kernel's pipeline if this context has compiled it.
+    pub(super) fn cached_builtin(&self, kernel: Builtin) -> Option<Pipeline> {
+        let compiled = self.0.builtins.cached(kernel)?;
+        Some(Pipeline::from_compiled(self.clone(), Arc::clone(compiled)))
+    }
+
+    /// A built-in kernel's pipeline, compiled on first use.
+    pub(super) fn builtin(&self, kernel: Builtin) -> Result<Pipeline> {
+        let compiled = self.0.builtins.compile(self, kernel)?;
+        Ok(Pipeline::from_compiled(self.clone(), Arc::clone(compiled)))
     }
 
     /// Returns an embedded kernel's cached pipeline without waiting for the cache lock.

@@ -13,33 +13,62 @@ use crate::{
 };
 
 use super::{Device, Pipeline};
-use crate::metal::Library;
+use crate::metal::{Library, builtins::Builtin};
 
 pub(in crate::metal) enum Source {
     Ready(Pipeline),
-    Embedded {
+    Pending {
         device: Device,
-        library: &'static Library,
-        entry: &'static str,
+        kernel: Kernel,
         preparation: Option<Preparation>,
     },
+}
+
+/// A kernel whose pipeline a device context compiles on first use and then caches.
+#[derive(Clone, Copy)]
+pub(in crate::metal) enum Kernel {
+    Embedded {
+        library: &'static Library,
+        entry: &'static str,
+    },
+    Builtin(Builtin),
+}
+
+impl Kernel {
+    fn cached(self, device: &Device) -> Option<Pipeline> {
+        match self {
+            Self::Embedded { library, entry } => device.cached_kernel(library, entry),
+            Self::Builtin(kernel) => device.cached_builtin(kernel),
+        }
+    }
+
+    fn prepare(self, device: &Device) -> Result<Pipeline> {
+        match self {
+            Self::Embedded { library, entry } => device.kernel(library, entry),
+            Self::Builtin(kernel) => device.builtin(kernel),
+        }
+    }
 }
 
 impl fmt::Debug for Source {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ready(pipeline) => pipeline.fmt(f),
-            Self::Embedded {
+            Self::Pending {
                 device,
-                entry,
+                kernel,
                 preparation,
-                ..
-            } => f
-                .debug_struct("Embedded")
-                .field("entrypoint", entry)
-                .field("device_id", &device.id())
-                .field("preparing", &preparation.is_some())
-                .finish_non_exhaustive(),
+            } => {
+                let entrypoint = match kernel {
+                    Kernel::Embedded { entry, .. } => *entry,
+                    Kernel::Builtin(kernel) => kernel.entry(),
+                };
+                f.debug_struct("Pending")
+                    .field("entrypoint", &entrypoint)
+                    .field("device_id", &device.id())
+                    .field("preparing", &preparation.is_some())
+                    .finish_non_exhaustive()
+            }
         }
     }
 }
@@ -49,15 +78,10 @@ impl Source {
         Self::Ready(pipeline)
     }
 
-    pub(in crate::metal) fn embedded(
-        device: &Device,
-        library: &'static Library,
-        entry: &'static str,
-    ) -> Self {
-        Self::Embedded {
+    pub(in crate::metal) fn pending(device: &Device, kernel: Kernel) -> Self {
+        Self::Pending {
             device: device.clone(),
-            library,
-            entry,
+            kernel,
             preparation: None,
         }
     }
@@ -65,28 +89,26 @@ impl Source {
     pub(in crate::metal) fn device(&self) -> &Device {
         match self {
             Self::Ready(pipeline) => pipeline.device(),
-            Self::Embedded { device, .. } => device,
+            Self::Pending { device, .. } => device,
         }
     }
 
     pub(in crate::metal) fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        let Self::Embedded {
+        let Self::Pending {
             device,
-            library,
-            entry,
+            kernel,
             preparation,
         } = self
         else {
             return Poll::Ready(Ok(()));
         };
         if preparation.is_none() {
-            if let Some(pipeline) = device.cached_kernel(library, entry) {
+            if let Some(pipeline) = kernel.cached(device) {
                 *self = Self::Ready(pipeline);
                 return Poll::Ready(Ok(()));
             }
-            let device = device.clone();
-            let (library, entry) = (*library, *entry);
-            *preparation = Some(Preparation::new(move || device.kernel(library, entry)));
+            let (device, kernel) = (device.clone(), *kernel);
+            *preparation = Some(Preparation::new(move || kernel.prepare(&device)));
         }
         match preparation.as_ref().unwrap().poll(cx) {
             Poll::Ready(Ok(pipeline)) => {

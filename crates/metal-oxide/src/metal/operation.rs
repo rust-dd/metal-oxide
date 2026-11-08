@@ -12,8 +12,9 @@ use objc2::rc::autoreleasepool;
 use super::{
     Argument, Device, Library, Pipeline,
     batch::Batch,
+    builtins::Builtin,
     completion::{Completion, GpuTime},
-    pipeline::Source,
+    pipeline::{Kernel, Source},
 };
 use crate::{DynamicLaunchConfig, Result};
 
@@ -110,8 +111,29 @@ impl<A, const N: usize> Launch<A, N> {
         bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
     ) -> Self {
         Self {
-            pipeline: Ok(Source::embedded(device, library, entry)),
+            pipeline: Ok(Source::pending(device, Kernel::Embedded { library, entry })),
             config: config.into(),
+            arguments,
+            bind,
+        }
+    }
+
+    /// A dispatch of a runtime kernel; `check` fails the operation before anything is encoded.
+    ///
+    /// # Safety
+    ///
+    /// As for [`Launch::new`].
+    pub(super) unsafe fn builtin(
+        device: &Device,
+        kernel: Builtin,
+        check: Result<()>,
+        config: DynamicLaunchConfig,
+        arguments: A,
+        bind: for<'a> fn(&'a mut A) -> Result<[Argument<'a>; N]>,
+    ) -> Self {
+        Self {
+            pipeline: check.map(|()| Source::pending(device, Kernel::Builtin(kernel))),
+            config,
             arguments,
             bind,
         }

@@ -3,6 +3,7 @@ mod argument;
 mod backend;
 mod batch;
 mod buffer;
+mod builtins;
 mod capture;
 mod classic;
 mod completion;

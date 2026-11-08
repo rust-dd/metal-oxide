@@ -18,7 +18,7 @@ use crate::{Error, Result, launch::shape};
 use super::{Device, Module, argument::Signature, backend::Backend, failures::KernelChecks};
 
 mod source;
-pub(super) use source::Source;
+pub(super) use source::{Kernel, Source};
 
 static METAL4_COMPILATION: Mutex<()> = Mutex::new(());
 
@@ -161,6 +161,10 @@ impl Pipeline {
 }
 
 impl Compiled {
+    pub(super) fn raw(&self) -> &Retained<ProtocolObject<dyn MTLComputePipelineState>> {
+        &self.raw
+    }
+
     pub(super) fn new(device: &Device, module: &Module, entrypoint: &str) -> Result<Self> {
         if module.device_id != device.id() {
             return Err(Error::DeviceMismatch);

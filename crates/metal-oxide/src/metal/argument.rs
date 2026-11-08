@@ -131,6 +131,20 @@ impl<'a> Argument<'a> {
         Ok(Self::new::<T>(value, Kind::Value))
     }
 
+    /// Passes `bytes`, whole 16-byte vectors, as a 16-byte-aligned constant to a runtime kernel.
+    pub(super) fn vectors(bytes: Vec<u8>) -> Self {
+        Self {
+            value: Value::Encoded(bytes),
+            signature: Signature {
+                element: TypeId::of::<[u32; 4]>(),
+                kind: Kind::Value,
+            },
+            layout: crate::value::layout::<[u32; 4]>,
+            size: 16,
+            alignment: 16,
+        }
+    }
+
     /// Reserves uninitialized block-local storage for `elements` canonical values.
     /// The native byte count rounds up to a nonzero multiple of 16. Each argument
     /// uses a separate threadgroup slot, independently of buffer/value slots.
