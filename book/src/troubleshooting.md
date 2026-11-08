@@ -35,6 +35,7 @@ On macOS 26 with a GPU of the Metal 4 family, devices use Metal 4; otherwise the
 classic Metal. `METAL_OXIDE_BACKEND=classic` selects classic Metal, which shows whether
 a failure is specific to Metal 4. `METAL_OXIDE_BACKEND=metal4` fails with
 `Error::UnsupportedDevice` without Metal 4, and other values fail with `Error::Command`.
+`Device::native_api()` and `cargo metal setup --check` report the API in use.
 
 ## A kernel failed
 

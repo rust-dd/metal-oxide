@@ -51,8 +51,9 @@ fn limits() -> metal_oxide::Result<String> {
     )?;
     let pipeline = Pipeline::new(&device, &module, "probe")?;
     Ok(format!(
-        "{}; SIMD width {}, {} threads per block, {} B threadgroup memory",
+        "{}; {}; SIMD width {}, {} threads per block, {} B threadgroup memory",
         device.name(),
+        device.native_api(),
         pipeline.thread_execution_width(),
         pipeline.max_threads_per_block(),
         device.max_threadgroup_memory_per_block()

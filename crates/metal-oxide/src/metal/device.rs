@@ -1,7 +1,7 @@
 use std::{
     fmt,
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock, PoisonError, Weak,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -26,6 +26,9 @@ use super::{
 
 static NEXT_DEVICE_ID: AtomicU64 = AtomicU64::new(1);
 
+/// The default GPU's context while a clone of it lives; a static cannot hold loom's `Mutex`.
+static DEFAULT: Mutex<Weak<Context>> = Mutex::new(Weak::new());
+
 /// A Metal device and its command queues; clones share them, and any thread may use them.
 /// An operation runs after the operations committed before it that use its buffers; the others
 /// may run concurrently on other queues and finish independently.
@@ -38,15 +41,30 @@ pub struct Device(Arc<Context>);
 
 impl fmt::Debug for Device {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let backend = match self.backend() {
-            Backend::Classic { .. } => "classic",
-            Backend::Metal4 { .. } => "metal4",
-        };
         f.debug_struct("Device")
             .field("name", &self.name())
             .field("id", &self.id())
-            .field("backend", &backend)
+            .field("native_api", &self.native_api())
             .finish_non_exhaustive()
+    }
+}
+
+/// The native Metal API that a device context submits its work through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NativeApi {
+    /// `MTLCommandQueue` command buffers, on every supported macOS.
+    Classic,
+    /// Metal 4 command queues, on macOS 26 with a GPU of the Metal 4 family.
+    Metal4,
+}
+
+impl fmt::Display for NativeApi {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Classic => "classic Metal",
+            Self::Metal4 => "Metal 4",
+        })
     }
 }
 
@@ -70,11 +88,17 @@ impl Drop for Context {
 }
 
 impl Device {
-    /// Opens a new context on the default GPU, with its own queues, libraries and pipelines.
-    /// Launches reject buffers of another context with `Error::DeviceMismatch`; clone to share one.
+    /// The default GPU's context that a live clone holds, or else a new one with its own queues,
+    /// libraries and pipelines; `all` and `from_native` open independent contexts.
     pub fn system_default() -> Result<Self> {
+        let mut default = DEFAULT.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(context) = default.upgrade() {
+            return Ok(Self(context));
+        }
         let raw = MTLCreateSystemDefaultDevice().ok_or(Error::DeviceUnavailable)?;
-        Self::from_native(raw)
+        let device = Self::from_native(raw)?;
+        *default = Arc::downgrade(&device.0);
+        Ok(device)
     }
 
     /// Opens an independent context for each available device in native enumeration order.
@@ -119,6 +143,14 @@ impl Device {
                 capture,
             })))
         })
+    }
+
+    /// The native API that this context submits work through, chosen when it opened.
+    pub fn native_api(&self) -> NativeApi {
+        match self.backend() {
+            Backend::Classic { .. } => NativeApi::Classic,
+            Backend::Metal4 { .. } => NativeApi::Metal4,
+        }
     }
 
     /// The GPU's name, such as `Apple M4 Max`.
@@ -223,3 +255,6 @@ impl Device {
         Ok(())
     }
 }
+
+#[cfg(all(test, not(loom)))]
+mod tests;

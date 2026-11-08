@@ -325,7 +325,7 @@ fn an_encoding_error_discards_the_chain_and_leaves_the_context_usable() -> metal
 #[ignore = "requires a Metal device on Apple Silicon"]
 fn resources_from_another_queue_context_are_rejected() -> metal_oxide::Result<()> {
     let (device, pipeline) = setup()?;
-    let other = Device::system_default()?;
+    let other = Device::all()?.remove(0);
     let foreign = other.buffer_zeroed::<f32>(32)?;
     let mut output = device.buffer_zeroed::<f32>(32)?;
     let config = LaunchConfig::<256>::new(Dim3::x(0));

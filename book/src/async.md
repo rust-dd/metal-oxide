@@ -14,10 +14,10 @@ borrowed until the operation resolves or is dropped. CPU readback is also async.
 `sequence(|batch| ...)` puts pushed launches in one command buffer. Buffer accesses
 order dependent dispatches; independent dispatches may run concurrently. The
 runtime also orders conflicting operations across its queues. Device clones share
-that context. Each `Device::system_default()` call opens another one, with its own
-queues, libraries and pipelines: launches reject the buffers and pipelines of another
-context with `Error::DeviceMismatch`, and each context loads its libraries and compiles
-its pipelines again. Create one device and clone it where it is needed.
+that context, and so do the devices that `Device::system_default()` returns while one of
+them lives; once every clone has dropped, the next call opens a new context. `Device::all()`
+and `Device::from_native` open independent contexts, with their own queues, libraries and
+pipelines, whose buffers and pipelines other contexts reject with `Error::DeviceMismatch`.
 
 The pipeline example verifies two stages against CPU results:
 
