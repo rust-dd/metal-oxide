@@ -25,6 +25,18 @@
 - The book gains troubleshooting and organizing-kernels chapters, the API reference
   documents every public item of `metal-oxide` and `metal-oxide-device`, and a hardware
   report form asks for `cargo metal setup --check` and the generated MSL.
+- `buffer.copy_from(&source)` and `buffer.fill(value)` copy and fill buffers on the GPU as
+  lazy operations that follow earlier work like a launch, through built-in kernels that
+  match a blit encoder's copy bandwidth on an M4 Max.
+- `buffer.slice(range)` and `buffer.slice_mut(range)` pass part of a buffer to a launch at an
+  offset. The kernel, `requires` and `len()` see only those elements; dependency tracking
+  covers the whole buffer.
+- Kernel modules, inline or with a `path`, define `KERNELS` and `pipeline(&device, name)`,
+  which returns a kernel's pipeline from the device's cache for code that encodes its own
+  dispatches.
+- `Device::native_api` reports whether a context uses classic Metal or Metal 4, and
+  `cargo metal setup --check` prints it.
+
 
 ### Changed
 
@@ -43,6 +55,16 @@
 - Kernel items inside inline modules save their artifacts below the module names, such
   as `metal/src/lib.rs/tests/fill-precise/`, so same-named items in one file no longer
   overwrite each other's artifacts.
+- `Device::system_default` returns the default GPU's context while any clone of it, a buffer
+  or a pipeline of it lives, and opens a new one only after they all dropped. Buffers keep
+  their context alive. `Device::all` and `Device::from_native` still open independent ones.
+- Launch errors name their kernel, shapes, limits and types: `InvalidLaunch` and
+  `InvalidBuffer` carry a `String`, argument count and type mismatches are `InvalidLaunch`
+  instead of `Artifact`, an invalid `METAL_OXIDE_BACKEND` is `Error::Environment`, and I/O
+  errors of `Module::from_artifact` and `from_metallib` name the file.
+- `Argument::read`, `write`, `read_write` and `atomic` take any launch argument by
+  reference: a buffer, an `Arc`, or a slice.
+
 
 ### Fixed
 
@@ -99,6 +121,14 @@
   and `metal-oxide-ir` gains `I64`; `metal-oxide-ir` also gains `Constant::I64`, math
   operations and slice-pattern projections, and its `Error` a `calls` field. Exhaustive matches
   on these enums and `Error` literals need the new cases.
+- Kernel modules no longer define `module(&device)`; replace
+  `Pipeline::new(&device, &kernels::module(&device)?, name)` with
+  `kernels::pipeline(&device, name)`.
+- `ReadArgument::buffer` and `WriteArgument::buffer_mut` are `view` and `view_mut`, which
+  return the bound elements; `Argument::read(input.buffer())` becomes `Argument::read(input)`.
+- Code that matched `Error::InvalidLaunch` or `InvalidBuffer` messages as `&str` compares
+  `String`s, and code that expected `Error::Artifact` for wrong launch arguments expects
+  `Error::InvalidLaunch`.
 
 ## 0.1.0-alpha.1
 
