@@ -1,7 +1,4 @@
-use std::{
-    ops::Range,
-    sync::{Arc, OnceLock},
-};
+use std::{ops::Range, sync::Arc};
 
 use metal_oxide_artifact::Check;
 use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -173,10 +170,15 @@ pub(super) struct Failures {
     gate: Option<usize>,
     /// Words before this index were written by levels that have ended.
     closed: usize,
-    /// The command buffers whose writes this one reads, kept until it knows its failure.
-    upstream: Mutex<Vec<Arc<Failures>>>,
-    /// The failure behind this command buffer, once its completion handler has read it.
-    root: OnceLock<Option<KernelFailure>>,
+    propagation: Mutex<Propagation>,
+}
+
+/// What a command buffer passes on to the command buffers that read its writes.
+enum Propagation {
+    /// The command buffers whose writes it reads, kept until it knows its failure.
+    Upstream(Vec<Arc<Failures>>),
+    /// The failure behind it, recorded by its completion handler.
+    Root(Option<KernelFailure>),
 }
 
 impl Failures {
@@ -189,8 +191,7 @@ impl Failures {
             fallible: Vec::new(),
             gate: None,
             closed: 0,
-            upstream: Mutex::new(Vec::new()),
-            root: OnceLock::new(),
+            propagation: Mutex::new(Propagation::Upstream(Vec::new())),
         }
     }
 
@@ -208,7 +209,7 @@ impl Failures {
             .iter()
             .flat_map(|failures| failures.segments(0..failures.words.used))
             .collect::<Vec<_>>();
-        *lock(&self.upstream) = upstream;
+        *lock(&self.propagation) = Propagation::Upstream(upstream);
         if sources.is_empty() {
             return Ok(None);
         }
@@ -315,32 +316,26 @@ impl Failures {
     /// Why the command buffer failed, read once by its completion handler. Records the root
     /// failure for later command buffers and releases the upstream ones.
     pub(super) fn finish(&self) -> Option<Failed> {
-        let mut upstream = lock(&self.upstream);
+        let mut propagation = lock(&self.propagation);
         let failed = match self.failure() {
             Some(failure) => Some(Failed::Kernel(failure)),
-            None => upstream
-                .iter()
-                .find_map(|failures| failures.root())
-                .map(Failed::Dependency),
+            None => propagation.upstream_root().map(Failed::Dependency),
         };
         let root = failed
             .as_ref()
             .map(|(Failed::Kernel(failure) | Failed::Dependency(failure))| failure.clone());
-        // Set before the upstream goes, so `root` never sees neither.
-        let _ = self.root.set(root);
-        upstream.clear();
+        *propagation = Propagation::Root(root);
         failed
     }
 
     /// The failure that a command buffer reading from this one reports, after this one's GPU
     /// work has completed.
     fn root(&self) -> Option<KernelFailure> {
-        let upstream = lock(&self.upstream);
-        if let Some(root) = self.root.get() {
-            return root.clone();
+        let propagation = lock(&self.propagation);
+        match &*propagation {
+            Propagation::Root(root) => root.clone(),
+            Propagation::Upstream(_) => self.failure().or_else(|| propagation.upstream_root()),
         }
-        self.failure()
-            .or_else(|| upstream.iter().find_map(|failures| failures.root()))
     }
 
     /// The failed dispatch pushed first, read after the command buffer completes.
@@ -377,6 +372,16 @@ impl Drop for Failures {
             chunk.clear();
         }
         lock(&self.pool.0).append(&mut self.chunks);
+    }
+}
+
+impl Propagation {
+    /// The failure behind the first upstream command buffer that has one.
+    fn upstream_root(&self) -> Option<KernelFailure> {
+        match self {
+            Self::Upstream(upstream) => upstream.iter().find_map(|failures| failures.root()),
+            Self::Root(_) => None,
+        }
     }
 }
 
