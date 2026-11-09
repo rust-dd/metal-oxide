@@ -163,5 +163,7 @@ impl Metal4Queue {
     }
 }
 
+#[cfg(all(test, loom))]
+mod loom;
 #[cfg(test)]
 mod tests;
