@@ -411,3 +411,6 @@ impl Fallible {
         }
     }
 }
+
+#[cfg(all(test, loom))]
+mod loom;

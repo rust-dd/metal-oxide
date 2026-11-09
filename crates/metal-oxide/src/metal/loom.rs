@@ -6,7 +6,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::NonNull,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
     task::{Context, Wake, Waker},
@@ -14,6 +14,8 @@ use std::{
 
 use loom::{sync::atomic::AtomicBool, thread};
 use metal_oxide_artifact::{Access, Layout};
+use objc2::{rc::Retained, runtime::ProtocolObject};
+use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
 
 use super::{
     access::AccessState,
@@ -22,6 +24,13 @@ use super::{
     completion::Completion,
 };
 use crate::GpuValue;
+
+/// The system device, for models of state that holds native objects; model threads stand in
+/// for the GPU.
+pub(super) fn device() -> &'static ProtocolObject<dyn MTLDevice> {
+    static DEVICE: OnceLock<Retained<ProtocolObject<dyn MTLDevice>>> = OnceLock::new();
+    DEVICE.get_or_init(|| MTLCreateSystemDefaultDevice().expect("the models need a Metal device"))
+}
 
 /// Decode counts per model; tests run concurrently, so each model owns one counter.
 static DECODES: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
