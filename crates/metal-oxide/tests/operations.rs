@@ -373,15 +373,21 @@ fn overlapping_operations_survive_cancellation_and_reuse() -> metal_oxide::Resul
         let mut pending = Vec::new();
         for (index, output) in outputs.iter_mut().enumerate() {
             let offset = (round * 32 + index) as f32;
-            let future = started(scale_add(&pipeline, config, &input, output, 3.0, offset, n));
+            let mut future =
+                scale_add(&pipeline, config, &input, output, 3.0, offset, n).into_future();
+            // A preempted first poll can already find the work completed.
+            let first = Pin::new(&mut future).poll(&mut Context::from_waker(Waker::noop()));
             match index % 3 {
-                0 => pending.push(future),
+                0 => pending.push((future, first)),
                 1 => drop(future),
                 _ => std::mem::forget(future),
             }
         }
-        for future in pending.into_iter().rev() {
-            await_on_thread(future)?;
+        for (future, first) in pending.into_iter().rev() {
+            match first {
+                Poll::Ready(result) => result?,
+                Poll::Pending => await_on_thread(future)?,
+            };
         }
         for (index, output) in outputs.iter().enumerate() {
             assert!(
