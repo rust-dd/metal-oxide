@@ -64,7 +64,8 @@
   errors of `Module::from_artifact` and `from_metallib` name the file.
 - `Argument::read`, `write`, `read_write` and `atomic` take any launch argument by
   reference: a buffer, an `Arc`, or a slice.
-
+- `Operation::shared` runs on the runtime's own shared future; metal-oxide no longer depends
+  on futures-util.
 
 ### Fixed
 

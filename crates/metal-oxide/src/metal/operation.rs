@@ -19,6 +19,7 @@ use super::{
 use crate::{DynamicLaunchConfig, Result};
 
 mod compose;
+mod shared;
 pub use compose::Operation;
 
 mod sealed {
