@@ -204,3 +204,6 @@ fn wake_all(wakers: Vec<(usize, Waker)>, except: Option<usize>) {
         }
     }
 }
+
+#[cfg(all(test, loom))]
+mod loom;

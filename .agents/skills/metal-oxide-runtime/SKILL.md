@@ -48,8 +48,10 @@ separate.
   `unsafe impl Send/Sync` only on small leaf types that own
   non-thread-safe native objects (buffer storage, Metal 4 command storage), with the
   protocol that makes them sound; never on `Device` or `Buffer` as a whole.
-- Cross-thread state uses the `metal/sync.rs` primitives so the loom models in
-  `metal/loom.rs` cover completion, buffer access and codec mirrors. Run them with
+- Cross-thread state uses the `metal/sync.rs` primitives so loom models cover it:
+  `metal/loom.rs` (completion, buffer access, codec mirrors) and the `loom.rs` modules of
+  failures, queues and shared operations. Models of native state use the system device, and
+  model threads stand in for the GPU. Run them with
   `RUSTFLAGS="--cfg loom" cargo test -p metal-oxide --lib --release loom` after
   changing that state.
 - Read arguments are shared borrows, owned buffers or `Arc`s; writes and read-write
