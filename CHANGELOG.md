@@ -120,6 +120,9 @@
   is stored. The call could change the array, and the check's facts about the copy were
   dropped with the array's, so the kernel was rejected with "signed division/remainder
   requires a proved MIN/-1 exclusion".
+- Code after a loop with several exits follows the exit the loop took on the GPUs of hosted
+  macOS runners. Their Metal compiler could pick another one, so
+  `for x in values.iter().take(3).filter(..)` ran its body without a matching element.
 
 ### Upgrading
 

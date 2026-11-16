@@ -436,9 +436,14 @@ impl<'a> Emitter<'a> {
         } else {
             self.graph.branch_join(&exits, stop)
         };
+        // Metal's GPU compiler on hosted runners could follow the wrong exit when it saw the test.
+        let exit = format!(
+            "(metal_oxide_exit_{header} ^ {})",
+            crate::arithmetic::OPAQUE_ZERO
+        );
         let branches = exits[..exits.len() - 1]
             .iter()
-            .map(|&target| (format!("metal_oxide_exit_{header} == {target}u"), target))
+            .map(|&target| (format!("{exit} == {target}u"), target))
             .collect::<Vec<_>>();
         self.branches(&branches, *exits.last().unwrap(), join, contexts, None)?;
         Ok(join)

@@ -404,6 +404,9 @@ The generated MSL includes these workarounds for Apple compiler defects found by
 - On the Apple Paravirtual device of hosted CI, 64-bit integer to `float` conversions of
   values that become constant on the device are wrong. They convert through 32 bits,
   rounding to nearest even as Rust does.
+- On the same device, code after a loop with several exits can follow the wrong one, as when
+  `for x in values.iter().take(3).filter(..)` runs its body without a matching element. The
+  test of the exit a loop took XORs the recorded exit with the same zero.
 
 ### ABI
 
