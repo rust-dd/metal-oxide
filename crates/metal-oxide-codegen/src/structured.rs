@@ -144,8 +144,11 @@ impl<'a> Emitter<'a> {
     fn statements(&mut self, current: usize) -> Result<(), Error> {
         let function = self.function;
         let block = &function.blocks[current];
-        // Repeating a tail that emits nothing, such as a shared return, adds no code.
-        let free = self.graph.cfg.successors(current).is_empty()
+        // Repeating a block that emits nothing, such as a shared return or a jump to it, adds no
+        // code.
+        let free = (self.graph.cfg.successors(current).is_empty()
+            || matches!(block.terminator, Terminator::Goto(_)))
+            && !self.gates.within(current)
             && block
                 .statements
                 .iter()

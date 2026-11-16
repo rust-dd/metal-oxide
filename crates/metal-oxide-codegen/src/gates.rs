@@ -61,6 +61,10 @@ impl Gates {
         self.statement == Some((block, statement))
     }
 
+    pub(crate) fn within(&self, block: usize) -> bool {
+        self.statement.is_some_and(|(id, _)| id == block)
+    }
+
     pub(crate) fn before_loop(&self, header: usize) -> bool {
         self.loop_header == Some(header)
     }

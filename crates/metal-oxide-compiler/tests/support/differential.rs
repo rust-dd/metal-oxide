@@ -10,7 +10,7 @@ use std::{
 };
 
 /// The seeds that every run of the compiler tests checks; fuzzing draws others.
-pub const SEEDS: [u64; 29] = [
+pub const SEEDS: [u64; 30] = [
     0,
     1,
     2,
@@ -39,6 +39,7 @@ pub const SEEDS: [u64; 29] = [
     0xcd7b_f5c7_23fd_40ff,
     0xe745_5123_b397_7ba2,
     0xf93f_37bb_76ff_56a4,
+    0x07ec_e2c3_5150_a2cb,
     u64::MAX,
 ];
 
