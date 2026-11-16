@@ -10,7 +10,7 @@ use std::{
 };
 
 /// The seeds that every run of the compiler tests checks; fuzzing draws others.
-pub const SEEDS: [u64; 31] = [
+pub const SEEDS: [u64; 33] = [
     0,
     1,
     2,
@@ -41,6 +41,8 @@ pub const SEEDS: [u64; 31] = [
     0xf93f_37bb_76ff_56a4,
     0x07ec_e2c3_5150_a2cb,
     0x8299_ec24_28b9_cf85,
+    0xe730_8ba4_9196_4e45,
+    0x09e4_0f62_6a65_bf0e,
     u64::MAX,
 ];
 
@@ -194,13 +196,15 @@ impl Case {
         Ok(output)
     }
 
-    /// What rustc's build of the program for the host computes.
+    /// What rustc's build of the program for the host computes. It is unoptimized, since LLVM
+    /// spent over ten minutes on some programs, and without debug assertions, like kernels.
     pub fn cpu(&self) -> Result<Run, String> {
         let binary = self.directory.join("cpu");
         let mut rustc = Command::new("rustc");
         rustc
             .arg(&self.source)
-            .args(["--edition=2024", "--cfg", "cpu_reference", "-O", "-C"])
+            .args(["--edition=2024", "--cfg", "cpu_reference"])
+            .args(["-C", "debug-assertions=off", "-C"])
             .arg(self.overflow_checks())
             .arg("-o")
             .arg(&binary);
