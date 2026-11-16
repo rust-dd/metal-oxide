@@ -95,8 +95,8 @@ impl State<'_> {
             .any(|(x, relation, y)| stronger(*relation) && self.same(x, a) && self.same(y, b))
     }
 
-    /// Before `destination` is overwritten, a copy of its old value takes over the relations
-    /// and copies that named it.
+    /// Before `destination` is overwritten, a copy of its old value takes over the symbols,
+    /// predicates, relations and copies that named it.
     pub(super) fn inherit(&mut self, destination: &Place) {
         let heirs = self
             .copies
@@ -117,6 +117,24 @@ impl State<'_> {
                 .map_or_else(|| atom.clone(), |heir| Atom::Place(heir.clone())),
             _ => atom.clone(),
         };
+        // An heir holds the value itself, so it drops its alias.
+        self.aliases = std::mem::take(&mut self.aliases)
+            .into_iter()
+            .filter_map(|(place, atom)| {
+                let atom = rename(&atom);
+                (atom != Atom::Place(place.clone())).then_some((place, atom))
+            })
+            .collect();
+        for predicate in self.predicates.values_mut() {
+            *predicate = predicate.rename(&rename);
+        }
+        self.truths = std::mem::take(&mut self.truths)
+            .into_iter()
+            .map(|(predicate, value)| (predicate.rename(&rename), value))
+            .collect();
+        for (source, _) in self.casts.values_mut() {
+            *source = rename(source);
+        }
         self.relations = self
             .relations
             .iter()

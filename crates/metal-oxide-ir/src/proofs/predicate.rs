@@ -75,6 +75,14 @@ impl Predicate {
         }
     }
 
+    /// `a op b`, with the operands of an equality or inequality in ascending order.
+    pub fn canonical(op: Comparison, mut a: Atom, mut b: Atom) -> Self {
+        if matches!(op, Comparison::Eq | Comparison::Ne) && b < a {
+            std::mem::swap(&mut a, &mut b);
+        }
+        Self::Compare(op, a, b)
+    }
+
     pub fn combine(a: Self, b: Self, and: bool) -> Self {
         let mut values = Vec::new();
         for p in [a, b] {
@@ -84,12 +92,29 @@ impl Predicate {
                 _ => values.push(p),
             }
         }
+        Self::connect(values, and)
+    }
+
+    /// `values` joined by `and` or `or` in ascending order, without repetitions.
+    fn connect(mut values: Vec<Self>, and: bool) -> Self {
         values.sort();
         values.dedup();
         if and {
             Self::And(values)
         } else {
             Self::Or(values)
+        }
+    }
+
+    /// The predicate over the atoms `rename` gives, in the order a fresh one would have.
+    pub fn rename(&self, rename: &impl Fn(&Atom) -> Atom) -> Self {
+        match self {
+            Self::Compare(op, a, b) => Self::canonical(*op, rename(a), rename(b)),
+            Self::Not(p) => Self::Not(Box::new(p.rename(rename))),
+            Self::And(values) | Self::Or(values) => Self::connect(
+                values.iter().map(|p| p.rename(rename)).collect(),
+                matches!(self, Self::And(_)),
+            ),
         }
     }
 
@@ -219,10 +244,5 @@ pub(super) fn from_binary(
 
 fn atoms(state: &State, op: BinaryOp, a: &Operand, b: &Operand) -> Option<Predicate> {
     let op = comparison(op)?;
-    let mut a = state.symbol(a)?;
-    let mut b = state.symbol(b)?;
-    if matches!(op, Comparison::Eq | Comparison::Ne) && b < a {
-        std::mem::swap(&mut a, &mut b);
-    }
-    Some(Predicate::Compare(op, a, b))
+    Some(Predicate::canonical(op, state.symbol(a)?, state.symbol(b)?))
 }

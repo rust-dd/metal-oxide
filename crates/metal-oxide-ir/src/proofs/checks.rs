@@ -129,12 +129,11 @@ pub(super) fn division(
 
 /// `operand == value` in the canonical atom order that assumed conditions are recorded under.
 fn equality(state: &State<'_>, operand: &Operand, value: i128) -> Option<Predicate> {
-    let mut a = state.symbol(operand)?;
-    let mut b = Atom::Integer(value);
-    if b < a {
-        std::mem::swap(&mut a, &mut b);
-    }
-    Some(Predicate::Compare(Comparison::Eq, a, b))
+    Some(Predicate::canonical(
+        Comparison::Eq,
+        state.symbol(operand)?,
+        Atom::Integer(value),
+    ))
 }
 
 /// `slice[start..end]` needs its range checks: `start <= end <= len`.

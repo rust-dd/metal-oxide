@@ -181,3 +181,37 @@ fn facts_of_a_check_reach_its_operation_when_many_paths_merge() {
         expected
     );
 }
+
+/// The kernel of `proofs_escaped_dividend.rs`, or `None` where Rust panics.
+fn escaped_dividend(dividend: i32, divisor: i32, exponent: u32) -> Option<[i32; 3]> {
+    let mut values = [dividend, 1, 2];
+    values[(exponent.wrapping_pow(exponent) % 3) as usize] = values[0].checked_rem(divisor)?;
+    Some(values.map(|value| value.wrapping_add(1)))
+}
+
+#[test]
+fn a_copied_dividend_keeps_its_overflow_check_when_its_array_may_change() {
+    let (output, directory) = support::emit(
+        "crates/metal-oxide-compiler/tests/fixtures/proofs_escaped_dividend.rs",
+        &["-C", "overflow-checks=off"],
+    );
+    support::checked(output);
+    let overflow = support::check(&directory, serde_json::json!({"overflow": "rem"}), 9);
+    let inputs = [(7, 3, 2), (i32::MIN, -1, 1), (i32::MIN, 3, 0), (-9, 4, 5)];
+    let expected = inputs
+        .map(
+            |(dividend, divisor, exponent)| match escaped_dividend(dividend, divisor, exponent) {
+                Some([a, b, c]) => format!("{a},{b},{c},0;"),
+                None => format!("99,99,99,{};", overflow + 2),
+            },
+        )
+        .concat();
+    assert_eq!(
+        support::execute_msl(
+            &directory,
+            "int dividends[] = {7, -2147483647 - 1, -2147483647 - 1, -9}; int divisors[] = {3, -1, 3, 4}; uint exponents[] = {2, 1, 0, 5}; \
+             for (int i = 0; i < 4; ++i) { int out[3] = {99, 99, 99}; escaped_dividend(out, dividends[i], divisors[i], exponents[i], {}, {}, {1, 1, 1}, {1, 1, 1}, metal_oxide_gate, metal_oxide_failure); std::cout << out[0] << ',' << out[1] << ',' << out[2] << ',' << atomic_load_explicit(metal_oxide_failure, memory_order_relaxed) << ';'; atomic_store_explicit(metal_oxide_failure, 0u, memory_order_relaxed); }"
+        ),
+        expected
+    );
+}

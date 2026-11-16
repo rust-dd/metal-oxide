@@ -115,6 +115,11 @@
   Apple GPUs evaluated wrongly, so `checked_add(..).expect(..)` failed for sums that fit.
 - Loops and branches with many early `return`s compile. Each of them repeated the empty
   shared return block, which counted toward the duplication limit.
+- A signed division or remainder of a value copied from an array compiles when a call runs
+  between Rust's overflow check and the operation, such as one that computes where the result
+  is stored. The call could change the array, and the check's facts about the copy were
+  dropped with the array's, so the kernel was rejected with "signed division/remainder
+  requires a proved MIN/-1 exclusion".
 
 ### Upgrading
 
