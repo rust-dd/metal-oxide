@@ -976,13 +976,13 @@
   "files": {
     "msl": "5407023dc1abc083846418b924d3f598390364c0a6ed72a2e09783dd60ae403d",
     "oxide_ir": "a0103873737fcd87c9dec003cc2b075a1f8e3332332cccc2ac8e949942c048e4",
-    "rustc_args": "e6c90966ff658393742e84757b2eb24b4d00243122cc4659dbe50003daabc4ba",
+    "rustc_args": "d5c1e7e9bd5459c2f305a3d8530263eb581b03463c11fd3871100929ed86c6b1",
     "ir": "9cc6b8d655950c0634dcf238474aa321df9a982941e1f39e43d3dffd2750537e",
     "metallib": "8071a057f458fbfbe90d4b62f851acf33defcbb27619853aec6e59f9dbd5f8ad"
   },
   "build": {
-    "fingerprint": "2f80e9d38e11a01b3b5f2a6929db13f4852135cf4a611f1dbea8fbcee8f72ad4",
-    "compiler": "0.1.0-alpha.2",
+    "fingerprint": "9e09e7fcf916cd58133b7fc95ea0f9d627e8f68042ceedca1d5c3be3cbceba35",
+    "compiler": "0.1.0-alpha.3",
     "rustc": "rustc 1.101.0-nightly (db8f076d2 2026-10-03)\nbinary: rustc\ncommit-hash: db8f076d2619ce2585b0380dda06e8da25a40da4\ncommit-date: 2026-10-03\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1",
     "metal": "Apple metal version 32023.922 (metalfe-32023.922.4)",
     "sdk": "27.2",
