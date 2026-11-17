@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.2
 
 ### Added
 
@@ -36,7 +36,6 @@
   dispatches.
 - `Device::native_api` reports whether a context uses classic Metal or Metal 4, and
   `cargo metal setup --check` prints it.
-
 
 ### Changed
 
@@ -124,28 +123,35 @@
   macOS runners. Their Metal compiler could pick another one, so
   `for x in values.iter().take(3).filter(..)` ran its body without a matching element.
 
-### Upgrading
+### Upgrading from 0.1.0-alpha.1
 
-- Saved inputs use format 4. Build once with the kernel toolchain and commit the
-  regenerated `metal/` directories; locked and toolchain-less builds report format 3
-  artifacts as unsupported until then.
-- `metal_oxide_build::KernelCrate` takes the module's `location` instead of its `file`.
-- Replace `math::sqrt(x)` with `x.sqrt()`, `math::fma(a, b, c)` with `a.mul_add(b, c)` and
-  the other functions likewise. Kernel crates import `metal_oxide_device::Float`; kernels in
-  host crates need no import.
-- `cargo semver-checks` against `0.1.0-alpha.1` finds no breaking change in `metal-oxide`
-  and `metal-oxide-codegen`. Besides the two changes above, `Scalar` of `metal-oxide-artifact`
-  and `metal-oxide-ir` gains `I64`; `metal-oxide-ir` also gains `Constant::I64`, math
-  operations and slice-pattern projections, and its `Error` a `calls` field. Exhaustive matches
-  on these enums and `Error` literals need the new cases.
-- Kernel modules no longer define `module(&device)`; replace
-  `Pipeline::new(&device, &kernels::module(&device)?, name)` with
-  `kernels::pipeline(&device, name)`.
-- `ReadArgument::buffer` and `WriteArgument::buffer_mut` are `view` and `view_mut`, which
-  return the bound elements; `Argument::read(input.buffer())` becomes `Argument::read(input)`.
-- Code that matched `Error::InvalidLaunch` or `InvalidBuffer` messages as `&str` compares
-  `String`s, and code that expected `Error::Artifact` for wrong launch arguments expects
-  `Error::InvalidLaunch`.
+1. Install the matching tools with
+   `cargo install cargo-metal --version '=0.1.0-alpha.2' --locked`, then run
+   `cargo metal setup`.
+2. Change every metal-oxide dependency to `=0.1.0-alpha.2`.
+3. Build once with the kernel toolchain and commit the regenerated `metal/`
+   directories. Saved inputs use format 4, so locked and toolchain-less builds report
+   format 3 artifacts as unsupported until then.
+4. Replace `math::sqrt(x)` with `x.sqrt()`, `math::fma(a, b, c)` with `a.mul_add(b, c)` and
+   the other functions likewise. Kernel crates import `metal_oxide_device::Float`; kernels in
+   host crates need no import.
+5. Kernel modules no longer define `module(&device)`; replace
+   `Pipeline::new(&device, &kernels::module(&device)?, name)` with
+   `kernels::pipeline(&device, name)`.
+6. `ReadArgument::buffer` and `WriteArgument::buffer_mut` are `view` and `view_mut`, which
+   return the bound elements; `Argument::read(input.buffer())` becomes `Argument::read(input)`.
+7. Code that matched `Error::InvalidLaunch` or `InvalidBuffer` messages as `&str` compares
+   `String`s, and code that expected `Error::Artifact` for wrong launch arguments expects
+   `Error::InvalidLaunch`.
+8. Compiler integrations: `metal_oxide_build::KernelCrate` takes the module's `location`
+   instead of its `file`. `Scalar` of `metal-oxide-artifact` and `metal-oxide-ir` gains `I64`;
+   `metal-oxide-ir` also gains `Constant::I64`, math operations and slice-pattern
+   projections, and its `Error` a `calls` field. Exhaustive matches on these enums need the
+   new variants and `Error` literals the new field; numeric casts of later variants change.
+
+`cargo semver-checks` against `0.1.0-alpha.1` reports no breaking change beyond these steps,
+and none in `metal-oxide-codegen`. Artifacts keep ABI 4. The two-week scheduled fuzz
+observation period remains outstanding.
 
 ## 0.1.0-alpha.1
 

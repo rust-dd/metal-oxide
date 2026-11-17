@@ -130,9 +130,9 @@ builds the metal-oxide compiler from source. Install Xcode and select its develo
 directory. In an existing Rust application, run:
 
 ```sh
-cargo install cargo-metal --version '=0.1.0-alpha.1' --locked
+cargo install cargo-metal --version '=0.1.0-alpha.2' --locked
 cargo metal setup
-cargo add metal-oxide@=0.1.0-alpha.1
+cargo add metal-oxide@=0.1.0-alpha.2
 ```
 
 Copy the kernel example above into `src/main.rs`, then run `cargo run`.
@@ -143,7 +143,7 @@ skips prereleases.
 To run the repository's examples:
 
 ```sh
-git clone --branch v0.1.0-alpha.1 https://github.com/rust-dd/metal-oxide.git
+git clone --branch v0.1.0-alpha.2 https://github.com/rust-dd/metal-oxide.git
 cd metal-oxide
 cargo run -p cargo-metal --locked -- setup
 cargo run -p vec-add --locked

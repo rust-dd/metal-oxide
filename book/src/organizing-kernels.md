@@ -44,7 +44,7 @@ and its kernels import `kernel` from it:
 
 ```sh
 cargo new --lib kernels
-cargo add --manifest-path kernels/Cargo.toml metal-oxide-device@=0.1.0-alpha.1
+cargo add --manifest-path kernels/Cargo.toml metal-oxide-device@=0.1.0-alpha.2
 ```
 
 ```rust,ignore
