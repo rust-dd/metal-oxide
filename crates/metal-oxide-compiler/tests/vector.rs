@@ -1,8 +1,7 @@
-#![cfg(feature = "rustc-private")]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "vector/gpu.rs"]
 mod gpu;
-mod support;
+
+use crate::support;
 
 #[test]
 fn portable_vectors_lower_to_scalars() {

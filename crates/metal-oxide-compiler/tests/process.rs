@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 use std::{io::ErrorKind, process::Command, time::Duration};
 

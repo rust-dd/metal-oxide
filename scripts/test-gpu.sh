@@ -16,7 +16,7 @@ cargo "${nextest[@]}" -p metal-oxide-build
 # virtual GPUs without the Metal 4 family pass `classic`.
 backends="$*"
 filter=$(xcrun swift -module-cache-path target/swift-module-cache scripts/gpu-test-filter.swift)
-compiler_filter=(-E "$filter")
+compiler_filter=(-E "not test(/^fuzz::/) and ($filter)")
 if [ -z "$backends" ]; then
     backends="classic"
     if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ]; then
@@ -34,8 +34,7 @@ for backend in $backends; do
     (
         cd crates/metal-oxide-compiler
         cargo "${nextest[@]}" --features rustc-private --target-dir ../../target/compiler \
-            --test gpu --test differential --test nostd --test generated_numeric \
-            --test vector --test generated_vectors "${compiler_filter[@]}"
+            --test it "${compiler_filter[@]}"
     )
     for package in cooperation vec-add saxpy reduction matmul gemm pipeline particle-update sort fft stencil; do
         cargo run -p cargo-metal --locked -- test --validate -p "$package" --locked -- --ignored --test-threads=1

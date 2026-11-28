@@ -1,5 +1,3 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64"))]
-
 /// A host value with a kernel record's layout, encoded through the tuple of its fields.
 macro_rules! record {
     ($name:ident($tuple:ty) { $($field:ident),* }) => {
@@ -36,98 +34,53 @@ macro_rules! record {
     };
 }
 
-#[path = "gpu/aggregate_references.rs"]
 mod aggregate_references;
-#[path = "gpu/aggregates.rs"]
 mod aggregates;
-#[path = "gpu/array_methods.rs"]
 mod array_methods;
-#[path = "gpu/artifact.rs"]
 mod artifact;
-#[path = "gpu/atomic_numeric.rs"]
 mod atomic_numeric;
-#[path = "gpu/atomics.rs"]
 mod atomics;
-#[path = "gpu/byte_conversions.rs"]
 mod byte_conversions;
-#[path = "gpu/cast_bounds.rs"]
 mod cast_bounds;
-#[path = "gpu/checks.rs"]
 mod checks;
-#[path = "gpu/closures.rs"]
 mod closures;
-#[path = "gpu/collectives.rs"]
 mod collectives;
-#[path = "gpu/contracts.rs"]
 mod contracts;
-#[path = "gpu/control_flow.rs"]
 mod control_flow;
-#[path = "gpu/cooperation.rs"]
 mod cooperation;
-#[path = "gpu/cooperative.rs"]
 mod cooperative;
-#[path = "gpu/core_methods.rs"]
 mod core_methods;
-#[path = "gpu/disjoint.rs"]
 mod disjoint;
-#[path = "gpu/dynamic_shared.rs"]
 mod dynamic_shared;
-#[path = "gpu/enums.rs"]
 mod enums;
-#[path = "gpu/fast_math.rs"]
 mod fast_math;
-#[path = "gpu/float.rs"]
 mod float;
-#[path = "gpu/float_methods.rs"]
 mod float_methods;
-#[path = "gpu/generic_entries.rs"]
 mod generic_entries;
-#[path = "gpu/half.rs"]
 mod half;
-#[path = "gpu/half_arithmetic.rs"]
 mod half_arithmetic;
-#[path = "gpu/i64.rs"]
 mod i64;
-#[path = "gpu/integer_bits.rs"]
 mod integer_bits;
-#[path = "gpu/ir_aggregates.rs"]
 mod ir_aggregates;
-#[path = "gpu/iterators.rs"]
 mod iterators;
-#[path = "gpu/lengths.rs"]
 mod lengths;
-#[path = "gpu/lines.rs"]
 mod lines;
-#[path = "gpu/logarithms.rs"]
 mod logarithms;
-#[path = "gpu/logging.rs"]
 mod logging;
-#[path = "gpu/matrices.rs"]
 mod matrices;
-#[path = "gpu/narrow.rs"]
 mod narrow;
-#[path = "gpu/native.rs"]
 mod native;
-#[path = "gpu/numerics.rs"]
 mod numerics;
-#[path = "gpu/odd_sized_values.rs"]
 mod odd_sized_values;
-#[path = "gpu/proofs.rs"]
 mod proofs;
-#[path = "gpu/ranges.rs"]
 mod ranges;
-#[path = "gpu/read_write.rs"]
 mod read_write;
-#[path = "gpu/records.rs"]
 mod records;
-#[path = "gpu/slice_methods.rs"]
 mod slice_methods;
-mod support;
-#[path = "gpu/transcendentals.rs"]
 mod transcendentals;
-#[path = "gpu/u64.rs"]
 mod u64;
 
+use crate::support;
 use std::{
     future::{Future, IntoFuture},
     pin::Pin,

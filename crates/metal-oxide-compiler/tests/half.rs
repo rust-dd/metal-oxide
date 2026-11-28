@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn half_storage_and_explicit_conversions_execute() {

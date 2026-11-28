@@ -50,14 +50,14 @@ jobs:
           checksum: true
           fallback: none
       - name: Compare retained regressions on classic Metal
-        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile gpu --test differential --run-ignored only --no-capture
+        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile gpu --test it -E 'test(/^differential::/)' --run-ignored only --no-capture
       - name: Compare generated programs on the CPU, the host and classic Metal
         env:
           METAL_OXIDE_FUZZ_GPU: "1"
           METAL_OXIDE_FUZZ_SEED: ${{ inputs.seed }}
           METAL_OXIDE_FUZZ_SECONDS: ${{ inputs.seconds || '2700' }}
           METAL_OXIDE_FUZZ_SHRINK_SECONDS: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.shrink_seconds) || '600' }}
-        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile fuzz --test fuzz --run-ignored only --no-capture
+        run: cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler --profile fuzz --test it -E 'test(/^fuzz::/)' --run-ignored only --no-capture
       - name: Upload failing programs and their minimized forms
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

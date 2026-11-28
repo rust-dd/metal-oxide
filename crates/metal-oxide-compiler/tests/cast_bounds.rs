@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn repeated_casts_keep_guarded_slice_loads_infallible() {

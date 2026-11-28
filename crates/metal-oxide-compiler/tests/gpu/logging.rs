@@ -77,7 +77,7 @@ fn device_log_messages_reach_standard_error() {
     if run_logging_kernel() {
         return;
     }
-    let output = spawn_child("logging::device_log_messages_reach_standard_error")
+    let output = spawn_child("gpu::logging::device_log_messages_reach_standard_error")
         .wait_with_output()
         .unwrap();
     assert_ran(&output);
@@ -97,7 +97,7 @@ fn device_logs_survive_a_closed_standard_error() {
     if run_logging_kernel() {
         return;
     }
-    let mut child = spawn_child("logging::device_logs_survive_a_closed_standard_error");
+    let mut child = spawn_child("gpu::logging::device_logs_survive_a_closed_standard_error");
     // Closing the read end makes the child's writes to stderr fail with a broken pipe.
     drop(child.stderr.take());
     assert_ran(&child.wait_with_output().unwrap());

@@ -8,7 +8,7 @@ use std::{path::Path, process::Command, sync::OnceLock, time::Duration};
 const SOURCE: &str = "METAL_OXIDE_FUZZ_GPU_SOURCE";
 const GENERATED: &str = "METAL_OXIDE_FUZZ_GPU_GENERATED";
 const RESULT: &str = "METAL_OXIDE_FUZZ_GPU_RESULT";
-const TEST: &str = "generated_programs_agree_until_the_time_budget_ends";
+const TEST: &str = "fuzz::generated_programs_agree_until_the_time_budget_ends";
 
 type Output = Result<(Option<(u32, u32)>, Vec<u32>, Vec<u32>), String>;
 

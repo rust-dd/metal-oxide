@@ -1,33 +1,19 @@
-mod support;
+use crate::support;
 
-#[path = "msl/atomics.rs"]
 mod atomics;
 
-#[path = "msl/collectives.rs"]
 mod collectives;
-#[path = "msl/control_flow.rs"]
 mod control_flow;
-#[path = "msl/dynamic_shared.rs"]
 mod dynamic_shared;
-#[path = "msl/generic_entries.rs"]
 mod generic_entries;
-#[path = "msl/i64.rs"]
 mod i64;
-#[path = "msl/integer_bits.rs"]
 mod integer_bits;
-#[path = "msl/math_mode.rs"]
 mod math_mode;
-#[path = "msl/matrices.rs"]
 mod matrices;
-#[path = "msl/ranges.rs"]
 mod ranges;
-#[path = "msl/read_write.rs"]
 mod read_write;
-#[path = "msl/spectral.rs"]
 mod spectral;
-#[path = "msl/transcendentals.rs"]
 mod transcendentals;
-#[path = "msl/u64.rs"]
 mod u64;
 
 #[test]

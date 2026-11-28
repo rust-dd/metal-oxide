@@ -1,8 +1,7 @@
 use super::*;
 use metal_oxide::GpuValue;
 
-#[path = "../fixtures/control_helpers.rs"]
-mod cpu;
+use crate::control_helpers as cpu;
 
 const REFERENCE: &str = include_str!("../../../../benchmarks/reference-msl/control_flow.metal");
 

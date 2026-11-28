@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn rust_nested_values_copies_and_generic_array_helpers_execute() {

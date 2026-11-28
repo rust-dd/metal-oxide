@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn saturating_casts_execute_with_rust_nan_and_range_rules() {

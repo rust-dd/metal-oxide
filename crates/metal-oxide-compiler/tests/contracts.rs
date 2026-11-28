@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn required_relations_reach_the_abi_and_prove_the_unguarded_vec_add() {

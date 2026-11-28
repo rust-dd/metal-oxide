@@ -1,11 +1,7 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "nostd/gpu.rs"]
 mod gpu;
-#[path = "nostd/msl.rs"]
 mod msl;
 
 use std::{path::PathBuf, process::Command, sync::OnceLock};

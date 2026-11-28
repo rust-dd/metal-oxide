@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn signed_narrow_values_preserve_rust_wrapping_and_casts() {

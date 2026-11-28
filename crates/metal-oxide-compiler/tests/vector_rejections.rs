@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 fn rejects(fixture: &str, case: &str, message: &str) {
     let source = format!("crates/metal-oxide-compiler/tests/fixtures/rejections/{fixture}.rs");

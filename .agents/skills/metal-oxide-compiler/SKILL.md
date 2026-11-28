@@ -133,10 +133,12 @@ MSL generated from Rust kernel source. A handwritten replacement,
 synthetic IR example, or MIR dump does not satisfy that criterion.
 
 Run generated-kernel hardware tests from the compiler directory with
-`cargo test --features rustc-private --test gpu --locked --target-dir ../../target/compiler
--- --ignored --test-threads=1`. Kernel builds use the release profile, so overflow
-checks follow it; bounds, division and explicit panics are always checked. Tests of
-proofs assert which checks remain in `checks.json`. When available locally, use
+`cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler
+--profile gpu --test it --run-ignored only -E 'test(/^gpu::/)'`. All compiler tests
+share the `it` binary in `tests/main.rs`; a new test module needs a `mod` line there.
+Kernel builds use the release profile, so overflow checks follow it; bounds, division
+and explicit panics are always checked. Tests of proofs assert which checks remain in
+`checks.json`. When available locally, use
 `docs/ir.md` for arithmetic and supported control-flow rules.
 
 `bash scripts/test-gpu.sh` from the root verifies both native runtime APIs and

@@ -1,5 +1,7 @@
 [package]
 name = "metal-oxide-compiler"
+# Test modules join tests/main.rs: one binary compiles the shared support code once.
+autotests = false
 categories = ["compilers"]
 description = "Rust frontend for Metal compute kernels"
 documentation.workspace = true
@@ -37,28 +39,8 @@ path = "src/main.rs"
 required-features = ["rustc-private"]
 
 [[test]]
-name = "frontend"
-path = "tests/frontend.rs"
-required-features = ["rustc-private"]
-
-[[test]]
-name = "ir"
-path = "tests/ir.rs"
-required-features = ["rustc-private"]
-
-[[test]]
-name = "gpu"
-path = "tests/gpu.rs"
-required-features = ["rustc-private"]
-
-[[test]]
-name = "msl"
-path = "tests/msl.rs"
-required-features = ["rustc-private"]
-
-[[test]]
-name = "cargo"
-path = "tests/cargo.rs"
+name = "it"
+path = "tests/main.rs"
 required-features = ["rustc-private"]
 
 [lints]

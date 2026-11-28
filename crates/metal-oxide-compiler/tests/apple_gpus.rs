@@ -1,6 +1,4 @@
-#![cfg(all(feature = "rustc-private", target_os = "macos"))]
-
-mod support;
+use crate::support;
 
 use metal_oxide_artifact::{Abi, ArtifactFile};
 use std::path::{Path, PathBuf};

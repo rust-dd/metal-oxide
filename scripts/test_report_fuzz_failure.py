@@ -117,7 +117,7 @@ class Reports(unittest.TestCase):
             ERROR, f"0x{SEED}", "3207628981076967696", SOURCE.strip(),
             "METAL_OXIDE_FUZZ_SEED=3207628981076967696",
             "METAL_OXIDE_FUZZ_SECONDS=1", "METAL_OXIDE_FUZZ_SHRINK_SECONDS=0",
-            "--profile fuzz --test fuzz --run-ignored only --no-capture",
+            "--profile fuzz --test it -E 'test(/^fuzz::/)' --run-ignored only --no-capture",
             f"{RUN['html_url']}/attempts/1", f"{RUN['html_url']}/job/456",
             f"{RUN['html_url']}/artifacts/42", f"/commit/{RUN['head_sha']}",
             "comparison failed", "<!-- metal-oxide-fuzz:123:macos-15 -->",
@@ -172,7 +172,7 @@ class Reports(unittest.TestCase):
         self.assertIn("No saved-program artifact", body)
         self.assertIn("No saved failing seed", body)
         self.assertIn("retained_reverse_float failed: 22351.0 != 798.25", body)
-        self.assertIn("--profile gpu --test differential --run-ignored only", body)
+        self.assertIn("--profile gpu --test it -E 'test(/^differential::/)' --run-ignored only", body)
 
     def test_setup_failure_reports_step_and_log_without_inventing_a_seed(self):
         self.api.artifacts = []

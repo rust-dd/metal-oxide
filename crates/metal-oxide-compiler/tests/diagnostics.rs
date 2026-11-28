@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 const FIXTURE: &str = "crates/metal-oxide-compiler/tests/fixtures/diagnostics/core_rejections.rs";
 

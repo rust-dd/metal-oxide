@@ -1,6 +1,5 @@
-mod support;
+use crate::support;
 
-#[path = "frontend/generic_entries.rs"]
 mod generic_entries;
 
 #[test]

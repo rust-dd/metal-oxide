@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 
 #[test]
 fn invalid_output_flag_returns_failure() {

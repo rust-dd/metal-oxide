@@ -1,9 +1,6 @@
-#![cfg(feature = "rustc-private")]
+pub mod model;
 
-#[path = "core_methods/model.rs"]
-mod model;
-mod support;
-
+use crate::support;
 use std::{fmt::Write, path::PathBuf};
 
 fn emitted() -> PathBuf {

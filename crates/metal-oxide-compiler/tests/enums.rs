@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 fn emit(fixture: &str) -> std::path::PathBuf {
     let (output, directory) = support::emit(

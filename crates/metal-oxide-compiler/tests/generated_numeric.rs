@@ -1,14 +1,7 @@
-#![cfg(feature = "rustc-private")]
-
-mod generated_support;
-mod numeric_generated;
-mod support;
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "numeric_generated/gpu.rs"]
 mod gpu;
 
-use numeric_generated::{SEEDS, atomics::FloatProgram, compile, half, wide};
+use crate::numeric_generated::{SEEDS, atomics::FloatProgram, compile, half, wide};
 use std::collections::BTreeSet;
 
 #[test]

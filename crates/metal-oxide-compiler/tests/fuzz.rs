@@ -1,10 +1,7 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "support/fuzz_gpu.rs"]
-mod fuzz_gpu;
+mod gpu;
 
 use std::{
     path::Path,
@@ -30,7 +27,7 @@ impl Oracle {
         let (_expected, _generated) = case.check()?;
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         if self.gpu {
-            fuzz_gpu::check(case, &_expected, &_generated)?;
+            gpu::check(case, &_expected, &_generated)?;
         }
         Ok(())
     }
@@ -69,7 +66,7 @@ fn report(oracle: &Oracle, seed: u64, program: Program, failure: &Failure, direc
 #[ignore = "fuzzes until METAL_OXIDE_FUZZ_SECONDS elapse"]
 fn generated_programs_agree_until_the_time_budget_ends() {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    if fuzz_gpu::child() {
+    if gpu::child() {
         return;
     }
     let seconds = variable("METAL_OXIDE_FUZZ_SECONDS").unwrap_or(60);
@@ -131,7 +128,7 @@ fn gpu_process_preserves_results_and_reports_errors() {
             .join("crates/metal-oxide-compiler/tests/fixtures/generated/narrow_reverse_float.rs"),
     );
     let (expected, generated) = case.check().unwrap();
-    fuzz_gpu::check(&case, &expected, &generated).unwrap();
+    gpu::check(&case, &expected, &generated).unwrap();
 
     let mut different = expected.clone();
     let Outcome::Words(words) = &mut different.threads[0] else {
@@ -139,7 +136,7 @@ fn gpu_process_preserves_results_and_reports_errors() {
     };
     words[0] ^= 1;
     assert!(matches!(
-        fuzz_gpu::check(&case, &different, &generated),
+        gpu::check(&case, &different, &generated),
         Err(Failure::Gpu(_))
     ));
 
@@ -147,9 +144,9 @@ fn gpu_process_preserves_results_and_reports_errors() {
     let original = std::fs::read(&source).unwrap();
     std::fs::write(&source, "#error invalid GPU probe\n").unwrap();
     assert!(matches!(
-        fuzz_gpu::check(&case, &expected, &generated),
+        gpu::check(&case, &expected, &generated),
         Err(Failure::Device(error)) if error.contains("invalid GPU probe")
     ));
     std::fs::write(&source, original).unwrap();
-    fuzz_gpu::check(&case, &expected, &generated).unwrap();
+    gpu::check(&case, &expected, &generated).unwrap();
 }

@@ -93,7 +93,7 @@ def reproduction(seed, backend):
         f"  METAL_OXIDE_FUZZ_SEED={int(seed, 16)} METAL_OXIDE_FUZZ_SECONDS=1 \\\n"
         "  METAL_OXIDE_FUZZ_SHRINK_SECONDS=0 \\\n"
         f"  {NEXTEST} \\\n"
-        "  --profile fuzz --test fuzz --run-ignored only --no-capture"
+        "  --profile fuzz --test it -E 'test(/^fuzz::/)' --run-ignored only --no-capture"
     )
 
 
@@ -154,7 +154,7 @@ def issue_body(run, job, os_name, backend, attempt, artifact, failures, logs, no
                 code(
                     "cd crates/metal-oxide-compiler\n"
                     f"METAL_OXIDE_BACKEND={backend} {NEXTEST} \\\n"
-                    "  --profile gpu --test differential --run-ignored only --no-capture",
+                    "  --profile gpu --test it -E 'test(/^differential::/)' --run-ignored only --no-capture",
                     "sh",
                 ),
             ])

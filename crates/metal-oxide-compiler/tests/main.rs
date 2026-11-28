@@ -1,0 +1,39 @@
+mod aggregates;
+#[cfg(target_os = "macos")]
+mod apple_gpus;
+mod cargo;
+mod cast_bounds;
+mod closures;
+mod contracts;
+#[path = "fixtures/control_helpers.rs"]
+mod control_helpers;
+mod core_methods;
+mod diagnostics;
+mod differential;
+mod enums;
+mod float;
+mod frontend;
+mod fuzz;
+mod fuzz_oracle;
+mod generated_numeric;
+mod generated_support;
+mod generated_vectors;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod gpu;
+mod half;
+mod ir;
+mod iterators;
+mod logging;
+mod msl;
+mod nostd;
+mod numeric_generated;
+mod numerics;
+mod output;
+mod process;
+mod proofs;
+mod references;
+mod rejections;
+mod support;
+mod vector;
+mod vector_generated;
+mod vector_rejections;

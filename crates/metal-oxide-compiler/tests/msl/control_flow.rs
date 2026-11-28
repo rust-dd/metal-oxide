@@ -1,7 +1,6 @@
 use super::support;
 
-#[path = "../fixtures/control_helpers.rs"]
-mod reference;
+use crate::control_helpers as reference;
 
 #[test]
 fn varying_match_and_loop_exits_cannot_bypass_cooperative_helpers() {

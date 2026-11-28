@@ -1,15 +1,11 @@
-#![cfg(feature = "rustc-private")]
-
-mod generated_support;
-mod support;
-mod vector_generated;
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-#[path = "vector_generated/gpu.rs"]
 mod gpu;
 
+use crate::{
+    generated_support,
+    vector_generated::{Program, model, programs},
+};
 use std::collections::BTreeSet;
-use vector_generated::{Program, model, programs};
 
 #[test]
 fn generated_vector_programs_cover_operations_and_vary_by_seed() {

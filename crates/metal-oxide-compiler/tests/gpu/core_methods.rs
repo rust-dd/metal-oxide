@@ -1,8 +1,7 @@
 use super::*;
 use metal_oxide::{Error, GpuValue};
 
-#[path = "../core_methods/model.rs"]
-mod model;
+use crate::core_methods::model;
 
 fn module(device: &Device) -> metal_oxide::Result<Module> {
     let directory = emitted(model::FIXTURE, metal_oxide_artifact::MathMode::Precise);

@@ -78,7 +78,7 @@ The scheduled generated-program fuzzer also runs locally from that directory:
 ```sh
 METAL_OXIDE_FUZZ_GPU=1 METAL_OXIDE_FUZZ_SECONDS=2700 \
   cargo nextest run --features rustc-private --locked --target-dir ../../target/compiler \
-  --profile fuzz --test fuzz --run-ignored only --no-capture
+  --profile fuzz --test it -E 'test(/^fuzz::/)' --run-ignored only --no-capture
 ```
 
 This compares CPU Rust, host-executed MSL and GPU output for 45 minutes and prints

@@ -1,6 +1,4 @@
-#![cfg(feature = "rustc-private")]
-
-mod support;
+use crate::support;
 
 #[test]
 fn closures_capture_by_reference_and_by_value_and_pass_to_generic_helpers() {
